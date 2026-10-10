@@ -4,6 +4,18 @@ Web-App für wiederkehrende Brandschutzprüfungen: Objekte → Gebäude → Elem
 (Feuerschutztüren, Brandschutzklappen, Feuerlöscher, Rauchwarnmelder), Prüfung vor
 Ort mit Unterschrift, Mängel- und Aufgabenverfolgung, Berichte und QR-Etiketten.
 
+## Funktionen
+
+- **Prüfungen** je Element mit Prüfpunkten (i. O. / Mangel / n. z.), Fotos, Arbeiten, Unterschrift, Protokoll (Druck/PDF)
+- **Brandschutzbegehung** je Objekt mit eigenem Fragenkatalog nach Nutzung (Schule, Pflege, Lager …), Rechtsgrundlagen, Protokoll
+- **Grundrisse** (Bild oder PDF) mit farbigen Element-Markern; Platzieren per Antippen
+- **Mängel** aus Prüfungen und Begehungen, Aufgaben mit Status, Priorität, Fälligkeit und Zuständigkeit
+- **Subunternehmer**: Aufgaben per Link teilen, Rückmeldung „erledigt“ ohne Konto
+- **Offline-Modus**: Gebäude vorab laden, ohne Netz prüfen, automatische Synchronisation (PWA)
+- **Import** aus Excel/CSV mit Vorschau; Export als CSV
+- **QR-Etiketten** für Elemente und Blanko-Etiketten, die beim ersten Scan zugeordnet werden
+- **Suche** (Strg+K), Rollen (Inhaber, Admin, Prüfer, Lesezugriff), Einladungen, Aktivitätsprotokoll
+
 Live: https://pruefkompass.ksqsebastian.workers.dev
 
 Funktionsanalyse des Vorbilds: [`docs/analyse/`](docs/analyse/README.md).
@@ -33,6 +45,20 @@ npm run deploy                       # build + D1-Migrationen + wrangler deploy
 ```
 
 Ressourcen: Worker `pruefkompass`, D1 `pruefkompass`, R2 `pruefkompass-files`.
+
+## Demodaten
+
+```bash
+DEMO_PASSWORD=… npx vite-node scripts/seed.ts -- ./seed-out
+npx wrangler d1 execute DB --remote --file ./seed-out/seed.sql
+# Grundrisse aus ./seed-out/r2.json nach R2 hochladen:
+#   npx wrangler r2 object put pruefkompass-files/<key> --file <file> --content-type image/svg+xml --remote
+```
+
+Legt den Workspace „Nordlicht Facility Services GmbH“ mit 4 Objekten, 71 Elementen,
+Prüfhistorie, Mängeln, Aufgaben, Subunternehmern, Begehungen und Grundrissen an.
+Konten: `demo@example.com` (Inhaber), `pruefer@example.com`, `pruefer2@example.com` (Prüfer),
+`lesen@example.com` (Lesezugriff) – alle mit `DEMO_PASSWORD`.
 
 ## Rollen
 
