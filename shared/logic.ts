@@ -25,6 +25,19 @@ export function computeResult(opts: {
   return anyDefect ? 'defects' : 'ok';
 }
 
+/** Vom Prüfer festgelegte Gesamtbewertung (überschreibt die berechnete). */
+export type ResultOverride = 'ok' | 'defects' | 'critical';
+
+/**
+ * Endgültiges Ergebnis: Nicht prüfbar bleibt immer, „ohne Mängel“ ist nur ohne erfasste Mängel
+ * möglich. Sonst gilt die Festlegung des Prüfers.
+ */
+export function finalResult(computed: Result, override: ResultOverride | null | undefined, defectCount: number): Result {
+  if (computed === 'not_inspectable' || !override) return computed;
+  if (override === 'ok' && defectCount > 0) return computed;
+  return override;
+}
+
 /** Nächster Prüftermin: gleicher Tag n Monate später (Monatsende wird gekappt). */
 export function addMonths(ts: number, months: number): number {
   const d = new Date(ts);

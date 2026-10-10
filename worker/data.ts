@@ -525,7 +525,7 @@ data.get('/defects', async (c) => {
   const source = c.req.query('source');
   const srcWhere = source === 'walkthrough' ? 'AND d.walkthrough_id IS NOT NULL' : source === 'asset' ? 'AND d.asset_id IS NOT NULL' : '';
   const rows = await c.env.DB.prepare(
-    `SELECT d.id, d.title, d.note, d.severity, d.status, d.created_at AS createdAt, d.resolved_at AS resolvedAt, d.inspection_id AS inspectionId,
+    `SELECT d.id, d.title, d.note, d.measure, d.severity, d.status, d.created_at AS createdAt, d.resolved_at AS resolvedAt, d.inspection_id AS inspectionId,
             d.walkthrough_id AS walkthroughId, d.legal_basis AS legalBasis,
             d.photo_key AS photoKey, a.id AS assetId, a.code, a.category, a.location, b.name AS buildingName, p.id AS propertyId, p.name AS propertyName,
             (SELECT t.id FROM tasks t WHERE t.defect_id = d.id LIMIT 1) AS taskId

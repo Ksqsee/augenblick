@@ -482,7 +482,7 @@ async function taskByToken(c: Ctx) {
             te.name AS tenantName, s.company AS subcontractorName,
             a.code AS assetCode, a.category, a.location, a.floor, b.name AS buildingName,
             COALESCE(p1.name, p2.name, p3.name) AS propertyName, COALESCE(p1.address, p2.address, p3.address) AS propertyAddress,
-            d.title AS defectTitle, d.severity AS defectSeverity, d.note AS defectNote, d.photo_key AS photoKey, d.legal_basis AS legalBasis
+            d.title AS defectTitle, d.severity AS defectSeverity, d.note AS defectNote, d.measure AS defectMeasure, d.photo_key AS photoKey, d.legal_basis AS legalBasis
        FROM tasks t JOIN tenants te ON te.id = t.tenant_id LEFT JOIN subcontractors s ON s.id = t.subcontractor_id
        LEFT JOIN assets a ON a.id = t.asset_id LEFT JOIN buildings b ON b.id = a.building_id LEFT JOIN properties p1 ON p1.id = b.property_id
        LEFT JOIN defects d ON d.id = t.defect_id LEFT JOIN properties p2 ON p2.id = d.property_id LEFT JOIN properties p3 ON p3.id = t.property_id

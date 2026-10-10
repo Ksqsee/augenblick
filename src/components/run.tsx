@@ -4,7 +4,7 @@ import { ArrowLeft, Camera, Check, CheckCheck, Cloud, CloudOff, HardDrive, Loade
 import { createContext, type ReactNode, useCallback, useContext, useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { type Category, type Checkpoint, INSPECTION_KINDS, type InspectionKind, SEVERITIES, type Severity } from '../../shared/catalog';
-import { type Answer, computeResult, isComplete, type Result } from '../../shared/logic';
+import { type Answer, computeResult, finalResult, isComplete, type Result, type ResultOverride } from '../../shared/logic';
 import { type DefectDraft, fileUrl, uploadPhoto } from '../api';
 import { defectsLabel, RESULT_META } from '../format';
 import { CategoryIcon } from './CategoryIcon';
@@ -56,6 +56,7 @@ export function AnswerButtons({ value, onChange, label }: { value?: Answer; onCh
 export interface DefectLike {
   title: string;
   note: string;
+  measure?: string;
   severity: Severity;
   photoKey?: string;
 }
@@ -111,7 +112,7 @@ export function DefectEditor<T extends DefectLike>({
         ))}
       </div>
       <div className="flex gap-2">
-        <Input placeholder="Beschreibung / Maßnahme (optional)" value={defect.note} onChange={(e) => onChange({ ...defect, note: e.target.value })} />
+        <Input placeholder="Beschreibung (optional)" aria-label="Beschreibung" value={defect.note} onChange={(e) => onChange({ ...defect, note: e.target.value })} />
         <input
           ref={fileRef}
           type="file"
@@ -137,6 +138,7 @@ export function DefectEditor<T extends DefectLike>({
           {!uploading && <Camera className="size-4" />}
         </Button>
       </div>
+      <Input placeholder="Maßnahme (z. B. Schließer tauschen, Fachfirma beauftragen)" aria-label="Maßnahme" value={defect.measure ?? ''} onChange={(e) => onChange({ ...defect, measure: e.target.value })} />
       {err && <p className="text-xs text-bad">{err}</p>}
       {defect.photoKey && (
         <div className="relative w-fit">
@@ -296,6 +298,8 @@ export interface InspectionDraft {
   notes: string;
   signature: string | null;
   signerName: string;
+  resultOverride?: ResultOverride | null;
+  resultReason?: string;
 }
 
 export interface InspectionSubject {
@@ -338,7 +342,9 @@ export function InspectionForm({
   const ids = checkpoints.map((c) => c.id);
   const answered = ids.filter((i) => d.answers[i]).length;
   const complete = isComplete(ids, d.answers, d.notInspectable);
-  const result = computeResult({ notInspectable: d.notInspectable, answers: d.answers, defects: d.defects });
+  const computed = computeResult({ notInspectable: d.notInspectable, answers: d.answers, defects: d.defects });
+  const result = finalResult(computed, d.resultOverride, d.defects.length);
+  const needsReason = !d.notInspectable && !!d.resultOverride && d.resultOverride !== computed && (d.resultReason ?? '').trim().length < 3;
 
   const setAnswer = (cp: Checkpoint, a: Answer) => {
     const answers = { ...d.answers, [cp.id]: a };
@@ -360,7 +366,7 @@ export function InspectionForm({
     }
   };
 
-  const missing = !complete ? `Noch ${ids.length - answered} Prüfpunkte offen` : !d.signature ? 'Unterschrift fehlt' : undefined;
+  const missing = !complete ? `Noch ${ids.length - answered} Prüfpunkte offen` : needsReason ? 'Begründung zur Gesamtbewertung fehlt' : !d.signature ? 'Unterschrift fehlt' : undefined;
 
   return (
     <RunFrame
@@ -378,7 +384,7 @@ export function InspectionForm({
       extraResult={d.defects.length ? defectsLabel(d.defects.length) : undefined}
       hint={missing}
       error={error}
-      canSubmit={complete && !!d.signature && !d.defects.some((x) => !x.title.trim())}
+      canSubmit={complete && !needsReason && !!d.signature && !d.defects.some((x) => !x.title.trim())}
       submitting={submitting}
       onSubmit={onSubmit}
       submitLabel={offline ? 'Abschließen (offline)' : 'Abschließen'}
@@ -515,6 +521,16 @@ export function InspectionForm({
         <Textarea value={d.notes} onChange={(e) => update({ notes: e.target.value })} placeholder="Hinweise zur Prüfung, Absprachen vor Ort …" />
       </section>
 
+      {!d.notInspectable && (
+        <OverallResult
+          computed={computed}
+          override={d.resultOverride ?? null}
+          reason={d.resultReason ?? ''}
+          defectCount={d.defects.length}
+          onChange={(resultOverride, resultReason) => update({ resultOverride, resultReason })}
+        />
+      )}
+
       <SignatureBlock
         name={d.signerName}
         placeholder={`Name Prüfer/in (Standard: ${inspectorName})`}
@@ -531,6 +547,67 @@ export function InspectionForm({
         <Trash2 className="size-3.5" /> Entwurf verwerfen
       </button>
     </RunFrame>
+  );
+}
+
+/** Gesamtbewertung: automatisch aus den Befunden oder vom Prüfer festgelegt (mit Begründung). */
+function OverallResult({
+  computed,
+  override,
+  reason,
+  defectCount,
+  onChange,
+}: {
+  computed: Result;
+  override: ResultOverride | null;
+  reason: string;
+  defectCount: number;
+  onChange: (o: ResultOverride | null, reason: string) => void;
+}) {
+  const options: [ResultOverride | null, string][] = [
+    [null, `Automatisch (${RESULT_META[computed].label})`],
+    ['ok', 'Ohne Mängel'],
+    ['defects', 'Mit Mängeln'],
+    ['critical', 'Kritisch'],
+  ];
+  const differs = !!override && override !== computed;
+  return (
+    <section>
+      <h2 className="mb-1 text-[15px] font-semibold">Gesamtbewertung</h2>
+      <p className="mb-3 text-[13px] text-ink-3">Wird aus den Befunden berechnet. Du kannst sie als Sachkundige/r abweichend festlegen.</p>
+      <div className="flex flex-wrap gap-2" role="radiogroup" aria-label="Gesamtbewertung">
+        {options.map(([k, label]) => {
+          const disabled = k === 'ok' && defectCount > 0;
+          const on = override === k;
+          return (
+            <button
+              key={label}
+              type="button"
+              role="radio"
+              aria-checked={on}
+              disabled={disabled}
+              title={disabled ? 'Nicht möglich, solange Mängel erfasst sind' : undefined}
+              onClick={() => onChange(k, k ? reason : '')}
+              className={clsx(
+                'inline-flex h-9 items-center rounded-full border px-3.5 text-[13px] font-medium transition disabled:opacity-40',
+                on ? 'border-ink bg-ink text-white' : 'border-line bg-surface text-ink-2 hover:border-line-strong',
+              )}
+            >
+              {label}
+            </button>
+          );
+        })}
+      </div>
+      {differs && (
+        <Textarea
+          className="mt-3"
+          aria-label="Begründung der Gesamtbewertung"
+          placeholder="Begründung (erscheint im Protokoll), z. B. „Mehrere Mängel zusammen beeinträchtigen die Schutzfunktion“"
+          value={reason}
+          onChange={(e) => onChange(override, e.target.value)}
+        />
+      )}
+    </section>
   );
 }
 

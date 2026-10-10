@@ -101,6 +101,7 @@ export async function inspectionPdf(i: Inspection, brand: Brand): Promise<Uint8A
     for (const [n, df] of i.defects.entries()) {
       doc.text(`${n + 1}. ${df.title} – ${SEVERITIES[df.severity]}`, { bold: true });
       if (df.note) doc.text(df.note, { color: MUTED, x: 58, width: doc.width - 12 });
+      if (df.measure) doc.text(`Maßnahme: ${df.measure}`, { x: 58, width: doc.width - 12 });
       const img = await fetchBytes(df.photoKey);
       if (img) await doc.image(img.bytes, img.type, 200, 130);
       doc.gap(4);
@@ -123,8 +124,12 @@ export async function inspectionPdf(i: Inspection, brand: Brand): Promise<Uint8A
     }
     await doc.gallery(items);
   }
+  if (i.resultOverride && i.resultReason) {
+    doc.heading('Begründung der Gesamtbewertung');
+    doc.text(i.resultReason);
+  }
   const sig = dataUrlBytes(i.signature);
-  await doc.resultAndSignature('Gesamtergebnis', i.result ? RESULT_META[i.result].label : 'Offen', resultColor(i.result), {
+  await doc.resultAndSignature(i.resultOverride ? 'Gesamtergebnis (festgelegt)' : 'Gesamtergebnis', i.result ? RESULT_META[i.result].label : 'Offen', resultColor(i.result), {
     bytes: sig?.bytes ?? null,
     type: sig?.type ?? '',
     name: i.signerName || i.inspectorName,
@@ -150,6 +155,7 @@ export async function walkthroughPdf(w: Walkthrough, brand: Brand): Promise<Uint
       const q = w.questions.find((x) => x.id === f.questionId);
       doc.text(`${n + 1}. ${f.title} – ${SEVERITIES[f.severity]}${q ? ` (${q.basis})` : ''}`, { bold: true });
       if (f.note) doc.text(f.note, { color: MUTED, x: 58, width: doc.width - 12 });
+      if (f.measure) doc.text(`Maßnahme: ${f.measure}`, { x: 58, width: doc.width - 12 });
       const img = await fetchBytes(f.photoKey);
       if (img) await doc.image(img.bytes, img.type, 200, 130);
       doc.gap(4);
@@ -198,6 +204,7 @@ export async function defectsPdf(defects: Defect[], brand: Brand): Promise<Uint8
       { size: 8.5, color: df.severity === 'critical' || df.severity === 'high' ? RED : MUTED },
     );
     if (df.note) doc.text(df.note, { size: 9 });
+    if (df.measure) doc.text(`Maßnahme: ${df.measure}`, { size: 9 });
     const img = await fetchBytes(df.photoKey);
     if (img) await doc.image(img.bytes, img.type, 180, 110);
     doc.gap(6);
@@ -317,6 +324,7 @@ export async function propertyPdf(p: PropertyDetail, defects: Defect[], brand: B
       color: df.severity === 'critical' || df.severity === 'high' ? RED : MUTED,
     });
     if (df.note) doc.text(df.note, { size: 9 });
+    if (df.measure) doc.text(`Maßnahme: ${df.measure}`, { size: 9 });
     doc.gap(4);
   }
 

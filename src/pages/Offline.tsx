@@ -295,6 +295,8 @@ export function OfflineRun() {
             notes: '',
             signature: null,
             signerName: '',
+            resultOverride: null,
+            resultReason: '',
           }
         }
         persist={(d) => saveDraft(asset.id, sched.key, d)}

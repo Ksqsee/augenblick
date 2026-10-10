@@ -174,6 +174,7 @@ interface ExternalTask {
   defectTitle: string | null;
   defectSeverity: Severity | null;
   defectNote: string | null;
+  defectMeasure: string | null;
   legalBasis: string | null;
   hasPhoto: boolean;
 }
@@ -252,6 +253,7 @@ export function ExternalTaskPage() {
                       {t.defectSeverity && <span className="text-ink-2"> · {SEVERITIES[t.defectSeverity]}</span>}
                       {t.legalBasis && <span className="block text-xs text-ink-3">{t.legalBasis}</span>}
                       {t.defectNote && <span className="block text-ink-2">{t.defectNote}</span>}
+                      {t.defectMeasure && <span className="block text-ink-2">Maßnahme: {t.defectMeasure}</span>}
                     </dd>
                   </>
                 )}

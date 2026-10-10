@@ -3,6 +3,7 @@ import { deleteCookie, getCookie, setCookie } from 'hono/cookie';
 import { HTTPException } from 'hono/http-exception';
 import { z } from 'zod';
 import { ROLES } from '../shared/catalog';
+import { deviceLabel } from '../shared/device';
 import { LEGAL_DOCS } from '../shared/legal';
 import { notifyTenant } from './notify';
 import {
@@ -14,6 +15,7 @@ import {
   id,
   logActivity,
   now,
+  parseJson,
   requireAuth,
   requireRole,
   token,
@@ -86,8 +88,38 @@ auth.post('/login', async (c) => {
     .first<{ tenant_id: string }>();
   if (!m) throw new HTTPException(403, { message: 'Kein Workspace zugeordnet' });
   await startSession(c, user.id, m.tenant_id);
+  await checkDevice(c, user.id, m.tenant_id);
   return c.json({ ok: true });
 });
+
+const DEVICE_COOKIE = 'pk_device';
+const whenFmt = new Intl.DateTimeFormat('de-DE', { dateStyle: 'medium', timeStyle: 'short', timeZone: 'Europe/Berlin' });
+
+/** Merkt sich Geräte per Cookie; meldet sich jemand von einem unbekannten Gerät an, gibt es einen Hinweis. */
+async function checkDevice(c: Ctx, userId: string, tenantId: string) {
+  let did = getCookie(c, DEVICE_COOKIE) ?? '';
+  const row = await c.env.DB.prepare('SELECT known_devices FROM users WHERE id = ?').bind(userId).first<{ known_devices: string }>();
+  const known = parseJson<string[]>(row?.known_devices, []);
+  if (!/^[A-Za-z0-9_-]{16,64}$/.test(did)) did = token();
+  setCookie(c, DEVICE_COOKIE, did, { httpOnly: true, secure: new URL(c.req.url).protocol === 'https:', sameSite: 'Lax', path: '/', maxAge: 400 * 86_400 });
+  if (known.includes(did)) return;
+  await c.env.DB.prepare('UPDATE users SET known_devices = ? WHERE id = ?').bind(JSON.stringify([did, ...known].slice(0, 20)), userId).run();
+  if (!known.length) return; // allererste Anmeldung – kein Hinweis
+  const ua = c.req.header('user-agent') ?? '';
+  const country = (c.req.raw as Request & { cf?: { country?: string } }).cf?.country;
+  await notifyTenant(
+    c.env,
+    tenantId,
+    {
+      userIds: [userId],
+      type: 'account_security',
+      title: 'Anmeldung von einem neuen Gerät',
+      body: `${deviceLabel(ua)}${country ? ` · ${country}` : ''} · ${whenFmt.format(now())}. Warst du das nicht? Unter Einstellungen → Profil die Sitzung beenden und das Passwort ändern lassen.`,
+      link: '/einstellungen?tab=profile',
+    },
+    c.executionCtx,
+  );
+}
 
 auth.post('/logout', async (c) => {
   const sid = getCookie(c, SESSION_COOKIE);

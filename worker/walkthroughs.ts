@@ -13,6 +13,7 @@ const finding = z.object({
   questionId: z.string().max(40).optional(),
   title: str(300).min(1, 'Feststellung ohne Beschreibung'),
   note: str(2000).default(''),
+  measure: str(1000).default(''),
   severity: severityEnum,
   photoKey: z.string().max(200).optional(),
 });
@@ -142,9 +143,9 @@ walks.post('/walkthroughs/:id/submit', async (c) => {
     c.env.DB.prepare("UPDATE walkthroughs SET status='submitted', result=?, inspected_at=?, next_due_at=?, updated_at=? WHERE id=?").bind(result, t, next, t, wid),
     ...b.findings.map((f) =>
       c.env.DB.prepare(
-        `INSERT INTO defects (id, tenant_id, property_id, walkthrough_id, checkpoint_id, title, note, legal_basis, severity, status, photo_key, created_at)
-         VALUES (?,?,?,?,?,?,?,?,?,'open',?,?)`,
-      ).bind(id(), tid(c), w.propertyId, wid, f.questionId ?? null, f.title, f.note, (f.questionId && byId.get(f.questionId)?.basis) || '', f.severity, f.photoKey ?? null, t),
+        `INSERT INTO defects (id, tenant_id, property_id, walkthrough_id, checkpoint_id, title, note, measure, legal_basis, severity, status, photo_key, created_at)
+         VALUES (?,?,?,?,?,?,?,?,?,?,'open',?,?)`,
+      ).bind(id(), tid(c), w.propertyId, wid, f.questionId ?? null, f.title, f.note, f.measure, (f.questionId && byId.get(f.questionId)?.basis) || '', f.severity, f.photoKey ?? null, t),
     ),
   ]);
   await logActivity(c, 'submit', 'walkthrough', wid, `Begehung ${w.propertyName} abgeschlossen`);

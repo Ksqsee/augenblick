@@ -1,6 +1,6 @@
 import { QueryClient, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import type { AttributeField, Category, CategoryDef, Checkpoint, InspectionKind, Role, Severity } from '../shared/catalog';
-import type { Answer, Result, Schedules } from '../shared/logic';
+import type { Answer, Result, ResultOverride, Schedules } from '../shared/logic';
 import type { BuildingType, WalkQuestion } from '../shared/walkthrough';
 
 export class ApiError extends Error {
@@ -191,6 +191,7 @@ export interface Finding {
   questionId?: string;
   title: string;
   note: string;
+  measure?: string;
   severity: Severity;
   photoKey?: string;
 }
@@ -253,6 +254,7 @@ export interface Defect {
   id: string;
   title: string;
   note: string;
+  measure?: string;
   severity: Severity;
   status: 'open' | 'resolved';
   createdAt: number;
@@ -275,6 +277,7 @@ export interface DefectDraft {
   checkpointId?: string;
   title: string;
   note: string;
+  measure?: string;
   severity: Severity;
   photoKey?: string;
 }
@@ -300,6 +303,8 @@ export interface Inspection {
   maintenance: string[];
   defects: DefectDraft[];
   notInspectable: boolean;
+  resultOverride: ResultOverride | null;
+  resultReason: string;
   checkpoints: Checkpoint[];
   notes: string;
   signature: string | null;

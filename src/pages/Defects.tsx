@@ -31,7 +31,7 @@ export function DefectsPage() {
         <TaskForm
           initial={{
             title: `Mangel beheben: ${taskFor.title}`,
-            description: [taskFor.code && `${taskFor.code} · ${taskFor.location ?? ''}`, taskFor.legalBasis && `Grundlage: ${taskFor.legalBasis}`, taskFor.note].filter(Boolean).join('\n'),
+            description: [taskFor.code && `${taskFor.code} · ${taskFor.location ?? ''}`, taskFor.legalBasis && `Grundlage: ${taskFor.legalBasis}`, taskFor.note, taskFor.measure && `Maßnahme: ${taskFor.measure}`].filter(Boolean).join('\n'),
             assetId: taskFor.assetId ?? null,
             defectId: taskFor.id,
             propertyId: taskFor.propertyId ?? null,
@@ -103,6 +103,11 @@ export function DefectsPage() {
                     </p>
                   )}
                   {d.note && <p className="mt-1.5 text-sm text-ink-2">{d.note}</p>}
+                  {d.measure && (
+                    <p className="mt-1 text-sm text-ink-2">
+                      <span className="font-medium">Maßnahme:</span> {d.measure}
+                    </p>
+                  )}
                 </div>
               </div>
               {d.photoKey && (

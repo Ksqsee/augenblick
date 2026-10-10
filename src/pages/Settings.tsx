@@ -4,6 +4,7 @@ import { ArrowDown, ArrowUp, Bell, Copy, Download, Laptop, LogOut, Plus, RotateC
 import { type ReactNode, useEffect, useRef, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { CATEGORY_COLORS, type AttributeField, type Checkpoint } from '../../shared/catalog';
+import { deviceLabel } from '../../shared/device';
 import { buildFileName, DEFAULT_PDF_PATTERN, PDF_PLACEHOLDERS } from '../../shared/filename';
 import { LEGAL_DOCS } from '../../shared/legal';
 import { inQuietHours, type QuietHours } from '../../shared/quiet';
@@ -106,12 +107,6 @@ function Profile() {
       <NewWorkspace />
     </div>
   );
-}
-
-function deviceLabel(ua: string) {
-  const browser = /Edg\//.test(ua) ? 'Edge' : /Chrome\//.test(ua) ? 'Chrome' : /Firefox\//.test(ua) ? 'Firefox' : /Safari\//.test(ua) ? 'Safari' : 'Browser';
-  const os = /iPhone|iPad/.test(ua) ? 'iOS' : /Android/.test(ua) ? 'Android' : /Windows/.test(ua) ? 'Windows' : /Mac OS/.test(ua) ? 'macOS' : /Linux/.test(ua) ? 'Linux' : '';
-  return [browser, os].filter(Boolean).join(' auf ');
 }
 
 function Sessions() {

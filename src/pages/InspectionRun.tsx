@@ -46,6 +46,8 @@ function Online({ insp }: { insp: Inspection }) {
         notes: insp.notes,
         signature: insp.signature,
         signerName: insp.signerName || '',
+        resultOverride: insp.resultOverride ?? null,
+        resultReason: insp.resultReason ?? '',
       }}
       persist={(d) => api(`/inspections/${insp.id}`, { method: 'PUT', body: d })}
       submit={async (d) => {

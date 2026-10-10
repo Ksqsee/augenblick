@@ -2,7 +2,7 @@ import { Hono } from 'hono';
 import { HTTPException } from 'hono/http-exception';
 import { z } from 'zod';
 import { type Category, type Checkpoint, INSPECTION_KINDS } from '../shared/catalog';
-import { type Answer, addMonths, applyInspection, computeResult, DAY, isComplete, type Result, type Schedules, summarizeSchedules } from '../shared/logic';
+import { type Answer, addMonths, applyInspection, computeResult, DAY, finalResult, isComplete, type Result, type Schedules, summarizeSchedules } from '../shared/logic';
 import { getCategoryDef, getSchedule, listCategories } from './categories';
 import { assetQuery, mapAsset, severityEnum, str, tid } from './data';
 import { type AppEnv, type Ctx, id, logActivity, notFound, now, parseJson, requireRole } from './lib';
@@ -15,6 +15,7 @@ const defectInput = z.object({
   checkpointId: z.string().max(40).optional(),
   title: str(300).min(1, 'Mangel ohne Beschreibung'),
   note: str(2000).default(''),
+  measure: str(1000).default(''),
   severity: severityEnum,
   photoKey: z.string().max(200).optional(),
 });
@@ -29,6 +30,8 @@ const inspectionBody = z.object({
   notes: str(5000).default(''),
   signature: z.string().max(400_000).nullable().default(null),
   signerName: str(160).default(''),
+  resultOverride: z.enum(['ok', 'defects', 'critical']).nullable().default(null),
+  resultReason: str(500).default(''),
 });
 type InspectionBody = z.infer<typeof inspectionBody>;
 
@@ -160,7 +163,14 @@ export async function loadInspection(c: Ctx, iid: string) {
     .bind(iid, tid(c))
     .first<Record<string, unknown>>();
   if (!row) notFound('Prüfung');
-  const extra = parseJson<{ items: string[]; defects: InspectionBody['defects']; photos?: InspectionBody['photos']; notInspectable?: boolean }>(
+  const extra = parseJson<{
+    items: string[];
+    defects: InspectionBody['defects'];
+    photos?: InspectionBody['photos'];
+    notInspectable?: boolean;
+    resultOverride?: InspectionBody['resultOverride'];
+    resultReason?: string;
+  }>(
     row.maintenance as string,
     { items: [], defects: [] },
   );
@@ -182,6 +192,8 @@ export async function loadInspection(c: Ctx, iid: string) {
     defects: extra.defects,
     photos: extra.photos ?? [],
     notInspectable: !!extra.notInspectable,
+    resultOverride: extra.resultOverride ?? null,
+    resultReason: extra.resultReason ?? '',
     checkpoints: parseJson<Checkpoint[]>(row.checkpoints as string, []),
     notes: row.notes as string,
     signature: row.signature as string | null,
@@ -219,7 +231,7 @@ function storeDraft(c: Ctx, iid: string, b: InspectionBody) {
   return c.env.DB.prepare('UPDATE inspections SET kind=?, answers=?, maintenance=?, notes=?, signature=?, signer_name=?, updated_at=? WHERE id=?').bind(
     b.kind,
     JSON.stringify(b.answers),
-    JSON.stringify({ items: b.maintenance, defects: b.defects, notInspectable: b.notInspectable, photos: b.photos }),
+    JSON.stringify({ items: b.maintenance, defects: b.defects, notInspectable: b.notInspectable, photos: b.photos, resultOverride: b.resultOverride, resultReason: b.resultReason }),
     b.notes,
     b.signature,
     b.signerName,
@@ -256,7 +268,12 @@ async function finalize(
   }
   if (!b.signature) throw new HTTPException(400, { message: 'Unterschrift fehlt' });
   const sched = await getSchedule(c, opts.category, opts.schedule);
-  const result = computeResult({ notInspectable: b.notInspectable, answers: b.answers, defects: b.defects });
+  const computed = computeResult({ notInspectable: b.notInspectable, answers: b.answers, defects: b.defects });
+  if (b.resultOverride && !b.notInspectable) {
+    if (b.resultOverride === 'ok' && b.defects.length) throw new HTTPException(400, { message: '„Ohne Mängel“ ist nur ohne erfasste Mängel möglich' });
+    if (b.resultOverride !== computed && b.resultReason.trim().length < 3) throw new HTTPException(400, { message: 'Bitte begründen, warum die Gesamtbewertung abweicht' });
+  }
+  const result = finalResult(computed, b.resultOverride, b.defects.length);
   const t = opts.inspectedAt;
   // Nicht prüfbar: Termin bleibt, damit das Element weiter als fällig auftaucht.
   const nextDue = result === 'not_inspectable' ? null : addMonths(t, sched.intervalMonths);
@@ -266,9 +283,9 @@ async function finalize(
     c.env.DB.prepare("UPDATE inspections SET status='submitted', result=?, inspected_at=?, next_due_at=?, updated_at=? WHERE id=?").bind(result, t, nextDue, now(), opts.iid),
     ...b.defects.map((d) =>
       c.env.DB.prepare(
-        `INSERT INTO defects (id, tenant_id, property_id, asset_id, inspection_id, checkpoint_id, title, note, severity, status, photo_key, created_at)
-         VALUES (?,?,?,?,?,?,?,?,?,'open',?,?)`,
-      ).bind(id(), tid(c), opts.propertyId, opts.assetId, opts.iid, d.checkpointId ?? null, d.title, d.note, d.severity, d.photoKey ?? null, t),
+        `INSERT INTO defects (id, tenant_id, property_id, asset_id, inspection_id, checkpoint_id, title, note, measure, severity, status, photo_key, created_at)
+         VALUES (?,?,?,?,?,?,?,?,?,?,'open',?,?)`,
+      ).bind(id(), tid(c), opts.propertyId, opts.assetId, opts.iid, d.checkpointId ?? null, d.title, d.note, d.measure, d.severity, d.photoKey ?? null, t),
     ),
     ...b.photos.map((p) =>
       c.env.DB.prepare(

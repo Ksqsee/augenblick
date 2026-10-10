@@ -405,6 +405,7 @@ export function WalkthroughProtocol() {
                   <span className="font-medium">{f.title}</span> – {SEVERITIES[f.severity]}
                   {q && <span className="text-ink-3"> ({q.basis})</span>}
                   {f.note && <p className="text-ink-2">{f.note}</p>}
+                  {f.measure && <p>Maßnahme: {f.measure}</p>}
                   {f.photoKey && <img src={`/api/files/${f.photoKey}`} alt="" className="mt-1 h-28 rounded border border-line object-cover" />}
                 </li>
               );

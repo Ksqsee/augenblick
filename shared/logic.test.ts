@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { addMonths, computeResult, DAY, dueState, isComplete } from './logic';
+import { addMonths, computeResult, DAY, dueState, finalResult, isComplete } from './logic';
 
 describe('computeResult', () => {
   it('ok without defects', () => {
@@ -63,5 +63,19 @@ describe('schedules', () => {
     s = applyInspection(s, 'main', 200, 'not_inspectable', null);
     expect(s.main).toMatchObject({ lastAt: 200, lastResult: 'not_inspectable', nextDueAt: 900 });
     expect(applyInspection(s, 'main', 50, 'ok', 400)).toBe(s);
+  });
+});
+
+describe('finalResult', () => {
+  it('übernimmt die Festlegung des Prüfers', () => {
+    expect(finalResult('defects', 'critical', 1)).toBe('critical');
+    expect(finalResult('critical', 'defects', 1)).toBe('defects');
+    expect(finalResult('ok', 'defects', 0)).toBe('defects');
+    expect(finalResult('defects', null, 1)).toBe('defects');
+  });
+  it('„ohne Mängel“ nur ohne Mängel, nicht prüfbar bleibt', () => {
+    expect(finalResult('defects', 'ok', 2)).toBe('defects');
+    expect(finalResult('defects', 'ok', 0)).toBe('ok');
+    expect(finalResult('not_inspectable', 'critical', 0)).toBe('not_inspectable');
   });
 });

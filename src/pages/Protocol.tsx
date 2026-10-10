@@ -111,6 +111,7 @@ export function Protocol() {
               <li key={n}>
                 <span className="font-medium">{d.title}</span> – <span className="text-ink-2">{SEVERITIES[d.severity]}</span>
                 {d.note && <p className="text-ink-2">{d.note}</p>}
+                {d.measure && <p>Maßnahme: {d.measure}</p>}
                 {d.photoKey && <img src={fileUrl(d.photoKey)} alt="" className="mt-1 h-28 rounded border border-line object-cover" />}
               </li>
             ))}
@@ -148,8 +149,9 @@ export function Protocol() {
 
       <section className="mt-6 grid grid-cols-2 gap-8 break-inside-avoid">
         <div className={clsx('rounded border-2 p-3', res?.tone === 'ok' ? 'border-ok' : res?.tone === 'bad' ? 'border-bad' : 'border-warn')}>
-          <p className="text-[11px] text-ink-3 uppercase">Gesamtergebnis</p>
+          <p className="text-[11px] text-ink-3 uppercase">Gesamtergebnis{i.resultOverride ? ' (festgelegt)' : ''}</p>
           <p className="text-base font-semibold">{res?.label ?? 'Offen'}</p>
+          {i.resultOverride && i.resultReason && <p className="mt-1 text-[11px] text-ink-2">Begründung: {i.resultReason}</p>}
         </div>
         <div>
           {i.signature && <img src={i.signature} alt="Unterschrift" className="h-16" />}

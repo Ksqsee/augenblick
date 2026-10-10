@@ -29,8 +29,9 @@ const GUIDE: Topic[] = [
     steps: [
       'Element über Code scannen (QR-Etikett), Suche (Strg+K) oder die Liste öffnen und „Prüfung starten“ wählen.',
       'Jeden Prüfpunkt mit ✓ (in Ordnung), ✗ (Mangel) oder – (nicht zutreffend) bewerten. „Rest i. O.“ setzt alle offenen Punkte auf in Ordnung.',
-      'Bei einem Mangel Schweregrad wählen, kurz beschreiben und optional ein Foto aufnehmen.',
+      'Bei einem Mangel Schweregrad wählen, kurz beschreiben, die nötige Maßnahme eintragen und optional ein Foto aufnehmen.',
       'Durchgeführte Arbeiten antippen, allgemeine Fotos und Bemerkungen ergänzen.',
+      'Die Gesamtbewertung wird aus den Befunden berechnet. Als Sachkundige/r kannst du sie abweichend festlegen, z. B. „Kritisch“ – mit Begründung, die im Protokoll erscheint.',
       'Unterschreiben und „Abschließen“. Ergebnis und nächster Termin werden automatisch berechnet, das Protokoll steht als PDF bereit.',
       'Der Entwurf wird laufend gespeichert – du kannst jederzeit unterbrechen und später weitermachen.',
     ],
@@ -116,7 +117,7 @@ const GUIDE: Topic[] = [
     steps: [
       'Rollen: Inhaber (alles), Administrator (Objekte, Team, Vorlagen), Prüfer (Elemente und Prüfungen), Lesezugriff (nur ansehen).',
       'Passwort vergessen? Ein Admin erzeugt unter Team (Schlüssel-Symbol) einen einmaligen Link, der 24 Stunden gilt.',
-      'Unter Einstellungen → Profil siehst du alle angemeldeten Geräte und kannst sie abmelden.',
+      'Unter Einstellungen → Profil siehst du alle angemeldeten Geräte und kannst sie abmelden. Bei einer Anmeldung von einem neuen Gerät bekommst du eine Benachrichtigung.',
       'Unter Einstellungen → Datenschutz kannst du deine Daten exportieren oder dein Konto löschen.',
     ],
   },
