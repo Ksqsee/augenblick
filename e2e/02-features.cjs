@@ -144,7 +144,7 @@ const step = (m) => console.log('·', m);
   await shot('13-unknown-label');
   await p.locator('ul button').first().click();
   await p.waitForURL(/\/elemente\//);
-  await p.getByText(blank).waitFor();
+  await p.getByText(blank, { exact: true }).waitFor();
   await shot('14-asset-label');
 
   step('offline');
