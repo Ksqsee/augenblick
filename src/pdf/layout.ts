@@ -94,13 +94,31 @@ export class Doc {
       this.page.drawImage(this.logo, { x, y: top - h + 8, width: w, height: h });
       x += w + 10;
     }
-    this.page.drawText(this.clean(this.brand.company), { x, y: top - 4, size: 9, font: this.bold, color: INK });
-    const right = [this.brand.address?.split('\n').join(', '), this.brand.contact].filter(Boolean).join(' · ');
+    const edge = A4.w - M.right;
+    const company = this.fit(this.clean(this.brand.company), edge - x, 9, this.bold);
+    this.page.drawText(company, { x, y: top - 4, size: 9, font: this.bold, color: INK });
+    let lineY = top - 14;
+    const right = this.clean([this.brand.address?.split('\n').join(', '), this.brand.contact].filter(Boolean).join(' · '));
     if (right) {
-      const t = this.clean(right).slice(0, 110);
-      this.page.drawText(t, { x: A4.w - M.right - this.font.widthOfTextAtSize(t, 7.5), y: top - 4, size: 7.5, font: this.font, color: MUTED });
+      const free = edge - (x + this.bold.widthOfTextAtSize(company, 9) + 16);
+      if (this.font.widthOfTextAtSize(right, 7.5) <= free) {
+        // passt rechts neben den Firmennamen
+        this.page.drawText(right, { x: edge - this.font.widthOfTextAtSize(right, 7.5), y: top - 4, size: 7.5, font: this.font, color: MUTED });
+      } else {
+        // sonst als zweite Zeile unter dem Namen
+        this.page.drawText(this.fit(right, edge - x, 7.5), { x, y: top - 14, size: 7.5, font: this.font, color: MUTED });
+        lineY = top - 22;
+      }
     }
-    this.page.drawLine({ start: { x: M.left, y: top - 14 }, end: { x: A4.w - M.right, y: top - 14 }, thickness: 0.6, color: LINE });
+    this.page.drawLine({ start: { x: M.left, y: lineY }, end: { x: edge, y: lineY }, thickness: 0.6, color: LINE });
+  }
+
+  /** Text auf eine Breite kürzen (mit Auslassungszeichen). */
+  fit(t: string, width: number, size: number, font = this.font) {
+    if (font.widthOfTextAtSize(t, size) <= width) return t;
+    let s = t;
+    while (s.length > 1 && font.widthOfTextAtSize(`${s}…`, size) > width) s = s.slice(0, -1);
+    return `${s.trimEnd()}…`;
   }
 
   /** Seitenzahlen und Fußzeile am Ende auf alle Seiten schreiben. */
@@ -111,8 +129,8 @@ export class Doc {
       const stamp = new Intl.DateTimeFormat(en ? 'en-GB' : 'de-DE', { dateStyle: 'medium', timeStyle: 'short', timeZone: this.brand.timeZone || undefined }).format(Date.now());
       const f = this.clean(this.brand.footer || `${this.brand.company} · ${en ? 'created with Prüfkompass on' : 'erstellt mit Prüfkompass am'} ${stamp}`);
       p.drawLine({ start: { x: M.left, y: 38 }, end: { x: A4.w - M.right, y: 38 }, thickness: 0.6, color: LINE });
-      p.drawText(f, { x: M.left, y: 26, size: 7.5, font: this.font, color: MUTED });
       const n = this.brand.lang === 'en' ? `Page ${i + 1} of ${pages.length}` : `Seite ${i + 1} von ${pages.length}`;
+      p.drawText(this.fit(f, this.width - this.font.widthOfTextAtSize(n, 7.5) - 16, 7.5), { x: M.left, y: 26, size: 7.5, font: this.font, color: MUTED });
       p.drawText(n, { x: A4.w - M.right - this.font.widthOfTextAtSize(n, 7.5), y: 26, size: 7.5, font: this.font, color: MUTED });
     });
     return this.pdf.save();
