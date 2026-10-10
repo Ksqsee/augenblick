@@ -2,8 +2,12 @@ import { Hono } from 'hono';
 import { HTTPException } from 'hono/http-exception';
 import { ZodError } from 'zod';
 import { account, auth } from './auth';
+import { categories } from './categories';
+import { runDaily } from './cron';
+import { inspections } from './inspections';
+import { notifications } from './notify';
 import { data } from './data';
-import { type AppEnv, csrfGuard, requireAuth } from './lib';
+import { type AppEnv, csrfGuard, type Env, requireAuth } from './lib';
 import { plans } from './plans';
 import { walks } from './walkthroughs';
 import { publicApi, work } from './work';
@@ -26,6 +30,9 @@ app.route('/account', account);
 // Alles Weitere nur mit gültiger Sitzung (einmalige Prüfung)
 const secured = new Hono<AppEnv>();
 secured.use('*', requireAuth);
+secured.route('/', categories);
+secured.route('/', inspections);
+secured.route('/', notifications);
 secured.route('/', walks);
 secured.route('/', plans);
 secured.route('/', work);
@@ -42,4 +49,9 @@ app.onError((err, c) => {
   return c.json({ error: 'Interner Fehler' }, 500);
 });
 
-export default app;
+export default {
+  fetch: app.fetch,
+  async scheduled(_event: ScheduledController, env: Env, ctx: ExecutionContext) {
+    ctx.waitUntil(runDaily(env));
+  },
+} satisfies ExportedHandler<Env>;

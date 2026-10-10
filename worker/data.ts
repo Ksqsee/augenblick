@@ -1,62 +1,18 @@
 import { Hono } from 'hono';
 import { HTTPException } from 'hono/http-exception';
 import { z } from 'zod';
-import { CATEGORIES, type Category, type Checkpoint, INSPECTION_KINDS, SEVERITIES } from '../shared/catalog';
-import { type Answer, addMonths, computeResult, DAY, isComplete, SOON_WINDOW_DAYS } from '../shared/logic';
+import { type Category, SEVERITIES } from '../shared/catalog';
+import { DAY, SOON_WINDOW_DAYS } from '../shared/logic';
 import { BUILDING_TYPES } from '../shared/walkthrough';
+import { getCategoryDef, listCategories } from './categories';
 import { type AppEnv, type Ctx, id, logActivity, notFound, now, parseJson, requireRole } from './lib';
 
 export const data = new Hono<AppEnv>();
 
 export const tid = (c: Ctx) => c.get('user').tenantId;
-const categoryEnum = z.enum(Object.keys(CATEGORIES) as [Category, ...Category[]]);
 export const str = (max = 500) => z.string().trim().max(max);
 const buildingTypeEnum = z.enum(Object.keys(BUILDING_TYPES) as [keyof typeof BUILDING_TYPES]);
 export const severityEnum = z.enum(Object.keys(SEVERITIES) as ['low', 'medium', 'high', 'critical']);
-
-// ---------- Vorlagen ----------
-export async function getTemplate(c: Ctx, category: Category) {
-  const def = CATEGORIES[category];
-  const o = await c.env.DB.prepare('SELECT checkpoints, interval_months FROM template_overrides WHERE tenant_id = ? AND category = ?')
-    .bind(tid(c), category)
-    .first<{ checkpoints: string; interval_months: number }>();
-  return {
-    ...def,
-    customized: !!o,
-    intervalMonths: o?.interval_months ?? def.intervalMonths,
-    checkpoints: o ? parseJson<Checkpoint[]>(o.checkpoints, def.checkpoints) : def.checkpoints,
-  };
-}
-
-data.get('/templates', async (c) => {
-  return c.json(await Promise.all((Object.keys(CATEGORIES) as Category[]).map((k) => getTemplate(c, k))));
-});
-
-data.put('/templates/:category', async (c) => {
-  requireRole(c, 'admin');
-  const category = categoryEnum.parse(c.req.param('category'));
-  const body = z
-    .object({
-      intervalMonths: z.number().int().min(1).max(120),
-      checkpoints: z.array(z.object({ id: str(40).min(1), label: str(300).min(2), hint: str(300).optional() })).min(1).max(100),
-    })
-    .parse(await c.req.json());
-  await c.env.DB.prepare(
-    `INSERT INTO template_overrides (tenant_id, category, checkpoints, interval_months, updated_at) VALUES (?,?,?,?,?)
-     ON CONFLICT (tenant_id, category) DO UPDATE SET checkpoints = excluded.checkpoints, interval_months = excluded.interval_months, updated_at = excluded.updated_at`,
-  )
-    .bind(tid(c), category, JSON.stringify(body.checkpoints), body.intervalMonths, now())
-    .run();
-  await logActivity(c, 'update', 'template', category, `Prüfvorlage „${CATEGORIES[category].label}“ angepasst`);
-  return c.json({ ok: true });
-});
-
-data.delete('/templates/:category', async (c) => {
-  requireRole(c, 'admin');
-  const category = categoryEnum.parse(c.req.param('category'));
-  await c.env.DB.prepare('DELETE FROM template_overrides WHERE tenant_id = ? AND category = ?').bind(tid(c), category).run();
-  return c.json({ ok: true });
-});
 
 // ---------- Dashboard ----------
 data.get('/dashboard', async (c) => {
@@ -146,6 +102,7 @@ const propertyBody = z.object({
   contactPhone: str(60).default(''),
   contactEmail: z.union([z.literal(''), z.string().trim().email()]).default(''),
   buildingType: buildingTypeEnum.default('general'),
+  pdfPattern: z.string().trim().max(120).nullable().default(null),
 });
 
 data.get('/properties', async (c) => {
@@ -172,13 +129,13 @@ data.post('/properties', async (c) => {
 data.get('/properties/:id', async (c) => {
   const p = await c.env.DB.prepare(
     `SELECT id, name, address, description, contact_name AS contactName, contact_phone AS contactPhone, contact_email AS contactEmail,
-            building_type AS buildingType, created_at AS createdAt
+            building_type AS buildingType, pdf_pattern AS pdfPattern, created_at AS createdAt
        FROM properties WHERE id = ? AND tenant_id = ? AND deleted_at IS NULL`,
   )
     .bind(c.req.param('id'), tid(c))
     .first();
   if (!p) notFound('Objekt');
-  const [buildings, plans, walks] = await c.env.DB.batch([
+  const [buildings, plans, walks, officers] = await c.env.DB.batch([
     c.env.DB.prepare('SELECT id, name, address FROM buildings WHERE property_id = ? AND tenant_id = ? AND deleted_at IS NULL ORDER BY name').bind(
       p.id,
       tid(c),
@@ -195,19 +152,30 @@ data.get('/properties/:id', async (c) => {
          FROM walkthroughs w JOIN users u ON u.id = w.inspector_id
         WHERE w.property_id = ? AND w.tenant_id = ? ORDER BY COALESCE(w.inspected_at, w.created_at) DESC LIMIT 20`,
     ).bind(p.id, tid(c)),
+    c.env.DB.prepare(
+      `SELECT id, name, company, phone, email, qualification, appointed_from AS appointedFrom, appointed_to AS appointedTo, notes
+         FROM fire_officers WHERE property_id = ? AND tenant_id = ? ORDER BY appointed_from DESC`,
+    ).bind(p.id, tid(c)),
   ]);
   const assets = await assetQuery(c, 'b.property_id = ?2').bind(tid(c), p.id).all();
-  return c.json({ ...p, buildings: buildings.results, floorPlans: plans.results, walkthroughs: walks.results, assets: assets.results.map(mapAsset) });
+  return c.json({
+    ...p,
+    buildings: buildings.results,
+    floorPlans: plans.results,
+    walkthroughs: walks.results,
+    fireOfficers: officers.results,
+    assets: assets.results.map(mapAsset),
+  });
 });
 
 data.patch('/properties/:id', async (c) => {
   requireRole(c, 'admin');
   const b = propertyBody.parse(await c.req.json());
   const r = await c.env.DB.prepare(
-    `UPDATE properties SET name=?, address=?, description=?, contact_name=?, contact_phone=?, contact_email=?, building_type=?, updated_at=?
+    `UPDATE properties SET name=?, address=?, description=?, contact_name=?, contact_phone=?, contact_email=?, building_type=?, pdf_pattern=?, updated_at=?
       WHERE id = ? AND tenant_id = ? AND deleted_at IS NULL`,
   )
-    .bind(b.name, b.address, b.description, b.contactName, b.contactPhone, b.contactEmail, b.buildingType, now(), c.req.param('id'), tid(c))
+    .bind(b.name, b.address, b.description, b.contactName, b.contactPhone, b.contactEmail, b.buildingType, b.pdfPattern || null, now(), c.req.param('id'), tid(c))
     .run();
   if (!r.meta.changes) notFound('Objekt');
   return c.json({ ok: true });
@@ -228,6 +196,58 @@ data.delete('/properties/:id', async (c) => {
     c.env.DB.prepare('UPDATE buildings SET deleted_at = ? WHERE tenant_id = ? AND property_id = ? AND deleted_at IS NULL').bind(t, tid(c), pid),
   ]);
   await logActivity(c, 'delete', 'property', pid, 'Objekt gelöscht');
+  return c.json({ ok: true });
+});
+
+// ---------- Brandschutzbeauftragte ----------
+const officerBody = z.object({
+  name: str(160).min(1, 'Name fehlt'),
+  company: str(160).default(''),
+  phone: str(60).default(''),
+  email: z.union([z.literal(''), z.string().trim().email()]).default(''),
+  qualification: str(200).default(''),
+  appointedFrom: z.number().int(),
+  appointedTo: z.number().int().nullable().default(null),
+  notes: str(2000).default(''),
+});
+
+data.post('/properties/:id/fire-officers', async (c) => {
+  requireRole(c, 'admin');
+  const b = officerBody.parse(await c.req.json());
+  const p = await c.env.DB.prepare('SELECT id FROM properties WHERE id = ? AND tenant_id = ? AND deleted_at IS NULL').bind(c.req.param('id'), tid(c)).first();
+  if (!p) notFound('Objekt');
+  // Neue Bestellung beendet die bisher laufende automatisch
+  await c.env.DB.batch([
+    c.env.DB.prepare('UPDATE fire_officers SET appointed_to = ? WHERE property_id = ? AND tenant_id = ? AND appointed_to IS NULL AND appointed_from < ?').bind(
+      b.appointedFrom,
+      p.id,
+      tid(c),
+      b.appointedFrom,
+    ),
+    c.env.DB.prepare(
+      `INSERT INTO fire_officers (id, tenant_id, property_id, name, company, phone, email, qualification, appointed_from, appointed_to, notes, created_at)
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`,
+    ).bind(id(), tid(c), p.id, b.name, b.company, b.phone, b.email, b.qualification, b.appointedFrom, b.appointedTo, b.notes, now()),
+  ]);
+  await logActivity(c, 'create', 'fire_officer', p.id as string, `Brandschutzbeauftragte/r ${b.name} bestellt`);
+  return c.json({ ok: true });
+});
+
+data.patch('/fire-officers/:id', async (c) => {
+  requireRole(c, 'admin');
+  const b = officerBody.parse(await c.req.json());
+  const r = await c.env.DB.prepare(
+    'UPDATE fire_officers SET name=?, company=?, phone=?, email=?, qualification=?, appointed_from=?, appointed_to=?, notes=? WHERE id=? AND tenant_id=?',
+  )
+    .bind(b.name, b.company, b.phone, b.email, b.qualification, b.appointedFrom, b.appointedTo, b.notes, c.req.param('id'), tid(c))
+    .run();
+  if (!r.meta.changes) notFound('Eintrag');
+  return c.json({ ok: true });
+});
+
+data.delete('/fire-officers/:id', async (c) => {
+  requireRole(c, 'admin');
+  await c.env.DB.prepare('DELETE FROM fire_officers WHERE id = ? AND tenant_id = ?').bind(c.req.param('id'), tid(c)).run();
   return c.json({ ok: true });
 });
 
@@ -279,7 +299,7 @@ export function assetQuery(c: Ctx, where = '1=1', order = 'a.code') {
     `SELECT a.id, a.code, a.category, a.location, a.floor, a.manufacturer, a.model, a.attributes, a.label_code AS labelCode,
             a.floor_plan_id AS floorPlanId, a.marker_x AS markerX, a.marker_y AS markerY,
             a.last_inspection_id AS lastInspectionId, a.last_inspected_at AS lastInspectedAt, a.last_result AS lastResult,
-            a.next_due_at AS nextDueAt, a.created_at AS createdAt,
+            a.next_due_at AS nextDueAt, a.created_at AS createdAt, a.schedules,
             b.id AS buildingId, b.name AS buildingName, p.id AS propertyId, p.name AS propertyName,
             (SELECT COUNT(*) FROM defects d WHERE d.asset_id = a.id AND d.status = 'open') AS openDefects
        FROM assets a JOIN buildings b ON b.id = a.building_id JOIN properties p ON p.id = b.property_id
@@ -287,14 +307,14 @@ export function assetQuery(c: Ctx, where = '1=1', order = 'a.code') {
       ORDER BY ${order}`,
   );
 }
-export const mapAsset = (r: Record<string, unknown>) => ({ ...r, attributes: parseJson(r.attributes as string, {}) });
+export const mapAsset = (r: Record<string, unknown>) => ({ ...r, attributes: parseJson(r.attributes as string, {}), schedules: parseJson(r.schedules as string, {}) });
 
 data.get('/assets', async (c) => {
   const q = c.req.query();
   const where: string[] = [];
   const args: unknown[] = [tid(c)];
   const n = now();
-  if (q.category && q.category in CATEGORIES) {
+  if (q.category) {
     args.push(q.category);
     where.push(`a.category = ?${args.length}`);
   }
@@ -328,7 +348,7 @@ data.get('/assets', async (c) => {
 const attrValue = z.union([z.string().max(200), z.number(), z.boolean(), z.null()]);
 const assetBody = z.object({
   buildingId: z.string().min(1),
-  category: categoryEnum,
+  category: z.string().min(1).max(40),
   location: str(200).default(''),
   floor: str(60).default(''),
   manufacturer: str(120).default(''),
@@ -342,7 +362,7 @@ export async function uniqueCode(c: Ctx, category: Category, taken?: Set<string>
   const alphabet = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
   for (let i = 0; i < 12; i++) {
     const rnd = Array.from(crypto.getRandomValues(new Uint8Array(4)), (b) => alphabet[b % alphabet.length]).join('');
-    const code = `${CATEGORIES[category].prefix}-${rnd}`;
+    const code = `${(await getCategoryDef(c, category)).prefix}-${rnd}`;
     if (taken?.has(code)) continue;
     const hit = await c.env.DB.prepare('SELECT 1 FROM assets WHERE tenant_id = ? AND code = ?').bind(tid(c), code).first();
     if (!hit) return code;
@@ -366,6 +386,7 @@ data.post('/assets', async (c) => {
     .bind(b.buildingId, tid(c))
     .first();
   if (!building) notFound('Gebäude');
+  const def = await getCategoryDef(c, b.category);
   const code = b.code?.toUpperCase() || (await uniqueCode(c, b.category));
   const dup = await c.env.DB.prepare('SELECT 1 FROM assets WHERE tenant_id = ? AND code = ?').bind(tid(c), code).first();
   if (dup) throw new HTTPException(409, { message: `Code ${code} ist bereits vergeben` });
@@ -374,12 +395,12 @@ data.post('/assets', async (c) => {
   const aid = id();
   const t = now();
   await c.env.DB.prepare(
-    `INSERT INTO assets (id, tenant_id, building_id, category, code, location, floor, manufacturer, model, attributes, label_code, created_at, updated_at)
-     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+    `INSERT INTO assets (id, tenant_id, building_id, category, code, location, floor, manufacturer, model, attributes, label_code, schedules, created_at, updated_at)
+     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
   )
-    .bind(aid, tid(c), b.buildingId, b.category, code, b.location, b.floor, b.manufacturer, b.model, JSON.stringify(b.attributes), label, t, t)
+    .bind(aid, tid(c), b.buildingId, b.category, code, b.location, b.floor, b.manufacturer, b.model, JSON.stringify(b.attributes), label, JSON.stringify({ main: { enabled: true } }), t, t)
     .run();
-  await logActivity(c, 'create', 'asset', aid, `${CATEGORIES[b.category].label} ${code} angelegt`);
+  await logActivity(c, 'create', 'asset', aid, `${def.label} ${code} angelegt`);
   return c.json({ id: aid, code });
 });
 
@@ -398,9 +419,9 @@ data.get('/assets/by-code/:code', async (c) => {
 data.get('/assets/:id', async (c) => {
   const a = await assetQuery(c, 'a.id = ?2').bind(tid(c), c.req.param('id')).first();
   if (!a) notFound('Element');
-  const [inspections, defects, plan] = await c.env.DB.batch([
+  const [inspections, defects, plan, files] = await c.env.DB.batch([
     c.env.DB.prepare(
-      `SELECT i.id, i.kind, i.status, i.result, i.inspected_at AS inspectedAt, i.created_at AS createdAt, u.name AS inspector
+      `SELECT i.id, i.kind, i.schedule, i.status, i.result, i.inspected_at AS inspectedAt, i.created_at AS createdAt, i.archived_at AS archivedAt, u.name AS inspector
          FROM inspections i JOIN users u ON u.id = i.inspector_id WHERE i.asset_id = ? AND i.tenant_id = ? ORDER BY COALESCE(i.inspected_at, i.created_at) DESC`,
     ).bind(a.id, tid(c)),
     c.env.DB.prepare(
@@ -411,8 +432,18 @@ data.get('/assets/:id', async (c) => {
       a.floorPlanId ?? '',
       tid(c),
     ),
+    c.env.DB.prepare(
+      `SELECT id, file_key AS fileKey, name, content_type AS contentType, size, caption, inspection_id AS inspectionId, created_at AS createdAt
+         FROM attachments WHERE asset_id = ? AND tenant_id = ? ORDER BY created_at DESC`,
+    ).bind(a.id, tid(c)),
   ]);
-  return c.json({ ...mapAsset(a), inspections: inspections.results, defects: defects.results, floorPlan: plan.results[0] ?? null });
+  return c.json({
+    ...mapAsset(a),
+    inspections: inspections.results,
+    defects: defects.results,
+    floorPlan: plan.results[0] ?? null,
+    attachments: files.results,
+  });
 });
 
 data.patch('/assets/:id', async (c) => {
@@ -481,303 +512,6 @@ data.delete('/assets/:id', async (c) => {
   return c.json({ ok: true });
 });
 
-// ---------- Prüfungen ----------
-const answerEnum = z.enum(['ok', 'defect', 'na']);
-const defectInput = z.object({
-  checkpointId: z.string().max(40).optional(),
-  title: str(300).min(1, 'Mangel ohne Beschreibung'),
-  note: str(2000).default(''),
-  severity: severityEnum,
-  photoKey: z.string().max(200).optional(),
-});
-const inspectionBody = z.object({
-  kind: z.enum(Object.keys(INSPECTION_KINDS) as [keyof typeof INSPECTION_KINDS]),
-  notInspectable: z.boolean().default(false),
-  answers: z.record(answerEnum).default({}),
-  maintenance: z.array(z.string().max(40)).default([]),
-  defects: z.array(defectInput).max(100).default([]),
-  notes: str(5000).default(''),
-  signature: z.string().max(400_000).nullable().default(null),
-  signerName: str(160).default(''),
-});
-type InspectionBody = z.infer<typeof inspectionBody>;
-
-data.get('/inspections', async (c) => {
-  const q = c.req.query();
-  const args: unknown[] = [tid(c)];
-  let where = '1=1';
-  if (q.status === 'draft' || q.status === 'submitted') {
-    args.push(q.status);
-    where = `i.status = ?${args.length}`;
-  }
-  const rows = await c.env.DB.prepare(
-    `SELECT i.id, i.kind, i.status, i.result, i.inspected_at AS inspectedAt, i.created_at AS createdAt, i.next_due_at AS nextDueAt,
-            a.id AS assetId, a.code, a.category, a.location, b.name AS buildingName, p.name AS propertyName, u.name AS inspector
-       FROM inspections i JOIN assets a ON a.id = i.asset_id JOIN buildings b ON b.id = a.building_id
-       JOIN properties p ON p.id = b.property_id JOIN users u ON u.id = i.inspector_id
-      WHERE i.tenant_id = ?1 AND ${where} ORDER BY COALESCE(i.inspected_at, i.created_at) DESC LIMIT 500`,
-  )
-    .bind(...args)
-    .all();
-  return c.json(rows.results);
-});
-
-async function loadAssetForInspection(c: Ctx, assetId: string) {
-  const a = await c.env.DB.prepare(
-    `SELECT a.id, a.category, b.property_id AS propertyId FROM assets a JOIN buildings b ON b.id = a.building_id
-      WHERE a.id = ? AND a.tenant_id = ? AND a.deleted_at IS NULL`,
-  )
-    .bind(assetId, tid(c))
-    .first<{ id: string; category: Category; propertyId: string }>();
-  if (!a) notFound('Element');
-  return a;
-}
-
-data.post('/assets/:id/inspections', async (c) => {
-  requireRole(c, 'inspector');
-  const a = await loadAssetForInspection(c, c.req.param('id'));
-  const existing = await c.env.DB.prepare(
-    "SELECT id FROM inspections WHERE asset_id = ? AND tenant_id = ? AND status = 'draft' AND inspector_id = ?",
-  )
-    .bind(a.id, tid(c), c.get('user').userId)
-    .first<{ id: string }>();
-  if (existing) return c.json(existing);
-  const tpl = await getTemplate(c, a.category);
-  const iid = id();
-  const t = now();
-  const last = await c.env.DB.prepare("SELECT 1 FROM inspections WHERE asset_id = ? AND status = 'submitted' LIMIT 1").bind(a.id).first();
-  await c.env.DB.prepare(
-    `INSERT INTO inspections (id, tenant_id, asset_id, inspector_id, kind, reason, status, answers, maintenance, checkpoints, created_at, updated_at)
-     VALUES (?,?,?,?,?,?,'draft','{}','{"items":[],"defects":[]}',?,?,?)`,
-  )
-    .bind(iid, tid(c), a.id, c.get('user').userId, last ? 'periodic' : 'initial', 'planned', JSON.stringify(tpl.checkpoints), t, t)
-    .run();
-  return c.json({ id: iid });
-});
-
-async function loadInspection(c: Ctx, iid: string) {
-  const row = await c.env.DB.prepare(
-    `SELECT i.*, u.name AS inspectorName, a.code, a.category, a.location, a.floor, a.manufacturer, a.model, a.attributes,
-            b.name AS buildingName, b.address AS buildingAddress, p.id AS propertyId, p.name AS propertyName, p.address AS propertyAddress, t.name AS tenantName
-       FROM inspections i JOIN users u ON u.id = i.inspector_id JOIN assets a ON a.id = i.asset_id
-       JOIN buildings b ON b.id = a.building_id JOIN properties p ON p.id = b.property_id JOIN tenants t ON t.id = i.tenant_id
-      WHERE i.id = ? AND i.tenant_id = ?`,
-  )
-    .bind(iid, tid(c))
-    .first<Record<string, unknown>>();
-  if (!row) notFound('Prüfung');
-  const extra = parseJson<{ items: string[]; defects: InspectionBody['defects']; notInspectable?: boolean }>(row.maintenance as string, {
-    items: [],
-    defects: [],
-  });
-  return {
-    id: row.id as string,
-    assetId: row.asset_id as string,
-    propertyId: row.propertyId as string,
-    status: row.status as 'draft' | 'submitted',
-    kind: row.kind as string,
-    result: row.result as string | null,
-    answers: parseJson<Record<string, Answer>>(row.answers as string, {}),
-    maintenance: extra.items,
-    defects: extra.defects,
-    notInspectable: !!extra.notInspectable,
-    checkpoints: parseJson<Checkpoint[]>(row.checkpoints as string, []),
-    notes: row.notes as string,
-    signature: row.signature as string | null,
-    signerName: row.signer_name as string,
-    inspectorId: row.inspector_id as string,
-    inspectorName: row.inspectorName as string,
-    inspectedAt: row.inspected_at as number | null,
-    nextDueAt: row.next_due_at as number | null,
-    createdAt: row.created_at as number,
-    asset: {
-      code: row.code,
-      category: row.category as Category,
-      location: row.location,
-      floor: row.floor,
-      manufacturer: row.manufacturer,
-      model: row.model,
-      attributes: parseJson(row.attributes as string, {}),
-      buildingName: row.buildingName,
-      buildingAddress: row.buildingAddress,
-      propertyName: row.propertyName,
-      propertyAddress: row.propertyAddress,
-    },
-    tenantName: row.tenantName as string,
-  };
-}
-
-data.get('/inspections/:id', async (c) => c.json(await loadInspection(c, c.req.param('id'))));
-
-function storeDraft(c: Ctx, iid: string, b: InspectionBody) {
-  return c.env.DB.prepare('UPDATE inspections SET kind=?, answers=?, maintenance=?, notes=?, signature=?, signer_name=?, updated_at=? WHERE id=?').bind(
-    b.kind,
-    JSON.stringify(b.answers),
-    JSON.stringify({ items: b.maintenance, defects: b.defects, notInspectable: b.notInspectable }),
-    b.notes,
-    b.signature,
-    b.signerName,
-    now(),
-    iid,
-  );
-}
-
-async function saveDraft(c: Ctx, iid: string, b: InspectionBody) {
-  const insp = await loadInspection(c, iid);
-  if (insp.status !== 'draft') throw new HTTPException(409, { message: 'Prüfung ist bereits abgeschlossen' });
-  if (insp.inspectorId !== c.get('user').userId && !['admin', 'owner'].includes(c.get('user').role)) {
-    throw new HTTPException(403, { message: 'Nur der Prüfer kann diesen Entwurf bearbeiten' });
-  }
-  await storeDraft(c, iid, b).run();
-  return insp;
-}
-
-/** Validiert, berechnet Ergebnis + Termin und schreibt Prüfung, Element und Mängel. */
-async function finalize(
-  c: Ctx,
-  opts: { iid: string; assetId: string; propertyId: string; category: Category; code: string; checkpoints: Checkpoint[]; body: InspectionBody; inspectedAt: number },
-) {
-  const b = opts.body;
-  if (!isComplete(opts.checkpoints.map((p) => p.id), b.answers, b.notInspectable)) {
-    throw new HTTPException(400, { message: 'Bitte alle Prüfpunkte bewerten' });
-  }
-  if (!b.signature) throw new HTTPException(400, { message: 'Unterschrift fehlt' });
-  const tpl = await getTemplate(c, opts.category);
-  const result = computeResult({ notInspectable: b.notInspectable, answers: b.answers, defects: b.defects });
-  const t = opts.inspectedAt;
-  // Nicht prüfbar: Termin bleibt, damit das Element weiter als fällig auftaucht.
-  const nextDue = result === 'not_inspectable' ? null : addMonths(t, tpl.intervalMonths);
-  // Nur aktualisieren, wenn diese Prüfung die neueste ist (Offline-Sync kann ältere nachliefern).
-  const newest = `AND COALESCE(last_inspected_at, 0) <= ${t}`;
-  await c.env.DB.batch([
-    c.env.DB.prepare("UPDATE inspections SET status='submitted', result=?, inspected_at=?, next_due_at=?, updated_at=? WHERE id=?").bind(
-      result,
-      t,
-      nextDue,
-      now(),
-      opts.iid,
-    ),
-    nextDue
-      ? c.env.DB.prepare(`UPDATE assets SET last_inspection_id=?, last_inspected_at=?, last_result=?, next_due_at=?, updated_at=? WHERE id=? ${newest}`).bind(
-          opts.iid,
-          t,
-          result,
-          nextDue,
-          now(),
-          opts.assetId,
-        )
-      : c.env.DB.prepare(`UPDATE assets SET last_inspection_id=?, last_inspected_at=?, last_result=?, updated_at=? WHERE id=? ${newest}`).bind(
-          opts.iid,
-          t,
-          result,
-          now(),
-          opts.assetId,
-        ),
-    ...b.defects.map((d) =>
-      c.env.DB.prepare(
-        `INSERT INTO defects (id, tenant_id, property_id, asset_id, inspection_id, checkpoint_id, title, note, severity, status, photo_key, created_at)
-         VALUES (?,?,?,?,?,?,?,?,?,'open',?,?)`,
-      ).bind(id(), tid(c), opts.propertyId, opts.assetId, opts.iid, d.checkpointId ?? null, d.title, d.note, d.severity, d.photoKey ?? null, t),
-    ),
-  ]);
-  await logActivity(c, 'submit', 'inspection', opts.iid, `Prüfung ${opts.code} abgeschlossen`);
-  return { result, nextDueAt: nextDue };
-}
-
-data.put('/inspections/:id', async (c) => {
-  requireRole(c, 'inspector');
-  await saveDraft(c, c.req.param('id'), inspectionBody.parse(await c.req.json()));
-  return c.json({ ok: true });
-});
-
-data.post('/inspections/:id/submit', async (c) => {
-  requireRole(c, 'inspector');
-  const b = inspectionBody.parse(await c.req.json());
-  const iid = c.req.param('id');
-  const insp = await saveDraft(c, iid, b);
-  const r = await finalize(c, {
-    iid,
-    assetId: insp.assetId,
-    propertyId: insp.propertyId,
-    category: insp.asset.category,
-    code: insp.asset.code as string,
-    checkpoints: insp.checkpoints,
-    body: b,
-    inspectedAt: now(),
-  });
-  return c.json({ ok: true, ...r });
-});
-
-/** Offline erfasste Prüfung übernehmen (idempotent über clientId). */
-data.post('/inspections/offline', async (c) => {
-  requireRole(c, 'inspector');
-  const body = inspectionBody
-    .extend({
-      clientId: z.string().min(8).max(64),
-      assetId: z.string(),
-      inspectedAt: z.number().int(),
-      checkpoints: z.array(z.object({ id: str(40).min(1), label: str(300).min(1), hint: str(300).optional() })).min(1).max(100),
-    })
-    .parse(await c.req.json());
-  const existing = await c.env.DB.prepare('SELECT id FROM inspections WHERE tenant_id = ? AND client_id = ?')
-    .bind(tid(c), body.clientId)
-    .first<{ id: string }>();
-  if (existing) return c.json({ id: existing.id, duplicate: true });
-  const n = now();
-  if (body.inspectedAt > n + 5 * 60_000 || body.inspectedAt < n - 90 * DAY) {
-    throw new HTTPException(400, { message: 'Prüfdatum unplausibel' });
-  }
-  const a = await loadAssetForInspection(c, body.assetId);
-  const code = await c.env.DB.prepare('SELECT code FROM assets WHERE id = ?').bind(a.id).first<string>('code');
-  const iid = id();
-  await c.env.DB.prepare(
-    `INSERT INTO inspections (id, tenant_id, asset_id, inspector_id, kind, reason, status, answers, maintenance, checkpoints, client_id, created_at, updated_at)
-     VALUES (?,?,?,?,?,'offline','draft','{}','{"items":[],"defects":[]}',?,?,?,?)`,
-  )
-    .bind(iid, tid(c), a.id, c.get('user').userId, body.kind, JSON.stringify(body.checkpoints), body.clientId, body.inspectedAt, n)
-    .run();
-  await storeDraft(c, iid, body).run();
-  try {
-    const r = await finalize(c, {
-      iid,
-      assetId: a.id,
-      propertyId: a.propertyId,
-      category: a.category,
-      code: code ?? '',
-      checkpoints: body.checkpoints,
-      body,
-      inspectedAt: body.inspectedAt,
-    });
-    return c.json({ id: iid, ...r });
-  } catch (e) {
-    await c.env.DB.prepare('DELETE FROM inspections WHERE id = ?').bind(iid).run();
-    throw e;
-  }
-});
-
-data.delete('/inspections/:id', async (c) => {
-  requireRole(c, 'inspector');
-  const r = await c.env.DB.prepare("DELETE FROM inspections WHERE id = ? AND tenant_id = ? AND status = 'draft'")
-    .bind(c.req.param('id'), tid(c))
-    .run();
-  if (!r.meta.changes) throw new HTTPException(409, { message: 'Nur Entwürfe können verworfen werden' });
-  return c.json({ ok: true });
-});
-
-/** Alles, was für die Offline-Prüfung eines Gebäudes nötig ist. */
-data.get('/offline/buildings/:id', async (c) => {
-  const b = await c.env.DB.prepare(
-    `SELECT b.id, b.name, p.id AS propertyId, p.name AS propertyName FROM buildings b JOIN properties p ON p.id = b.property_id
-      WHERE b.id = ? AND b.tenant_id = ? AND b.deleted_at IS NULL`,
-  )
-    .bind(c.req.param('id'), tid(c))
-    .first();
-  if (!b) notFound('Gebäude');
-  const assets = await assetQuery(c, 'a.building_id = ?2').bind(tid(c), b.id).all();
-  const templates = await Promise.all((Object.keys(CATEGORIES) as Category[]).map((k) => getTemplate(c, k)));
-  return c.json({ building: b, assets: assets.results.map(mapAsset), templates, preparedAt: now() });
-});
-
 // ---------- Mängel ----------
 data.get('/defects', async (c) => {
   const status = c.req.query('status') === 'resolved' ? 'resolved' : c.req.query('status') === 'all' ? null : 'open';
@@ -816,7 +550,7 @@ const MAX_UPLOAD = 10 * 1024 * 1024;
 data.post('/files', async (c) => {
   requireRole(c, 'inspector');
   const type = c.req.header('content-type') ?? '';
-  if (!/^image\/(jpeg|png|webp)$/.test(type)) throw new HTTPException(415, { message: 'Nur JPEG, PNG oder WebP' });
+  if (!/^(image\/(jpeg|png|webp)|application\/pdf)$/.test(type)) throw new HTTPException(415, { message: 'Nur JPEG, PNG, WebP oder PDF' });
   const buf = await c.req.arrayBuffer();
   if (buf.byteLength > MAX_UPLOAD) throw new HTTPException(413, { message: 'Datei zu groß (max. 10 MB)' });
   const key = `${tid(c)}/${id(24)}`;
@@ -838,6 +572,7 @@ export const CSV_HEAD = ['Objekt', 'Gebäude', 'Art', 'Code', 'Etikett', 'Stando
 
 data.get('/export/assets.csv', async (c) => {
   const rows = (await assetQuery(c, '1=1', 'p.name, b.name, a.code').bind(tid(c)).all()).results;
+  const labels = new Map((await listCategories(c)).map((d) => [d.key, d.label]));
   const esc = (v: unknown) => {
     const s = v == null ? '' : String(v);
     return /[";\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
@@ -847,7 +582,7 @@ data.get('/export/assets.csv', async (c) => {
     [
       r.propertyName,
       r.buildingName,
-      CATEGORIES[r.category as Category]?.label ?? r.category,
+      labels.get(r.category as Category) ?? r.category,
       r.code,
       r.labelCode ?? '',
       r.location,
@@ -864,5 +599,39 @@ data.get('/export/assets.csv', async (c) => {
   );
   return new Response('﻿' + [CSV_HEAD.join(';'), ...lines].join('\r\n'), {
     headers: { 'content-type': 'text/csv; charset=utf-8', 'content-disposition': 'attachment; filename="elemente.csv"' },
+  });
+});
+
+/** Vollständiges JSON-Backup des Workspaces (ohne Passwörter, Sitzungen und Tokens). */
+data.get('/export/backup.json', async (c) => {
+  requireRole(c, 'admin');
+  const t = tid(c);
+  const tables: [string, string][] = [
+    ['tenant', 'SELECT id, name, address, phone, email, website, pdf_pattern, archive_after_months, created_at FROM tenants WHERE id = ?'],
+    ['members', 'SELECT u.id, u.name, u.email, m.role, m.created_at FROM memberships m JOIN users u ON u.id = m.user_id WHERE m.tenant_id = ?'],
+    ['properties', 'SELECT * FROM properties WHERE tenant_id = ?'],
+    ['buildings', 'SELECT * FROM buildings WHERE tenant_id = ?'],
+    ['floorPlans', 'SELECT * FROM floor_plans WHERE tenant_id = ?'],
+    ['assets', 'SELECT * FROM assets WHERE tenant_id = ?'],
+    ['customCategories', 'SELECT * FROM custom_categories WHERE tenant_id = ?'],
+    ['templateOverrides', 'SELECT * FROM template_overrides WHERE tenant_id = ?'],
+    ['inspections', 'SELECT * FROM inspections WHERE tenant_id = ?'],
+    ['walkthroughs', 'SELECT * FROM walkthroughs WHERE tenant_id = ?'],
+    ['defects', 'SELECT * FROM defects WHERE tenant_id = ?'],
+    ['attachments', 'SELECT * FROM attachments WHERE tenant_id = ?'],
+    ['tasks', 'SELECT id, title, description, status, priority, due_at, assignee_id, subcontractor_id, asset_id, defect_id, property_id, labels, external_note, external_done_at, first_response_at, closed_at, created_by, created_at, updated_at FROM tasks WHERE tenant_id = ?'],
+    ['taskComments', 'SELECT * FROM task_comments WHERE tenant_id = ?'],
+    ['taskLabels', 'SELECT * FROM task_labels WHERE tenant_id = ?'],
+    ['slaPolicies', 'SELECT * FROM sla_policies WHERE tenant_id = ?'],
+    ['subcontractors', 'SELECT * FROM subcontractors WHERE tenant_id = ?'],
+    ['fireOfficers', 'SELECT * FROM fire_officers WHERE tenant_id = ?'],
+    ['activity', 'SELECT * FROM activity WHERE tenant_id = ?'],
+  ];
+  const res = await c.env.DB.batch(tables.map(([, sql]) => c.env.DB.prepare(sql).bind(t)));
+  const out: Record<string, unknown> = { format: 'pruefkompass-backup', version: 1, exportedAt: new Date().toISOString() };
+  tables.forEach(([k], i) => (out[k] = k === 'tenant' ? res[i].results[0] : res[i].results));
+  await logActivity(c, 'export', 'tenant', null, 'JSON-Backup heruntergeladen');
+  return new Response(JSON.stringify(out), {
+    headers: { 'content-type': 'application/json; charset=utf-8', 'content-disposition': `attachment; filename="backup-${new Date().toISOString().slice(0, 10)}.json"` },
   });
 });

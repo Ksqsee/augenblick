@@ -1,7 +1,7 @@
-import { Copy, Mail, Trash2, UserPlus } from 'lucide-react';
+import { Copy, Crown, KeyRound, Mail, Trash2, UserPlus } from 'lucide-react';
 import { useState } from 'react';
 import { ROLES, type Role } from '../../shared/catalog';
-import { api, useAction, useMe, useMembers } from '../api';
+import { api, queryClient, useAction, useMe, useMembers } from '../api';
 import { Badge, Button, Card, CardHeader, ErrorBox, Field, Input, Modal, PageHeader, Select, Spinner, useToast } from '../components/ui';
 import { fmtDate } from '../format';
 
@@ -23,6 +23,15 @@ export function TeamPage() {
   const setRole = useAction((v: { id: string; role: Role }) => api(`/account/members/${v.id}`, { method: 'PATCH', body: { role: v.role } }), () => toast('Rolle geändert'));
   const remove = useAction((id: string) => api(`/account/members/${id}`, { method: 'DELETE' }), () => toast('Mitglied entfernt'));
   const revoke = useAction((id: string) => api(`/account/members/invite/${id}`, { method: 'DELETE' }), () => toast('Einladung zurückgezogen'));
+  const [reset, setReset] = useState<{ name: string; url: string } | null>(null);
+  const resetLink = useAction(
+    (m: { id: string; name: string }) => api<{ token: string }>(`/account/members/${m.id}/reset-link`, { method: 'POST' }),
+    (r, m) => setReset({ name: m.name, url: `${window.location.origin}/passwort/${r.token}` }),
+  );
+  const transfer = useAction((id: string) => api(`/account/members/${id}/transfer-ownership`, { method: 'POST' }), () => {
+    queryClient.invalidateQueries({ queryKey: ['me'] });
+    toast('Inhaberschaft übertragen');
+  });
   const copy = async (token: string) => {
     await navigator.clipboard.writeText(inviteLink(token));
     toast('Einladungslink kopiert');
@@ -42,6 +51,25 @@ export function TeamPage() {
         }
       />
       {inviting && <InviteModal onClose={() => setInviting(false)} />}
+      {reset && (
+        <Modal title={`Passwort-Link für ${reset.name}`} onClose={() => setReset(null)} footer={<Button onClick={() => setReset(null)}>Fertig</Button>}>
+          <p className="mb-3 text-sm text-ink-2">Gib diesen Link persönlich weiter. Er ist 24 Stunden und nur einmal gültig; danach werden alle Sitzungen der Person beendet.</p>
+          <div className="flex gap-2">
+            <Input readOnly value={reset.url} onFocus={(e) => e.target.select()} />
+            <Button
+              variant="secondary"
+              icon={<Copy className="size-4" />}
+              onClick={async () => {
+                await navigator.clipboard.writeText(reset.url);
+                toast('Kopiert');
+              }}
+            >
+              Kopieren
+            </Button>
+          </div>
+        </Modal>
+      )}
+      {resetLink.error && <ErrorBox error={resetLink.error} />}
       {isLoading ? (
         <Spinner />
       ) : error || !data ? (
@@ -73,6 +101,20 @@ export function TeamPage() {
                         </option>
                       ))}
                     </Select>
+                    <Button variant="ghost" size="sm" aria-label={`Passwort-Link für ${m.name}`} title="Link zum Zurücksetzen des Passworts" onClick={() => resetLink.mutate(m)}>
+                      <KeyRound className="size-4" />
+                    </Button>
+                    {me?.user.role === 'owner' && (
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        aria-label={`Inhaberschaft an ${m.name} übertragen`}
+                        title="Inhaberschaft übertragen"
+                        onClick={() => confirm(`Inhaberschaft an ${m.name} übertragen? Du wirst Administrator/in.`) && transfer.mutate(m.id)}
+                      >
+                        <Crown className="size-4" />
+                      </Button>
+                    )}
                     <Button variant="ghost" size="sm" aria-label="Entfernen" onClick={() => confirm(`${m.name} aus dem Workspace entfernen?`) && remove.mutate(m.id)}>
                       <Trash2 className="size-4" />
                     </Button>

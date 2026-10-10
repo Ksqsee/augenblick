@@ -1,7 +1,7 @@
+import { allCategories } from '../categories';
 import { Package, Plus, Search } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
-import { CATEGORY_LIST } from '../../shared/catalog';
 import { type Asset, useAssets, useMe } from '../api';
 import { AssetDrawer } from '../components/AssetDrawer';
 import { AssetList } from '../components/AssetList';
@@ -66,7 +66,7 @@ export function AssetsPage() {
           <Chip active={!category} onClick={() => setParam('kategorie')}>
             Alle Arten
           </Chip>
-          {CATEGORY_LIST.map((c) => (
+          {allCategories().map((c) => (
             <Chip key={c.key} active={category === c.key} onClick={() => setParam('kategorie', category === c.key ? undefined : c.key)}>
               {c.plural}
             </Chip>

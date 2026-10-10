@@ -1,15 +1,15 @@
-import { ClipboardCheck, FileText, ScanLine } from 'lucide-react';
+import { Archive, ClipboardCheck, Download, FileText, ScanLine, Trash2 } from 'lucide-react';
 import { useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
-import { INSPECTION_KINDS } from '../../shared/catalog';
-import { type Asset, useAssets, useDashboard, useInspections } from '../api';
+import { api, type Asset, useAction, useAssets, useDashboard, useInspections, useMe } from '../api';
+import { scheduleLabel } from '../categories';
 import { AssetDrawer } from '../components/AssetDrawer';
 import { AssetList } from '../components/AssetList';
 import { CategoryIcon } from '../components/CategoryIcon';
-import { Badge, Button, Card, Empty, ErrorBox, PageHeader, Segmented, Spinner } from '../components/ui';
+import { Badge, Button, Card, Empty, ErrorBox, PageHeader, Segmented, Spinner, useToast } from '../components/ui';
 import { fmtDateTime, RESULT_META } from '../format';
 
-type Tab = 'overdue' | 'soon' | 'never' | 'drafts' | 'done';
+type Tab = 'overdue' | 'soon' | 'never' | 'drafts' | 'done' | 'archive';
 
 export function InspectionsPage() {
   const [params, setParams] = useSearchParams();
@@ -37,9 +37,14 @@ export function InspectionsPage() {
           { value: 'never', label: 'Nie geprüft', count: c?.never },
           { value: 'drafts', label: 'Entwürfe', count: c?.drafts },
           { value: 'done', label: 'Durchgeführt' },
+          { value: 'archive', label: 'Archiv' },
         ]}
       />
-      {tab === 'drafts' || tab === 'done' ? <InspectionList status={tab === 'drafts' ? 'draft' : 'submitted'} /> : <DueList due={tab} />}
+      {tab === 'drafts' || tab === 'done' || tab === 'archive' ? (
+        <InspectionList key={tab} status={tab === 'drafts' ? 'draft' : 'submitted'} archived={tab === 'archive'} />
+      ) : (
+        <DueList due={tab} />
+      )}
     </>
   );
 }
@@ -68,42 +73,120 @@ function DueList({ due }: { due: 'overdue' | 'soon' | 'never' }) {
   );
 }
 
-function InspectionList({ status }: { status: 'draft' | 'submitted' }) {
-  const { data, isLoading, error } = useInspections(status);
+function InspectionList({ status, archived }: { status: 'draft' | 'submitted'; archived: boolean }) {
+  const { data, isLoading, error } = useInspections(status, archived);
+  const { data: me } = useMe();
+  const toast = useToast();
+  const [sel, setSel] = useState<Set<string>>(new Set());
+  const [zipping, setZipping] = useState<string | null>(null);
+  const isAdmin = me && ['owner', 'admin'].includes(me.user.role);
+  const selectable = status === 'submitted';
+  const archive = useAction((v: { ids: string[]; archived: boolean }) => api<{ changed: number }>('/inspections/archive', { body: v }), (r, v) => {
+    toast(`${r.changed} ${v.archived ? 'archiviert' : 'wiederhergestellt'}`);
+    setSel(new Set());
+  });
+  const del = useAction((ids: string[]) => api<{ deleted: number }>('/inspections/batch-delete', { body: { ids } }), (r) => {
+    toast(`${r.deleted} Prüfungen gelöscht`);
+    setSel(new Set());
+  });
   if (isLoading) return <Spinner />;
   if (error) return <ErrorBox error={error} />;
+  const rows = data ?? [];
+  const toggle = (id: string) => setSel((s) => {
+    const n = new Set(s);
+    if (n.has(id)) n.delete(id);
+    else n.add(id);
+    return n;
+  });
+  const zip = async () => {
+    if (!me) return;
+    try {
+      const { protocolsZip, download } = await import('../pdf/reports');
+      const bytes = await protocolsZip([...sel], me, (d, t) => setZipping(`${d}/${t}`));
+      download(bytes, `Pruefprotokolle_${new Date().toISOString().slice(0, 10)}.zip`, 'application/zip');
+    } catch (e) {
+      toast(e instanceof Error ? e.message : 'Export fehlgeschlagen', 'bad');
+    } finally {
+      setZipping(null);
+    }
+  };
   return (
-    <Card className="overflow-hidden">
-      {!data?.length ? (
-        <Empty icon={<FileText className="size-5" />} title={status === 'draft' ? 'Keine offenen Entwürfe' : 'Noch keine Prüfungen'} />
-      ) : (
-        <ul className="divide-y divide-line">
-          {data.map((i) => (
-            <li key={i.id}>
-              <Link
-                to={status === 'draft' ? `/pruefung/${i.id}` : `/druck/protokoll/${i.id}`}
-                className="flex items-center gap-3 px-4 py-3 hover:bg-sunken/60 sm:px-5"
-              >
-                <CategoryIcon category={i.category} size="sm" />
-                <span className="min-w-0 flex-1">
-                  <span className="block text-sm font-medium">
-                    {i.code} <span className="font-normal text-ink-3">· {INSPECTION_KINDS[i.kind]}</span>
-                  </span>
-                  <span className="block truncate text-xs text-ink-3">
-                    {[i.location, i.buildingName, i.propertyName].filter(Boolean).join(' · ')}
-                  </span>
-                </span>
-                <span className="hidden text-right text-xs text-ink-3 sm:block">
-                  {fmtDateTime(i.inspectedAt ?? i.createdAt)}
-                  <br />
-                  {i.inspector}
-                </span>
-                {i.status === 'draft' ? <Badge tone="info">Entwurf</Badge> : i.result && <Badge tone={RESULT_META[i.result].tone}>{RESULT_META[i.result].label}</Badge>}
-              </Link>
-            </li>
-          ))}
-        </ul>
+    <>
+      {selectable && rows.length > 0 && (
+        <div className="mb-3 flex flex-wrap items-center gap-2">
+          <label className="mr-2 flex items-center gap-2 text-sm text-ink-2">
+            <input
+              type="checkbox"
+              className="size-4 accent-[var(--color-brand)]"
+              checked={sel.size === rows.length}
+              onChange={(e) => setSel(e.target.checked ? new Set(rows.map((r) => r.id)) : new Set())}
+            />
+            {sel.size ? `${sel.size} ausgewählt` : 'Alle auswählen'}
+          </label>
+          {sel.size > 0 && (
+            <>
+              <Button size="sm" variant="secondary" icon={<Download className="size-3.5" />} loading={!!zipping} onClick={zip}>
+                {zipping ? `PDF ${zipping}` : 'PDFs als ZIP'}
+              </Button>
+              {isAdmin && (
+                <>
+                  <Button size="sm" variant="secondary" icon={<Archive className="size-3.5" />} onClick={() => archive.mutate({ ids: [...sel], archived: !archived })}>
+                    {archived ? 'Wiederherstellen' : 'Archivieren'}
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    className="text-bad"
+                    icon={<Trash2 className="size-3.5" />}
+                    onClick={() => confirm(`${sel.size} Prüfungen endgültig löschen? Termine werden neu berechnet.`) && del.mutate([...sel])}
+                  >
+                    Löschen
+                  </Button>
+                </>
+              )}
+            </>
+          )}
+        </div>
       )}
-    </Card>
+      <Card className="overflow-hidden">
+        {!rows.length ? (
+          <Empty
+            icon={<FileText className="size-5" />}
+            title={status === 'draft' ? 'Keine offenen Entwürfe' : archived ? 'Archiv ist leer' : 'Noch keine Prüfungen'}
+            text={archived ? 'Archivierte Prüfungen bleiben als Nachweis erhalten, erscheinen aber nicht mehr in den Listen.' : undefined}
+          />
+        ) : (
+          <ul className="divide-y divide-line">
+            {rows.map((i) => (
+              <li key={i.id} className="flex items-center">
+                {selectable && (
+                  <label className="flex self-stretch items-center pl-4 sm:pl-5">
+                    <input type="checkbox" className="size-4 accent-[var(--color-brand)]" checked={sel.has(i.id)} onChange={() => toggle(i.id)} aria-label={`${i.code} auswählen`} />
+                  </label>
+                )}
+                <Link
+                  to={i.status === 'draft' ? `/pruefung/${i.id}` : `/druck/protokoll/${i.id}`}
+                  className="flex min-w-0 flex-1 items-center gap-3 px-4 py-3 hover:bg-sunken/60 sm:px-5"
+                >
+                  <CategoryIcon category={i.category} size="sm" />
+                  <span className="min-w-0 flex-1">
+                    <span className="block text-sm font-medium">
+                      {i.code} <span className="font-normal text-ink-3">· {scheduleLabel(i.category, i.schedule ?? 'main')}</span>
+                    </span>
+                    <span className="block truncate text-xs text-ink-3">{[i.location, i.buildingName, i.propertyName].filter(Boolean).join(' · ')}</span>
+                  </span>
+                  <span className="hidden text-right text-xs text-ink-3 sm:block">
+                    {fmtDateTime(i.inspectedAt ?? i.createdAt)}
+                    <br />
+                    {i.inspector}
+                  </span>
+                  {i.status === 'draft' ? <Badge tone="info">Entwurf</Badge> : i.result && <Badge tone={RESULT_META[i.result].tone}>{RESULT_META[i.result].label}</Badge>}
+                </Link>
+              </li>
+            ))}
+          </ul>
+        )}
+      </Card>
+    </>
   );
 }

@@ -1,6 +1,6 @@
 import { QueryClient, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import type { Category, Checkpoint, InspectionKind, Role, Severity } from '../shared/catalog';
-import type { Answer, Result } from '../shared/logic';
+import type { AttributeField, Category, CategoryDef, Checkpoint, InspectionKind, Role, Severity } from '../shared/catalog';
+import type { Answer, Result, Schedules } from '../shared/logic';
 import type { BuildingType, WalkQuestion } from '../shared/walkthrough';
 
 export class ApiError extends Error {
@@ -45,10 +45,23 @@ export const queryClient = new QueryClient({
 });
 
 // ---------- Typen ----------
+export interface Tenant {
+  id: string;
+  name: string;
+  logoKey: string | null;
+  address: string;
+  phone: string;
+  email: string;
+  website: string;
+  pdfPattern: string;
+  archiveAfterMonths: number | null;
+}
+
 export interface Me {
   user: { id: string; name: string; email: string; role: Role };
-  tenant: { id: string; name: string };
+  tenant: Tenant;
   workspaces: { id: string; name: string; role: Role }[];
+  pendingLegal: string[];
 }
 
 export interface PropertyRow {
@@ -87,15 +100,50 @@ export interface Asset {
   propertyName: string;
   openDefects: number;
   labelCode: string | null;
+  schedules: Schedules;
   floorPlanId: string | null;
   markerX: number | null;
   markerY: number | null;
 }
 
+export interface Attachment {
+  id: string;
+  fileKey: string;
+  name: string;
+  contentType: string;
+  size: number;
+  caption: string;
+  inspectionId: string | null;
+  createdAt: number;
+}
+
 export interface AssetDetail extends Asset {
-  inspections: { id: string; kind: InspectionKind; status: string; result: Result | null; inspectedAt: number | null; createdAt: number; inspector: string }[];
+  inspections: {
+    id: string;
+    kind: InspectionKind;
+    schedule: string;
+    status: string;
+    result: Result | null;
+    inspectedAt: number | null;
+    createdAt: number;
+    archivedAt: number | null;
+    inspector: string;
+  }[];
   defects: Defect[];
   floorPlan: { id: string; name: string; width: number; height: number; fileKey: string } | null;
+  attachments: Attachment[];
+}
+
+export interface FireOfficer {
+  id: string;
+  name: string;
+  company: string;
+  phone: string;
+  email: string;
+  qualification: string;
+  appointedFrom: number;
+  appointedTo: number | null;
+  notes: string;
 }
 
 export interface FloorPlanRow {
@@ -193,6 +241,8 @@ export interface PropertyDetail {
   contactPhone: string;
   contactEmail: string;
   buildingType: BuildingType;
+  pdfPattern: string | null;
+  fireOfficers: FireOfficer[];
   buildings: { id: string; name: string; address: string }[];
   floorPlans: FloorPlanRow[];
   walkthroughs: WalkRow[];
@@ -229,11 +279,22 @@ export interface DefectDraft {
   photoKey?: string;
 }
 
+export interface InspectionPhoto {
+  key: string;
+  caption: string;
+}
+
 export interface Inspection {
   id: string;
   assetId: string;
+  propertyId: string;
   status: 'draft' | 'submitted';
   kind: InspectionKind;
+  schedule: string;
+  scheduleLabel: string;
+  photos: InspectionPhoto[];
+  archivedAt: number | null;
+  propertyPdfPattern: string | null;
   result: Result | null;
   answers: Record<string, Answer>;
   maintenance: string[];
@@ -252,6 +313,8 @@ export interface Inspection {
   asset: {
     code: string;
     category: Category;
+    categoryLabel: string;
+    norm: string;
     location: string;
     floor: string;
     manufacturer: string;
@@ -267,6 +330,9 @@ export interface Inspection {
 export interface InspectionRow {
   id: string;
   kind: InspectionKind;
+  schedule: string;
+  archivedAt: number | null;
+  propertyId: string;
   status: 'draft' | 'submitted';
   result: Result | null;
   inspectedAt: number | null;
@@ -300,6 +366,47 @@ export interface Task {
   externalDoneAt: number | null;
   propertyId: string | null;
   propertyName: string | null;
+  labels: string[];
+  comments: number;
+  firstResponseAt: number | null;
+  closedAt: number | null;
+  sla: { responseDue: number; resolveDue: number; responseBreached: boolean; resolveBreached: boolean };
+  createdAt: number;
+}
+
+export interface TaskLabel {
+  id: string;
+  name: string;
+  color: string;
+  used: number;
+}
+
+export type SlaPolicies = Record<'high' | 'medium' | 'low', { responseHours: number; resolutionHours: number; custom: boolean }>;
+
+export interface TaskComment {
+  id: string;
+  userId: string | null;
+  authorName: string;
+  body: string;
+  createdAt: number;
+}
+
+export interface TaskStats {
+  days: number;
+  backlog: { open: number; overdue: number; byStatus: Record<string, number>; byPriority: Record<string, number> };
+  throughput: { created: number; closed: number };
+  resolution: { avgResolutionMs: number | null; avgResponseMs: number | null };
+  sla: { total: number; compliant: number; breached: number; compliancePct: number | null };
+  workload: { name: string; open: number; overdue: number }[];
+}
+
+export interface Notification {
+  id: string;
+  type: string;
+  title: string;
+  body: string;
+  link: string | null;
+  readAt: number | null;
   createdAt: number;
 }
 
@@ -311,14 +418,22 @@ export interface Member {
   joinedAt: number;
 }
 
-export interface Template {
-  key: Category;
+export interface EffectiveSchedule {
+  key: string;
   label: string;
-  norm: string;
   intervalMonths: number;
-  customized: boolean;
+  optional: boolean;
   checkpoints: Checkpoint[];
+  customized: boolean;
 }
+
+export interface CategoryInfo extends CategoryDef {
+  customized: boolean;
+  schedulesEffective: EffectiveSchedule[];
+  attributes: AttributeField[];
+}
+/** @deprecated alter Name */
+export type Template = CategoryInfo;
 
 export interface Dashboard {
   counts: {
@@ -373,8 +488,11 @@ export const useAssets = (params: Record<string, string | undefined> = {}) => {
   return useQuery({ queryKey: ['assets', qs], queryFn: () => api<Asset[]>(`/assets${qs ? `?${qs}` : ''}`) });
 };
 export const useAsset = (id: string) => useQuery({ queryKey: ['asset', id], queryFn: () => api<AssetDetail>(`/assets/${id}`) });
-export const useInspections = (status?: string) =>
-  useQuery({ queryKey: ['inspections', status ?? 'all'], queryFn: () => api<InspectionRow[]>(`/inspections${status ? `?status=${status}` : ''}`) });
+export const useInspections = (status?: string, archived = false) =>
+  useQuery({
+    queryKey: ['inspections', status ?? 'all', archived],
+    queryFn: () => api<InspectionRow[]>(`/inspections?${new URLSearchParams({ ...(status ? { status } : {}), ...(archived ? { archived: '1' } : {}) })}`),
+  });
 export const useInspection = (id: string) => useQuery({ queryKey: ['inspection', id], queryFn: () => api<Inspection>(`/inspections/${id}`) });
 export const useDefects = (status = 'open', source = '') =>
   useQuery({ queryKey: ['defects', status, source], queryFn: () => api<Defect[]>(`/defects?status=${status}${source ? `&source=${source}` : ''}`) });
@@ -388,7 +506,15 @@ export const useMembers = () =>
     queryKey: ['members'],
     queryFn: () => api<{ members: Member[]; invites: { id: string; email: string; role: Role; token: string; createdAt: number }[] }>('/account/members'),
   });
-export const useTemplates = () => useQuery({ queryKey: ['templates'], queryFn: () => api<Template[]>('/templates'), staleTime: 5 * 60_000 });
+export const useCategories = () => useQuery({ queryKey: ['categories'], queryFn: () => api<CategoryInfo[]>('/categories'), staleTime: 5 * 60_000 });
+export const useTemplates = useCategories;
+export const useNotifications = () =>
+  useQuery({ queryKey: ['notifications'], queryFn: () => api<{ items: Notification[]; unread: number }>('/notifications'), refetchInterval: 60_000 });
+export const useTaskLabels = () => useQuery({ queryKey: ['task-labels'], queryFn: () => api<TaskLabel[]>('/tasks/labels') });
+export const useSla = () => useQuery({ queryKey: ['sla'], queryFn: () => api<SlaPolicies>('/tasks/sla-policies') });
+export const useTaskStats = (days: number) => useQuery({ queryKey: ['task-stats', days], queryFn: () => api<TaskStats>(`/tasks/stats?days=${days}`) });
+export const useTaskComments = (id: string | undefined) =>
+  useQuery({ queryKey: ['task-comments', id], queryFn: () => api<TaskComment[]>(`/tasks/${id}/comments`), enabled: !!id });
 
 /** Mutation, die nach Erfolg die üblichen Listen neu lädt. */
 export function useAction<TVars, TRes = unknown>(fn: (v: TVars) => Promise<TRes>, onSuccess?: (r: TRes, v: TVars) => void) {
@@ -396,7 +522,7 @@ export function useAction<TVars, TRes = unknown>(fn: (v: TVars) => Promise<TRes>
   return useMutation({
     mutationFn: fn,
     onSuccess: async (r, v) => {
-      await qc.invalidateQueries({ predicate: (q) => q.queryKey[0] !== 'me' && q.queryKey[0] !== 'templates' });
+      await qc.invalidateQueries({ predicate: (q) => q.queryKey[0] !== 'me' });
       onSuccess?.(r, v);
     },
   });

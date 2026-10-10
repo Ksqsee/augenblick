@@ -1,4 +1,5 @@
-import { CATEGORIES, type Category } from '../shared/catalog';
+import { getCategory } from './categories';
+import { type Category } from '../shared/catalog';
 import { dueState, type DueState, type Result } from '../shared/logic';
 
 const dateFmt = new Intl.DateTimeFormat('de-DE', { day: '2-digit', month: '2-digit', year: 'numeric' });
@@ -20,7 +21,7 @@ export function fmtRelative(ts: number | null | undefined, now = Date.now()) {
   return rel.format(Math.round(days / 365), 'year');
 }
 
-export const categoryLabel = (c: Category) => CATEGORIES[c]?.label ?? c;
+export const categoryLabel = (c: Category) => getCategory(c)?.label ?? c;
 
 export const RESULT_META: Record<Result, { label: string; tone: Tone }> = {
   ok: { label: 'Ohne Mängel', tone: 'ok' },

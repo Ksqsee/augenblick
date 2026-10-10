@@ -2,7 +2,7 @@
 import { createStore, del, get, keys, set } from 'idb-keyval';
 import { useEffect, useState, useSyncExternalStore } from 'react';
 import type { Checkpoint } from '../shared/catalog';
-import { api, ApiError, type Asset, downscale, queryClient, type Template, uploadBlob } from './api';
+import { api, ApiError, type Asset, type CategoryInfo, downscale, queryClient, uploadBlob } from './api';
 import type { InspectionDraft } from './components/run';
 
 const store = createStore('pruefkompass', 'offline');
@@ -10,7 +10,7 @@ const store = createStore('pruefkompass', 'offline');
 export interface Bundle {
   building: { id: string; name: string; propertyId: string; propertyName: string };
   assets: Asset[];
-  templates: Template[];
+  categories: CategoryInfo[];
   preparedAt: number;
 }
 
@@ -19,6 +19,7 @@ export interface OutboxItem {
   assetId: string;
   code: string;
   buildingId: string;
+  schedule?: string;
   checkpoints: Checkpoint[];
   draft: InspectionDraft;
   inspectedAt: number;
@@ -80,9 +81,9 @@ export async function findAsset(assetId: string): Promise<{ bundle: Bundle; asse
 }
 
 // ---------- Entwürfe ----------
-export const getDraft = (assetId: string) => get<InspectionDraft>(`draft:${assetId}`, store);
-export const saveDraft = (assetId: string, d: InspectionDraft) => set(`draft:${assetId}`, d, store);
-export const dropDraft = (assetId: string) => del(`draft:${assetId}`, store);
+export const getDraft = (assetId: string, schedule = 'main') => get<InspectionDraft>(`draft:${assetId}:${schedule}`, store);
+export const saveDraft = (assetId: string, schedule: string, d: InspectionDraft) => set(`draft:${assetId}:${schedule}`, d, store);
+export const dropDraft = (assetId: string, schedule = 'main') => del(`draft:${assetId}:${schedule}`, store);
 
 // ---------- Fotos ----------
 export async function storePhoto(file: Blob): Promise<string> {
@@ -113,7 +114,7 @@ export async function getOutbox(): Promise<OutboxItem[]> {
 export async function enqueue(item: OutboxItem) {
   const box = await getOutbox();
   await set('outbox', [...box.filter((x) => x.clientId !== item.clientId), item], store);
-  await dropDraft(item.assetId);
+  await dropDraft(item.assetId, item.schedule ?? 'main');
   bump();
 }
 
@@ -131,17 +132,33 @@ export function syncOutbox() {
     let failed = 0;
     for (const item of await getOutbox()) {
       try {
+        const upload = async (key?: string) => {
+          if (!key?.startsWith('local:')) return key;
+          const blob = await get<Blob>(`photo:${key}`, store);
+          return blob ? await uploadBlob(blob) : undefined;
+        };
         const defects = [];
-        for (const d of item.draft.defects) {
-          if (d.photoKey?.startsWith('local:')) {
-            const blob = await get<Blob>(`photo:${d.photoKey}`, store);
-            defects.push({ ...d, photoKey: blob ? await uploadBlob(blob) : undefined });
-          } else defects.push(d);
+        for (const d of item.draft.defects) defects.push({ ...d, photoKey: await upload(d.photoKey) });
+        const photos = [];
+        for (const p of item.draft.photos ?? []) {
+          const key = await upload(p.key);
+          if (key) photos.push({ ...p, key });
         }
         await api('/inspections/offline', {
-          body: { ...item.draft, defects, clientId: item.clientId, assetId: item.assetId, inspectedAt: item.inspectedAt, checkpoints: item.checkpoints },
+          body: {
+            ...item.draft,
+            defects,
+            photos,
+            clientId: item.clientId,
+            assetId: item.assetId,
+            schedule: item.schedule ?? 'main',
+            inspectedAt: item.inspectedAt,
+            checkpoints: item.checkpoints,
+          },
         });
-        for (const d of item.draft.defects) if (d.photoKey?.startsWith('local:')) await del(`photo:${d.photoKey}`, store);
+        for (const k of [...item.draft.defects.map((d) => d.photoKey), ...(item.draft.photos ?? []).map((p) => p.key)]) {
+          if (k?.startsWith('local:')) await del(`photo:${k}`, store);
+        }
         await removeFromOutbox(item.clientId);
         sent++;
       } catch (e) {

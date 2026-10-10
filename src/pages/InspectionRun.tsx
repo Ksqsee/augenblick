@@ -32,6 +32,7 @@ function Online({ insp }: { insp: Inspection }) {
   return (
     <InspectionForm
       subject={insp.asset}
+      scheduleLabel={insp.scheduleLabel}
       checkpoints={insp.checkpoints}
       inspectorName={insp.inspectorName}
       back={`/elemente/${insp.assetId}`}
@@ -41,6 +42,7 @@ function Online({ insp }: { insp: Inspection }) {
         answers: insp.answers,
         maintenance: insp.maintenance,
         defects: insp.defects,
+        photos: insp.photos ?? [],
         notes: insp.notes,
         signature: insp.signature,
         signerName: insp.signerName || '',

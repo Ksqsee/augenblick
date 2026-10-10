@@ -4,6 +4,7 @@ import { z } from 'zod';
 import { type Answer, addMonths, computeResult, isComplete } from '../shared/logic';
 import { BUILDING_TYPES, type BuildingType, questionsFor, WALK_INTERVAL_MONTHS, type WalkQuestion } from '../shared/walkthrough';
 import { severityEnum, str, tid } from './data';
+import { notify } from './notify';
 import { type AppEnv, type Ctx, id, logActivity, notFound, now, parseJson, requireRole } from './lib';
 
 export const walks = new Hono<AppEnv>();
@@ -147,6 +148,13 @@ walks.post('/walkthroughs/:id/submit', async (c) => {
     ),
   ]);
   await logActivity(c, 'submit', 'walkthrough', wid, `Begehung ${w.propertyName} abgeschlossen`);
+  await notify(c, {
+    roles: ['owner', 'admin'],
+    type: 'walkthrough_submitted',
+    title: `Begehung ${w.propertyName} abgeschlossen`,
+    body: b.findings.length ? `${b.findings.length} Feststellungen` : 'Ohne Feststellungen',
+    link: `/druck/begehung/${wid}`,
+  });
   return c.json({ ok: true, result, nextDueAt: next });
 });
 

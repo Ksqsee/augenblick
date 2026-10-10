@@ -1,8 +1,9 @@
+import { getCategory } from '../categories';
 import clsx from 'clsx';
 import { ArrowLeft, Camera, Check, CheckCheck, Cloud, CloudOff, HardDrive, Loader2, Minus, Trash2, X } from 'lucide-react';
 import { createContext, type ReactNode, useCallback, useContext, useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { CATEGORIES, type Category, type Checkpoint, INSPECTION_KINDS, type InspectionKind, SEVERITIES, type Severity } from '../../shared/catalog';
+import { type Category, type Checkpoint, INSPECTION_KINDS, type InspectionKind, SEVERITIES, type Severity } from '../../shared/catalog';
 import { type Answer, computeResult, isComplete, type Result } from '../../shared/logic';
 import { type DefectDraft, fileUrl, uploadPhoto } from '../api';
 import { defectsLabel, RESULT_META } from '../format';
@@ -291,6 +292,7 @@ export interface InspectionDraft {
   answers: Record<string, Answer>;
   maintenance: string[];
   defects: DefectDraft[];
+  photos: { key: string; caption: string }[];
   notes: string;
   signature: string | null;
   signerName: string;
@@ -306,6 +308,7 @@ export interface InspectionSubject {
 
 export function InspectionForm({
   subject,
+  scheduleLabel,
   checkpoints,
   inspectorName,
   initial,
@@ -316,6 +319,7 @@ export function InspectionForm({
   offline,
 }: {
   subject: InspectionSubject;
+  scheduleLabel?: string;
   checkpoints: Checkpoint[];
   inspectorName: string;
   initial: InspectionDraft;
@@ -325,7 +329,7 @@ export function InspectionForm({
   discard: () => Promise<void>;
   offline?: boolean;
 }) {
-  const def = CATEGORIES[subject.category];
+  const def = getCategory(subject.category);
   const [d, setD] = useState<InspectionDraft>(initial);
   const saveState = useAutosave(d, persist);
   const [submitting, setSubmitting] = useState(false);
@@ -367,7 +371,7 @@ export function InspectionForm({
           {subject.code} <span className="font-normal text-ink-3">· {def.label}</span>
         </>
       }
-      subtitle={[subject.location, subject.buildingName, subject.propertyName].filter(Boolean).join(' · ')}
+      subtitle={[scheduleLabel, subject.location, subject.buildingName, subject.propertyName].filter(Boolean).join(' · ')}
       save={offline && saveState === 'saved' ? 'local' : saveState}
       progress={d.notInspectable ? 1 : answered / ids.length}
       result={result}
@@ -504,6 +508,8 @@ export function InspectionForm({
         </div>
       </section>
 
+      <PhotoSection photos={d.photos ?? []} onChange={(photos) => update({ photos })} />
+
       <section>
         <h2 className="mb-3 text-[15px] font-semibold">Bemerkungen</h2>
         <Textarea value={d.notes} onChange={(e) => update({ notes: e.target.value })} placeholder="Hinweise zur Prüfung, Absprachen vor Ort …" />
@@ -525,5 +531,76 @@ export function InspectionForm({
         <Trash2 className="size-3.5" /> Entwurf verwerfen
       </button>
     </RunFrame>
+  );
+}
+
+/** Allgemeine Fotos zur Prüfung mit Beschriftung. */
+export function PhotoSection({ photos, onChange }: { photos: { key: string; caption: string }[]; onChange: (p: { key: string; caption: string }[]) => void }) {
+  const store = useContext(PhotoCtx);
+  const ref = useRef<HTMLInputElement>(null);
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState('');
+  return (
+    <section>
+      <h2 className="mb-3 text-[15px] font-semibold">
+        Fotos <span className="font-normal text-ink-3">{photos.length ? photos.length : ''}</span>
+      </h2>
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
+        {photos.map((p, i) => (
+          <div key={p.key} className="overflow-hidden rounded-xl border border-line bg-surface">
+            <div className="relative aspect-[4/3] bg-sunken">
+              <img src={store.src(p.key)} alt={p.caption || `Foto ${i + 1}`} className="absolute inset-0 size-full object-cover" />
+              <button
+                type="button"
+                aria-label="Foto entfernen"
+                onClick={() => onChange(photos.filter((x) => x !== p))}
+                className="absolute top-1.5 right-1.5 grid size-7 place-items-center rounded-full bg-ink/80 text-white"
+              >
+                <X className="size-4" />
+              </button>
+            </div>
+            <input
+              value={p.caption}
+              onChange={(e) => onChange(photos.map((x) => (x === p ? { ...x, caption: e.target.value } : x)))}
+              placeholder="Beschriftung"
+              className="w-full border-t border-line px-2.5 py-2 text-xs outline-none"
+            />
+          </div>
+        ))}
+        <button
+          type="button"
+          onClick={() => ref.current?.click()}
+          disabled={busy}
+          className="flex aspect-[4/3] flex-col items-center justify-center gap-1 rounded-xl border border-dashed border-line-strong text-sm text-ink-2 hover:bg-sunken"
+        >
+          {busy ? <Loader2 className="size-5 animate-spin" /> : <Camera className="size-5" />}
+          Foto hinzufügen
+        </button>
+      </div>
+      {err && <p className="mt-2 text-xs text-bad">{err}</p>}
+      <input
+        ref={ref}
+        type="file"
+        accept="image/*"
+        multiple
+        className="hidden"
+        onChange={async (e) => {
+          const files = [...(e.target.files ?? [])];
+          e.target.value = '';
+          if (!files.length) return;
+          setBusy(true);
+          setErr('');
+          try {
+            const added = [];
+            for (const f of files) added.push({ key: await store.upload(f), caption: '' });
+            onChange([...photos, ...added]);
+          } catch (x) {
+            setErr(x instanceof Error ? x.message : 'Upload fehlgeschlagen');
+          } finally {
+            setBusy(false);
+          }
+        }}
+      />
+    </section>
   );
 }

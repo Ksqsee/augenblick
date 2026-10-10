@@ -1,6 +1,6 @@
 import { useQuery } from '@tanstack/react-query';
 import clsx from 'clsx';
-import { ChevronDown, ClipboardList, Footprints, Plus, Scale, Trash2 } from 'lucide-react';
+import { ChevronDown, ClipboardList, Download, Footprints, Plus, Scale, Trash2 } from 'lucide-react';
 import { useCallback, useMemo, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { SEVERITIES } from '../../shared/catalog';
@@ -372,7 +372,7 @@ export function WalkthroughProtocol() {
   const sections = [...new Set(w.questions.map((q) => q.section as WalkSection))];
   const res = w.result ? RESULT_META[w.result] : null;
   return (
-    <PrintFrame title="Begehungsprotokoll" back={`/objekte/${w.propertyId}`}>
+    <PrintFrame title="Begehungsprotokoll" back={`/objekte/${w.propertyId}`} actions={<WalkPdfButton w={w} />}>
       <header className="flex items-start justify-between border-b-2 border-ink pb-3">
         <div>
           <p className="text-[11px] tracking-wider text-ink-3 uppercase">{w.tenantName}</p>
@@ -458,5 +458,33 @@ export function WalkthroughProtocol() {
         <ClipboardList className="size-3" /> Rechtsgrundlagen sind Orientierungshinweise; maßgeblich sind die im Einzelfall geltenden Vorschriften und das Brandschutzkonzept.
       </p>
     </PrintFrame>
+  );
+}
+
+function WalkPdfButton({ w }: { w: Walkthrough }) {
+  const { data: me } = useMe();
+  const toast = useToast();
+  const [busy, setBusy] = useState(false);
+  if (!me) return null;
+  return (
+    <Button
+      icon={<Download className="size-4" />}
+      loading={busy}
+      onClick={async () => {
+        setBusy(true);
+        try {
+          const { walkthroughPdf, loadBrand, download } = await import('../pdf/reports');
+          const { buildFileName } = await import('../../shared/filename');
+          const name = buildFileName('Begehung_{objekt}_{datum}', { objekt: w.propertyName, datum: new Date(w.inspectedAt ?? w.createdAt).toISOString().slice(0, 10) });
+          download(await walkthroughPdf(w, await loadBrand(me)), name);
+        } catch (e) {
+          toast(e instanceof Error ? e.message : 'PDF fehlgeschlagen', 'bad');
+        } finally {
+          setBusy(false);
+        }
+      }}
+    >
+      PDF
+    </Button>
   );
 }

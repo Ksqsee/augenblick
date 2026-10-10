@@ -1,5 +1,5 @@
 // Service Worker: App-Shell offline verfügbar machen. API-Aufrufe werden nie gecacht.
-const CACHE = 'pk-shell-v2';
+const CACHE = 'pk-shell-v3';
 
 self.addEventListener('install', (event) => {
   event.waitUntil(
@@ -55,4 +55,31 @@ self.addEventListener('fetch', (event) => {
       ),
     );
   }
+});
+
+// ---------- Web Push ----------
+self.addEventListener('push', (event) => {
+  let data = { title: 'Prüfkompass', body: '', link: '/' };
+  try {
+    data = { ...data, ...event.data.json() };
+  } catch {
+    /* leere Nachricht */
+  }
+  event.waitUntil(self.registration.showNotification(data.title, { body: data.body, icon: '/icon.svg', badge: '/icon.svg', data: { link: data.link } }));
+});
+
+self.addEventListener('notificationclick', (event) => {
+  event.notification.close();
+  const link = event.notification.data?.link || '/';
+  event.waitUntil(
+    self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then((list) => {
+      for (const c of list) {
+        if ('focus' in c) {
+          c.navigate(link);
+          return c.focus();
+        }
+      }
+      return self.clients.openWindow(link);
+    }),
+  );
 });

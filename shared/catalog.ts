@@ -1,7 +1,9 @@
 // Prüfkataloge – eigene Formulierungen, orientiert an den einschlägigen Normen
 // (DIN 14677, DIN EN 15650 / DIN 31051, DIN 14406-4, DIN 14676).
 
-export type Category = 'fire_door' | 'damper' | 'extinguisher' | 'smoke_alarm';
+export type BuiltinCategory = 'fire_door' | 'damper' | 'extinguisher' | 'smoke_alarm';
+/** Eingebaute Kategorie oder eigener Typ des Workspaces (Schlüssel „c_…“). */
+export type Category = string;
 
 export interface Checkpoint {
   id: string;
@@ -16,6 +18,15 @@ export interface AttributeField {
   options?: string[];
 }
 
+/** Eine Prüfart mit eigener Frist, z. B. „Innere Prüfung“ alle 5 Jahre. „main“ ist die Hauptprüfung. */
+export interface ScheduleDef {
+  key: string;
+  label: string;
+  intervalMonths: number;
+  optional: boolean;
+  checkpoints?: Checkpoint[];
+}
+
 export interface CategoryDef {
   key: Category;
   label: string;
@@ -26,12 +37,16 @@ export interface CategoryDef {
   checkpoints: Checkpoint[];
   attributes: AttributeField[];
   maintenance: { key: string; label: string }[];
+  schedules: ScheduleDef[];
+  color?: string;
+  custom?: boolean;
+  base?: string | null;
 }
 
 const cp = (labels: (string | [string, string])[]): Checkpoint[] =>
   labels.map((l, i) => (Array.isArray(l) ? { id: `p${i + 1}`, label: l[0], hint: l[1] } : { id: `p${i + 1}`, label: l }));
 
-export const CATEGORIES: Record<Category, CategoryDef> = {
+export const CATEGORIES: Record<BuiltinCategory, CategoryDef> = {
   fire_door: {
     key: 'fire_door',
     label: 'Feuerschutztür',
@@ -64,6 +79,22 @@ export const CATEGORIES: Record<Category, CategoryDef> = {
       { key: 'smoke', label: 'Rauchschutz (RS)', type: 'boolean' },
       { key: 'leaves', label: 'Flügel', type: 'select', options: ['1-flügelig', '2-flügelig'] },
       { key: 'holdOpen', label: 'Feststellanlage', type: 'boolean' },
+    ],
+    schedules: [
+      { key: 'main', label: 'Jährliche Prüfung und Wartung', intervalMonths: 12, optional: false },
+      {
+        key: 'visual',
+        label: 'Monatliche Sichtkontrolle',
+        intervalMonths: 1,
+        optional: true,
+        checkpoints: cp([
+          'Tür schließt selbsttätig ins Schloss',
+          'Keine Keile oder unzulässigen Festhaltungen',
+          'Dichtungen sichtbar vollständig',
+          'Türblatt und Zarge ohne neue Schäden',
+          'Feststellanlage gibt bei Prüfauslösung frei',
+        ]),
+      },
     ],
     maintenance: [
       { key: 'closer', label: 'Schließer nachjustiert' },
@@ -104,6 +135,7 @@ export const CATEGORIES: Record<Category, CategoryDef> = {
       { key: 'rating', label: 'Feuerwiderstand', type: 'select', options: ['K30', 'K60', 'K90', 'EI 30 S', 'EI 60 S', 'EI 90 S'] },
       { key: 'actuator', label: 'Antrieb', type: 'select', options: ['Mechanisch', 'Federrücklaufmotor', 'Pneumatisch'] },
     ],
+    schedules: [{ key: 'main', label: 'Funktionsprüfung', intervalMonths: 12, optional: false }],
     maintenance: [
       { key: 'cleaned', label: 'Gereinigt' },
       { key: 'lubricated', label: 'Gelenke geschmiert' },
@@ -138,6 +170,35 @@ export const CATEGORIES: Record<Category, CategoryDef> = {
       { key: 'size', label: 'Füllmenge (kg/l)', type: 'number' },
       { key: 'classes', label: 'Brandklassen' },
     ],
+    schedules: [
+      { key: 'main', label: 'Instandhaltung', intervalMonths: 24, optional: false },
+      {
+        key: 'inner',
+        label: 'Innere Prüfung',
+        intervalMonths: 60,
+        optional: true,
+        checkpoints: cp([
+          'Behälter drucklos gemacht und geöffnet',
+          'Innenwand ohne Korrosion oder Ablagerungen',
+          'Steigrohr und Ventil gereinigt und gängig',
+          'Löschmittel ersetzt bzw. aufbereitet',
+          'Dichtungen erneuert',
+          'Behälter wieder befüllt, Treibmittel geprüft',
+        ]),
+      },
+      {
+        key: 'strength',
+        label: 'Festigkeitsprüfung',
+        intervalMonths: 120,
+        optional: true,
+        checkpoints: cp([
+          'Wasserdruckprüfung mit vorgeschriebenem Prüfdruck',
+          'Keine bleibende Verformung',
+          'Keine Undichtigkeit',
+          'Prüfdatum am Behälter eingeschlagen',
+        ]),
+      },
+    ],
     maintenance: [
       { key: 'pressure', label: 'Druckprüfung' },
       { key: 'valve', label: 'Ventil geprüft' },
@@ -168,6 +229,7 @@ export const CATEGORIES: Record<Category, CategoryDef> = {
       { key: 'serial', label: 'Seriennummer' },
       { key: 'battery', label: 'Batterie', type: 'select', options: ['10-Jahres-Lithium', 'Wechselbatterie 9V', 'Netzbetrieb'] },
     ],
+    schedules: [{ key: 'main', label: 'Jährliche Inspektion', intervalMonths: 12, optional: false }],
     maintenance: [
       { key: 'battery', label: 'Batterie getauscht' },
       { key: 'cleaned', label: 'Gereinigt' },
@@ -178,6 +240,15 @@ export const CATEGORIES: Record<Category, CategoryDef> = {
 };
 
 export const CATEGORY_LIST = Object.values(CATEGORIES);
+export const isBuiltin = (k: string): k is BuiltinCategory => k in CATEGORIES;
+
+/** Hauptprüfung immer zuerst; „main“ übernimmt Intervall und Prüfpunkte der Kategorie. */
+export function schedulesOf(def: CategoryDef): ScheduleDef[] {
+  const list = def.schedules?.length ? def.schedules : [{ key: 'main', label: 'Prüfung', intervalMonths: def.intervalMonths, optional: false }];
+  return list.map((s) => (s.key === 'main' ? { ...s, intervalMonths: def.intervalMonths, checkpoints: def.checkpoints } : s));
+}
+
+export const CATEGORY_COLORS = ['slate', 'orange', 'blue', 'red', 'green', 'violet', 'teal', 'amber'] as const;
 
 export const INSPECTION_KINDS = {
   periodic: 'Wiederkehrende Prüfung',

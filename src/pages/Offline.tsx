@@ -1,8 +1,10 @@
+import { getCategory } from '../categories';
 import { useQuery } from '@tanstack/react-query';
 import { AlertCircle, CloudDownload, CloudOff, CloudUpload, RefreshCw, Trash2, Wifi } from 'lucide-react';
 import { useEffect, useState } from 'react';
-import { Link, useNavigate, useParams } from 'react-router-dom';
-import { CATEGORIES } from '../../shared/catalog';
+import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom';
+import { summarizeSchedules } from '../../shared/logic';
+import { registerCategories } from '../categories';
 import { api, type PropertyDetail, useMe, useProperties } from '../api';
 import { DueBadge } from '../components/AssetList';
 import { CategoryIcon } from '../components/CategoryIcon';
@@ -109,7 +111,7 @@ export function OfflinePage() {
                           <CategoryIcon category={a.category} size="sm" />
                           <span className="min-w-0 flex-1">
                             <span className="block text-sm font-medium">
-                              {a.code} <span className="font-normal text-ink-3">· {CATEGORIES[a.category].label}</span>
+                              {a.code} <span className="font-normal text-ink-3">· {getCategory(a.category).label}</span>
                             </span>
                             <span className="block truncate text-xs text-ink-3">{[a.location, a.floor].filter(Boolean).join(' · ') || '–'}</span>
                           </span>
@@ -240,10 +242,16 @@ export function OfflineRun() {
   const toast = useToast();
   const { data: me } = useMe();
   useOfflineVersion(); // für lokale Fotos neu rendern
-  const [state, setState] = useState<{ found: Awaited<ReturnType<typeof findAsset>>; draft: InspectionDraft | undefined } | null>(null);
+  const [params] = useSearchParams();
+  const [state, setState] = useState<{ found: Awaited<ReturnType<typeof findAsset>>; draft: InspectionDraft | undefined; schedule: string } | null>(null);
   useEffect(() => {
-    Promise.all([findAsset(assetId), getDraft(assetId)]).then(([found, draft]) => setState({ found, draft }));
-  }, [assetId]);
+    (async () => {
+      const found = await findAsset(assetId);
+      if (found?.bundle.categories) registerCategories(found.bundle.categories);
+      const schedule = params.get('pruefart') ?? (found ? (summarizeSchedules(found.asset.schedules ?? {}).nextKey ?? 'main') : 'main');
+      setState({ found, draft: await getDraft(assetId, schedule), schedule });
+    })();
+  }, [assetId, params]);
 
   if (!state) return <Spinner className="min-h-dvh items-center" />;
   if (!state.found)
@@ -256,13 +264,24 @@ export function OfflineRun() {
       </div>
     );
   const { asset, bundle } = state.found;
-  const tpl = bundle.templates.find((t) => t.key === asset.category)!;
+  const cat = bundle.categories?.find((t) => t.key === asset.category);
+  const sched = cat?.schedulesEffective.find((s) => s.key === state.schedule) ?? cat?.schedulesEffective[0];
+  if (!cat || !sched)
+    return (
+      <div className="mx-auto max-w-md p-6 text-center">
+        <p className="mb-4 text-sm text-ink-3">Die Offline-Daten dieses Gebäudes sind veraltet. Bitte bei Verbindung neu laden.</p>
+        <Link to="/offline">
+          <Button>Zum Offline-Modus</Button>
+        </Link>
+      </div>
+    );
   return (
     <PhotoCtx.Provider value={{ upload: storePhoto, src: (k) => (k.startsWith('local:') ? localPhotoSrc(k) : `/api/files/${k}`) }}>
       <InspectionForm
         offline
         subject={{ ...asset, buildingName: bundle.building.name, propertyName: bundle.building.propertyName }}
-        checkpoints={tpl.checkpoints}
+        scheduleLabel={sched.label}
+        checkpoints={sched.checkpoints}
         inspectorName={me?.user.name ?? ''}
         back="/offline"
         initial={
@@ -272,19 +291,21 @@ export function OfflineRun() {
             answers: {},
             maintenance: [],
             defects: [],
+            photos: [],
             notes: '',
             signature: null,
             signerName: '',
           }
         }
-        persist={(d) => saveDraft(asset.id, d)}
+        persist={(d) => saveDraft(asset.id, sched.key, d)}
         submit={async (d) => {
           await enqueue({
             clientId: crypto.randomUUID(),
             assetId: asset.id,
             code: asset.code,
             buildingId: bundle.building.id,
-            checkpoints: tpl.checkpoints,
+            schedule: sched.key,
+            checkpoints: sched.checkpoints,
             draft: d,
             inspectedAt: Date.now(),
           });
@@ -293,7 +314,7 @@ export function OfflineRun() {
           navigate('/offline', { replace: true });
         }}
         discard={async () => {
-          await dropDraft(asset.id);
+          await dropDraft(asset.id, sched.key);
           navigate('/offline', { replace: true });
         }}
       />

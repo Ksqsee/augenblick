@@ -1,14 +1,17 @@
-import type { ReactNode } from 'react';
+import { type ReactNode, useEffect, useState } from 'react';
 import { BrowserRouter, Navigate, Route, Routes, useLocation } from 'react-router-dom';
-import { useMe } from './api';
+import { useCategories, useMe } from './api';
+import { registerCategories } from './categories';
+import { LegalGate, LegalPage } from './components/Legal';
 import { Shell } from './components/Shell';
 import { Spinner } from './components/ui';
 import { AssetPage, AssetByCode } from './pages/Asset';
 import { AssetsPage } from './pages/Assets';
-import { InviteAccept, Login, Register } from './pages/Auth';
+import { InviteAccept, Login, Register, ResetPassword } from './pages/Auth';
 import { Dashboard } from './pages/Dashboard';
 import { DefectsPage } from './pages/Defects';
 import { FloorPlanPage } from './pages/FloorPlan';
+import { HelpPage } from './pages/Help';
 import { ImportPage } from './pages/Import';
 import { OfflinePage, OfflineRun } from './pages/Offline';
 import { ExternalTaskPage, SubcontractorsPage } from './pages/Subcontractors';
@@ -26,10 +29,23 @@ import { TeamPage } from './pages/Team';
 
 function RequireAuth({ children }: { children: ReactNode }) {
   const me = useMe();
+  const cats = useCategories();
   const loc = useLocation();
-  if (me.isLoading) return <Spinner className="min-h-dvh items-center" />;
+  const [, force] = useState(0);
+  useEffect(() => {
+    if (cats.data) {
+      registerCategories(cats.data);
+      force((n) => n + 1);
+    }
+  }, [cats.data]);
+  if (me.isLoading || (cats.isLoading && navigator.onLine)) return <Spinner className="min-h-dvh items-center" />;
   if (me.isError) return <Navigate to={`/login?next=${encodeURIComponent(loc.pathname + loc.search)}`} replace />;
-  return <>{children}</>;
+  return (
+    <>
+      {children}
+      {me.data && me.data.pendingLegal?.length > 0 && navigator.onLine && <LegalGate pending={me.data.pendingLegal} />}
+    </>
+  );
 }
 
 export function App() {
@@ -40,6 +56,9 @@ export function App() {
         <Route path="/registrieren" element={<Register />} />
         <Route path="/einladung/:token" element={<InviteAccept />} />
         <Route path="/extern/:token" element={<ExternalTaskPage />} />
+        <Route path="/passwort/:token" element={<ResetPassword />} />
+        <Route path="/rechtliches" element={<LegalPage />} />
+        <Route path="/rechtliches/:doc" element={<LegalPage />} />
         <Route
           path="/druck/begehung/:id"
           element={
@@ -129,6 +148,7 @@ export function App() {
           <Route path="team" element={<TeamPage />} />
           <Route path="einstellungen" element={<SettingsPage />} />
           <Route path="scan" element={<ScanPage />} />
+          <Route path="hilfe" element={<HelpPage />} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Route>
       </Routes>

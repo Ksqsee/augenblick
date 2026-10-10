@@ -1,10 +1,13 @@
+import { getCategory } from '../categories';
 import { useQuery } from '@tanstack/react-query';
-import { ArrowLeft, ClipboardCheck, FileText, Link2, Map, Pencil, Plus, QrCode, Search, Tag, Trash2, X } from 'lucide-react';
+import { ArrowLeft, ClipboardCheck, FileText, Link2, Map, Paperclip, Pencil, Plus, QrCode, Search, Tag, Trash2, X } from 'lucide-react';
 import QRCode from 'qrcode';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Link, Navigate, useNavigate, useParams } from 'react-router-dom';
-import { CATEGORIES, INSPECTION_KINDS, SEVERITIES } from '../../shared/catalog';
-import { api, ApiError, useAction, useAsset, useAssets, useMe } from '../api';
+import { INSPECTION_KINDS, SEVERITIES } from '../../shared/catalog';
+import { api, ApiError, type AssetDetail, type Attachment, downscale, fileUrl, queryClient, uploadBlob, useAction, useAsset, useAssets, useMe } from '../api';
+import { summarizeSchedules } from '../../shared/logic';
+import { scheduleLabel, schedulesFor } from '../categories';
 import { useStartInspection } from '../components/AssetDrawer';
 import { DueBadge } from '../components/AssetList';
 import { CategoryIcon } from '../components/CategoryIcon';
@@ -42,7 +45,7 @@ export function AssetPage() {
   );
   if (isLoading) return <Spinner />;
   if (error || !a) return <ErrorBox error={error} />;
-  const def = CATEGORIES[a.category];
+  const def = getCategory(a.category);
   const canInspect = me?.user.role !== 'viewer';
   const isAdmin = me && ['owner', 'admin'].includes(me.user.role);
   const draft = a.inspections.find((i) => i.status === 'draft');
@@ -102,9 +105,13 @@ export function AssetPage() {
             <Card className="p-4">
               <p className="text-xs text-ink-3">Nächste Prüfung</p>
               <p className="mt-1.5 text-sm font-semibold">{fmtDate(a.nextDueAt)}</p>
-              <p className="text-xs text-ink-3">Intervall {def.intervalMonths} Monate</p>
+              <p className="text-xs text-ink-3">
+                {a.schedules && summarizeSchedules(a.schedules).nextKey ? scheduleLabel(a.category, summarizeSchedules(a.schedules).nextKey!) : `Intervall ${def.intervalMonths} Monate`}
+              </p>
             </Card>
           </div>
+
+          <SchedulesCard asset={a} canEdit={!!canInspect} onStart={(schedule) => start.mutate({ assetId: a.id, schedule })} />
 
           <Card>
             <CardHeader title="Offene Mängel" />
@@ -142,11 +149,14 @@ export function AssetPage() {
                     >
                       <FileText className="size-4 text-ink-3" />
                       <span className="min-w-0 flex-1">
-                        <span className="block text-sm font-medium">{INSPECTION_KINDS[i.kind]}</span>
+                        <span className="block text-sm font-medium">
+                          {scheduleLabel(a.category, i.schedule ?? 'main')} <span className="font-normal text-ink-3">· {INSPECTION_KINDS[i.kind]}</span>
+                        </span>
                         <span className="block text-xs text-ink-3">
                           {fmtDateTime(i.inspectedAt ?? i.createdAt)} · {i.inspector}
                         </span>
                       </span>
+                      {i.archivedAt && <Badge>Archiv</Badge>}
                       {i.status === 'draft' ? <Badge tone="info">Entwurf</Badge> : i.result && <Badge tone={RESULT_META[i.result].tone}>{RESULT_META[i.result].label}</Badge>}
                     </Link>
                   </li>
@@ -154,6 +164,8 @@ export function AssetPage() {
               </ul>
             )}
           </Card>
+
+          <AttachmentsCard assetId={a.id} items={a.attachments ?? []} canEdit={!!canInspect} />
         </div>
 
         <aside className="flex flex-col gap-4">
@@ -189,6 +201,173 @@ export function AssetPage() {
         </aside>
       </div>
     </>
+  );
+}
+
+function SchedulesCard({ asset, canEdit, onStart }: { asset: AssetDetail; canEdit: boolean; onStart: (key: string) => void }) {
+  const toast = useToast();
+  const list = schedulesFor(asset.category);
+  const [enabling, setEnabling] = useState<string | null>(null);
+  const [first, setFirst] = useState(new Date().toISOString().slice(0, 10));
+  const save = useAction(
+    (v: { key: string; enabled: boolean; nextDueAt?: number | null }) => api(`/assets/${asset.id}/schedules`, { method: 'PUT', body: v }),
+    (_, v) => {
+      toast(v.enabled ? 'Prüfart aktiviert' : 'Prüfart deaktiviert');
+      setEnabling(null);
+    },
+  );
+  if (list.length < 2) return null;
+  return (
+    <Card>
+      <CardHeader title="Prüfarten" subtitle="Jede Prüfart hat ein eigenes Intervall und einen eigenen Termin" />
+      {save.error && (
+        <div className="px-5 pt-3">
+          <ErrorBox error={save.error} />
+        </div>
+      )}
+      <ul className="divide-y divide-line">
+        {list.map((s) => {
+          const st = asset.schedules?.[s.key];
+          const on = s.key === 'main' || !!st?.enabled;
+          return (
+            <li key={s.key} className="flex flex-col gap-2 px-5 py-3 sm:flex-row sm:items-center">
+              <div className="min-w-0 flex-1">
+                <p className="text-sm font-medium">
+                  {s.label} <span className="font-normal text-ink-3">· alle {s.intervalMonths} Monate</span>
+                </p>
+                <p className="text-xs text-ink-3">
+                  {on ? `Zuletzt ${fmtDate(st?.lastAt ?? null)} · nächste ${fmtDate(st?.nextDueAt ?? null)}` : 'Nicht aktiv für dieses Element'}
+                </p>
+              </div>
+              {on && <DueBadge asset={{ nextDueAt: s.key === 'main' && st?.lastAt == null && st?.nextDueAt == null ? null : (st?.nextDueAt ?? null), lastResult: st?.lastResult ?? null }} />}
+              {canEdit && (
+                <div className="flex gap-2">
+                  {on && (
+                    <Button size="sm" variant="secondary" onClick={() => onStart(s.key)}>
+                      Prüfen
+                    </Button>
+                  )}
+                  {s.key !== 'main' &&
+                    (on ? (
+                      <Button size="sm" variant="ghost" onClick={() => confirm(`${s.label} für dieses Element deaktivieren?`) && save.mutate({ key: s.key, enabled: false })}>
+                        Deaktivieren
+                      </Button>
+                    ) : enabling === s.key ? (
+                      <div className="flex items-center gap-2">
+                        <Input type="date" value={first} onChange={(e) => setFirst(e.target.value)} className="h-8 w-40" aria-label="Erster Termin" />
+                        <Button size="sm" loading={save.isPending} onClick={() => save.mutate({ key: s.key, enabled: true, nextDueAt: new Date(`${first}T12:00:00`).getTime() })}>
+                          OK
+                        </Button>
+                      </div>
+                    ) : (
+                      <Button size="sm" variant="ghost" onClick={() => setEnabling(s.key)}>
+                        Aktivieren
+                      </Button>
+                    ))}
+                </div>
+              )}
+            </li>
+          );
+        })}
+      </ul>
+    </Card>
+  );
+}
+
+const fmtSize = (n: number) => (n > 1_000_000 ? `${(n / 1_000_000).toFixed(1)} MB` : `${Math.max(1, Math.round(n / 1000))} KB`);
+
+function AttachmentsCard({ assetId, items, canEdit }: { assetId: string; items: Attachment[]; canEdit: boolean }) {
+  const toast = useToast();
+  const ref = useRef<HTMLInputElement>(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<unknown>(null);
+  const del = useAction((id: string) => api(`/attachments/${id}`, { method: 'DELETE' }), () => toast('Entfernt'));
+  const upload = async (files: File[]) => {
+    setBusy(true);
+    setError(null);
+    try {
+      for (const f of files) {
+        const isPdf = f.type === 'application/pdf';
+        const blob = isPdf ? f : await downscale(f, 2000);
+        if (blob.size > 10 * 1024 * 1024) throw new Error(`${f.name} ist größer als 10 MB`);
+        const key = await uploadBlob(blob);
+        await api(`/assets/${assetId}/attachments`, { body: { key, name: f.name, contentType: isPdf ? 'application/pdf' : blob.type || 'image/jpeg', size: blob.size } });
+      }
+      await queryClient.invalidateQueries({ queryKey: ['asset', assetId] });
+      toast(files.length === 1 ? 'Datei hochgeladen' : `${files.length} Dateien hochgeladen`);
+    } catch (e) {
+      setError(e);
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <Card>
+      <CardHeader
+        title="Fotos & Dokumente"
+        subtitle="Bilder, Zulassungen, Datenblätter (PDF)"
+        action={
+          canEdit && (
+            <Button size="sm" variant="secondary" loading={busy} icon={<Paperclip className="size-3.5" />} onClick={() => ref.current?.click()}>
+              Hinzufügen
+            </Button>
+          )
+        }
+      />
+      <input
+        ref={ref}
+        type="file"
+        multiple
+        accept="image/png,image/jpeg,image/webp,application/pdf"
+        className="hidden"
+        onChange={(e) => {
+          const f = [...(e.target.files ?? [])];
+          e.target.value = '';
+          if (f.length) void upload(f);
+        }}
+      />
+      {!!error && (
+        <div className="px-5 pt-3">
+          <ErrorBox error={error} />
+        </div>
+      )}
+      {items.length === 0 ? (
+        <p className="px-5 py-4 text-sm text-ink-3">Noch keine Dateien.</p>
+      ) : (
+        <ul className="grid grid-cols-2 gap-3 p-4 sm:grid-cols-3">
+          {items.map((f) => (
+            <li key={f.id} className="group relative overflow-hidden rounded-lg border border-line">
+              <a href={fileUrl(f.fileKey)} target="_blank" rel="noreferrer" className="block">
+                {f.contentType.startsWith('image/') ? (
+                  <img src={fileUrl(f.fileKey)} alt={f.caption || f.name} className="aspect-[4/3] w-full object-cover" loading="lazy" />
+                ) : (
+                  <span className="grid aspect-[4/3] place-items-center bg-sunken text-ink-3">
+                    <FileText className="size-8" />
+                  </span>
+                )}
+                <span className="block truncate px-2 py-1.5 text-xs">
+                  {f.caption || f.name}
+                  <span className="block text-[11px] text-ink-3">
+                    {f.inspectionId ? 'aus Prüfung · ' : ''}
+                    {fmtDate(f.createdAt)}
+                    {f.size ? ` · ${fmtSize(f.size)}` : ''}
+                  </span>
+                </span>
+              </a>
+              {canEdit && (
+                <button
+                  onClick={() => confirm(`„${f.caption || f.name}“ entfernen?`) && del.mutate(f.id)}
+                  className="absolute top-1.5 right-1.5 hidden size-7 place-items-center rounded-full bg-ink/80 text-white group-hover:grid"
+                  aria-label="Entfernen"
+                >
+                  <Trash2 className="size-3.5" />
+                </button>
+              )}
+            </li>
+          ))}
+        </ul>
+      )}
+    </Card>
   );
 }
 

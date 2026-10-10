@@ -1,7 +1,7 @@
+import { allCategories, getCategory } from '../categories';
 import { AlertCircle, CheckCircle2, Download, FileSpreadsheet, Upload } from 'lucide-react';
 import { useState } from 'react';
 import { Link } from 'react-router-dom';
-import { CATEGORIES } from '../../shared/catalog';
 import { IMPORT_COLUMNS, type ImportRow, parseCsv, toImportRows } from '../../shared/importing';
 import { api, queryClient } from '../api';
 import { Badge, Button, Card, CardHeader, ErrorBox, PageHeader, useToast } from '../components/ui';
@@ -48,7 +48,7 @@ export function ImportPage() {
       } else {
         table = parseCsv(await f.text());
       }
-      const r = toImportRows(table);
+      const r = toImportRows(table, allCategories().filter((c) => c.custom));
       if (r.rows.length > 1000) throw new Error('Maximal 1000 Zeilen pro Import');
       setRows(r.rows);
       setParseErrors(r.errors);
@@ -169,7 +169,7 @@ export function ImportPage() {
                         <tr key={i}>
                           <td className="px-3 py-2">{r.property}</td>
                           <td className="px-3 py-2">{r.building}</td>
-                          <td className="px-3 py-2 whitespace-nowrap">{CATEGORIES[r.category].label}</td>
+                          <td className="px-3 py-2 whitespace-nowrap">{getCategory(r.category).label}</td>
                           <td className="px-3 py-2 font-mono text-xs">{res?.code ?? r.code ?? '–'}</td>
                           <td className="px-3 py-2">{r.location || '–'}</td>
                           <td className="px-3 py-2">{r.manufacturer || '–'}</td>

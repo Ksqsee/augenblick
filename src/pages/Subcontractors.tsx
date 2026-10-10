@@ -1,8 +1,9 @@
+import { getCategory } from '../categories';
 import { useQuery } from '@tanstack/react-query';
 import { Building, CheckCircle2, HardHat, Mail, Pencil, Phone, Plus, Trash2 } from 'lucide-react';
 import { useState } from 'react';
 import { useParams } from 'react-router-dom';
-import { CATEGORIES, type Category, SEVERITIES, type Severity } from '../../shared/catalog';
+import { type Category, SEVERITIES, type Severity } from '../../shared/catalog';
 import { api, type Subcontractor, useAction, useMe, useSubcontractors } from '../api';
 import { Logo } from '../components/Logo';
 import { Badge, Button, Card, Empty, ErrorBox, Field, Input, Modal, PageHeader, Spinner, Textarea, useToast } from '../components/ui';
@@ -237,7 +238,7 @@ export function ExternalTaskPage() {
                   <>
                     <dt className="text-ink-3">Element</dt>
                     <dd className="font-medium">
-                      {t.assetCode} {t.category && <span className="font-normal text-ink-2">· {CATEGORIES[t.category].label}</span>}
+                      {t.assetCode} {t.category && <span className="font-normal text-ink-2">· {getCategory(t.category).label}</span>}
                     </dd>
                     <dt className="text-ink-3">Standort</dt>
                     <dd>{[t.buildingName, t.floor, t.location].filter(Boolean).join(' · ') || '–'}</dd>

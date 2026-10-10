@@ -9,6 +9,7 @@ import {
   FileText,
   Footprints,
   HardHat,
+  LifeBuoy,
   WifiOff,
   LayoutGrid,
   ListTodo,
@@ -25,6 +26,7 @@ import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { ROLES } from '../../shared/catalog';
 import { api, clearMeCache, type Me, queryClient, useMe } from '../api';
 import { useOnline, useOutbox } from '../offline';
+import { Bell } from './Bell';
 import { Logo } from './Logo';
 import { SearchButton, SearchPalette, useSearchShortcut } from './Search';
 
@@ -42,6 +44,7 @@ const NAV: { to: string; label: string; icon: ReactNode; group: string }[] = [
   { to: '/team', label: 'Team', icon: <Users />, group: 'Verwaltung' },
   { to: '/subunternehmer', label: 'Subunternehmer', icon: <HardHat />, group: 'Verwaltung' },
   { to: '/einstellungen', label: 'Einstellungen', icon: <Settings />, group: 'Verwaltung' },
+  { to: '/hilfe', label: 'Anleitung & Hilfe', icon: <LifeBuoy />, group: 'Verwaltung' },
 ];
 
 function NavItem({ to, label, icon, onClick }: { to: string; label: string; icon: ReactNode; onClick?: () => void }) {
@@ -117,8 +120,11 @@ function Sidebar({ me, onNavigate, onSearch }: { me: Me; onNavigate?: () => void
   const outbox = useOutbox();
   return (
     <div className="flex h-full flex-col gap-5 p-3">
-      <div className="px-2 pt-2">
+      <div className="flex items-center justify-between px-2 pt-2">
         <Logo />
+        <div className="hidden lg:block">
+          <Bell align="left" />
+        </div>
       </div>
       <WorkspaceSwitcher me={me} />
       <SearchButton
@@ -134,7 +140,7 @@ function Sidebar({ me, onNavigate, onSearch }: { me: Me; onNavigate?: () => void
       >
         <ScanLine className="size-[18px]" /> Code scannen
       </NavLink>
-      <nav className="flex flex-col gap-4">
+      <nav className="flex flex-1 flex-col gap-4">
         {groups.map((g) => (
           <div key={g} className="flex flex-col gap-0.5">
             <p className="px-3 pb-1 text-[11px] font-semibold tracking-wider text-ink-3 uppercase">{g}</p>
@@ -144,6 +150,17 @@ function Sidebar({ me, onNavigate, onSearch }: { me: Me; onNavigate?: () => void
           </div>
         ))}
       </nav>
+      <div className="flex flex-wrap gap-x-3 gap-y-1 px-3 pb-2 text-[11px] text-ink-3">
+        <NavLink to="/rechtliches/terms" className="hover:text-ink">
+          Nutzungsbedingungen
+        </NavLink>
+        <NavLink to="/rechtliches/privacy" className="hover:text-ink">
+          Datenschutz
+        </NavLink>
+        <NavLink to="/rechtliches/dpa" className="hover:text-ink">
+          AVV
+        </NavLink>
+      </div>
     </div>
   );
 }
@@ -170,6 +187,7 @@ export function Shell() {
       <header className="no-print sticky top-0 z-30 flex h-14 items-center justify-between border-b border-line bg-canvas/90 px-4 backdrop-blur lg:hidden">
         <Logo />
         <div className="flex">
+          <Bell />
           <button onClick={openSearch} className="rounded-lg p-2 hover:bg-sunken" aria-label="Suchen">
             <SearchIcon className="size-5" />
           </button>

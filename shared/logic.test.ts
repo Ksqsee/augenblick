@@ -42,3 +42,26 @@ describe('isComplete', () => {
     expect(isComplete(['p1'], {}, true)).toBe(true);
   });
 });
+
+import { applyInspection, summarizeSchedules } from './logic';
+
+describe('schedules', () => {
+  it('never inspected main → null', () => {
+    expect(summarizeSchedules({}).nextDueAt).toBeNull();
+    expect(summarizeSchedules({ main: { enabled: true } }).nextKey).toBe('main');
+  });
+  it('earliest enabled schedule wins, disabled ignored', () => {
+    const s = {
+      main: { enabled: true, lastAt: 10, lastResult: 'ok' as const, nextDueAt: 1000 },
+      inner: { enabled: true, nextDueAt: 500 },
+      strength: { enabled: false, nextDueAt: 100 },
+    };
+    expect(summarizeSchedules(s)).toMatchObject({ nextDueAt: 500, nextKey: 'inner', lastAt: 10 });
+  });
+  it('applyInspection keeps due date when not inspectable and ignores older results', () => {
+    let s = applyInspection({}, 'main', 100, 'ok', 900);
+    s = applyInspection(s, 'main', 200, 'not_inspectable', null);
+    expect(s.main).toMatchObject({ lastAt: 200, lastResult: 'not_inspectable', nextDueAt: 900 });
+    expect(applyInspection(s, 'main', 50, 'ok', 400)).toBe(s);
+  });
+});

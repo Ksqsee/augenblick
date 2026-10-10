@@ -1,10 +1,13 @@
 import { Hono } from 'hono';
 import { HTTPException } from 'hono/http-exception';
 import { z } from 'zod';
-import { CATEGORIES, type Category } from '../shared/catalog';
+import type { Category } from '../shared/catalog';
+import { DEFAULT_SLA, HOUR } from '../shared/sla';
 import { addMonths } from '../shared/logic';
-import { getTemplate, str, tid, uniqueCode } from './data';
-import { type AppEnv, type Ctx, id, logActivity, notFound, now, requireRole, token } from './lib';
+import { getSchedule } from './categories';
+import { str, tid, uniqueCode } from './data';
+import { type AppEnv, type Ctx, id, logActivity, notFound, now, parseJson, requireRole, token } from './lib';
+import { notify, notifyTenant } from './notify';
 
 export const work = new Hono<AppEnv>();
 
@@ -64,6 +67,77 @@ work.delete('/subcontractors/:id', async (c) => {
   return c.json({ ok: true });
 });
 
+// ---------- Aufgaben: Labels & SLA ----------
+const COLORS = ['slate', 'orange', 'blue', 'red', 'green', 'violet', 'teal', 'amber'] as const;
+
+work.get('/tasks/labels', async (c) => {
+  const rows = await c.env.DB.prepare(
+    `SELECT l.id, l.name, l.color, (SELECT COUNT(*) FROM tasks t, json_each(t.labels) j WHERE t.tenant_id = l.tenant_id AND j.value = l.id) AS used
+       FROM task_labels l WHERE l.tenant_id = ? ORDER BY l.name`,
+  )
+    .bind(tid(c))
+    .all();
+  return c.json(rows.results);
+});
+
+const labelBody = z.object({ name: str(40).min(1, 'Name fehlt'), color: z.enum(COLORS).default('slate') });
+work.post('/tasks/labels', async (c) => {
+  requireRole(c, 'admin');
+  const b = labelBody.parse(await c.req.json());
+  const lid = id();
+  await c.env.DB.prepare('INSERT INTO task_labels (id, tenant_id, name, color, created_at) VALUES (?,?,?,?,?)').bind(lid, tid(c), b.name, b.color, now()).run();
+  return c.json({ id: lid });
+});
+work.patch('/tasks/labels/:id', async (c) => {
+  requireRole(c, 'admin');
+  const b = labelBody.parse(await c.req.json());
+  await c.env.DB.prepare('UPDATE task_labels SET name = ?, color = ? WHERE id = ? AND tenant_id = ?').bind(b.name, b.color, c.req.param('id'), tid(c)).run();
+  return c.json({ ok: true });
+});
+work.delete('/tasks/labels/:id', async (c) => {
+  requireRole(c, 'admin');
+  const lid = c.req.param('id');
+  await c.env.DB.batch([
+    c.env.DB.prepare('DELETE FROM task_labels WHERE id = ? AND tenant_id = ?').bind(lid, tid(c)),
+    c.env.DB.prepare(
+      `UPDATE tasks SET labels = (SELECT COALESCE(json_group_array(j.value), '[]') FROM json_each(tasks.labels) j WHERE j.value != ?1)
+        WHERE tenant_id = ?2 AND EXISTS (SELECT 1 FROM json_each(tasks.labels) j WHERE j.value = ?1)`,
+    ).bind(lid, tid(c)),
+  ]);
+  return c.json({ ok: true });
+});
+
+async function slaPolicies(c: Ctx) {
+  const rows = (
+    await c.env.DB.prepare('SELECT priority, response_hours, resolution_hours FROM sla_policies WHERE tenant_id = ?')
+      .bind(tid(c))
+      .all<{ priority: 'low' | 'medium' | 'high'; response_hours: number; resolution_hours: number }>()
+  ).results;
+  const out = {} as Record<'low' | 'medium' | 'high', { responseHours: number; resolutionHours: number; custom: boolean }>;
+  for (const p of ['high', 'medium', 'low'] as const) {
+    const r = rows.find((x) => x.priority === p);
+    out[p] = r ? { responseHours: r.response_hours, resolutionHours: r.resolution_hours, custom: true } : { ...DEFAULT_SLA[p], custom: false };
+  }
+  return out;
+}
+
+work.get('/tasks/sla-policies', async (c) => c.json(await slaPolicies(c)));
+work.put('/tasks/sla-policies', async (c) => {
+  requireRole(c, 'admin');
+  const one = z.object({ responseHours: z.number().int().min(1).max(8760), resolutionHours: z.number().int().min(1).max(8760) });
+  const b = z.object({ high: one, medium: one, low: one }).parse(await c.req.json());
+  await c.env.DB.batch(
+    (['high', 'medium', 'low'] as const).map((p) =>
+      c.env.DB.prepare(
+        `INSERT INTO sla_policies (tenant_id, priority, response_hours, resolution_hours) VALUES (?,?,?,?)
+         ON CONFLICT (tenant_id, priority) DO UPDATE SET response_hours = excluded.response_hours, resolution_hours = excluded.resolution_hours`,
+      ).bind(tid(c), p, b[p].responseHours, b[p].resolutionHours),
+    ),
+  );
+  await logActivity(c, 'update', 'sla', null, 'SLA-Richtlinien geändert');
+  return c.json({ ok: true });
+});
+
 // ---------- Aufgaben ----------
 const taskBody = z.object({
   title: str(200).min(1, 'Titel fehlt'),
@@ -76,24 +150,49 @@ const taskBody = z.object({
   assetId: z.string().nullable().default(null),
   defectId: z.string().nullable().default(null),
   propertyId: z.string().nullable().default(null),
+  labels: z.array(z.string().max(40)).max(10).default([]),
 });
 type TaskBody = z.infer<typeof taskBody>;
 
 work.get('/tasks', async (c) => {
-  const rows = await c.env.DB.prepare(
-    `SELECT t.id, t.title, t.description, t.status, t.priority, t.due_at AS dueAt, t.created_at AS createdAt, t.updated_at AS updatedAt,
-            t.assignee_id AS assigneeId, u.name AS assigneeName, t.subcontractor_id AS subcontractorId, s.company AS subcontractorName,
-            t.share_token AS shareToken, t.external_note AS externalNote, t.external_done_at AS externalDoneAt,
-            t.asset_id AS assetId, a.code AS assetCode, t.defect_id AS defectId,
-            COALESCE(t.property_id, d.property_id) AS propertyId, p.name AS propertyName
-       FROM tasks t LEFT JOIN users u ON u.id = t.assignee_id LEFT JOIN assets a ON a.id = t.asset_id
-       LEFT JOIN subcontractors s ON s.id = t.subcontractor_id LEFT JOIN defects d ON d.id = t.defect_id
-       LEFT JOIN properties p ON p.id = COALESCE(t.property_id, d.property_id)
-      WHERE t.tenant_id = ? ORDER BY CASE t.status WHEN 'in_progress' THEN 0 WHEN 'open' THEN 1 ELSE 2 END, COALESCE(t.due_at, 9e15), t.created_at DESC`,
-  )
-    .bind(tid(c))
-    .all();
-  return c.json(rows.results);
+  const sla = await slaPolicies(c);
+  const rows = (
+    await c.env.DB.prepare(
+      `SELECT t.id, t.title, t.description, t.status, t.priority, t.due_at AS dueAt, t.created_at AS createdAt, t.updated_at AS updatedAt,
+              t.assignee_id AS assigneeId, u.name AS assigneeName, t.subcontractor_id AS subcontractorId, s.company AS subcontractorName,
+              t.share_token AS shareToken, t.external_note AS externalNote, t.external_done_at AS externalDoneAt, t.labels,
+              t.first_response_at AS firstResponseAt, t.closed_at AS closedAt,
+              t.asset_id AS assetId, a.code AS assetCode, t.defect_id AS defectId,
+              COALESCE(t.property_id, d.property_id) AS propertyId, p.name AS propertyName,
+              (SELECT COUNT(*) FROM task_comments tc WHERE tc.task_id = t.id) AS comments
+         FROM tasks t LEFT JOIN users u ON u.id = t.assignee_id LEFT JOIN assets a ON a.id = t.asset_id
+         LEFT JOIN subcontractors s ON s.id = t.subcontractor_id LEFT JOIN defects d ON d.id = t.defect_id
+         LEFT JOIN properties p ON p.id = COALESCE(t.property_id, d.property_id)
+        WHERE t.tenant_id = ? ORDER BY CASE t.status WHEN 'in_progress' THEN 0 WHEN 'open' THEN 1 ELSE 2 END, COALESCE(t.due_at, 9e15), t.created_at DESC`,
+    )
+      .bind(tid(c))
+      .all<Record<string, unknown>>()
+  ).results;
+  const n = now();
+  return c.json(
+    rows.map((r) => {
+      const p = sla[r.priority as 'low' | 'medium' | 'high'];
+      const created = r.createdAt as number;
+      const responseDue = created + p.responseHours * HOUR;
+      const resolveDue = created + p.resolutionHours * HOUR;
+      const closed = (r.closedAt as number | null) ?? null;
+      return {
+        ...r,
+        labels: parseJson<string[]>(r.labels as string, []),
+        sla: {
+          responseDue,
+          resolveDue,
+          responseBreached: ((r.firstResponseAt as number | null) ?? closed ?? n) > responseDue,
+          resolveBreached: (closed ?? n) > resolveDue && r.status !== 'cancelled',
+        },
+      };
+    }),
+  );
 });
 
 async function checkRefs(c: Ctx, b: TaskBody) {
@@ -106,7 +205,10 @@ async function checkRefs(c: Ctx, b: TaskBody) {
   if (b.defectId && !(await one('SELECT 1 FROM defects WHERE tenant_id = ? AND id = ?', b.defectId))) throw new HTTPException(400, { message: 'Mangel nicht gefunden' });
   if (b.propertyId && !(await one('SELECT 1 FROM properties WHERE tenant_id = ? AND id = ?', b.propertyId)))
     throw new HTTPException(400, { message: 'Objekt nicht gefunden' });
+  for (const l of b.labels) if (!(await one('SELECT 1 FROM task_labels WHERE tenant_id = ? AND id = ?', l))) throw new HTTPException(400, { message: 'Label nicht gefunden' });
 }
+
+const isClosed = (s: string) => s === 'done' || s === 'cancelled';
 
 work.post('/tasks', async (c) => {
   requireRole(c, 'inspector');
@@ -114,13 +216,18 @@ work.post('/tasks', async (c) => {
   await checkRefs(c, b);
   const tk = id();
   const t = now();
+  // Ohne Fälligkeit greift die Lösungsfrist der SLA-Richtlinie
+  const due = b.dueAt ?? t + (await slaPolicies(c))[b.priority].resolutionHours * HOUR;
   await c.env.DB.prepare(
-    `INSERT INTO tasks (id, tenant_id, title, description, status, priority, due_at, assignee_id, subcontractor_id, asset_id, defect_id, property_id, created_by, created_at, updated_at)
-     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+    `INSERT INTO tasks (id, tenant_id, title, description, status, priority, due_at, assignee_id, subcontractor_id, asset_id, defect_id, property_id, labels,
+                        first_response_at, closed_at, created_by, created_at, updated_at)
+     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
   )
-    .bind(tk, tid(c), b.title, b.description, b.status, b.priority, b.dueAt, b.assigneeId, b.subcontractorId, b.assetId, b.defectId, b.propertyId, c.get('user').userId, t, t)
+    .bind(tk, tid(c), b.title, b.description, b.status, b.priority, due, b.assigneeId, b.subcontractorId, b.assetId, b.defectId, b.propertyId, JSON.stringify(b.labels),
+      b.status !== 'open' ? t : null, isClosed(b.status) ? t : null, c.get('user').userId, t, t)
     .run();
   await logActivity(c, 'create', 'task', tk, `Aufgabe „${b.title}“ angelegt`);
+  if (b.assigneeId) await notify(c, { userIds: [b.assigneeId], type: 'task_assigned', title: `Neue Aufgabe: ${b.title}`, body: c.get('user').name, link: `/aufgaben?id=${tk}` });
   return c.json({ id: tk });
 });
 
@@ -135,22 +242,108 @@ work.patch('/tasks/:id', async (c) => {
   requireRole(c, 'inspector');
   const b = taskBody.parse(await c.req.json());
   await checkRefs(c, b);
-  const r = await c.env.DB.prepare(
-    `UPDATE tasks SET title=?, description=?, status=?, priority=?, due_at=?, assignee_id=?, subcontractor_id=?, asset_id=?, defect_id=?, property_id=?, updated_at=?,
+  const prev = await c.env.DB.prepare('SELECT assignee_id, status, first_response_at FROM tasks WHERE id = ? AND tenant_id = ?')
+    .bind(c.req.param('id'), tid(c))
+    .first<{ assignee_id: string | null; status: string; first_response_at: number | null }>();
+  if (!prev) notFound('Aufgabe');
+  const t = now();
+  const firstResponse = prev.first_response_at ?? (b.status !== 'open' ? t : null);
+  await c.env.DB.prepare(
+    `UPDATE tasks SET title=?, description=?, status=?, priority=?, due_at=?, assignee_id=?, subcontractor_id=?, asset_id=?, defect_id=?, property_id=?, labels=?,
+            first_response_at=?, closed_at = CASE WHEN ? THEN COALESCE(closed_at, ?) ELSE NULL END, updated_at=?,
             share_token = CASE WHEN ? IS NULL THEN NULL ELSE share_token END
       WHERE id=? AND tenant_id=?`,
   )
-    .bind(b.title, b.description, b.status, b.priority, b.dueAt, b.assigneeId, b.subcontractorId, b.assetId, b.defectId, b.propertyId, now(), b.subcontractorId, c.req.param('id'), tid(c))
+    .bind(b.title, b.description, b.status, b.priority, b.dueAt, b.assigneeId, b.subcontractorId, b.assetId, b.defectId, b.propertyId, JSON.stringify(b.labels),
+      firstResponse, isClosed(b.status) ? 1 : 0, t, t, b.subcontractorId, c.req.param('id'), tid(c))
     .run();
-  if (!r.meta.changes) notFound('Aufgabe');
   if (b.status === 'done') await resolveLinkedDefect(c, b.defectId, c.get('user').userId);
+  if (b.assigneeId && b.assigneeId !== prev.assignee_id) {
+    await notify(c, { userIds: [b.assigneeId], type: 'task_assigned', title: `Aufgabe zugewiesen: ${b.title}`, body: c.get('user').name, link: `/aufgaben?id=${c.req.param('id')}` });
+  }
   return c.json({ ok: true });
 });
 
 work.delete('/tasks/:id', async (c) => {
   requireRole(c, 'admin');
-  await c.env.DB.prepare('DELETE FROM tasks WHERE id=? AND tenant_id=?').bind(c.req.param('id'), tid(c)).run();
+  await c.env.DB.batch([
+    c.env.DB.prepare('DELETE FROM task_comments WHERE task_id = ? AND tenant_id = ?').bind(c.req.param('id'), tid(c)),
+    c.env.DB.prepare('DELETE FROM tasks WHERE id=? AND tenant_id=?').bind(c.req.param('id'), tid(c)),
+  ]);
   return c.json({ ok: true });
+});
+
+// ---------- Kommentare ----------
+work.get('/tasks/:id/comments', async (c) => {
+  const rows = await c.env.DB.prepare(
+    `SELECT id, user_id AS userId, author_name AS authorName, body, created_at AS createdAt FROM task_comments
+      WHERE task_id = ? AND tenant_id = ? ORDER BY created_at`,
+  )
+    .bind(c.req.param('id'), tid(c))
+    .all();
+  return c.json(rows.results);
+});
+
+work.post('/tasks/:id/comments', async (c) => {
+  requireRole(c, 'inspector');
+  const { body } = z.object({ body: str(4000).min(1, 'Kommentar ist leer') }).parse(await c.req.json());
+  const task = await c.env.DB.prepare('SELECT id, title, assignee_id, created_by, first_response_at FROM tasks WHERE id = ? AND tenant_id = ?')
+    .bind(c.req.param('id'), tid(c))
+    .first<{ id: string; title: string; assignee_id: string | null; created_by: string; first_response_at: number | null }>();
+  if (!task) notFound('Aufgabe');
+  const u = c.get('user');
+  const t = now();
+  await c.env.DB.batch([
+    c.env.DB.prepare('INSERT INTO task_comments (id, tenant_id, task_id, user_id, author_name, body, created_at) VALUES (?,?,?,?,?,?,?)').bind(id(), tid(c), task.id, u.userId, u.name, body, t),
+    // Erste Reaktion zählt, wenn nicht die anlegende Person kommentiert
+    c.env.DB.prepare('UPDATE tasks SET first_response_at = COALESCE(first_response_at, ?), updated_at = ? WHERE id = ?').bind(u.userId !== task.created_by ? t : null, t, task.id),
+  ]);
+  const to = [task.assignee_id, task.created_by].filter((x): x is string => !!x);
+  if (to.length) await notify(c, { userIds: to, type: 'task_comment', title: `Kommentar zu „${task.title}“`, body: `${u.name}: ${body.slice(0, 140)}`, link: `/aufgaben?id=${task.id}` });
+  return c.json({ ok: true });
+});
+
+// ---------- Statistik ----------
+work.get('/tasks/stats', async (c) => {
+  const days = Math.min(365, Math.max(7, Number(c.req.query('days') ?? 30)));
+  const n = now();
+  const from = n - days * 24 * HOUR;
+  const sla = await slaPolicies(c);
+  const rows = (
+    await c.env.DB.prepare(
+      `SELECT t.status, t.priority, t.due_at, t.created_at, t.closed_at, t.first_response_at, t.assignee_id, u.name AS assignee
+         FROM tasks t LEFT JOIN users u ON u.id = t.assignee_id WHERE t.tenant_id = ?`,
+    )
+      .bind(tid(c))
+      .all<{ status: string; priority: 'low' | 'medium' | 'high'; due_at: number | null; created_at: number; closed_at: number | null; first_response_at: number | null; assignee_id: string | null; assignee: string | null }>()
+  ).results;
+  const open = rows.filter((r) => !isClosed(r.status));
+  const closedInPeriod = rows.filter((r) => r.status === 'done' && r.closed_at && r.closed_at >= from);
+  const byStatus = { open: 0, in_progress: 0, done: 0, cancelled: 0 } as Record<string, number>;
+  const byPriority = { high: 0, medium: 0, low: 0 } as Record<string, number>;
+  for (const r of rows) byStatus[r.status]++;
+  for (const r of open) byPriority[r.priority]++;
+  const slaRelevant = rows.filter((r) => r.created_at >= from && r.status !== 'cancelled' && (isClosed(r.status) || r.created_at + sla[r.priority].resolutionHours * HOUR < n));
+  const compliant = slaRelevant.filter((r) => (r.closed_at ?? n) <= r.created_at + sla[r.priority].resolutionHours * HOUR).length;
+  const workload = new Map<string, { name: string; open: number; overdue: number }>();
+  for (const r of open) {
+    const k = r.assignee_id ?? '';
+    const w = workload.get(k) ?? { name: r.assignee ?? 'Nicht zugewiesen', open: 0, overdue: 0 };
+    w.open++;
+    if (r.due_at && r.due_at < n) w.overdue++;
+    workload.set(k, w);
+  }
+  const resolutionTimes = closedInPeriod.map((r) => r.closed_at! - r.created_at);
+  const responseTimes = rows.filter((r) => r.first_response_at && r.created_at >= from).map((r) => r.first_response_at! - r.created_at);
+  const avg = (a: number[]) => (a.length ? Math.round(a.reduce((x, y) => x + y, 0) / a.length) : null);
+  return c.json({
+    days,
+    backlog: { open: open.length, overdue: open.filter((r) => r.due_at && r.due_at < n).length, byStatus, byPriority },
+    throughput: { created: rows.filter((r) => r.created_at >= from).length, closed: closedInPeriod.length },
+    resolution: { avgResolutionMs: avg(resolutionTimes), avgResponseMs: avg(responseTimes) },
+    sla: { total: slaRelevant.length, compliant, breached: slaRelevant.length - compliant, compliancePct: slaRelevant.length ? Math.round((compliant / slaRelevant.length) * 100) : null },
+    workload: [...workload.values()].sort((a, b) => b.open - a.open),
+  });
 });
 
 /** Externen Link für Subunternehmer erzeugen. */
@@ -176,7 +369,7 @@ work.delete('/tasks/:id/share', async (c) => {
 const importRow = z.object({
   property: str(160).min(1),
   building: str(160).min(1),
-  category: z.enum(Object.keys(CATEGORIES) as [Category, ...Category[]]),
+  category: z.string().min(1).max(40),
   code: str(40).optional(),
   labelCode: str(60).optional(),
   location: str(200).default(''),
@@ -242,14 +435,24 @@ work.post('/import/assets', async (c) => {
     const finalCode = code ?? (await uniqueCode(c, r.category, usedCodes));
     usedCodes.add(finalCode);
     if (label) usedCodes.add(label);
-    if (!intervals.has(r.category)) intervals.set(r.category, (await getTemplate(c, r.category)).intervalMonths);
+    if (!intervals.has(r.category)) {
+      try {
+        intervals.set(r.category, (await getSchedule(c, r.category)).intervalMonths);
+      } catch {
+        results.push({ line, status: 'error', message: `Unbekannte Art „${r.category}“` });
+        continue;
+      }
+    }
     const next = r.lastInspectedAt ? addMonths(r.lastInspectedAt, intervals.get(r.category)!) : null;
     const attrs = r.year ? { [r.category === 'smoke_alarm' ? 'manufactured' : 'year']: r.category === 'smoke_alarm' ? `${r.year}-01-01` : r.year } : {};
     stmts.push(
       c.env.DB.prepare(
-        `INSERT INTO assets (id, tenant_id, building_id, category, code, label_code, location, floor, manufacturer, model, attributes, last_inspected_at, next_due_at, created_at, updated_at)
-         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-      ).bind(id(), tid(c), bid, r.category, finalCode, label ?? null, r.location, r.floor, r.manufacturer, r.model, JSON.stringify(attrs), r.lastInspectedAt ?? null, next, t, t),
+        `INSERT INTO assets (id, tenant_id, building_id, category, code, label_code, location, floor, manufacturer, model, attributes, last_inspected_at, next_due_at, schedules, created_at, updated_at)
+         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+      ).bind(id(), tid(c), bid, r.category, finalCode, label ?? null, r.location, r.floor, r.manufacturer, r.model, JSON.stringify(attrs), r.lastInspectedAt ?? null, next,
+        // Übernommene letzte Prüfung als Ausgangsstand (bleibt bei Neuberechnung erhalten)
+        JSON.stringify({ main: r.lastInspectedAt ? { enabled: true, lastAt: r.lastInspectedAt, nextDueAt: next, baseline: { lastAt: r.lastInspectedAt, nextDueAt: next } } : { enabled: true } }),
+        t, t),
     );
     results.push({ line, status: 'ok', code: finalCode });
   }
@@ -274,7 +477,7 @@ async function taskByToken(c: Ctx) {
   const tok = c.req.param('token') ?? '';
   if (tok.length < 20) notFound('Aufgabe');
   const r = await c.env.DB.prepare(
-    `SELECT t.id, t.tenant_id AS tenantId, t.title, t.description, t.status, t.priority, t.due_at AS dueAt, t.defect_id AS defectId,
+    `SELECT t.id, t.tenant_id AS tenantId, t.assignee_id AS assigneeId, t.created_by AS createdBy, t.title, t.description, t.status, t.priority, t.due_at AS dueAt, t.defect_id AS defectId,
             t.external_note AS externalNote, t.external_done_at AS externalDoneAt,
             te.name AS tenantName, s.company AS subcontractorName,
             a.code AS assetCode, a.category, a.location, a.floor, b.name AS buildingName,
@@ -293,7 +496,7 @@ async function taskByToken(c: Ctx) {
 
 publicApi.get('/tasks/:token', async (c) => {
   const r = await taskByToken(c);
-  const { tenantId: _t, id: _i, defectId: _d, ...rest } = r;
+  const { tenantId: _t, id: _i, defectId: _d, assigneeId: _a, createdBy: _cb, ...rest } = r;
   return c.json({ ...rest, hasPhoto: !!r.photoKey, photoKey: undefined });
 });
 
@@ -310,14 +513,34 @@ publicApi.post('/tasks/:token', async (c) => {
   const b = z.object({ status: z.enum(['in_progress', 'done']), note: str(2000).default('') }).parse(await c.req.json());
   if (r.status === 'done' || r.status === 'cancelled') throw new HTTPException(409, { message: 'Aufgabe ist bereits abgeschlossen' });
   const t = now();
-  await c.env.DB.prepare('UPDATE tasks SET status=?, external_note=?, external_done_at=?, updated_at=? WHERE id=?')
-    .bind(b.status, b.note, b.status === 'done' ? t : null, t, r.id)
-    .run();
+  const who = (r.subcontractorName as string | null) ?? 'Subunternehmer';
+  await c.env.DB.batch([
+    c.env.DB.prepare(
+      `UPDATE tasks SET status=?, external_note=?, external_done_at=?, updated_at=?, first_response_at = COALESCE(first_response_at, ?),
+              closed_at = CASE WHEN ? = 'done' THEN ? ELSE closed_at END WHERE id=?`,
+    ).bind(b.status, b.note, b.status === 'done' ? t : null, t, t, b.status, t, r.id),
+    ...(b.note
+      ? [c.env.DB.prepare('INSERT INTO task_comments (id, tenant_id, task_id, user_id, author_name, body, created_at) VALUES (?,?,?,?,?,?,?)').bind(id(), r.tenantId, r.id, null, `${who} (extern)`, b.note, t)]
+      : []),
+  ]);
   if (b.status === 'done' && r.defectId) {
     await c.env.DB.prepare("UPDATE defects SET status='resolved', resolved_at=? WHERE id=? AND status='open'").bind(t, r.defectId).run();
   }
   await c.env.DB.prepare('INSERT INTO activity (id, tenant_id, user_id, action, entity, entity_id, summary, created_at) VALUES (?,?,?,?,?,?,?,?)')
-    .bind(id(), r.tenantId, null, 'external', 'task', r.id, `${r.subcontractorName ?? 'Subunternehmer'}: „${r.title}“ ${b.status === 'done' ? 'erledigt' : 'in Arbeit'}`, t)
+    .bind(id(), r.tenantId, null, 'external', 'task', r.id, `${who}: „${r.title}“ ${b.status === 'done' ? 'erledigt' : 'in Arbeit'}`, t)
     .run();
+  await notifyTenant(
+    c.env,
+    r.tenantId as string,
+    {
+      userIds: [r.assigneeId, r.createdBy].filter((x): x is string => typeof x === 'string'),
+      roles: ['owner', 'admin'],
+      type: 'task_external',
+      title: `${who}: ${b.status === 'done' ? 'erledigt' : 'in Arbeit'}`,
+      body: `„${r.title}“${b.note ? ` – ${b.note.slice(0, 140)}` : ''}`,
+      link: `/aufgaben?id=${r.id}`,
+    },
+    c.executionCtx,
+  );
   return c.json({ ok: true });
 });

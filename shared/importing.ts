@@ -39,8 +39,10 @@ Object.assign(CATEGORY_ALIASES, {
   [norm('Melder')]: 'smoke_alarm',
 });
 
-export function parseCategory(s: string): Category | null {
-  return CATEGORY_ALIASES[norm(s)] ?? null;
+export function parseCategory(s: string, extra?: { key: string; label: string; plural: string; prefix: string }[]): Category | null {
+  const n = norm(s);
+  const hit = extra?.find((c) => [c.key, c.label, c.plural, c.prefix].some((x) => norm(x) === n));
+  return hit?.key ?? CATEGORY_ALIASES[n] ?? null;
 }
 
 /** Kopfzeile → Spaltenschlüssel (tolerant gegenüber Schreibweisen). */
@@ -145,7 +147,7 @@ export interface ImportRow {
 }
 
 /** Tabellenzeilen in Import-Zeilen umwandeln, mit Fehlern je Zeile. */
-export function toImportRows(table: unknown[][]): { rows: ImportRow[]; errors: { line: number; message: string }[] } {
+export function toImportRows(table: unknown[][], extra?: { key: string; label: string; plural: string; prefix: string }[]): { rows: ImportRow[]; errors: { line: number; message: string }[] } {
   const [head, ...body] = table;
   const keys = mapHeader((head ?? []).map((h) => String(h ?? '')));
   const missing = IMPORT_COLUMNS.filter((c) => c.required && !keys.includes(c.key));
@@ -158,7 +160,7 @@ export function toImportRows(table: unknown[][]): { rows: ImportRow[]; errors: {
     keys.forEach((k, j) => k && (rec[k] = cells[j]));
     const s = (k: ImportKey) => (rec[k] == null ? '' : String(rec[k]).trim());
     if (!s('property') || !s('building')) return errors.push({ line, message: 'Objekt oder Gebäude leer' });
-    const category = parseCategory(s('category'));
+    const category = parseCategory(s('category'), extra);
     if (!category) return errors.push({ line, message: `Unbekannte Art „${s('category')}“` });
     const last = rec.lastInspectedAt != null && s('lastInspectedAt') ? parseDate(rec.lastInspectedAt) : null;
     if (s('lastInspectedAt') && last == null) return errors.push({ line, message: `Datum nicht lesbar „${s('lastInspectedAt')}“` });

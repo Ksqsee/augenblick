@@ -1,6 +1,8 @@
 import { ChevronRight } from 'lucide-react';
 import type { Asset } from '../api';
 import { assetDue, categoryLabel, defectsLabel, DUE_META, fmtDate } from '../format';
+import { summarizeSchedules } from '../../shared/logic';
+import { scheduleLabel } from '../categories';
 import { CategoryIcon } from './CategoryIcon';
 import { Badge } from './ui';
 
@@ -31,7 +33,7 @@ export function AssetList({ assets, onSelect, showPlace = true }: { assets: Asse
               </span>
             </span>
             <span className="hidden w-28 text-right text-xs text-ink-3 md:block">
-              <span className="block text-[11px]">nächste Prüfung</span>
+              <span className="block text-[11px]">{nextLabel(a)}</span>
               <span className="font-medium text-ink-2">{fmtDate(a.nextDueAt)}</span>
             </span>
             <span className="flex flex-col items-end gap-1">
@@ -44,4 +46,9 @@ export function AssetList({ assets, onSelect, showPlace = true }: { assets: Asse
       ))}
     </ul>
   );
+}
+
+function nextLabel(a: Asset) {
+  const k = a.schedules ? summarizeSchedules(a.schedules).nextKey : null;
+  return k && k !== 'main' ? scheduleLabel(a.category, k) : 'nächste Prüfung';
 }

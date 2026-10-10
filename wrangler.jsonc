@@ -14,5 +14,6 @@
   "r2_buckets": [
     { "binding": "FILES", "bucket_name": "pruefkompass-files" }
   ],
+  "triggers": { "crons": ["15 5 * * *"] },
   "observability": { "enabled": true }
 }

@@ -1,11 +1,11 @@
-import { AlertTriangle, ClipboardList, Download, FileSpreadsheet, FileText, Footprints, QrCode, ShieldCheck } from 'lucide-react';
+import { AlertTriangle, ClipboardList, DatabaseBackup, Download, FileSpreadsheet, FileText, Footprints, QrCode, ShieldCheck } from 'lucide-react';
 import { type ReactNode, useMemo, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { SEVERITIES } from '../../shared/catalog';
-import { useAssets, useDefects, useMe, useProperties } from '../api';
+import { api, type Asset, type Defect, type PropertyRow, useAssets, useDefects, useMe, useProperties } from '../api';
 import { DueBadge } from '../components/AssetList';
 import { APP_NAME } from '../components/Logo';
-import { Button, Card, Chip, ErrorBox, Input, PageHeader, Segmented, Spinner } from '../components/ui';
+import { Button, Card, Chip, ErrorBox, Input, PageHeader, Segmented, Spinner, useToast } from '../components/ui';
 import { categoryLabel, fmtDate, fmtDateTime } from '../format';
 import { QrImage } from './Asset';
 import { PrintFrame } from './Protocol';
@@ -31,9 +31,12 @@ export function ReportsPage() {
           title="Compliance-Übersicht"
           text="Prüfstatus aller Objekte mit überfälligen und bald fälligen Elementen."
           action={
-            <Link to="/druck/compliance">
-              <Button variant="secondary">Öffnen</Button>
-            </Link>
+            <div className="flex gap-2">
+              <Link to="/druck/compliance">
+                <Button variant="secondary">Ansehen</Button>
+              </Link>
+              <PdfButton kind="compliance" />
+            </div>
           }
         />
         <ReportCard
@@ -41,15 +44,18 @@ export function ReportsPage() {
           title="Mängelbericht"
           text="Alle offenen Mängel nach Schwere sortiert, inklusive Fotos."
           action={
-            <Link to="/druck/maengel">
-              <Button variant="secondary">Öffnen</Button>
-            </Link>
+            <div className="flex gap-2">
+              <Link to="/druck/maengel">
+                <Button variant="secondary">Ansehen</Button>
+              </Link>
+              <PdfButton kind="defects" />
+            </div>
           }
         />
         <ReportCard
           icon={<FileText />}
           title="Prüfprotokolle"
-          text="Einzelprotokolle mit Unterschrift findest du bei jeder durchgeführten Prüfung."
+          text="Einzeln als PDF bei jeder Prüfung oder gesammelt als ZIP: unter Prüfungen → Durchgeführt mehrere auswählen."
           action={
             <Link to="/pruefungen?tab=done">
               <Button variant="secondary">Zu den Prüfungen</Button>
@@ -89,6 +95,18 @@ export function ReportsPage() {
           }
         />
         <ReportCard
+          icon={<DatabaseBackup />}
+          title="JSON-Backup"
+          text="Vollständige Sicherung aller Daten des Workspaces als JSON-Datei (ohne Passwörter)."
+          action={
+            <a href="/api/export/backup.json" download>
+              <Button variant="secondary" icon={<Download className="size-4" />}>
+                Herunterladen
+              </Button>
+            </a>
+          }
+        />
+        <ReportCard
           icon={<QrCode />}
           title="QR-Etiketten"
           text="Etikettenbogen zum Aufkleben. Beim Scannen öffnet sich direkt das Element."
@@ -100,6 +118,40 @@ export function ReportsPage() {
         />
       </div>
     </>
+  );
+}
+
+function PdfButton({ kind }: { kind: 'defects' | 'compliance' }) {
+  const { data: me } = useMe();
+  const toast = useToast();
+  const [busy, setBusy] = useState(false);
+  return (
+    <Button
+      icon={<Download className="size-4" />}
+      loading={busy}
+      disabled={!me}
+      onClick={async () => {
+        if (!me) return;
+        setBusy(true);
+        try {
+          const r = await import('../pdf/reports');
+          const brand = await r.loadBrand(me);
+          const date = new Date().toISOString().slice(0, 10);
+          if (kind === 'defects') {
+            r.download(await r.defectsPdf(await api<Defect[]>('/defects?status=open'), brand), `Maengelbericht_${date}.pdf`);
+          } else {
+            const [props, overdue, soon] = await Promise.all([api<PropertyRow[]>('/properties'), api<Asset[]>('/assets?due=overdue'), api<Asset[]>('/assets?due=soon')]);
+            r.download(await r.compliancePdf(props, overdue, soon, brand), `Compliance_${date}.pdf`);
+          }
+        } catch (e) {
+          toast(e instanceof Error ? e.message : 'PDF fehlgeschlagen', 'bad');
+        } finally {
+          setBusy(false);
+        }
+      }}
+    >
+      PDF
+    </Button>
   );
 }
 

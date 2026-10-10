@@ -88,6 +88,12 @@ export function Login() {
         <Button size="lg" loading={busy} className="mt-2">
           Anmelden
         </Button>
+        <details className="text-sm text-ink-3">
+          <summary className="cursor-pointer font-medium text-ink-2">Passwort vergessen?</summary>
+          <p className="mt-2">
+            Bitte eine Administratorin oder einen Administrator deines Workspaces, unter <b>Team</b> einen Link zum Zurücksetzen zu erzeugen. Der Link ist 24 Stunden gültig.
+          </p>
+        </details>
       </form>
     </AuthLayout>
   );
@@ -122,6 +128,21 @@ export function Register() {
         <Field label="Passwort" hint="Mindestens 10 Zeichen">
           {(id) => <Input id={id} type="password" autoComplete="new-password" minLength={10} required value={f.password} onChange={set('password')} />}
         </Field>
+        <p className="text-xs text-ink-3">
+          Mit der Registrierung stimmst du den{' '}
+          <Link to="/rechtliches/terms" className="underline" target="_blank">
+            Nutzungsbedingungen
+          </Link>
+          , den{' '}
+          <Link to="/rechtliches/privacy" className="underline" target="_blank">
+            Datenschutzhinweisen
+          </Link>{' '}
+          und der{' '}
+          <Link to="/rechtliches/dpa" className="underline" target="_blank">
+            AVV
+          </Link>{' '}
+          zu.
+        </p>
         <Button size="lg" loading={busy} className="mt-2">
           Kostenlos starten
         </Button>
@@ -164,6 +185,64 @@ export function InviteAccept() {
         </Field>
         <Button size="lg" loading={busy} className="mt-2">
           Einladung annehmen
+        </Button>
+      </form>
+    </AuthLayout>
+  );
+}
+
+export function ResetPassword() {
+  const { token = '' } = useParams();
+  const navigate = useNavigate();
+  const info = useQuery({ queryKey: ['reset', token], queryFn: () => api<{ email: string; name: string }>(`/auth/reset/${token}`), retry: false });
+  const [password, setPassword] = useState('');
+  const [repeat, setRepeat] = useState('');
+  const [done, setDone] = useState(false);
+  const [error, setError] = useState<unknown>(null);
+  const [busy, setBusy] = useState(false);
+  if (info.isLoading) return <Spinner className="min-h-dvh items-center" />;
+  if (!info.data)
+    return (
+      <AuthLayout title="Link ungültig" subtitle="Der Link ist abgelaufen oder wurde bereits verwendet. Bitte einen neuen Link anfordern.">
+        <Link to="/login">
+          <Button variant="secondary">Zur Anmeldung</Button>
+        </Link>
+      </AuthLayout>
+    );
+  if (done)
+    return (
+      <AuthLayout title="Passwort geändert" subtitle="Du kannst dich jetzt mit dem neuen Passwort anmelden. Alle anderen Sitzungen wurden beendet.">
+        <Button onClick={() => navigate('/login')}>Zur Anmeldung</Button>
+      </AuthLayout>
+    );
+  return (
+    <AuthLayout title="Neues Passwort" subtitle={`${info.data.name} · ${info.data.email}`}>
+      <form
+        className="flex flex-col gap-4"
+        onSubmit={async (e) => {
+          e.preventDefault();
+          if (password !== repeat) return setError(new Error('Die Passwörter stimmen nicht überein'));
+          setBusy(true);
+          setError(null);
+          try {
+            await api(`/auth/reset/${token}`, { body: { password } });
+            setDone(true);
+          } catch (err) {
+            setError(err);
+          } finally {
+            setBusy(false);
+          }
+        }}
+      >
+        {!!error && <ErrorBox error={error} />}
+        <Field label="Neues Passwort" hint="Mindestens 10 Zeichen">
+          {(id) => <Input id={id} type="password" autoComplete="new-password" minLength={10} required value={password} onChange={(e) => setPassword(e.target.value)} />}
+        </Field>
+        <Field label="Wiederholen">
+          {(id) => <Input id={id} type="password" autoComplete="new-password" minLength={10} required value={repeat} onChange={(e) => setRepeat(e.target.value)} />}
+        </Field>
+        <Button size="lg" loading={busy}>
+          Passwort speichern
         </Button>
       </form>
     </AuthLayout>

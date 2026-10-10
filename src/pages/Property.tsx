@@ -1,12 +1,12 @@
-import { ArrowLeft, Building2, CloudDownload, Footprints, Mail, Map, MoreHorizontal, Package, Pencil, Phone, Plus, Trash2, User } from 'lucide-react';
+import { ArrowLeft, Building2, CloudDownload, Footprints, Mail, Map, MoreHorizontal, Package, Pencil, Phone, Plus, ShieldCheck, Trash2, User } from 'lucide-react';
 import { useState } from 'react';
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { BUILDING_TYPES } from '../../shared/walkthrough';
-import { api, type Asset, fileUrl, useAction, useMe, useProperty } from '../api';
+import { api, type Asset, type FireOfficer, fileUrl, useAction, useMe, useProperty } from '../api';
 import { AssetDrawer } from '../components/AssetDrawer';
 import { AssetList } from '../components/AssetList';
 import { AssetForm, BuildingForm, PropertyForm } from '../components/forms';
-import { Badge, Button, Card, CardHeader, Empty, ErrorBox, PageHeader, Segmented, Spinner, useToast } from '../components/ui';
+import { Badge, Button, Card, CardHeader, Empty, ErrorBox, Field, Input, Modal, PageHeader, Segmented, Spinner, Textarea, useToast } from '../components/ui';
 import { defectsLabel, fmtDate, fmtDateTime, RESULT_META } from '../format';
 import { prepareBuilding } from '../offline';
 import { FloorPlanUpload } from './FloorPlan';
@@ -297,6 +297,7 @@ export function PropertyPage() {
               <p className="text-sm text-ink-3">Noch nicht durchgeführt</p>
             )}
           </Card>
+          <FireOfficersCard propertyId={p.id} officers={p.fireOfficers ?? []} canEdit={!!isAdmin} />
           <Card className="p-5">
             <p className="mb-3 text-[13px] font-semibold text-ink-2">Ansprechperson</p>
             {p.contactName || p.contactPhone || p.contactEmail ? (
@@ -334,5 +335,133 @@ export function PropertyPage() {
         </aside>
       </div>
     </>
+  );
+}
+
+function FireOfficersCard({ propertyId, officers, canEdit }: { propertyId: string; officers: FireOfficer[]; canEdit: boolean }) {
+  const [edit, setEdit] = useState<Partial<FireOfficer> | null>(null);
+  const now = Date.now();
+  const current = officers.find((o) => o.appointedFrom <= now && (!o.appointedTo || o.appointedTo > now));
+  const history = officers.filter((o) => o !== current);
+  return (
+    <Card className="p-5">
+      <div className="mb-3 flex items-center justify-between">
+        <p className="text-[13px] font-semibold text-ink-2">Brandschutzbeauftragte/r</p>
+        {canEdit && (
+          <Button size="sm" variant="ghost" icon={<Plus className="size-3.5" />} onClick={() => setEdit({})}>
+            Bestellen
+          </Button>
+        )}
+      </div>
+      {edit && <FireOfficerForm propertyId={propertyId} initial={edit} onClose={() => setEdit(null)} />}
+      {current ? (
+        <button className="w-full text-left" onClick={() => canEdit && setEdit(current)}>
+          <p className="flex items-center gap-2 text-sm font-medium">
+            <ShieldCheck className="size-4 text-ok" /> {current.name}
+          </p>
+          <p className="text-xs text-ink-3">{[current.company, current.qualification].filter(Boolean).join(' · ')}</p>
+          <p className="text-xs text-ink-3">
+            seit {fmtDate(current.appointedFrom)}
+            {current.appointedTo && ` · bis ${fmtDate(current.appointedTo)}`}
+          </p>
+          {(current.phone || current.email) && <p className="mt-1 text-xs text-ink-2">{[current.phone, current.email].filter(Boolean).join(' · ')}</p>}
+        </button>
+      ) : (
+        <p className="text-sm text-ink-3">Niemand bestellt</p>
+      )}
+      {history.length > 0 && (
+        <details className="mt-3 border-t border-line pt-3 text-xs">
+          <summary className="cursor-pointer text-ink-2">Historie ({history.length})</summary>
+          <ul className="mt-2 space-y-1.5">
+            {history.map((o) => (
+              <li key={o.id}>
+                <button className="text-left hover:underline" onClick={() => canEdit && setEdit(o)}>
+                  {o.name}
+                  {o.company && ` (${o.company})`} · {fmtDate(o.appointedFrom)} – {o.appointedTo ? fmtDate(o.appointedTo) : 'offen'}
+                </button>
+              </li>
+            ))}
+          </ul>
+        </details>
+      )}
+    </Card>
+  );
+}
+
+const dateIn = (t: number | null | undefined) => (t ? new Date(t).toISOString().slice(0, 10) : '');
+const dateOut = (s: string) => (s ? new Date(`${s}T12:00:00`).getTime() : null);
+
+function FireOfficerForm({ propertyId, initial, onClose }: { propertyId: string; initial: Partial<FireOfficer>; onClose: () => void }) {
+  const toast = useToast();
+  const [f, setF] = useState({
+    name: initial.name ?? '',
+    company: initial.company ?? '',
+    phone: initial.phone ?? '',
+    email: initial.email ?? '',
+    qualification: initial.qualification ?? '',
+    from: dateIn(initial.appointedFrom ?? Date.now()),
+    to: dateIn(initial.appointedTo),
+    notes: initial.notes ?? '',
+  });
+  const set = (k: keyof typeof f) => (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => setF({ ...f, [k]: e.target.value });
+  const body = () => ({ name: f.name, company: f.company, phone: f.phone, email: f.email, qualification: f.qualification, appointedFrom: dateOut(f.from), appointedTo: dateOut(f.to), notes: f.notes });
+  const save = useAction(
+    () => (initial.id ? api(`/fire-officers/${initial.id}`, { method: 'PATCH', body: body() }) : api(`/properties/${propertyId}/fire-officers`, { body: body() })),
+    () => {
+      toast('Gespeichert');
+      onClose();
+    },
+  );
+  const del = useAction(() => api(`/fire-officers/${initial.id}`, { method: 'DELETE' }), () => onClose());
+  return (
+    <Modal
+      title={initial.id ? 'Brandschutzbeauftragte/n bearbeiten' : 'Brandschutzbeauftragte/n bestellen'}
+      onClose={onClose}
+      footer={
+        <>
+          {initial.id && (
+            <Button variant="ghost" className="mr-auto text-bad" onClick={() => confirm('Eintrag löschen?') && del.mutate(undefined)}>
+              Löschen
+            </Button>
+          )}
+          <Button variant="ghost" onClick={onClose}>
+            Abbrechen
+          </Button>
+          <Button form="officer-form" loading={save.isPending}>
+            Speichern
+          </Button>
+        </>
+      }
+    >
+      <form
+        id="officer-form"
+        className="grid gap-4 sm:grid-cols-2"
+        onSubmit={(e) => {
+          e.preventDefault();
+          save.mutate(undefined);
+        }}
+      >
+        {save.error && (
+          <div className="sm:col-span-2">
+            <ErrorBox error={save.error} />
+          </div>
+        )}
+        <Field label="Name">{(id) => <Input id={id} required value={f.name} onChange={set('name')} />}</Field>
+        <Field label="Firma / Stelle">{(id) => <Input id={id} value={f.company} onChange={set('company')} />}</Field>
+        <Field label="Telefon">{(id) => <Input id={id} value={f.phone} onChange={set('phone')} />}</Field>
+        <Field label="E-Mail">{(id) => <Input id={id} type="email" value={f.email} onChange={set('email')} />}</Field>
+        <Field label="Qualifikation" className="sm:col-span-2">
+          {(id) => <Input id={id} value={f.qualification} onChange={set('qualification')} placeholder="z. B. Brandschutzbeauftragte/r nach DGUV 205-003" />}
+        </Field>
+        <Field label="Bestellt ab">{(id) => <Input id={id} type="date" required value={f.from} onChange={set('from')} />}</Field>
+        <Field label="Bestellt bis" hint="Leer = unbefristet">
+          {(id) => <Input id={id} type="date" value={f.to} onChange={set('to')} />}
+        </Field>
+        <Field label="Notizen" className="sm:col-span-2">
+          {(id) => <Textarea id={id} value={f.notes} onChange={set('notes')} />}
+        </Field>
+        {!initial.id && <p className="text-xs text-ink-3 sm:col-span-2">Eine laufende Bestellung wird zum Startdatum automatisch beendet.</p>}
+      </form>
+    </Modal>
   );
 }

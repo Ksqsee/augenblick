@@ -1,6 +1,7 @@
+import { getCategory, allCategories } from '../categories';
 import { type FormEvent, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { CATEGORIES, CATEGORY_LIST, type Category } from '../../shared/catalog';
+import { type Category } from '../../shared/catalog';
 import { BUILDING_TYPES, type BuildingType } from '../../shared/walkthrough';
 import { api, type Asset, type PropertyDetail, useAction, useProperties, useProperty } from '../api';
 import { CategoryIcon } from './CategoryIcon';
@@ -17,6 +18,7 @@ export function PropertyForm({ initial, onClose }: { initial?: PropertyDetail; o
     contactPhone: initial?.contactPhone ?? '',
     contactEmail: initial?.contactEmail ?? '',
     buildingType: initial?.buildingType ?? ('general' as BuildingType),
+    pdfPattern: initial?.pdfPattern ?? '',
   });
   const set = (k: keyof typeof f) => (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => setF({ ...f, [k]: e.target.value });
   const save = useAction(
@@ -73,6 +75,11 @@ export function PropertyForm({ initial, onClose }: { initial?: PropertyDetail; o
         <Field label="Notizen" className="sm:col-span-2">
           {(id) => <Textarea id={id} value={f.description} onChange={set('description')} placeholder="Zugang, Schlüssel, Besonderheiten …" />}
         </Field>
+        {initial && (
+          <Field label="PDF-Dateinamen (nur dieses Objekt)" hint="Leer = Vorgabe des Unternehmens. Platzhalter: {datum} {code} {art} {pruefart} {objekt} {gebaeude} {standort} {ergebnis}" className="sm:col-span-2">
+            {(id) => <Input id={id} value={f.pdfPattern} onChange={set('pdfPattern')} className="font-mono" placeholder="{objekt}_{datum}_{code}" />}
+          </Field>
+        )}
       </form>
     </Modal>
   );
@@ -206,7 +213,7 @@ export function AssetForm({
       <Modal title="Neues Element" onClose={() => onClose()}>
         <p className="mb-4 text-sm text-ink-3">Welche Art von Element möchtest du anlegen?</p>
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-          {CATEGORY_LIST.map((c) => (
+          {allCategories().map((c) => (
             <button
               key={c.key}
               onClick={() => setCategory(c.key)}
@@ -226,7 +233,7 @@ export function AssetForm({
     );
   }
 
-  const def = CATEGORIES[category];
+  const def = getCategory(category);
   return (
     <Modal
       wide
@@ -337,7 +344,7 @@ export function AssetForm({
 }
 
 export function attributeRows(category: Category, attrs: Record<string, unknown>): [string, string][] {
-  return CATEGORIES[category].attributes.map((a) => {
+  return getCategory(category).attributes.map((a) => {
     const v = attrs[a.key];
     return [a.label, v === true ? 'Ja' : v === false ? 'Nein' : v == null || v === '' ? '–' : String(v)];
   });
