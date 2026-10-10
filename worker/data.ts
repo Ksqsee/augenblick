@@ -604,7 +604,9 @@ async function exportRows(c: Ctx, lang: DocLanguage = 'de') {
 
 data.get('/export/assets.csv', async (c) => {
   const esc = (v: unknown) => {
-    const s = v == null ? '' : String(v);
+    let s = v == null ? '' : String(v);
+    // Formel-Injection in Tabellenprogrammen verhindern (Text, der mit = + - @ beginnt)
+    if (typeof v === 'string' && /^[=+\-@\t\r]/.test(s)) s = `'${s}`;
     return /[";\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
   };
   const date = (v: number | null) => (v ? new Date(v).toISOString().slice(0, 10) : '');

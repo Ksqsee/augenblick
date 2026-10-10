@@ -10,6 +10,7 @@ import { data } from './data';
 import { type AppEnv, csrfGuard, type Env, requireAuth } from './lib';
 import { plans } from './plans';
 import { reports } from './reports';
+import { TooManyRequests } from './throttle';
 import { walks } from './walkthroughs';
 import { publicApi, work } from './work';
 
@@ -19,6 +20,13 @@ app.use('*', async (c, next) => {
   await next();
   c.header('x-content-type-options', 'nosniff');
   c.header('referrer-policy', 'same-origin');
+  c.header('x-frame-options', 'DENY');
+  c.header('strict-transport-security', 'max-age=31536000');
+  // API-Antworten und Dateien dürfen nie als Seite mit Skripten laufen (z. B. SVG/HTML aus dem Speicher).
+  // PDFs ausgenommen, damit der Browser-PDF-Viewer funktioniert.
+  if (!(c.res.headers.get('content-type') ?? '').startsWith('application/pdf')) {
+    c.header('content-security-policy', "default-src 'none'; img-src 'self' data:; style-src 'unsafe-inline'; frame-ancestors 'none'; sandbox");
+  }
   if (!c.res.headers.get('cache-control')) c.header('cache-control', 'no-store');
 });
 app.use('*', csrfGuard);
@@ -46,6 +54,7 @@ app.onError((err, c) => {
   if (err instanceof ZodError) {
     return c.json({ error: err.issues[0]?.message ?? 'Ungültige Eingabe', issues: err.issues }, 400);
   }
+  if (err instanceof TooManyRequests) return c.json({ error: err.message }, 429, { 'retry-after': String(err.retryAfter) });
   if (err instanceof HTTPException) return c.json({ error: err.message }, err.status);
   console.error(err);
   return c.json({ error: 'Interner Fehler' }, 500);

@@ -58,9 +58,11 @@ src/          Oberfläche (pages/, components/, pdf/ für die PDF-Erzeugung, off
 worker/       API: auth (Login, Konto, API-Schlüssel, Speicher), data, inspections, walkthroughs,
               plans, categories, work (Aufgaben, Subunternehmer, Import), reports, notify, push, cron
 shared/       Code für Browser und Worker
-migrations/   D1-Schema (0001 … 0006)
+migrations/   D1-Schema (0001 … 0007)
+e2e/          Browser-Tests und Runner
+.github/      CI
 scripts/      seed.ts – Demodaten
-docs/         Analyse des Vorbilds, API-Doku
+docs/         Analyse des Vorbilds, API-Doku, Sicherheitsbewertung
 ```
 
 ## Entwicklung
@@ -69,10 +71,26 @@ docs/         Analyse des Vorbilds, API-Doku
 npm install
 npm run db:migrate:local   # lokale D1 anlegen bzw. aktualisieren
 npm run dev                # http://localhost:5173 (Worker + Frontend)
-npm test                   # Unit-Tests (Vitest)
-npm run typecheck
-npm run build
+npm run check              # Typprüfung + Unit-Tests + Build
 ```
+
+## Tests
+
+- **Unit-Tests** (`npm test`, Vitest): Fachlogik, Import/Export, Übersetzungen, Ruhezeiten, Web Push.
+- **Browser-Tests** (`e2e/`, Playwright): acht Reihen von der Registrierung bis zu den Sicherheitskorrekturen.
+  Vor jeder Reihe wird die lokale D1 geleert und mit Demodaten befüllt.
+
+```bash
+npm run e2e                  # Dev-Server muss laufen (npm run dev)
+npm run e2e -- --serve       # startet den Dev-Server selbst (wie in CI)
+npm run e2e -- 04 08         # einzelne Reihen
+BASE=http://localhost:4173 npm run e2e   # gegen den Produktions-Build (npx vite preview) – prüft auch die CSP
+```
+
+Lokal wird Chromium aus `PLAYWRIGHT_BROWSERS_PATH` genutzt, in CI per `npx playwright install chromium`.
+
+**CI** (`.github/workflows/ci.yml`): bei jedem Push Typprüfung, Unit-Tests und Build, danach alle Browser-Tests.
+Bei Fehlern werden die Screenshots als Artefakt angehängt.
 
 ## Deploy (Cloudflare)
 
@@ -113,7 +131,11 @@ Konten: `demo@example.com` (Inhaber), `pruefer@example.com`, `pruefer2@example.c
 
 ## Sicherheit
 
+Bewertung und Status aller Befunde: [`docs/security.md`](docs/security.md).
+
 - Passwörter: PBKDF2-SHA256 (100 000 Iterationen), Sitzungen als HttpOnly-Cookie (SameSite=Lax)
+- Sperre nach zu vielen Fehlversuchen (Login, Passwort, Links, API-Schlüssel), HTTP 429 mit `Retry-After`
+- Content-Security-Policy, HSTS, `X-Frame-Options: DENY` (`public/_headers`, API-Middleware); Schrift selbst gehostet
 - Schreibende Requests aus dem Browser brauchen den Header `x-pk: 1` (CSRF-Schutz)
 - API-Schlüssel: nur SHA-256-Hash gespeichert, Rechte auf Prüfer begrenzt, Ablauf und Widerruf
 - Alle Abfragen sind auf den Workspace (`tenant_id`) beschränkt; Dateien nur mit Workspace-Präfix

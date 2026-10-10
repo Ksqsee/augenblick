@@ -7,6 +7,7 @@ import { deviceLabel } from '../shared/device';
 import { DOC_LANGUAGES, type DocLanguage, isValidTimeZone } from '../shared/i18n';
 import { LEGAL_DOCS } from '../shared/legal';
 import { notifyTenant } from './notify';
+import { assertNotThrottled, clearFailures, clientIp, recordFailure } from './throttle';
 import {
   type AppEnv,
   type Ctx,
@@ -43,10 +44,23 @@ async function startSession(c: Ctx, userId: string, tenantId: string) {
 
 export const auth = new Hono<AppEnv>();
 
+/** Einladungslinks gelten 14 Tage. */
+const INVITE_TTL_MS = 14 * 86_400_000;
+
+// Vergleichshash für nicht vorhandene Konten (gleiche Rechenzeit wie ein echter Login)
+const DUMMY_HASH = 'pbkdf2$100000$AAAAAAAAAAAAAAAAAAAAAA==$AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=';
+
+async function invalidToken(c: Ctx, message: string): Promise<never> {
+  await recordFailure(c, 'token-ip', clientIp(c));
+  throw new HTTPException(404, { message });
+}
+
 auth.post('/register', async (c) => {
   const body = z
     .object({ company: z.string().trim().min(2).max(120), name: z.string().trim().min(2).max(120), email: z.string().trim().email(), password })
     .parse(await c.req.json());
+  await assertNotThrottled(c, 'register-ip', clientIp(c));
+  await recordFailure(c, 'register-ip', clientIp(c)); // zählt jede Registrierung
   const exists = await c.env.DB.prepare('SELECT 1 FROM users WHERE email = ?').bind(body.email).first();
   if (exists) throw new HTTPException(409, { message: 'Diese E-Mail ist bereits registriert' });
   const t = now();
@@ -79,13 +93,20 @@ auth.post('/register', async (c) => {
 });
 
 auth.post('/login', async (c) => {
-  const body = z.object({ email: z.string().trim().email(), password: z.string().min(1) }).parse(await c.req.json());
+  const body = z.object({ email: z.string().trim().email(), password: z.string().min(1).max(200) }).parse(await c.req.json());
+  const ip = clientIp(c);
+  await assertNotThrottled(c, 'login-ip', ip);
+  await assertNotThrottled(c, 'login-user', body.email);
   const user = await c.env.DB.prepare('SELECT id, password_hash FROM users WHERE email = ?')
     .bind(body.email)
     .first<{ id: string; password_hash: string }>();
-  if (!user || !(await verifyPassword(body.password, user.password_hash))) {
+  // Auch ohne Konto einen Hash prüfen, damit die Antwortzeit nicht verrät, ob die E-Mail existiert
+  const ok = await verifyPassword(body.password, user?.password_hash ?? DUMMY_HASH);
+  if (!user || !ok) {
+    await Promise.all([recordFailure(c, 'login-ip', ip), recordFailure(c, 'login-user', body.email)]);
     throw new HTTPException(401, { message: 'E-Mail oder Passwort falsch' });
   }
+  await clearFailures(c, 'login-user', body.email);
   const m = await c.env.DB.prepare('SELECT tenant_id FROM memberships WHERE user_id = ? ORDER BY created_at LIMIT 1')
     .bind(user.id)
     .first<{ tenant_id: string }>();
@@ -134,24 +155,28 @@ auth.post('/logout', async (c) => {
 
 /** Passwort über einen vom Admin erzeugten Link neu setzen. */
 auth.get('/reset/:token', async (c) => {
+  await assertNotThrottled(c, 'token-ip', clientIp(c));
   const r = await c.env.DB.prepare(
     'SELECT u.email, u.name FROM password_resets pr JOIN users u ON u.id = pr.user_id WHERE pr.token = ? AND pr.used_at IS NULL AND pr.expires_at > ?',
   )
     .bind(c.req.param('token'), now())
     .first();
-  if (!r) throw new HTTPException(404, { message: 'Link ungültig oder abgelaufen' });
+  if (!r) await invalidToken(c, 'Link ungültig oder abgelaufen');
   return c.json(r);
 });
 
 auth.post('/reset/:token', async (c) => {
   const { password: pw } = z.object({ password }).parse(await c.req.json());
+  await assertNotThrottled(c, 'token-ip', clientIp(c));
   const r = await c.env.DB.prepare('SELECT user_id FROM password_resets WHERE token = ? AND used_at IS NULL AND expires_at > ?')
     .bind(c.req.param('token'), now())
     .first<{ user_id: string }>();
-  if (!r) throw new HTTPException(404, { message: 'Link ungültig oder abgelaufen' });
+  if (!r) return invalidToken(c, 'Link ungültig oder abgelaufen');
   await c.env.DB.batch([
     c.env.DB.prepare('UPDATE users SET password_hash = ? WHERE id = ?').bind(await hashPassword(pw), r.user_id),
     c.env.DB.prepare('UPDATE password_resets SET used_at = ? WHERE token = ?').bind(now(), c.req.param('token')),
+    // weitere offene Links dieser Person ungültig machen
+    c.env.DB.prepare('DELETE FROM password_resets WHERE user_id = ? AND used_at IS NULL').bind(r.user_id),
     c.env.DB.prepare('DELETE FROM sessions WHERE user_id = ?').bind(r.user_id),
   ]);
   return c.json({ ok: true });
@@ -160,29 +185,35 @@ auth.post('/reset/:token', async (c) => {
 auth.get('/legal', (c) => c.json(LEGAL_DOCS));
 
 auth.get('/invite/:token', async (c) => {
+  await assertNotThrottled(c, 'token-ip', clientIp(c));
   const inv = await c.env.DB.prepare(
     `SELECT i.email, i.role, t.name AS company FROM invites i JOIN tenants t ON t.id = i.tenant_id
-      WHERE i.token = ? AND i.accepted_at IS NULL`,
+      WHERE i.token = ? AND i.accepted_at IS NULL AND i.created_at > ?`,
   )
-    .bind(c.req.param('token'))
+    .bind(c.req.param('token'), now() - INVITE_TTL_MS)
     .first();
-  if (!inv) throw new HTTPException(404, { message: 'Einladung ungültig oder bereits verwendet' });
+  if (!inv) return invalidToken(c, 'Einladung ungültig, abgelaufen oder bereits verwendet');
   const known = await c.env.DB.prepare('SELECT 1 FROM users WHERE email = ?').bind(inv.email).first();
   return c.json({ ...inv, existingUser: !!known });
 });
 
 auth.post('/invite/:token', async (c) => {
-  const inv = await c.env.DB.prepare('SELECT id, tenant_id, email, role FROM invites WHERE token = ? AND accepted_at IS NULL')
-    .bind(c.req.param('token'))
+  await assertNotThrottled(c, 'token-ip', clientIp(c));
+  const inv = await c.env.DB.prepare('SELECT id, tenant_id, email, role FROM invites WHERE token = ? AND accepted_at IS NULL AND created_at > ?')
+    .bind(c.req.param('token'), now() - INVITE_TTL_MS)
     .first<{ id: string; tenant_id: string; email: string; role: string }>();
-  if (!inv) throw new HTTPException(404, { message: 'Einladung ungültig oder bereits verwendet' });
+  if (!inv) return invalidToken(c, 'Einladung ungültig, abgelaufen oder bereits verwendet');
   const body = z.object({ name: z.string().trim().min(2).max(120).optional(), password }).parse(await c.req.json());
   const t = now();
   let user = await c.env.DB.prepare('SELECT id, password_hash FROM users WHERE email = ?')
     .bind(inv.email)
     .first<{ id: string; password_hash: string }>();
   if (user) {
-    if (!(await verifyPassword(body.password, user.password_hash))) throw new HTTPException(401, { message: 'Passwort falsch' });
+    await assertNotThrottled(c, 'password-user', inv.email);
+    if (!(await verifyPassword(body.password, user.password_hash))) {
+      await recordFailure(c, 'password-user', inv.email);
+      throw new HTTPException(401, { message: 'Passwort falsch' });
+    }
   } else {
     if (!body.name) throw new HTTPException(400, { message: 'Name fehlt' });
     user = { id: id(), password_hash: await hashPassword(body.password) };
@@ -251,7 +282,9 @@ account.patch('/profile', async (c) => {
   if (body.name) await c.env.DB.prepare('UPDATE users SET name = ? WHERE id = ?').bind(body.name, u.userId).run();
   if (body.newPassword) {
     const row = await c.env.DB.prepare('SELECT password_hash FROM users WHERE id = ?').bind(u.userId).first<{ password_hash: string }>();
+    await assertNotThrottled(c, 'password-user', u.userId);
     if (!row || !(await verifyPassword(body.currentPassword ?? '', row.password_hash))) {
+      await recordFailure(c, 'password-user', u.userId);
       throw new HTTPException(401, { message: 'Aktuelles Passwort falsch' });
     }
     await c.env.DB.batch([
@@ -377,7 +410,11 @@ account.post('/delete', async (c) => {
   const { password: pw } = z.object({ password: z.string().min(1) }).parse(await c.req.json());
   const u = c.get('user');
   const row = await c.env.DB.prepare('SELECT password_hash FROM users WHERE id = ?').bind(u.userId).first<{ password_hash: string }>();
-  if (!row || !(await verifyPassword(pw, row.password_hash))) throw new HTTPException(401, { message: 'Passwort falsch' });
+  await assertNotThrottled(c, 'password-user', u.userId);
+  if (!row || !(await verifyPassword(pw, row.password_hash))) {
+    await recordFailure(c, 'password-user', u.userId);
+    throw new HTTPException(401, { message: 'Passwort falsch' });
+  }
   const soleOwner = await c.env.DB.prepare(
     `SELECT t.name FROM memberships m JOIN tenants t ON t.id = m.tenant_id WHERE m.user_id = ?1 AND m.role = 'owner'
        AND NOT EXISTS (SELECT 1 FROM memberships o WHERE o.tenant_id = m.tenant_id AND o.role = 'owner' AND o.user_id != ?1)
@@ -392,9 +429,11 @@ account.post('/delete', async (c) => {
     c.env.DB.prepare('DELETE FROM notifications WHERE user_id = ?').bind(u.userId),
     c.env.DB.prepare('DELETE FROM password_resets WHERE user_id = ?').bind(u.userId),
     c.env.DB.prepare('DELETE FROM memberships WHERE user_id = ?').bind(u.userId),
+    c.env.DB.prepare('UPDATE api_keys SET revoked_at = ? WHERE created_by = ? AND revoked_at IS NULL').bind(now(), u.userId),
     c.env.DB.prepare('UPDATE tasks SET assignee_id = NULL WHERE assignee_id = ?').bind(u.userId),
     c.env.DB.prepare("UPDATE task_comments SET author_name = 'Gelöschte Person', user_id = NULL WHERE user_id = ?").bind(u.userId),
-    c.env.DB.prepare("UPDATE users SET name = 'Gelöschte Person', email = ?, password_hash = '' WHERE id = ?").bind(`geloescht-${u.userId}@invalid`, u.userId),
+    c.env.DB.prepare("UPDATE users SET name = 'Gelöschte Person', email = ?, password_hash = '', known_devices = '[]' WHERE id = ?").bind(`geloescht-${u.userId}@invalid`, u.userId),
+    c.env.DB.prepare("UPDATE legal_acks SET user_agent = '' WHERE user_id = ?").bind(u.userId),
   ]);
   deleteCookie(c, SESSION_COOKIE, { path: '/' });
   return c.json({ ok: true });
@@ -465,7 +504,15 @@ account.post('/members/:userId/reset-link', async (c) => {
     .bind(u.tenantId, c.req.param('userId'))
     .first<{ role: string }>();
   if (!target) throw new HTTPException(404, { message: 'Mitglied nicht gefunden' });
-  if (target.role === 'owner' && u.role !== 'owner') throw new HTTPException(403, { message: 'Nur Inhaber können Links für Inhaber erzeugen' });
+  if (c.req.param('userId') === u.userId) throw new HTTPException(400, { message: 'Das eigene Passwort unter Profil ändern' });
+  // Nur für Personen mit niedrigerer Rolle: Admins für Prüfer/Lesezugriff, Inhaber zusätzlich für Admins
+  const rank: Record<string, number> = { viewer: 0, inspector: 1, admin: 2, owner: 3 };
+  if (rank[target.role] >= rank[u.role]) throw new HTTPException(403, { message: 'Nur für Mitglieder mit niedrigerer Rolle möglich' });
+  // Passwörter gelten workspace-übergreifend: Wer auch woanders Mitglied ist, setzt sein Passwort selbst zurück
+  const elsewhere = await c.env.DB.prepare('SELECT 1 FROM memberships WHERE user_id = ? AND tenant_id != ?').bind(c.req.param('userId'), u.tenantId).first();
+  if (elsewhere) {
+    throw new HTTPException(403, { message: 'Diese Person ist auch in einem anderen Workspace Mitglied. Den Link kann nur ein Admin erzeugen, wenn das Konto ausschließlich zu diesem Workspace gehört.' });
+  }
   const tok = token();
   await c.env.DB.prepare('INSERT INTO password_resets (token, user_id, created_by, expires_at) VALUES (?,?,?,?)')
     .bind(tok, c.req.param('userId'), u.userId, now() + 86_400_000)
@@ -501,6 +548,8 @@ account.delete('/members/:userId', async (c) => {
   await c.env.DB.batch([
     c.env.DB.prepare('DELETE FROM memberships WHERE tenant_id = ? AND user_id = ?').bind(u.tenantId, target),
     c.env.DB.prepare('DELETE FROM sessions WHERE tenant_id = ? AND user_id = ?').bind(u.tenantId, target),
+    // API-Schlüssel der Person endgültig widerrufen (sonst wären sie nach erneuter Einladung wieder gültig)
+    c.env.DB.prepare('UPDATE api_keys SET revoked_at = ? WHERE tenant_id = ? AND created_by = ? AND revoked_at IS NULL').bind(now(), u.tenantId, target),
   ]);
   return c.json({ ok: true });
 });

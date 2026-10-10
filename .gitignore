@@ -4,3 +4,5 @@ dist
 .dev.vars
 *.log
 .env*
+seed-out
+e2e/.out

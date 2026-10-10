@@ -22,7 +22,7 @@ const body = z.object({
   findings: z.array(finding).max(200).default([]),
   notes: str(5000).default(''),
   participants: str(1000).default(''),
-  signature: z.string().max(400_000).nullable().default(null),
+  signature: z.string().max(400_000).regex(/^data:image\/(png|jpeg);base64,[A-Za-z0-9+/=]+$/, 'Ungültige Unterschrift').nullable().default(null),
   signerName: str(160).default(''),
 });
 type Body = z.infer<typeof body>;
@@ -116,6 +116,8 @@ async function save(c: Ctx, wid: string, b: Body) {
   if (w.inspectorId !== c.get('user').userId && !['admin', 'owner'].includes(c.get('user').role)) {
     throw new HTTPException(403, { message: 'Nur die prüfende Person kann diesen Entwurf bearbeiten' });
   }
+  // Fotos nur aus dem eigenen Workspace
+  if (b.findings.some((f) => f.photoKey && !f.photoKey.startsWith(`${tid(c)}/`))) throw new HTTPException(400, { message: 'Ungültige Datei' });
   await c.env.DB.prepare('UPDATE walkthroughs SET answers=?, findings=?, notes=?, participants=?, signature=?, signer_name=?, updated_at=? WHERE id=?')
     .bind(JSON.stringify(b.answers), JSON.stringify(b.findings), b.notes, b.participants, b.signature, b.signerName, now(), wid)
     .run();
@@ -161,7 +163,11 @@ walks.post('/walkthroughs/:id/submit', async (c) => {
 
 walks.delete('/walkthroughs/:id', async (c) => {
   requireRole(c, 'inspector');
-  const r = await c.env.DB.prepare("DELETE FROM walkthroughs WHERE id = ? AND tenant_id = ? AND status = 'draft'").bind(c.req.param('id'), tid(c)).run();
-  if (!r.meta.changes) throw new HTTPException(409, { message: 'Nur Entwürfe können verworfen werden' });
+  const u = c.get('user');
+  const isAdmin = ['admin', 'owner'].includes(u.role);
+  const r = await c.env.DB.prepare("DELETE FROM walkthroughs WHERE id = ? AND tenant_id = ? AND status = 'draft' AND (inspector_id = ? OR ?)")
+    .bind(c.req.param('id'), tid(c), u.userId, isAdmin ? 1 : 0)
+    .run();
+  if (!r.meta.changes) throw new HTTPException(409, { message: 'Nur eigene Entwürfe können verworfen werden' });
   return c.json({ ok: true });
 });

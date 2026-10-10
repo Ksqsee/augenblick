@@ -20,8 +20,11 @@ https://pruefkompass.ksqsebastian.workers.dev. Bewusst ausgenommen: Bezahlung/Ta
 - **Produktion** (D1 remote, R2, Secrets) nur ändern, wenn der Nutzer es ausdrücklich will;
   Produktionsdaten nie löschen. Neue Demo-Inhalte additiv über die App-API anlegen.
 - Schemaänderungen nur als neue Migration in `migrations/` (fortlaufend nummeriert), nie alte ändern.
-- Vor Commit/Deploy: `npm run typecheck`, `npm test`, `npm run build`; Oberfläche mit Playwright
-  prüfen (auch Handybreite 390 px ohne horizontalen Überlauf).
+- Vor Commit/Deploy: `npm run check` und `npm run e2e` (Browser-Tests in `e2e/`, siehe README).
+  Neue Funktionen bekommen eine Prüfung in einer bestehenden oder neuen Reihe `e2e/NN-*.cjs`;
+  Handybreite 390 px ohne horizontalen Überlauf prüfen. CI läuft bei jedem Push.
+- Sicherheitsrelevante Änderungen in `docs/security.md` nachführen; Angriffstests in `e2e/08-security.cjs`.
+- Die CSP (`public/_headers`) erlaubt nur eigene Skripte/Schriften: keine externen CDNs, kein `eval`.
 - Oberfläche und Texte auf Deutsch; Dokumente (PDF/Excel) zusätzlich Englisch über `shared/i18n.ts` –
   neue feste PDF-Texte dort ergänzen (ein Test prüft die Abdeckung).
 

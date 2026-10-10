@@ -1,5 +1,5 @@
 // Service Worker: App-Shell offline verfügbar machen. API-Aufrufe werden nie gecacht.
-const CACHE = 'pk-shell-v3';
+const CACHE = 'pk-shell-v4';
 
 self.addEventListener('install', (event) => {
   event.waitUntil(
@@ -40,7 +40,7 @@ self.addEventListener('fetch', (event) => {
   }
 
   // Gebaute Assets (Hash im Namen) und Schriften: Cache zuerst
-  if (url.origin === location.origin || url.hostname.endsWith('fonts.gstatic.com') || url.hostname.endsWith('fonts.googleapis.com')) {
+  if (url.origin === location.origin) {
     event.respondWith(
       caches.match(req).then(
         (hit) =>
@@ -70,7 +70,14 @@ self.addEventListener('push', (event) => {
 
 self.addEventListener('notificationclick', (event) => {
   event.notification.close();
-  const link = event.notification.data?.link || '/';
+  // nur Ziele innerhalb der App öffnen
+  let link = '/';
+  try {
+    const u = new URL(event.notification.data?.link || '/', self.location.origin);
+    if (u.origin === self.location.origin) link = u.pathname + u.search + u.hash;
+  } catch {
+    /* ungültiger Link → Startseite */
+  }
   event.waitUntil(
     self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then((list) => {
       for (const c of list) {

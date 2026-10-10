@@ -28,7 +28,7 @@ const inspectionBody = z.object({
   defects: z.array(defectInput).max(100).default([]),
   photos: z.array(photoInput).max(40).default([]),
   notes: str(5000).default(''),
-  signature: z.string().max(400_000).nullable().default(null),
+  signature: z.string().max(400_000).regex(/^data:image\/(png|jpeg);base64,[A-Za-z0-9+/=]+$/, 'Ungültige Unterschrift').nullable().default(null),
   signerName: str(160).default(''),
   resultOverride: z.enum(['ok', 'defects', 'critical']).nullable().default(null),
   resultReason: str(500).default(''),
@@ -374,8 +374,13 @@ inspections.post('/inspections/offline', async (c) => {
 
 inspections.delete('/inspections/:id', async (c) => {
   requireRole(c, 'inspector');
-  const r = await c.env.DB.prepare("DELETE FROM inspections WHERE id = ? AND tenant_id = ? AND status = 'draft'").bind(c.req.param('id'), tid(c)).run();
-  if (!r.meta.changes) throw new HTTPException(409, { message: 'Nur Entwürfe können verworfen werden' });
+  const u = c.get('user');
+  const isAdmin = ['admin', 'owner'].includes(u.role);
+  // Eigene Entwürfe verwerfen; fremde nur als Admin
+  const r = await c.env.DB.prepare("DELETE FROM inspections WHERE id = ? AND tenant_id = ? AND status = 'draft' AND (inspector_id = ? OR ?)")
+    .bind(c.req.param('id'), tid(c), u.userId, isAdmin ? 1 : 0)
+    .run();
+  if (!r.meta.changes) throw new HTTPException(409, { message: 'Nur eigene Entwürfe können verworfen werden' });
   return c.json({ ok: true });
 });
 
@@ -463,8 +468,12 @@ inspections.post('/assets/:id/attachments', async (c) => {
 
 inspections.delete('/attachments/:id', async (c) => {
   requireRole(c, 'inspector');
-  const row = await c.env.DB.prepare('SELECT file_key FROM attachments WHERE id = ? AND tenant_id = ?').bind(c.req.param('id'), tid(c)).first<{ file_key: string }>();
+  const row = await c.env.DB.prepare('SELECT file_key, inspection_id FROM attachments WHERE id = ? AND tenant_id = ?')
+    .bind(c.req.param('id'), tid(c))
+    .first<{ file_key: string; inspection_id: string | null }>();
   if (!row) notFound('Anhang');
+  // Fotos aus abgeschlossenen Prüfungen sind Nachweise – nur Admins dürfen sie entfernen
+  if (row.inspection_id) requireRole(c, 'admin');
   await c.env.DB.prepare('DELETE FROM attachments WHERE id = ?').bind(c.req.param('id')).run();
   const still = await c.env.DB.prepare('SELECT 1 FROM attachments WHERE file_key = ?').bind(row.file_key).first();
   if (!still) await c.env.FILES.delete(row.file_key);

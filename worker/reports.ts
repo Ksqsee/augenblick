@@ -67,6 +67,7 @@ reports.get('/reports/:id/file', async (c) => {
 });
 
 reports.delete('/reports/:id', async (c) => {
+  requireRole(c, 'inspector');
   const u = c.get('user');
   const r = await c.env.DB.prepare('SELECT file_key, created_by FROM reports WHERE id = ? AND tenant_id = ?')
     .bind(c.req.param('id'), tid(c))

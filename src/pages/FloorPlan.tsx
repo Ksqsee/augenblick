@@ -14,7 +14,7 @@ async function toPlanImage(file: File): Promise<{ blob: Blob; width: number; hei
     const pdfjs = await import('pdfjs-dist');
     const worker = await import('pdfjs-dist/build/pdf.worker.min.mjs?url');
     pdfjs.GlobalWorkerOptions.workerSrc = worker.default;
-    const doc = await pdfjs.getDocument({ data: await file.arrayBuffer() }).promise;
+    const doc = await pdfjs.getDocument({ data: await file.arrayBuffer(), isEvalSupported: false }).promise;
     const page = await doc.getPage(1);
     const base = page.getViewport({ scale: 1 });
     const viewport = page.getViewport({ scale: Math.min(4, 2400 / Math.max(base.width, base.height)) });

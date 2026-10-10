@@ -101,9 +101,11 @@ export function TeamPage() {
                         </option>
                       ))}
                     </Select>
-                    <Button variant="ghost" size="sm" aria-label={`Passwort-Link für ${m.name}`} title="Link zum Zurücksetzen des Passworts" onClick={() => resetLink.mutate(m)}>
-                      <KeyRound className="size-4" />
-                    </Button>
+                    {(me?.user.role === 'owner' || m.role !== 'admin') && (
+                      <Button variant="ghost" size="sm" aria-label={`Passwort-Link für ${m.name}`} title="Link zum Zurücksetzen des Passworts" onClick={() => resetLink.mutate(m)}>
+                        <KeyRound className="size-4" />
+                      </Button>
+                    )}
                     {me?.user.role === 'owner' && (
                       <Button
                         variant="ghost"
@@ -128,7 +130,7 @@ export function TeamPage() {
 
           {isAdmin && data.invites.length > 0 && (
             <Card>
-              <CardHeader title="Offene Einladungen" subtitle="Link an die Person schicken – er ist einmal gültig." />
+              <CardHeader title="Offene Einladungen" subtitle="Link an die Person schicken – er ist einmal und 14 Tage lang gültig." />
               <div className="divide-y divide-line">
                 {data.invites.map((i) => (
                   <div key={i.id} className="flex items-center gap-3 px-5 py-3">

@@ -54,20 +54,25 @@ export async function notifyTenant(env: Env, tenantId: string, n: NotifyInput, c
   ).results.filter((m) => m.user_id !== n.exceptUserId);
   const t = now();
   const stmts: D1PreparedStatement[] = [];
-  const pushTo: string[] = [];
+  const inserted: string[] = [];
+  const pushWanted: string[] = [];
   for (const m of members) {
     const all = parseJson<Prefs>(m.notify_prefs, {});
     const p = all[n.type] ?? {};
     if (p.inApp !== false) {
+      inserted.push(m.user_id);
       stmts.push(
         env.DB.prepare(
           'INSERT OR IGNORE INTO notifications (id, tenant_id, user_id, type, title, body, link, dedupe_key, created_at) VALUES (?,?,?,?,?,?,?,?,?)',
         ).bind(id(), tenantId, m.user_id, n.type, n.title, n.body ?? '', n.link ?? null, n.dedupe ?? null, t),
       );
     }
-    if (p.push !== false && (n.ignoreQuiet || !inQuietHours(all.quiet, t))) pushTo.push(m.user_id);
+    if (p.push !== false && (n.ignoreQuiet || !inQuietHours(all.quiet, t))) pushWanted.push(m.user_id);
   }
-  if (stmts.length) await env.DB.batch(stmts);
+  const results = stmts.length ? await env.DB.batch(stmts) : [];
+  // Bereits vorhandene Meldung (gleicher dedupe-Schlüssel) nicht erneut per Push senden
+  const duplicate = new Set(inserted.filter((_, i) => n.dedupe && !results[i]?.meta.changes));
+  const pushTo = pushWanted.filter((u) => !duplicate.has(u));
   if (pushTo.length && env.VAPID_PUBLIC_KEY && env.VAPID_PRIVATE_KEY) {
     const work = pushAll(env, pushTo, { title: n.title, body: n.body ?? '', link: n.link ?? '/' });
     if (ctx) ctx.waitUntil(work);
@@ -83,7 +88,7 @@ async function pushAll(env: Env, userIds: string[], data: { title: string; body:
   ).results;
   const cfg = { publicKey: env.VAPID_PUBLIC_KEY!, privateKey: env.VAPID_PRIVATE_KEY!, subject: env.VAPID_SUBJECT ?? 'mailto:admin@example.com' };
   await Promise.all(
-    subs.map(async (s) => {
+    subs.filter((s) => isPushService(s.endpoint)).map(async (s) => {
       try {
         if (!(await sendPush(cfg, s, data))) await env.DB.prepare('DELETE FROM push_subscriptions WHERE id = ?').bind(s.id).run();
       } catch (e) {
@@ -161,9 +166,27 @@ async function savePrefs(c: Ctx, update: (old: Prefs) => Prefs) {
   await c.env.DB.prepare('UPDATE memberships SET notify_prefs = ? WHERE user_id = ? AND tenant_id = ?').bind(JSON.stringify(next), u.userId, u.tenantId).run();
 }
 
+/** Nur Endpunkte der bekannten Browser-Push-Dienste (kein Versand an beliebige URLs). */
+const PUSH_HOSTS = ['fcm.googleapis.com', 'updates.push.services.mozilla.com', 'web.push.apple.com', '.push.apple.com', '.notify.windows.com', '.push.services.mozilla.com'];
+export function isPushService(endpoint: string) {
+  try {
+    const url = new URL(endpoint);
+    return url.protocol === 'https:' && !url.port && PUSH_HOSTS.some((h) => (h.startsWith('.') ? url.hostname.endsWith(h) : url.hostname === h));
+  } catch {
+    return false;
+  }
+}
+
 notifications.post('/push/subscribe', async (c) => {
   const b = z.object({ endpoint: z.string().url().max(800), keys: z.object({ p256dh: z.string().max(200), auth: z.string().max(100) }) }).parse(await c.req.json());
-  if (!/^https:\/\//.test(b.endpoint)) return c.json({ error: 'Ungültiger Endpunkt' }, 400);
+  if (!isPushService(b.endpoint)) return c.json({ error: 'Unbekannter Push-Dienst' }, 400);
+  const u = c.get('user');
+  // höchstens 10 Geräte je Person: älteste Abos entfernen
+  await c.env.DB.prepare(
+    'DELETE FROM push_subscriptions WHERE user_id = ? AND endpoint != ? AND id NOT IN (SELECT id FROM push_subscriptions WHERE user_id = ? AND endpoint != ? ORDER BY created_at DESC LIMIT 9)',
+  )
+    .bind(u.userId, b.endpoint, u.userId, b.endpoint)
+    .run();
   await c.env.DB.prepare(
     `INSERT INTO push_subscriptions (id, user_id, endpoint, p256dh, auth, created_at) VALUES (?,?,?,?,?,?)
      ON CONFLICT (endpoint) DO UPDATE SET user_id = excluded.user_id, p256dh = excluded.p256dh, auth = excluded.auth`,

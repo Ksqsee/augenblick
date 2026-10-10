@@ -2,6 +2,7 @@ import type { Context, MiddlewareHandler } from 'hono';
 import { getCookie } from 'hono/cookie';
 import { HTTPException } from 'hono/http-exception';
 import type { Role } from '../shared/catalog';
+import { assertNotThrottled, clientIp, recordFailure } from './throttle';
 
 export interface Env {
   DB: D1Database;
@@ -110,7 +111,12 @@ export async function sha256Hex(s: string) {
 export const requireAuth: MiddlewareHandler<AppEnv> = async (c, next) => {
   const key = bearer(c);
   if (!key) return requireSession(c, next);
-  if (!key.startsWith(API_KEY_PREFIX)) throw new HTTPException(401, { message: 'Ungültiger API-Schlüssel' });
+  await assertNotThrottled(c, 'token-ip', clientIp(c));
+  const reject = async (message: string): Promise<never> => {
+    await recordFailure(c, 'token-ip', clientIp(c));
+    throw new HTTPException(401, { message });
+  };
+  if (!key.startsWith(API_KEY_PREFIX)) return reject('Ungültiger API-Schlüssel');
   const row = await c.env.DB.prepare(
     `SELECT k.id, k.tenant_id, k.scope, k.name, k.expires_at, k.revoked_at, k.last_used_at, k.created_by, m.role
        FROM api_keys k JOIN memberships m ON m.user_id = k.created_by AND m.tenant_id = k.tenant_id
@@ -118,7 +124,7 @@ export const requireAuth: MiddlewareHandler<AppEnv> = async (c, next) => {
   )
     .bind(await sha256Hex(key))
     .first<{ id: string; tenant_id: string; scope: 'read' | 'write'; name: string; expires_at: number | null; revoked_at: number | null; last_used_at: number | null; created_by: string; role: Role }>();
-  if (!row || row.revoked_at || (row.expires_at && row.expires_at < now())) throw new HTTPException(401, { message: 'Ungültiger oder widerrufener API-Schlüssel' });
+  if (!row || row.revoked_at || (row.expires_at && row.expires_at < now())) return reject('Ungültiger oder widerrufener API-Schlüssel');
   const cap: Role = row.scope === 'write' ? 'inspector' : 'viewer';
   c.set('user', { sessionId: `api:${row.id}`, userId: row.created_by, tenantId: row.tenant_id, role: RANK[row.role] < RANK[cap] ? row.role : cap, name: `API: ${row.name}`, email: '', apiKeyId: row.id });
   if ((row.last_used_at ?? 0) < now() - 60_000) c.executionCtx.waitUntil(c.env.DB.prepare('UPDATE api_keys SET last_used_at = ? WHERE id = ?').bind(now(), row.id).run());

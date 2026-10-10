@@ -8,6 +8,7 @@ import { getSchedule } from './categories';
 import { str, tid, uniqueCode } from './data';
 import { type AppEnv, type Ctx, id, logActivity, notFound, now, parseJson, requireRole, token } from './lib';
 import { notify, notifyTenant } from './notify';
+import { assertNotThrottled, clientIp, recordFailure } from './throttle';
 
 export const work = new Hono<AppEnv>();
 
@@ -174,6 +175,8 @@ work.get('/tasks', async (c) => {
       .all<Record<string, unknown>>()
   ).results;
   const n = now();
+  // Der Freigabe-Link erlaubt Rückmeldungen – nur für Personen, die Aufgaben bearbeiten dürfen
+  const canShare = c.get('user').role !== 'viewer';
   return c.json(
     rows.map((r) => {
       const p = sla[r.priority as 'low' | 'medium' | 'high'];
@@ -183,6 +186,7 @@ work.get('/tasks', async (c) => {
       const closed = (r.closedAt as number | null) ?? null;
       return {
         ...r,
+        shareToken: canShare ? r.shareToken : null,
         labels: parseJson<string[]>(r.labels as string, []),
         sla: {
           responseDue,
@@ -251,7 +255,7 @@ work.patch('/tasks/:id', async (c) => {
   await c.env.DB.prepare(
     `UPDATE tasks SET title=?, description=?, status=?, priority=?, due_at=?, assignee_id=?, subcontractor_id=?, asset_id=?, defect_id=?, property_id=?, labels=?,
             first_response_at=?, closed_at = CASE WHEN ? THEN COALESCE(closed_at, ?) ELSE NULL END, updated_at=?,
-            share_token = CASE WHEN ? IS NULL THEN NULL ELSE share_token END
+            share_token = CASE WHEN subcontractor_id IS ? THEN share_token ELSE NULL END
       WHERE id=? AND tenant_id=?`,
   )
     .bind(b.title, b.description, b.status, b.priority, b.dueAt, b.assigneeId, b.subcontractorId, b.assetId, b.defectId, b.propertyId, JSON.stringify(b.labels),
@@ -475,7 +479,11 @@ export const publicApi = new Hono<AppEnv>();
 
 async function taskByToken(c: Ctx) {
   const tok = c.req.param('token') ?? '';
-  if (tok.length < 20) notFound('Aufgabe');
+  await assertNotThrottled(c, 'token-ip', clientIp(c));
+  if (tok.length < 20) {
+    await recordFailure(c, 'token-ip', clientIp(c));
+    notFound('Aufgabe');
+  }
   const r = await c.env.DB.prepare(
     `SELECT t.id, t.tenant_id AS tenantId, t.assignee_id AS assigneeId, t.created_by AS createdBy, t.title, t.description, t.status, t.priority, t.due_at AS dueAt, t.defect_id AS defectId,
             t.external_note AS externalNote, t.external_done_at AS externalDoneAt,
@@ -490,7 +498,10 @@ async function taskByToken(c: Ctx) {
   )
     .bind(tok)
     .first<Record<string, unknown>>();
-  if (!r) notFound('Aufgabe');
+  if (!r) {
+    await recordFailure(c, 'token-ip', clientIp(c));
+    notFound('Aufgabe');
+  }
   return r;
 }
 
@@ -502,7 +513,7 @@ publicApi.get('/tasks/:token', async (c) => {
 
 publicApi.get('/tasks/:token/photo', async (c) => {
   const r = await taskByToken(c);
-  if (!r.photoKey) notFound('Foto');
+  if (!r.photoKey || !String(r.photoKey).startsWith(`${r.tenantId}/`)) notFound('Foto');
   const obj = await c.env.FILES.get(r.photoKey as string);
   if (!obj) notFound('Foto');
   return new Response(obj.body, { headers: { 'content-type': obj.httpMetadata?.contentType ?? 'image/jpeg', 'cache-control': 'private, max-age=3600' } });

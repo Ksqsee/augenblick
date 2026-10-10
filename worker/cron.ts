@@ -85,6 +85,7 @@ export async function runDaily(env: Env, now = Date.now()) {
   await env.DB.batch([
     env.DB.prepare('DELETE FROM sessions WHERE expires_at < ?').bind(now),
     env.DB.prepare('DELETE FROM password_resets WHERE expires_at < ?').bind(now - 7 * DAY),
+    env.DB.prepare('DELETE FROM auth_throttle WHERE created_at < ?').bind(now - DAY),
     env.DB.prepare('DELETE FROM notifications WHERE created_at < ?').bind(now - 180 * DAY),
   ]);
 }
