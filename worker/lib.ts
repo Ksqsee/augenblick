@@ -19,6 +19,8 @@ export interface SessionUser {
   role: Role;
   name: string;
   email: string;
+  /** gesetzt, wenn die Anfrage per API-Schlüssel statt Sitzung kommt */
+  apiKeyId?: string;
 }
 
 export type AppEnv = { Bindings: Env; Variables: { user: SessionUser } };
@@ -71,7 +73,9 @@ export async function verifyPassword(password: string, stored: string): Promise<
   return diff === 0;
 }
 
-export const requireAuth: MiddlewareHandler<AppEnv> = async (c, next) => {
+/** Nur Browser-Sitzung (Konto, Benachrichtigungen, Push). */
+export const requireSession: MiddlewareHandler<AppEnv> = async (c, next) => {
+  if (bearer(c)) throw new HTTPException(403, { message: 'Mit API-Schlüssel nicht verfügbar' });
   const sid = getCookie(c, SESSION_COOKIE);
   if (!sid) throw new HTTPException(401, { message: 'Nicht angemeldet' });
   const row = await c.env.DB.prepare(
@@ -88,9 +92,49 @@ export const requireAuth: MiddlewareHandler<AppEnv> = async (c, next) => {
   await next();
 };
 
+export const API_KEY_PREFIX = 'pk_';
+const bearer = (c: Ctx) => {
+  const h = c.req.header('authorization') ?? '';
+  return h.startsWith('Bearer ') ? h.slice(7).trim() : null;
+};
+
+export async function sha256Hex(s: string) {
+  const d = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(s));
+  return Array.from(new Uint8Array(d), (b) => b.toString(16).padStart(2, '0')).join('');
+}
+
+/**
+ * Sitzung oder API-Schlüssel. Ein Schlüssel handelt im Namen der Person, die ihn erstellt hat,
+ * höchstens mit Rolle „Lesezugriff“ (read) bzw. „Prüfer“ (write) – und nie mit mehr Rechten als sie selbst.
+ */
+export const requireAuth: MiddlewareHandler<AppEnv> = async (c, next) => {
+  const key = bearer(c);
+  if (!key) return requireSession(c, next);
+  if (!key.startsWith(API_KEY_PREFIX)) throw new HTTPException(401, { message: 'Ungültiger API-Schlüssel' });
+  const row = await c.env.DB.prepare(
+    `SELECT k.id, k.tenant_id, k.scope, k.name, k.expires_at, k.revoked_at, k.last_used_at, k.created_by, m.role
+       FROM api_keys k JOIN memberships m ON m.user_id = k.created_by AND m.tenant_id = k.tenant_id
+      WHERE k.key_hash = ?`,
+  )
+    .bind(await sha256Hex(key))
+    .first<{ id: string; tenant_id: string; scope: 'read' | 'write'; name: string; expires_at: number | null; revoked_at: number | null; last_used_at: number | null; created_by: string; role: Role }>();
+  if (!row || row.revoked_at || (row.expires_at && row.expires_at < now())) throw new HTTPException(401, { message: 'Ungültiger oder widerrufener API-Schlüssel' });
+  const cap: Role = row.scope === 'write' ? 'inspector' : 'viewer';
+  c.set('user', { sessionId: `api:${row.id}`, userId: row.created_by, tenantId: row.tenant_id, role: RANK[row.role] < RANK[cap] ? row.role : cap, name: `API: ${row.name}`, email: '', apiKeyId: row.id });
+  if ((row.last_used_at ?? 0) < now() - 60_000) c.executionCtx.waitUntil(c.env.DB.prepare('UPDATE api_keys SET last_used_at = ? WHERE id = ?').bind(now(), row.id).run());
+  await next();
+};
+
+/** Persönliche Bereiche (Benachrichtigungen, Push) nur mit Browser-Sitzung. */
+export const sessionOnly: MiddlewareHandler<AppEnv> = async (c, next) => {
+  if (c.get('user')?.apiKeyId) throw new HTTPException(403, { message: 'Mit API-Schlüssel nicht verfügbar' });
+  await next();
+};
+
 /** Schreibende Requests brauchen einen eigenen Header (CSRF-Schutz zusätzlich zu SameSite). */
 export const csrfGuard: MiddlewareHandler<AppEnv> = async (c, next) => {
-  if (!['GET', 'HEAD', 'OPTIONS'].includes(c.req.method) && c.req.header('x-pk') !== '1') {
+  // Mit API-Schlüssel (Authorization-Header) gibt es kein Cookie-Risiko
+  if (!['GET', 'HEAD', 'OPTIONS'].includes(c.req.method) && c.req.header('x-pk') !== '1' && !c.req.header('authorization')?.startsWith('Bearer ')) {
     throw new HTTPException(403, { message: 'Ungültige Anfrage' });
   }
   await next();
@@ -107,7 +151,7 @@ export async function logActivity(c: Ctx, action: string, entity: string, entity
   await c.env.DB.prepare(
     'INSERT INTO activity (id, tenant_id, user_id, action, entity, entity_id, summary, created_at) VALUES (?,?,?,?,?,?,?,?)',
   )
-    .bind(id(), u.tenantId, u.userId, action, entity, entityId, summary, now())
+    .bind(id(), u.tenantId, u.userId, action, entity, entityId, u.apiKeyId ? `${summary} (${u.name})` : summary, now())
     .run();
 }
 

@@ -145,3 +145,31 @@ Berichte** · Team: **Mitarbeiter, Subunternehmer** · Verwaltung:
 - **inspection-templates** (inkl. Varianten) · **maengel** · **tasks** (+labels, sla-policies, comments, stats)
 - **reports**: pdf, generate-async, jobs, excel, elements-excel, json-backup, uuid-labels, import-template, archives
 - **notifications** (+read-all, fcm-token) · **uuid-codes** (redeem) · **offline-bundle**
+
+## 6. Abgleich mit Prüfkompass (Stand 10.10.2026)
+
+Grundlage ist diese Analyse; Augenblick Control wurde seither nicht erneut geöffnet.
+
+| Bereich (Augenblick) | Prüfkompass | Anmerkung |
+|----------------------|-------------|-----------|
+| Hierarchie Workspace → Objekt → Gebäude → Element, Grundrisse mit Markern | ✓ | |
+| Prüfvorlagen, eigene Protokolle/Varianten, eigene Prüfpunkte | ✓ | eigene Elementarten, Vorlagen je Prüfart |
+| Prüfarten (`yearly`, `monthly`, `inner`, `strength`) | ✓ | je Element mit eigener Frist |
+| Prüfablauf inkl. Art der Prüfung, Wartungsarbeiten, Mängel, Maßnahmen, Fotos, Gesamtbewertung, Unterschrift | ✓ | Gesamtbewertung überschreibbar mit Begründung |
+| Entwürfe, Offline-Sync, fehlgeschlagene Syncs | ✓ | PWA mit Warteschlange |
+| Wieder öffnen, Archiv, Mehrfachlöschen | ✓ | |
+| Brandschutzbegehung mit Katalog nach Gebäudeart | ✓ | eigener Fragenkatalog und eigene Formulierungen |
+| Prüfungs-Reiter (Überfällig, Bald fällig, Nicht prüfbar, Durchgeführt, Neue Geräte), Filter nach Prüfart | ✓ | Mängel-Reiter als eigene Seite |
+| Mängel-Dashboard, Aufgaben mit Labels, SLA, Kommentaren, Statistik | ✓ | |
+| Subunternehmer | ✓ (anders) | Link je Aufgabe statt eigener Rolle/Konto |
+| Berichte: Prüfprotokoll, Objektbericht, Compliance, Mängelbericht, Excel-Elementliste (re-importierbar), JSON-Backup, Archiv | ✓ | PDF entsteht im Browser |
+| Batch-ZIP-Export, PDF-Dateinamenschema | ✓ | |
+| UUID-/QR-Etiketten, Scan, Zuordnung beim ersten Scan | ✓ | |
+| Excel-Import mit Vorlage | ✓ | auch CSV und englische Kopfzeilen |
+| Benachrichtigungen, Präferenzen, Wochenübersicht, Kontosicherheit, „Nicht stören“ | ✓ | In-App + Web Push statt FCM |
+| Firmenprofil, Logo, Sprache, Zeitzone | ✓ | Sprache gilt für Dokumente; Oberfläche deutsch |
+| Sitzungen, Rechtstexte mit Versionen, DSGVO | ✓ | |
+| Speicher-Statistik (`storage-stats`) | ✓ | |
+| Zugangsschlüssel (`access-keys`) | ✓ | siehe [`docs/api.md`](../api.md) |
+| Billing (Stripe, Pläne, Testphase) | – | bewusst weggelassen |
+| E-Mail (Passwort vergessen, E-Mail-Bestätigung, Mail-Erinnerungen) | – | bewusst weggelassen; Passwort-Link durch Admin |

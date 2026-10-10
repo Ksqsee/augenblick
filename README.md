@@ -1,76 +1,104 @@
 # Prüfkompass
 
 Web-App für wiederkehrende Brandschutzprüfungen: Objekte → Gebäude → Elemente
-(Feuerschutztüren, Brandschutzklappen, Feuerlöscher, Rauchwarnmelder), Prüfung vor
-Ort mit Unterschrift, Mängel- und Aufgabenverfolgung, Berichte und QR-Etiketten.
+(Feuerschutztüren, Brandschutzklappen, Feuerlöscher, Rauchwarnmelder und eigene Elementarten),
+Prüfung vor Ort mit Unterschrift, Mängel- und Aufgabenverfolgung, Berichte, QR-Etiketten und API.
+
+Live: https://pruefkompass.ksqsebastian.workers.dev ·
+Funktionsanalyse des Vorbilds und Abgleich: [`docs/analyse/`](docs/analyse/README.md) ·
+API: [`docs/api.md`](docs/api.md)
 
 ## Funktionen
 
-- **Prüfungen** je Element mit Prüfpunkten (i. O. / Mangel / n. z.), Fotos, Arbeiten, Unterschrift, Protokoll (Druck/PDF)
-- **Brandschutzbegehung** je Objekt mit eigenem Fragenkatalog nach Nutzung (Schule, Pflege, Lager …), Rechtsgrundlagen, Protokoll
-- **Grundrisse** (Bild oder PDF) mit farbigen Element-Markern; Platzieren per Antippen
-- **Mängel** aus Prüfungen und Begehungen, Aufgaben mit Status, Priorität, Fälligkeit und Zuständigkeit
-- **Subunternehmer**: Aufgaben per Link teilen, Rückmeldung „erledigt“ ohne Konto
-- **Offline-Modus**: Gebäude vorab laden, ohne Netz prüfen, automatische Synchronisation (PWA)
-- **Import** aus Excel/CSV mit Vorschau; Export als CSV
-- **QR-Etiketten** für Elemente und Blanko-Etiketten, die beim ersten Scan zugeordnet werden
-- **Suche** (Strg+K), Rollen (Inhaber, Admin, Prüfer, Lesezugriff), Einladungen, Aktivitätsprotokoll
+**Prüfen**
+- Prüfung je Element mit Prüfpunkten (i. O. / Mangel / n. z.), Wartungsarbeiten, Fotos, Bemerkungen und Unterschrift
 - **Prüfarten** mit eigenen Fristen je Element (z. B. Feuerlöscher: Instandhaltung, innere Prüfung, Festigkeitsprüfung)
-- **Eigene Elementarten** und Varianten mit eigenen Prüfpunkten, Stammdaten und Code-Präfix
-- **Fotos & Dokumente** an Elementen und Prüfungen; Prüfung wieder öffnen, archivieren (auch automatisch), Mehrfachlöschen
-- **PDF** im Browser (Protokoll, Begehung, Mängel, Compliance) mit Firmenlogo und Dateinamensschema; ZIP-Export; JSON-Backup
-- **Aufgaben** mit Labels, SLA-Richtlinien je Priorität, Kommentaren und Statistik
-- **Benachrichtigungen** in der App und per Web Push; täglicher Cron für Fälligkeiten, Wochenübersicht, SLA, Archiv
-- **Konto**: Passwort-Link durch Admin (ohne E-Mail), Sitzungen, Inhaberschaft übertragen, DSGVO-Export/-Löschung, Rechtstexte mit Zustimmung
-- **Brandschutzbeauftragte** je Objekt, Anleitung & Hilfe
+- Mängel mit Schweregrad, Beschreibung, **Maßnahme** und Foto
+- **Gesamtbewertung** automatisch oder vom Prüfer festgelegt (mit Pflicht-Begründung im Protokoll)
+- Prüfung wieder öffnen, archivieren (auch automatisch), mehrere löschen
+- **Offline-Modus** (PWA): Gebäude vorab laden, ohne Netz prüfen, automatische Synchronisation
+- **Brandschutzbegehung** je Objekt mit Fragenkatalog nach Nutzung und Rechtsgrundlagen
 
-Live: https://pruefkompass.ksqsebastian.workers.dev
+**Verwalten**
+- Objekte, Gebäude, **Grundrisse** (Bild/PDF) mit Element-Markern, Brandschutzbeauftragte je Objekt
+- **Eigene Elementarten** und Varianten; Prüfvorlagen je Prüfart anpassbar
+- Prüfungsliste mit Reitern Überfällig, Bald fällig, Nie geprüft, Nicht prüfbar, Neue Elemente, Entwürfe,
+  Durchgeführt, Archiv – filterbar nach Prüfart
+- **Mängel** und **Aufgaben** mit Labels, SLA-Richtlinien, Kommentaren, Statistik
+- **Subunternehmer**: Aufgabe per Link teilen, Rückmeldung ohne Konto
+- QR-Etiketten (auch Blanko-Etiketten, die beim ersten Scan zugeordnet werden), Suche (Strg+K)
+- **Import** aus Excel/CSV mit Vorschau
 
-Funktionsanalyse des Vorbilds: [`docs/analyse/`](docs/analyse/README.md).
+**Berichte und Daten**
+- PDF im Browser: Prüfprotokoll, Begehung, Mängelbericht, Compliance-Übersicht, **Objektbericht** –
+  mit Firmenlogo und einstellbarem Dateinamensschema; mehrere Protokolle als ZIP
+- **Berichtsarchiv**: jeder erzeugte Bericht wird gespeichert und bleibt abrufbar
+- Elementliste als **Excel** (wieder importierbar) oder CSV; vollständiges JSON-Backup
+- **Sprache der Dokumente** (Deutsch/Englisch) und **Zeitzone** je Workspace; die Oberfläche ist deutsch
+
+**Team und Konto**
+- Rollen (Inhaber, Admin, Prüfer, Lesezugriff), Einladungen, Inhaberschaft übertragen, Aktivitätsprotokoll
+- **Benachrichtigungen** in der App und per Web Push, mit „Nicht stören“-Zeitraum; täglicher Cron für Fälligkeiten,
+  Wochenübersicht, SLA, Archiv; Hinweis bei Anmeldung von einem neuen Gerät
+- Passwort-Link durch Admin (kein E-Mail-Versand), Sitzungen verwalten, DSGVO-Export/-Löschung, Rechtstexte mit Zustimmung
+- **API-Zugangsschlüssel** (lesen oder lesen+schreiben) für Fremdsysteme; **Speicherverbrauch** des Workspaces
+- Anleitung & Hilfe in der App
+
+Bewusst nicht enthalten: Bezahlung/Tarife und E-Mail-Versand.
 
 ## Stack
 
-- **Frontend**: React 18, Vite, Tailwind CSS 4, TanStack Query, React Router
-- **Backend**: Hono auf Cloudflare Workers (`worker/`), Zod-Validierung
-- **Daten**: Cloudflare D1 (SQLite, `migrations/`), Fotos in R2
-- **Geteilt**: Prüfkataloge und Fachlogik in `shared/` (mit Vitest-Tests)
+- **Frontend**: React 18, Vite, Tailwind CSS 4, TanStack Query, React Router; PDF mit pdf-lib, ZIP mit fflate
+- **Backend**: Hono auf Cloudflare Workers (`worker/`), Zod-Validierung, täglicher Cron-Trigger
+- **Daten**: Cloudflare D1 (SQLite, `migrations/`), Dateien in R2
+- **Geteilt** (`shared/`): Prüfkataloge, Fachlogik, Import, XLSX-Writer, Übersetzungen, Ruhezeiten – mit Vitest-Tests
+
+```
+src/          Oberfläche (pages/, components/, pdf/ für die PDF-Erzeugung, offline.ts)
+worker/       API: auth (Login, Konto, API-Schlüssel, Speicher), data, inspections, walkthroughs,
+              plans, categories, work (Aufgaben, Subunternehmer, Import), reports, notify, push, cron
+shared/       Code für Browser und Worker
+migrations/   D1-Schema (0001 … 0006)
+scripts/      seed.ts – Demodaten
+docs/         Analyse des Vorbilds, API-Doku
+```
 
 ## Entwicklung
 
 ```bash
 npm install
-npm run db:migrate:local   # lokale D1 anlegen
+npm run db:migrate:local   # lokale D1 anlegen bzw. aktualisieren
 npm run dev                # http://localhost:5173 (Worker + Frontend)
-npm test                   # Unit-Tests
+npm test                   # Unit-Tests (Vitest)
 npm run typecheck
+npm run build
 ```
 
 ## Deploy (Cloudflare)
 
 ```bash
 export CLOUDFLARE_API_TOKEN=…        # nie ins Repo
-npm run deploy                       # build + D1-Migrationen + wrangler deploy
+npm run deploy                       # build + D1-Migrationen (remote) + wrangler deploy
 ```
 
-Ressourcen: Worker `pruefkompass`, D1 `pruefkompass`, R2 `pruefkompass-files`.
+Ressourcen: Worker `pruefkompass`, D1 `pruefkompass`, R2 `pruefkompass-files`, Cron `15 5 * * *` (UTC).
+
+Web Push (optional): VAPID-Schlüssel (P-256) erzeugen und als Secrets setzen –
+`VAPID_PUBLIC_KEY` (raw, base64url), `VAPID_PRIVATE_KEY` (JWK `d`), `VAPID_SUBJECT` (`mailto:…`).
+Ohne diese Secrets bleibt Push ausgeblendet; In-App-Benachrichtigungen funktionieren trotzdem.
 
 ## Demodaten
 
 ```bash
 DEMO_PASSWORD=… npx vite-node scripts/seed.ts -- ./seed-out
-npx wrangler d1 execute DB --remote --file ./seed-out/seed.sql
-# Grundrisse aus ./seed-out/r2.json nach R2 hochladen:
-#   npx wrangler r2 object put pruefkompass-files/<key> --file <file> --content-type image/svg+xml --remote
-#   (logo-demo als image/png)
+npx wrangler d1 execute DB --remote --file ./seed-out/seed.sql     # nur in eine leere Datenbank
+# Dateien aus ./seed-out/r2.json nach R2 hochladen (Grundrisse als image/svg+xml, Logo als image/png):
+#   npx wrangler r2 object put pruefkompass-files/<key> --file <file> --content-type <typ> --remote
 ```
 
-Web Push (optional): VAPID-Schlüssel (P-256) erzeugen und als Secrets setzen –
-`VAPID_PUBLIC_KEY` (raw, base64url), `VAPID_PRIVATE_KEY` (JWK `d`), `VAPID_SUBJECT` (`mailto:…`).
-Ohne diese Secrets bleibt Push ausgeblendet, In-App-Benachrichtigungen funktionieren trotzdem.
-
-Legt den Workspace „Nordlicht Facility Services GmbH“ mit 4 Objekten, 74 Elementen (inkl. eigener Elementart „Rauchschutzvorhang“),
-Prüfhistorie, Prüfarten, Mängeln, Aufgaben (Labels, Kommentare), Subunternehmern, Begehungen,
-Grundrissen, Brandschutzbeauftragten, Benachrichtigungen und Firmenlogo an.
+Legt den Workspace „Nordlicht Facility Services GmbH“ an: 4 Objekte, 74 Elemente (inkl. eigener
+Elementart „Rauchschutzvorhang“), Prüfhistorie, Prüfarten, Mängel, Aufgaben mit Labels und
+Kommentaren, Subunternehmer, Begehungen, Grundrisse, Brandschutzbeauftragte, Benachrichtigungen, Logo.
 Konten: `demo@example.com` (Inhaber), `pruefer@example.com`, `pruefer2@example.com` (Prüfer),
 `lesen@example.com` (Lesezugriff) – alle mit `DEMO_PASSWORD`.
 
@@ -78,13 +106,15 @@ Konten: `demo@example.com` (Inhaber), `pruefer@example.com`, `pruefer2@example.c
 
 | Rolle         | Rechte |
 |---------------|--------|
-| Inhaber       | alles |
-| Administrator | Objekte, Gebäude, Team, Prüfvorlagen |
+| Inhaber       | alles, inkl. Inhaberschaft übertragen |
+| Administrator | Objekte, Gebäude, Team, Prüfvorlagen, Einstellungen, API-Schlüssel |
 | Prüfer        | Elemente anlegen/bearbeiten, prüfen, Mängel & Aufgaben |
 | Lesezugriff   | nur ansehen |
 
 ## Sicherheit
 
-- Passwörter: PBKDF2-SHA256 (100 000 Iterationen), Sessions als HttpOnly-Cookie
-- Schreibende Requests brauchen den Header `x-pk: 1` (CSRF-Schutz zusätzlich zu SameSite=Lax)
-- Alle Abfragen sind auf den Workspace (`tenant_id`) der Sitzung beschränkt
+- Passwörter: PBKDF2-SHA256 (100 000 Iterationen), Sitzungen als HttpOnly-Cookie (SameSite=Lax)
+- Schreibende Requests aus dem Browser brauchen den Header `x-pk: 1` (CSRF-Schutz)
+- API-Schlüssel: nur SHA-256-Hash gespeichert, Rechte auf Prüfer begrenzt, Ablauf und Widerruf
+- Alle Abfragen sind auf den Workspace (`tenant_id`) beschränkt; Dateien nur mit Workspace-Präfix
+- Zugangsdaten und Tokens gehören nie ins Repo, in Commits oder Logs

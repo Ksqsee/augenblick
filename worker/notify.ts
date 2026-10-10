@@ -2,7 +2,7 @@ import { Hono } from 'hono';
 import { z } from 'zod';
 import type { Role } from '../shared/catalog';
 import { DEFAULT_QUIET, inQuietHours, type QuietHours } from '../shared/quiet';
-import { type AppEnv, type Ctx, type Env, id, now, parseJson } from './lib';
+import { type AppEnv, type Ctx, type Env, id, now, parseJson, sessionOnly } from './lib';
 import { sendPush } from './push';
 
 export const NOTIFY_TYPES = {
@@ -99,6 +99,7 @@ export function notify(c: Ctx, n: NotifyInput) {
 
 // ---------- Routen ----------
 export const notifications = new Hono<AppEnv>();
+for (const path of ['/notifications', '/notifications/*', '/push/*']) notifications.use(path, sessionOnly);
 
 notifications.get('/notifications', async (c) => {
   const u = c.get('user');

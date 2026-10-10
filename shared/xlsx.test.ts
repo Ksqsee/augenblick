@@ -16,4 +16,16 @@ describe('buildXlsx', () => {
     expect(rows[0]).toMatchObject({ property: 'Schule & Hort', building: 'Haus <A>', category: 'extinguisher', code: 'FL-AB12', location: 'Flur "Nord"', year: 2019 });
     expect(new Date(rows[0].lastInspectedAt!).toISOString().slice(0, 10)).toBe('2025-03-14');
   });
+
+  it('englischer Export wird ebenfalls erkannt', async () => {
+    const bytes = buildXlsx('Items', [
+      ['Property', 'Building', 'Type', 'Code', 'Label', 'Location', 'Floor', 'Manufacturer', 'Model', 'Year', 'Last inspection', 'Result'],
+      ['Office', 'Main', 'Fire door', 'FST-AB12', '', 'Stairs', '1', 'Hörmann', 'T30', 2015, new Date(Date.UTC(2025, 0, 2, 12)), 'No defects'],
+    ]);
+    const sheets = await readXlsxFile(Buffer.from(bytes));
+    const table = (Array.isArray(sheets[0]) ? sheets : (sheets as unknown as { data: unknown[][] }[])[0].data) as unknown[][];
+    const { rows, errors } = toImportRows(table);
+    expect(errors).toEqual([]);
+    expect(rows[0]).toMatchObject({ property: 'Office', category: 'fire_door', floor: '1', manufacturer: 'Hörmann', year: 2015 });
+  });
 });

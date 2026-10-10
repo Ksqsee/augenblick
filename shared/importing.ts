@@ -37,6 +37,11 @@ Object.assign(CATEGORY_ALIASES, {
   [norm('Löscher')]: 'extinguisher',
   [norm('Rauchmelder')]: 'smoke_alarm',
   [norm('Melder')]: 'smoke_alarm',
+  // englischer Export
+  [norm('Fire door')]: 'fire_door',
+  [norm('Fire damper')]: 'damper',
+  [norm('Fire extinguisher')]: 'extinguisher',
+  [norm('Smoke alarm')]: 'smoke_alarm',
 });
 
 export function parseCategory(s: string, extra?: { key: string; label: string; plural: string; prefix: string }[]): Category | null {
@@ -67,6 +72,17 @@ export function mapHeader(header: string[]): (ImportKey | null)[] {
     typmodell: 'model',
     letztepruefung: 'lastInspectedAt',
     pruefdatum: 'lastInspectedAt',
+    // englischer Export
+    property: 'property',
+    building: 'building',
+    type: 'category',
+    label: 'labelCode',
+    location: 'location',
+    floor: 'floor',
+    manufacturer: 'manufacturer',
+    model: 'model',
+    year: 'year',
+    lastinspection: 'lastInspectedAt',
   } satisfies Record<string, ImportKey>);
   return header.map((h) => aliases[norm(h)] ?? null);
 }

@@ -2,9 +2,24 @@ import { getCategory } from './categories';
 import { type Category } from '../shared/catalog';
 import { dueState, type DueState, type Result } from '../shared/logic';
 
-const dateFmt = new Intl.DateTimeFormat('de-DE', { day: '2-digit', month: '2-digit', year: 'numeric' });
-const dateTimeFmt = new Intl.DateTimeFormat('de-DE', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' });
-const longFmt = new Intl.DateTimeFormat('de-DE', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
+let dateFmt = new Intl.DateTimeFormat('de-DE', { day: '2-digit', month: '2-digit', year: 'numeric' });
+let dateTimeFmt = new Intl.DateTimeFormat('de-DE', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' });
+let longFmt = new Intl.DateTimeFormat('de-DE', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
+let currentZone: string | undefined;
+
+/** Alle Datumsangaben in der Zeitzone des Workspaces anzeigen. */
+export function setDisplayTimeZone(timeZone: string | undefined) {
+  if (timeZone === currentZone) return;
+  try {
+    new Intl.DateTimeFormat('de-DE', { timeZone });
+  } catch {
+    return;
+  }
+  currentZone = timeZone;
+  dateFmt = new Intl.DateTimeFormat('de-DE', { day: '2-digit', month: '2-digit', year: 'numeric', timeZone });
+  dateTimeFmt = new Intl.DateTimeFormat('de-DE', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit', timeZone });
+  longFmt = new Intl.DateTimeFormat('de-DE', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric', timeZone });
+}
 const rel = new Intl.RelativeTimeFormat('de-DE', { numeric: 'auto' });
 
 export const fmtDate = (ts: number | null | undefined) => (ts ? dateFmt.format(ts) : '–');

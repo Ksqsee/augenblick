@@ -55,6 +55,9 @@ export interface Tenant {
   website: string;
   pdfPattern: string;
   archiveAfterMonths: number | null;
+  /** Sprache erzeugter Dokumente */
+  language: 'de' | 'en';
+  timeZone: string;
 }
 
 export interface Me {

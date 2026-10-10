@@ -5,6 +5,7 @@ import { type ReactNode, useEffect, useRef, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { CATEGORY_COLORS, type AttributeField, type Checkpoint } from '../../shared/catalog';
 import { deviceLabel } from '../../shared/device';
+import { DOC_LANGUAGES, type DocLanguage, TIME_ZONES } from '../../shared/i18n';
 import { buildFileName, DEFAULT_PDF_PATTERN, PDF_PLACEHOLDERS } from '../../shared/filename';
 import { LEGAL_DOCS } from '../../shared/legal';
 import { inQuietHours, type QuietHours } from '../../shared/quiet';
@@ -13,7 +14,7 @@ import { CategoryIcon, COLOR_CLASSES } from '../components/CategoryIcon';
 import { Badge, Button, Card, CardHeader, ErrorBox, Field, Input, Modal, PageHeader, Segmented, Select, Spinner, Textarea, useToast } from '../components/ui';
 import { fmtDateTime } from '../format';
 
-type Tab = 'profile' | 'notifications' | 'privacy' | 'company' | 'templates' | 'tasks' | 'activity';
+type Tab = 'profile' | 'notifications' | 'privacy' | 'company' | 'templates' | 'tasks' | 'api' | 'activity';
 
 export function SettingsPage() {
   const { data: me } = useMe();
@@ -29,6 +30,7 @@ export function SettingsPage() {
           { value: 'company', label: 'Unternehmen' },
           { value: 'templates', label: 'Prüfvorlagen' },
           { value: 'tasks', label: 'Aufgaben' },
+          { value: 'api', label: 'API' },
         ] as const)
       : []),
     { value: 'activity', label: 'Aktivität' },
@@ -40,6 +42,7 @@ export function SettingsPage() {
       {tab === 'profile' && <Profile />}
       {tab === 'notifications' && <Notifications />}
       {tab === 'privacy' && <Privacy />}
+      {tab === 'api' && isAdmin && <ApiKeys />}
       {tab === 'company' && <Company />}
       {tab === 'templates' && <Templates />}
       {tab === 'tasks' && <TaskSettings />}
@@ -63,7 +66,7 @@ function Profile() {
     toast('Passwort geändert – andere Geräte wurden abgemeldet');
   });
   return (
-    <div className="grid max-w-2xl gap-6">
+    <div className="grid max-w-2xl grid-cols-1 gap-6">
       <Card>
         <CardHeader title="Profil" subtitle={me?.user.email} />
         <form
@@ -241,7 +244,7 @@ function Notifications() {
   if (q.isLoading || !q.data) return <Spinner />;
   const set = (type: string, k: 'inApp' | 'push', v: boolean) => setPrefs({ ...prefs, [type]: { ...prefs[type], [k]: v } });
   return (
-    <div className="grid max-w-2xl gap-6">
+    <div className="grid max-w-2xl grid-cols-1 gap-6">
       <Card>
         <CardHeader title="Push auf diesem Gerät" subtitle="Benachrichtigungen auch bei geschlossener App (Handy und Desktop)" />
         <div className="flex flex-wrap items-center gap-3 p-5 text-sm">
@@ -361,7 +364,7 @@ function Privacy() {
     navigate('/login');
   });
   return (
-    <div className="grid max-w-2xl gap-6">
+    <div className="grid max-w-2xl grid-cols-1 gap-6">
       <Card>
         <CardHeader title="Meine Daten" subtitle="Auskunft und Datenübertragbarkeit (Art. 15 und 20 DSGVO)" />
         <div className="p-5">
@@ -440,12 +443,14 @@ function Company() {
   const t = me!.tenant;
   const [f, setF] = useState({ name: t.name, address: t.address, phone: t.phone, email: t.email, website: t.website, pdfPattern: t.pdfPattern || DEFAULT_PDF_PATTERN });
   const [archive, setArchive] = useState<number | ''>(t.archiveAfterMonths ?? '');
+  const [language, setLanguage] = useState<DocLanguage>(t.language ?? 'de');
+  const [timeZone, setTimeZone] = useState(t.timeZone || 'Europe/Berlin');
   const [logoKey, setLogoKey] = useState<string | null>(t.logoKey);
   const [uploading, setUploading] = useState(false);
   const ref = useRef<HTMLInputElement>(null);
   const set = (k: keyof typeof f) => (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => setF({ ...f, [k]: e.target.value });
   const save = useAction(
-    () => api('/account/company', { method: 'PATCH', body: { ...f, logoKey, archiveAfterMonths: archive === '' ? null : Number(archive) } }),
+    () => api('/account/company', { method: 'PATCH', body: { ...f, logoKey, archiveAfterMonths: archive === '' ? null : Number(archive), language, timeZone } }),
     () => {
       queryClient.invalidateQueries({ queryKey: ['me'] });
       toast('Gespeichert');
@@ -463,7 +468,7 @@ function Company() {
   });
   return (
     <form
-      className="grid max-w-2xl gap-6"
+      className="grid max-w-2xl grid-cols-1 gap-6"
       onSubmit={(e) => {
         e.preventDefault();
         save.mutate(undefined);
@@ -550,6 +555,33 @@ function Company() {
           </Select>
         </div>
       </Card>
+      <Card>
+        <CardHeader title="Sprache und Zeitzone" subtitle="Die Oberfläche bleibt deutsch. Die Sprache gilt für erzeugte Dokumente: PDF-Protokolle, Berichte und Excel-Export." />
+        <div className="grid grid-cols-1 gap-4 p-5 sm:grid-cols-2">
+          <Field label="Sprache der Dokumente" hint="Standardtexte der Prüfkataloge werden übersetzt; eigene Texte bleiben, wie sie sind.">
+            {(id) => (
+              <Select id={id} value={language} onChange={(e) => setLanguage(e.target.value as DocLanguage)}>
+                {Object.entries(DOC_LANGUAGES).map(([k, v]) => (
+                  <option key={k} value={k}>
+                    {v}
+                  </option>
+                ))}
+              </Select>
+            )}
+          </Field>
+          <Field label="Zeitzone" hint="Für alle Datumsangaben, Erinnerungen und die Wochenübersicht.">
+            {(id) => (
+              <Select id={id} value={timeZone} onChange={(e) => setTimeZone(e.target.value)}>
+                {[...new Set([timeZone, ...TIME_ZONES])].map((z) => (
+                  <option key={z} value={z}>
+                    {z.replace('_', ' ')}
+                  </option>
+                ))}
+              </Select>
+            )}
+          </Field>
+        </div>
+      </Card>
       <div className="flex gap-3">
         <Button loading={save.isPending}>Speichern</Button>
         <a href="/api/export/backup.json" download>
@@ -558,7 +590,246 @@ function Company() {
           </Button>
         </a>
       </div>
+      <StorageCard />
     </form>
+  );
+}
+
+const fmtBytes = (n: number) =>
+  n >= 1024 ** 3 ? `${(n / 1024 ** 3).toFixed(2).replace('.', ',')} GB` : n >= 1024 ** 2 ? `${(n / 1024 ** 2).toFixed(1).replace('.', ',')} MB` : `${Math.ceil(n / 1024)} KB`;
+
+interface StorageInfo {
+  groups: Record<'plans' | 'reports' | 'photos' | 'logo' | 'other', { bytes: number; files: number }>;
+  totalBytes: number;
+  files: number;
+  truncated: boolean;
+  records: { assets: number; inspections: number; defects: number; signatureBytes: number };
+}
+const STORAGE_GROUPS: [keyof StorageInfo['groups'], string, string][] = [
+  ['photos', 'Fotos & Dokumente', 'bg-brand'],
+  ['plans', 'Grundrisse', 'bg-info'],
+  ['reports', 'Berichtsarchiv', 'bg-ok'],
+  ['logo', 'Logo', 'bg-warn'],
+  ['other', 'Sonstige / nicht zugeordnet', 'bg-ink-3'],
+];
+
+/** Speicherverbrauch des Workspaces (Dateien in R2 und Datensätze). */
+function StorageCard() {
+  const q = useQuery({ queryKey: ['storage'], queryFn: () => api<StorageInfo>('/account/storage'), staleTime: 60_000 });
+  return (
+    <Card>
+      <CardHeader title="Speicher" subtitle="Belegter Platz durch Dateien dieses Workspaces" />
+      <div className="p-5">
+        {q.isLoading ? (
+          <Spinner />
+        ) : q.error || !q.data ? (
+          <ErrorBox error={q.error} />
+        ) : (
+          <>
+            <p className="text-2xl font-semibold tabular-nums">{fmtBytes(q.data.totalBytes)}</p>
+            <p className="mb-4 text-xs text-ink-3">
+              {q.data.files} Dateien{q.data.truncated ? ' (Auszug)' : ''} · {q.data.records.assets} Elemente · {q.data.records.inspections} Prüfungen · {q.data.records.defects} Mängel
+            </p>
+            <div className="mb-4 flex h-2.5 overflow-hidden rounded-full bg-sunken" role="img" aria-label="Aufteilung des Speichers">
+              {STORAGE_GROUPS.map(([k, , color]) => {
+                const w = q.data!.totalBytes ? (q.data!.groups[k].bytes / q.data!.totalBytes) * 100 : 0;
+                return w > 0 ? <span key={k} className={color} style={{ width: `${Math.max(w, 1)}%` }} /> : null;
+              })}
+            </div>
+            <dl className="grid grid-cols-1 gap-2 text-sm sm:grid-cols-2">
+              {STORAGE_GROUPS.map(([k, label, color]) => (
+                <div key={k} className="flex items-center gap-2">
+                  <span className={clsx('size-2.5 shrink-0 rounded-full', color)} />
+                  <dt className="flex-1 text-ink-2">{label}</dt>
+                  <dd className="tabular-nums">
+                    {fmtBytes(q.data!.groups[k].bytes)} <span className="text-xs text-ink-3">({q.data!.groups[k].files})</span>
+                  </dd>
+                </div>
+              ))}
+            </dl>
+            <p className="mt-3 text-xs text-ink-3">Unterschriften liegen in der Datenbank ({fmtBytes(q.data.records.signatureBytes)}).</p>
+          </>
+        )}
+      </div>
+    </Card>
+  );
+}
+
+// ---------- API-Zugangsschlüssel ----------
+interface ApiKeyRow {
+  id: string;
+  name: string;
+  prefix: string;
+  scope: 'read' | 'write';
+  createdAt: number;
+  expiresAt: number | null;
+  lastUsedAt: number | null;
+  revokedAt: number | null;
+  createdBy: string;
+}
+
+function ApiKeys() {
+  const toast = useToast();
+  const q = useQuery({ queryKey: ['api-keys'], queryFn: () => api<ApiKeyRow[]>('/account/api-keys') });
+  const [form, setForm] = useState<{ name: string; scope: 'read' | 'write'; expiresInDays: number | '' } | null>(null);
+  const [created, setCreated] = useState<string | null>(null);
+  const create = useAction(
+    () => api<{ key: string }>('/account/api-keys', { body: { name: form!.name, scope: form!.scope, expiresInDays: form!.expiresInDays === '' ? null : form!.expiresInDays } }),
+    (r) => {
+      setForm(null);
+      setCreated(r.key);
+      queryClient.invalidateQueries({ queryKey: ['api-keys'] });
+    },
+  );
+  const revoke = useAction((id: string) => api(`/account/api-keys/${id}`, { method: 'DELETE' }), () => {
+    queryClient.invalidateQueries({ queryKey: ['api-keys'] });
+    toast('Schlüssel widerrufen');
+  });
+  const origin = window.location.origin;
+  return (
+    <div className="grid max-w-3xl grid-cols-1 gap-6">
+      <Card>
+        <CardHeader
+          title="API-Zugangsschlüssel"
+          subtitle="Für Fremdsysteme wie CAFM, ERP oder BI. Ein Schlüssel handelt im Namen der Person, die ihn erstellt, mit höchstens Prüfer-Rechten."
+          action={
+            <Button size="sm" icon={<Plus className="size-3.5" />} onClick={() => setForm({ name: '', scope: 'read', expiresInDays: 365 })}>
+              Neuer Schlüssel
+            </Button>
+          }
+        />
+        {q.isLoading ? (
+          <Spinner />
+        ) : q.error ? (
+          <ErrorBox error={q.error} />
+        ) : !q.data?.length ? (
+          <p className="p-5 text-sm text-ink-3">Noch keine Schlüssel.</p>
+        ) : (
+          <div className="divide-y divide-line">
+            {revoke.error && <ErrorBox error={revoke.error} />}
+            {q.data.map((k) => {
+              const expired = !!k.expiresAt && k.expiresAt < Date.now();
+              return (
+                <div key={k.id} className={clsx('flex flex-col gap-2 px-5 py-3 sm:flex-row sm:items-center', (k.revokedAt || expired) && 'opacity-60')}>
+                  <div className="min-w-0 flex-1">
+                    <p className="flex flex-wrap items-center gap-2 text-sm font-medium">
+                      {k.name}
+                      <Badge tone={k.scope === 'write' ? 'warn' : 'muted'}>{k.scope === 'write' ? 'Lesen + Schreiben' : 'Nur lesen'}</Badge>
+                      {k.revokedAt ? <Badge tone="bad">Widerrufen</Badge> : expired ? <Badge tone="bad">Abgelaufen</Badge> : null}
+                    </p>
+                    <p className="truncate text-xs text-ink-3">
+                      <span className="font-mono">{k.prefix}…</span> · {k.createdBy} · erstellt {fmtDateTime(k.createdAt)}
+                      {k.expiresAt ? ` · gültig bis ${fmtDateTime(k.expiresAt)}` : ' · ohne Ablauf'} · {k.lastUsedAt ? `zuletzt genutzt ${fmtDateTime(k.lastUsedAt)}` : 'noch nicht genutzt'}
+                    </p>
+                  </div>
+                  {!k.revokedAt && (
+                    <Button size="sm" variant="ghost" onClick={() => confirm(`Schlüssel „${k.name}“ widerrufen? Systeme, die ihn nutzen, verlieren sofort den Zugriff.`) && revoke.mutate(k.id)}>
+                      Widerrufen
+                    </Button>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </Card>
+
+      <Card>
+        <CardHeader title="So funktioniert der Zugriff" subtitle="REST-API mit JSON, gleiche Daten wie in der App" />
+        <div className="flex flex-col gap-3 p-5 text-sm text-ink-2">
+          <p>Den Schlüssel als Bearer-Token mitschicken:</p>
+          <pre className="overflow-x-auto rounded-lg bg-sunken p-3 font-mono text-xs text-ink">{`curl -H "Authorization: Bearer pk_…" ${origin}/api/assets?due=overdue`}</pre>
+          <ul className="list-disc space-y-1 pl-5">
+            <li>
+              <span className="font-mono text-xs">GET /api/properties</span>, <span className="font-mono text-xs">/api/properties/:id</span> – Objekte mit Gebäuden und Elementen
+            </li>
+            <li>
+              <span className="font-mono text-xs">GET /api/assets</span> – Elemente; Filter <span className="font-mono text-xs">due=overdue|soon|never|not_inspectable|new</span>, <span className="font-mono text-xs">schedule</span>, <span className="font-mono text-xs">propertyId</span>, <span className="font-mono text-xs">q</span>
+            </li>
+            <li>
+              <span className="font-mono text-xs">GET /api/inspections?status=submitted</span>, <span className="font-mono text-xs">/api/inspections/:id</span> – Prüfungen und Protokolldaten
+            </li>
+            <li>
+              <span className="font-mono text-xs">GET /api/defects?status=open</span>, <span className="font-mono text-xs">GET /api/tasks</span> – Mängel und Aufgaben
+            </li>
+            <li>
+              <span className="font-mono text-xs">GET /api/export/assets.xlsx</span> bzw. <span className="font-mono text-xs">.csv</span> – Elementliste
+            </li>
+            <li>
+              Mit Schreibrechten außerdem z. B. <span className="font-mono text-xs">POST /api/assets</span> und <span className="font-mono text-xs">POST /api/tasks</span>.
+            </li>
+          </ul>
+          <p className="text-xs text-ink-3">Konto, Team, Benachrichtigungen und Einstellungen sind per API nicht erreichbar. Änderungen per API erscheinen im Aktivitätsprotokoll mit dem Namen des Schlüssels.</p>
+        </div>
+      </Card>
+
+      {form && (
+        <Modal
+          title="Neuer API-Schlüssel"
+          onClose={() => setForm(null)}
+          footer={
+            <>
+              <Button variant="ghost" onClick={() => setForm(null)}>
+                Abbrechen
+              </Button>
+              <Button form="api-key-form" loading={create.isPending}>
+                Erstellen
+              </Button>
+            </>
+          }
+        >
+          <form
+            id="api-key-form"
+            className="flex flex-col gap-4"
+            onSubmit={(e) => {
+              e.preventDefault();
+              create.mutate(undefined);
+            }}
+          >
+            {create.error && <ErrorBox error={create.error} />}
+            <Field label="Name" hint="Wofür wird der Schlüssel genutzt? z. B. „CAFM Hausverwaltung“">
+              {(id) => <Input id={id} required minLength={2} autoFocus value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} />}
+            </Field>
+            <Field label="Rechte">
+              {(id) => (
+                <Select id={id} value={form.scope} onChange={(e) => setForm({ ...form, scope: e.target.value as 'read' | 'write' })}>
+                  <option value="read">Nur lesen</option>
+                  <option value="write">Lesen und schreiben (wie Prüfer)</option>
+                </Select>
+              )}
+            </Field>
+            <Field label="Gültigkeit">
+              {(id) => (
+                <Select id={id} value={form.expiresInDays} onChange={(e) => setForm({ ...form, expiresInDays: e.target.value === '' ? '' : Number(e.target.value) })}>
+                  <option value={30}>30 Tage</option>
+                  <option value={90}>90 Tage</option>
+                  <option value={365}>1 Jahr</option>
+                  <option value="">Unbegrenzt</option>
+                </Select>
+              )}
+            </Field>
+          </form>
+        </Modal>
+      )}
+      {created && (
+        <Modal title="Schlüssel erstellt" onClose={() => setCreated(null)} footer={<Button onClick={() => setCreated(null)}>Fertig</Button>}>
+          <p className="mb-3 text-sm text-ink-2">Kopiere den Schlüssel jetzt. Er wird nur dieses eine Mal angezeigt und ist danach nicht mehr abrufbar.</p>
+          <div className="flex gap-2">
+            <Input readOnly aria-label="API-Schlüssel" className="font-mono text-xs" value={created} onFocus={(e) => e.target.select()} />
+            <Button
+              variant="secondary"
+              icon={<Copy className="size-4" />}
+              onClick={async () => {
+                await navigator.clipboard.writeText(created);
+                toast('Kopiert');
+              }}
+            >
+              Kopieren
+            </Button>
+          </div>
+        </Modal>
+      )}
+    </div>
   );
 }
 
@@ -861,7 +1132,7 @@ const LABEL_COLORS = CATEGORY_COLORS;
 
 function TaskSettings() {
   return (
-    <div className="grid max-w-2xl gap-6">
+    <div className="grid max-w-2xl grid-cols-1 gap-6">
       <LabelsCard />
       <SlaCard />
     </div>

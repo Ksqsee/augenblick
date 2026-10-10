@@ -18,6 +18,8 @@ export interface Brand {
   logo?: Uint8Array | null;
   logoType?: string | null;
   footer: string;
+  lang?: 'de' | 'en';
+  timeZone?: string;
 }
 
 type Color = ReturnType<typeof rgb>;
@@ -105,10 +107,12 @@ export class Doc {
   finish() {
     const pages = this.pdf.getPages();
     pages.forEach((p, i) => {
-      const f = this.clean(this.brand.footer);
+      const en = this.brand.lang === 'en';
+      const stamp = new Intl.DateTimeFormat(en ? 'en-GB' : 'de-DE', { dateStyle: 'medium', timeStyle: 'short', timeZone: this.brand.timeZone || undefined }).format(Date.now());
+      const f = this.clean(this.brand.footer || `${this.brand.company} · ${en ? 'created with Prüfkompass on' : 'erstellt mit Prüfkompass am'} ${stamp}`);
       p.drawLine({ start: { x: M.left, y: 38 }, end: { x: A4.w - M.right, y: 38 }, thickness: 0.6, color: LINE });
       p.drawText(f, { x: M.left, y: 26, size: 7.5, font: this.font, color: MUTED });
-      const n = `Seite ${i + 1} von ${pages.length}`;
+      const n = this.brand.lang === 'en' ? `Page ${i + 1} of ${pages.length}` : `Seite ${i + 1} von ${pages.length}`;
       p.drawText(n, { x: A4.w - M.right - this.font.widthOfTextAtSize(n, 7.5), y: 26, size: 7.5, font: this.font, color: MUTED });
     });
     return this.pdf.save();

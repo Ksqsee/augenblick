@@ -119,6 +119,7 @@ const GUIDE: Topic[] = [
       'Passwort vergessen? Ein Admin erzeugt unter Team (Schlüssel-Symbol) einen einmaligen Link, der 24 Stunden gilt.',
       'Unter Einstellungen → Profil siehst du alle angemeldeten Geräte und kannst sie abmelden. Bei einer Anmeldung von einem neuen Gerät bekommst du eine Benachrichtigung.',
       'Unter Einstellungen → Datenschutz kannst du deine Daten exportieren oder dein Konto löschen.',
+      'Admins sehen unter Einstellungen → Unternehmen den belegten Speicher und legen unter Einstellungen → API Zugangsschlüssel für Fremdsysteme an.',
     ],
   },
 ];
@@ -129,6 +130,8 @@ const FAQ: [string, string][] = [
   ['Kann ich eine abgeschlossene Prüfung korrigieren?', 'Administratoren können eine Prüfung im Protokoll „wieder öffnen“. Ergebnis, Unterschrift und daraus entstandene Mängel werden zurückgesetzt und beim erneuten Abschluss neu angelegt.'],
   ['Sind die Prüfkataloge verbindlich?', 'Nein. Die Kataloge und Rechtsgrundlagen sind Orientierungshilfen. Maßgeblich sind Herstellerangaben, die geltenden Vorschriften und das Brandschutzkonzept. Prüfpunkte lassen sich anpassen.'],
   ['Wie kommen Benachrichtigungen aufs Handy?', 'Unter Einstellungen → Benachrichtigungen „Push aktivieren“. Auf dem iPhone muss die App dafür zuerst zum Home-Bildschirm hinzugefügt werden.'],
+  ['Gibt es Protokolle auf Englisch?', 'Ja. Unter Einstellungen → Unternehmen die Sprache der Dokumente auf Englisch stellen. PDF-Protokolle, Berichte und der Excel-Export erscheinen dann auf Englisch; eigene Prüfpunkte und Freitexte bleiben, wie sie geschrieben wurden. Dort stellst du auch die Zeitzone ein.'],
+  ['Kann ich Prüfkompass an andere Systeme anbinden?', 'Ja, über die REST-API. Ein Admin legt unter Einstellungen → API einen Schlüssel an (nur lesen oder lesen und schreiben). Beispiele stehen direkt auf der Seite.'],
   ['Kann ich nachts Ruhe haben?', 'Ja. Unter Einstellungen → Benachrichtigungen → „Nicht stören“ legst du einen Ruhezeitraum fest (optional das ganze Wochenende). Dann kommen keine Push-Nachrichten; in der App siehst du alles wie gewohnt.'],
   ['Kann ich eigene Elementarten anlegen?', 'Ja, unter Einstellungen → Prüfvorlagen → „Eigene Elementart“ – mit eigenen Prüfpunkten, Stammdatenfeldern und Code-Präfix. Bestehende Arten lassen sich als Variante kopieren.'],
 ];

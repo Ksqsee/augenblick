@@ -4,6 +4,7 @@ import { HTTPException } from 'hono/http-exception';
 import { z } from 'zod';
 import { ROLES } from '../shared/catalog';
 import { deviceLabel } from '../shared/device';
+import { DOC_LANGUAGES, type DocLanguage, isValidTimeZone } from '../shared/i18n';
 import { LEGAL_DOCS } from '../shared/legal';
 import { notifyTenant } from './notify';
 import {
@@ -16,7 +17,9 @@ import {
   logActivity,
   now,
   parseJson,
-  requireAuth,
+  requireSession,
+  sha256Hex,
+  API_KEY_PREFIX,
   requireRole,
   token,
   verifyPassword,
@@ -93,7 +96,6 @@ auth.post('/login', async (c) => {
 });
 
 const DEVICE_COOKIE = 'pk_device';
-const whenFmt = new Intl.DateTimeFormat('de-DE', { dateStyle: 'medium', timeStyle: 'short', timeZone: 'Europe/Berlin' });
 
 /** Merkt sich Geräte per Cookie; meldet sich jemand von einem unbekannten Gerät an, gibt es einen Hinweis. */
 async function checkDevice(c: Ctx, userId: string, tenantId: string) {
@@ -106,6 +108,8 @@ async function checkDevice(c: Ctx, userId: string, tenantId: string) {
   await c.env.DB.prepare('UPDATE users SET known_devices = ? WHERE id = ?').bind(JSON.stringify([did, ...known].slice(0, 20)), userId).run();
   if (!known.length) return; // allererste Anmeldung – kein Hinweis
   const ua = c.req.header('user-agent') ?? '';
+  const tz = (await c.env.DB.prepare('SELECT timezone FROM tenants WHERE id = ?').bind(tenantId).first<string>('timezone')) ?? 'Europe/Berlin';
+  const when = new Intl.DateTimeFormat('de-DE', { dateStyle: 'medium', timeStyle: 'short', timeZone: isValidTimeZone(tz) ? tz : 'Europe/Berlin' }).format(now());
   const country = (c.req.raw as Request & { cf?: { country?: string } }).cf?.country;
   await notifyTenant(
     c.env,
@@ -114,7 +118,7 @@ async function checkDevice(c: Ctx, userId: string, tenantId: string) {
       userIds: [userId],
       type: 'account_security',
       title: 'Anmeldung von einem neuen Gerät',
-      body: `${deviceLabel(ua)}${country ? ` · ${country}` : ''} · ${whenFmt.format(now())}. Warst du das nicht? Unter Einstellungen → Profil die Sitzung beenden und das Passwort ändern lassen.`,
+      body: `${deviceLabel(ua)}${country ? ` · ${country}` : ''} · ${when}. Warst du das nicht? Unter Einstellungen → Profil die Sitzung beenden und das Passwort ändern lassen.`,
       link: '/einstellungen?tab=profile',
     },
     c.executionCtx,
@@ -203,7 +207,7 @@ auth.post('/invite/:token', async (c) => {
 
 // --- angemeldet ---
 export const account = new Hono<AppEnv>();
-account.use('*', requireAuth);
+account.use('*', requireSession);
 // „Zuletzt aktiv“ höchstens alle 5 Minuten aktualisieren
 account.use('*', async (c, next) => {
   await next();
@@ -214,7 +218,8 @@ account.use('*', async (c, next) => {
 account.get('/me', async (c) => {
   const u = c.get('user');
   const tenant = await c.env.DB.prepare(
-    `SELECT id, name, logo_key AS logoKey, address, phone, email, website, pdf_pattern AS pdfPattern, archive_after_months AS archiveAfterMonths
+    `SELECT id, name, logo_key AS logoKey, address, phone, email, website, pdf_pattern AS pdfPattern, archive_after_months AS archiveAfterMonths,
+            language, timezone AS timeZone
        FROM tenants WHERE id = ?`,
   )
     .bind(u.tenantId)
@@ -269,6 +274,8 @@ account.patch('/company', async (c) => {
       logoKey: z.string().max(200).nullable().optional(),
       pdfPattern: z.string().trim().min(3).max(120).optional(),
       archiveAfterMonths: z.number().int().min(6).max(240).nullable().optional(),
+      language: z.enum(Object.keys(DOC_LANGUAGES) as [DocLanguage]).optional(),
+      timeZone: z.string().max(60).refine(isValidTimeZone, 'Unbekannte Zeitzone').optional(),
     })
     .parse(await c.req.json());
   const t = c.get('user').tenantId;
@@ -277,11 +284,12 @@ account.patch('/company', async (c) => {
     `UPDATE tenants SET name = ?, address = ?, phone = ?, email = ?, website = ?,
             logo_key = CASE WHEN ? THEN ? ELSE logo_key END,
             pdf_pattern = COALESCE(?, pdf_pattern),
-            archive_after_months = CASE WHEN ? THEN ? ELSE archive_after_months END
+            archive_after_months = CASE WHEN ? THEN ? ELSE archive_after_months END,
+            language = COALESCE(?, language), timezone = COALESCE(?, timezone)
       WHERE id = ?`,
   )
     .bind(b.name, b.address, b.phone, b.email, b.website, b.logoKey !== undefined ? 1 : 0, b.logoKey ?? null, b.pdfPattern ?? null,
-      b.archiveAfterMonths !== undefined ? 1 : 0, b.archiveAfterMonths ?? null, t)
+      b.archiveAfterMonths !== undefined ? 1 : 0, b.archiveAfterMonths ?? null, b.language ?? null, b.timeZone ?? null, t)
     .run();
   await logActivity(c, 'update', 'tenant', null, 'Firmenprofil geändert');
   return c.json({ ok: true });
@@ -505,4 +513,89 @@ account.get('/activity', async (c) => {
     .bind(c.get('user').tenantId)
     .all();
   return c.json(rows.results);
+});
+
+// ---------- API-Zugangsschlüssel ----------
+account.get('/api-keys', async (c) => {
+  requireRole(c, 'admin');
+  const rows = await c.env.DB.prepare(
+    `SELECT k.id, k.name, k.prefix, k.scope, k.created_at AS createdAt, k.expires_at AS expiresAt, k.last_used_at AS lastUsedAt, k.revoked_at AS revokedAt, u.name AS createdBy
+       FROM api_keys k JOIN users u ON u.id = k.created_by WHERE k.tenant_id = ? ORDER BY k.revoked_at IS NOT NULL, k.created_at DESC`,
+  )
+    .bind(c.get('user').tenantId)
+    .all();
+  return c.json(rows.results);
+});
+
+account.post('/api-keys', async (c) => {
+  requireRole(c, 'admin');
+  const b = z
+    .object({ name: z.string().trim().min(2, 'Name fehlt').max(80), scope: z.enum(['read', 'write']), expiresInDays: z.number().int().min(1).max(730).nullable().default(null) })
+    .parse(await c.req.json());
+  const u = c.get('user');
+  const count = await c.env.DB.prepare('SELECT COUNT(*) AS n FROM api_keys WHERE tenant_id = ? AND revoked_at IS NULL').bind(u.tenantId).first<number>('n');
+  if ((count ?? 0) >= 20) throw new HTTPException(400, { message: 'Höchstens 20 aktive Schlüssel' });
+  const key = `${API_KEY_PREFIX}${token()}`;
+  const kid = id();
+  await c.env.DB.prepare('INSERT INTO api_keys (id, tenant_id, name, prefix, key_hash, scope, created_by, created_at, expires_at) VALUES (?,?,?,?,?,?,?,?,?)')
+    .bind(kid, u.tenantId, b.name, key.slice(0, 10), await sha256Hex(key), b.scope, u.userId, now(), b.expiresInDays ? now() + b.expiresInDays * 86_400_000 : null)
+    .run();
+  await logActivity(c, 'create', 'api_key', kid, `API-Schlüssel „${b.name}“ erstellt (${b.scope === 'write' ? 'lesen und schreiben' : 'nur lesen'})`);
+  // Der Schlüssel wird nur dieses eine Mal im Klartext ausgegeben
+  return c.json({ id: kid, key });
+});
+
+account.delete('/api-keys/:id', async (c) => {
+  requireRole(c, 'admin');
+  const u = c.get('user');
+  const r = await c.env.DB.prepare('UPDATE api_keys SET revoked_at = ? WHERE id = ? AND tenant_id = ? AND revoked_at IS NULL').bind(now(), c.req.param('id'), u.tenantId).run();
+  if (!r.meta.changes) throw new HTTPException(404, { message: 'Schlüssel nicht gefunden' });
+  await logActivity(c, 'delete', 'api_key', c.req.param('id'), 'API-Schlüssel widerrufen');
+  return c.json({ ok: true });
+});
+
+// ---------- Speicherverbrauch ----------
+account.get('/storage', async (c) => {
+  requireRole(c, 'admin');
+  const t = c.get('user').tenantId;
+  // Dateien den Bereichen zuordnen, in denen sie verwendet werden
+  const [plans, reports, attachments, defects, tenant] = await c.env.DB.batch([
+    c.env.DB.prepare('SELECT file_key AS k FROM floor_plans WHERE tenant_id = ?').bind(t),
+    c.env.DB.prepare('SELECT file_key AS k FROM reports WHERE tenant_id = ?').bind(t),
+    c.env.DB.prepare('SELECT file_key AS k FROM attachments WHERE tenant_id = ?').bind(t),
+    c.env.DB.prepare('SELECT photo_key AS k FROM defects WHERE tenant_id = ? AND photo_key IS NOT NULL').bind(t),
+    c.env.DB.prepare('SELECT logo_key AS k FROM tenants WHERE id = ?').bind(t),
+  ]);
+  const keys = (r: D1Result) => new Set((r.results as { k: string | null }[]).map((x) => x.k).filter(Boolean) as string[]);
+  const groups: [string, Set<string>][] = [
+    ['plans', keys(plans)],
+    ['reports', keys(reports)],
+    ['photos', new Set([...keys(attachments), ...keys(defects)])],
+    ['logo', keys(tenant)],
+  ];
+  const sum: Record<string, { bytes: number; files: number }> = {};
+  for (const g of ['plans', 'reports', 'photos', 'logo', 'other']) sum[g] = { bytes: 0, files: 0 };
+  let cursor: string | undefined;
+  let truncated = false;
+  for (let page = 0; page < 50; page++) {
+    const list = await c.env.FILES.list({ prefix: `${t}/`, cursor, limit: 1000 });
+    for (const o of list.objects) {
+      const g = groups.find(([, set]) => set.has(o.key))?.[0] ?? 'other';
+      sum[g].bytes += o.size;
+      sum[g].files++;
+    }
+    if (!list.truncated) break;
+    cursor = list.cursor;
+    truncated = page === 49;
+  }
+  const db = await c.env.DB.prepare(
+    `SELECT (SELECT COUNT(*) FROM assets WHERE tenant_id = ?1 AND deleted_at IS NULL) AS assets,
+            (SELECT COUNT(*) FROM inspections WHERE tenant_id = ?1) AS inspections,
+            (SELECT COUNT(*) FROM defects WHERE tenant_id = ?1) AS defects,
+            (SELECT COALESCE(SUM(LENGTH(signature)), 0) FROM inspections WHERE tenant_id = ?1) AS signatureBytes`,
+  )
+    .bind(t)
+    .first<{ assets: number; inspections: number; defects: number; signatureBytes: number }>();
+  const total = Object.values(sum).reduce((n, g) => n + g.bytes, 0);
+  return c.json({ groups: sum, totalBytes: total, files: Object.values(sum).reduce((n, g) => n + g.files, 0), truncated, records: db });
 });

@@ -4,6 +4,7 @@ import { z } from 'zod';
 import { type Category, SEVERITIES } from '../shared/catalog';
 import { DAY, SOON_WINDOW_DAYS } from '../shared/logic';
 import { BUILDING_TYPES } from '../shared/walkthrough';
+import { type DocLanguage, tr } from '../shared/i18n';
 import { buildXlsx } from '../shared/xlsx';
 import { getCategoryDef, listCategories } from './categories';
 import { type AppEnv, type Ctx, id, logActivity, notFound, now, parseJson, requireRole } from './lib';
@@ -577,18 +578,24 @@ data.get('/files/:tenant/:name', async (c) => {
 // ---------- Export ----------
 /** Spalten des Element-Exports – Kopfzeile passt zur Import-Vorlage (Wiederimport möglich). */
 export const CSV_HEAD = ['Objekt', 'Gebäude', 'Art', 'Code', 'Etikett', 'Standort', 'Etage', 'Hersteller', 'Modell', 'Baujahr', 'Letzte Prüfung', 'Ergebnis', 'Nächste Prüfung', 'Offene Mängel'];
-const RESULT_TEXT: Record<string, string> = { ok: 'Ohne Mängel', defects: 'Mängel', critical: 'Kritisch', not_inspectable: 'Nicht prüfbar' };
+const RESULT_TEXT: Record<string, string> = { ok: 'Ohne Mängel', defects: 'Mit Mängeln', critical: 'Kritisch', not_inspectable: 'Nicht prüfbar' };
+const CSV_HEAD_EN = ['Property', 'Building', 'Type', 'Code', 'Label', 'Location', 'Floor', 'Manufacturer', 'Model', 'Year', 'Last inspection', 'Result', 'Next inspection', 'Open defects'];
 
-async function exportRows(c: Ctx) {
+async function docLanguage(c: Ctx): Promise<DocLanguage> {
+  const l = await c.env.DB.prepare('SELECT language FROM tenants WHERE id = ?').bind(tid(c)).first<string>('language');
+  return l === 'en' ? 'en' : 'de';
+}
+
+async function exportRows(c: Ctx, lang: DocLanguage = 'de') {
   const rows = (await assetQuery(c, '1=1', 'p.name, b.name, a.code').bind(tid(c)).all<Record<string, unknown>>()).results.map((r) => mapAsset(r) as Record<string, unknown>);
   const labels = new Map((await listCategories(c)).map((d) => [d.key, d.label]));
   return rows.map((r) => {
     const year = Number((r.attributes as Record<string, unknown>)?.year);
     return {
-      cells: [r.propertyName, r.buildingName, labels.get(r.category as Category) ?? r.category, r.code, r.labelCode ?? '', r.location, r.floor, r.manufacturer, r.model] as (string | number | null)[],
+      cells: [r.propertyName, r.buildingName, tr(lang, labels.get(r.category as Category) ?? String(r.category)), r.code, r.labelCode ?? '', r.location, r.floor, r.manufacturer, r.model] as (string | number | null)[],
       year: Number.isFinite(year) && year > 0 ? year : null,
       lastAt: r.lastInspectedAt as number | null,
-      result: r.lastResult ? (RESULT_TEXT[r.lastResult as string] ?? String(r.lastResult)) : '',
+      result: r.lastResult ? tr(lang, RESULT_TEXT[r.lastResult as string] ?? String(r.lastResult)) : '',
       nextAt: r.nextDueAt as number | null,
       defects: Number(r.openDefects ?? 0),
     };
@@ -601,20 +608,22 @@ data.get('/export/assets.csv', async (c) => {
     return /[";\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
   };
   const date = (v: number | null) => (v ? new Date(v).toISOString().slice(0, 10) : '');
-  const lines = (await exportRows(c)).map((r) => [...r.cells, r.year ?? '', date(r.lastAt), r.result, date(r.nextAt), r.defects].map(esc).join(';'));
-  return new Response('\uFEFF' + [CSV_HEAD.join(';'), ...lines].join('\r\n'), {
+  const lang = await docLanguage(c);
+  const lines = (await exportRows(c, lang)).map((r) => [...r.cells, r.year ?? '', date(r.lastAt), r.result, date(r.nextAt), r.defects].map(esc).join(';'));
+  return new Response('\uFEFF' + [(lang === 'en' ? CSV_HEAD_EN : CSV_HEAD).join(';'), ...lines].join('\r\n'), {
     headers: { 'content-type': 'text/csv; charset=utf-8', 'content-disposition': 'attachment; filename="elemente.csv"' },
   });
 });
 
 data.get('/export/assets.xlsx', async (c) => {
-  const rows = await exportRows(c);
+  const lang = await docLanguage(c);
+  const rows = await exportRows(c, lang);
   const d = (v: number | null) => (v ? new Date(v) : null);
-  const bytes = buildXlsx('Elemente', [CSV_HEAD, ...rows.map((r) => [...r.cells, r.year, d(r.lastAt), r.result, d(r.nextAt), r.defects])], [28, 18, 20, 12, 12, 28, 10, 16, 16, 9, 14, 14, 14, 12]);
+  const bytes = buildXlsx(lang === 'en' ? 'Items' : 'Elemente', [lang === 'en' ? CSV_HEAD_EN : CSV_HEAD, ...rows.map((r) => [...r.cells, r.year, d(r.lastAt), r.result, d(r.nextAt), r.defects])], [28, 18, 20, 12, 12, 28, 10, 16, 16, 9, 14, 14, 14, 12]);
   return new Response(bytes, {
     headers: {
       'content-type': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-      'content-disposition': `attachment; filename="Elemente_${new Date().toISOString().slice(0, 10)}.xlsx"`,
+      'content-disposition': `attachment; filename="${lang === 'en' ? 'Items' : 'Elemente'}_${new Date().toISOString().slice(0, 10)}.xlsx"`,
     },
   });
 });

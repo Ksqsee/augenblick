@@ -1,16 +1,17 @@
 // Täglicher Lauf: Erinnerungen, SLA-Verletzungen, automatische Archivierung, Aufräumen.
+import { zonedDay } from '../shared/i18n';
 import { DAY } from '../shared/logic';
 import { DEFAULT_SLA, HOUR, type Priority } from '../shared/sla';
 import type { Env } from './lib';
 import { notifyTenant } from './notify';
 
-const dayKey = (t: number) => new Date(t).toISOString().slice(0, 10);
 
 export async function runDaily(env: Env, now = Date.now()) {
-  const tenants = (await env.DB.prepare('SELECT id, archive_after_months FROM tenants').all<{ id: string; archive_after_months: number | null }>()).results;
-  const today = dayKey(now);
-  const isMonday = new Date(now).getUTCDay() === 1;
+  const tenants = (await env.DB.prepare('SELECT id, archive_after_months, timezone FROM tenants').all<{ id: string; archive_after_months: number | null; timezone: string }>()).results;
   for (const t of tenants) {
+    // Tag und Wochentag in der Zeitzone des Workspaces
+    const { ymd: today, weekday } = zonedDay(now, t.timezone);
+    const isMonday = weekday === 1;
     // 1) Seit gestern überfällig gewordene Elemente
     const newlyOverdue = await env.DB.prepare(
       'SELECT COUNT(*) AS n FROM assets WHERE tenant_id = ? AND deleted_at IS NULL AND next_due_at < ? AND next_due_at >= ?',

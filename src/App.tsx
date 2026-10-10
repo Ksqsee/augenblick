@@ -2,6 +2,7 @@ import { type ReactNode, useEffect, useState } from 'react';
 import { BrowserRouter, Navigate, Route, Routes, useLocation } from 'react-router-dom';
 import { useCategories, useMe } from './api';
 import { registerCategories } from './categories';
+import { setDisplayTimeZone } from './format';
 import { LegalGate, LegalPage } from './components/Legal';
 import { Shell } from './components/Shell';
 import { Spinner } from './components/ui';
@@ -40,6 +41,8 @@ function RequireAuth({ children }: { children: ReactNode }) {
   }, [cats.data]);
   if (me.isLoading || (cats.isLoading && navigator.onLine)) return <Spinner className="min-h-dvh items-center" />;
   if (me.isError) return <Navigate to={`/login?next=${encodeURIComponent(loc.pathname + loc.search)}`} replace />;
+  // vor dem Rendern der Seiten, damit alle Datumsangaben die Workspace-Zeitzone nutzen
+  setDisplayTimeZone(me.data?.tenant.timeZone);
   return (
     <>
       {children}
