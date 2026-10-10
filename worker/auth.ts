@@ -57,6 +57,17 @@ auth.post('/register', async (c) => {
       t,
     ),
     c.env.DB.prepare('INSERT INTO memberships (tenant_id, user_id, role, created_at) VALUES (?,?,?,?)').bind(tenantId, userId, 'owner', t),
+    // Die Registrierung gilt als Zustimmung zu den aktuellen Rechtstexten (Hinweis im Formular)
+    ...LEGAL_DOCS.map((d) =>
+      c.env.DB.prepare('INSERT INTO legal_acks (id, user_id, doc, version, accepted_at, user_agent) VALUES (?,?,?,?,?,?)').bind(
+        id(),
+        userId,
+        d.key,
+        d.version,
+        t,
+        (c.req.header('user-agent') ?? '').slice(0, 200),
+      ),
+    ),
   ]);
   await startSession(c, userId, tenantId);
   return c.json({ ok: true });

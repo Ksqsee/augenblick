@@ -153,7 +153,7 @@ export function TeamPage() {
 
           <Card className="p-5">
             <p className="mb-3 text-[13px] font-semibold text-ink-2">Rollen</p>
-            <dl className="grid gap-2 text-sm sm:grid-cols-2">
+            <dl className="grid grid-cols-1 gap-2 text-sm sm:grid-cols-2">
               {(Object.keys(ROLES) as Role[]).map((r) => (
                 <div key={r} className="flex gap-2">
                   <dt className="w-28 shrink-0 font-medium">{ROLES[r]}</dt>

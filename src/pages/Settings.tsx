@@ -431,7 +431,7 @@ function Company() {
       {save.error && <ErrorBox error={save.error} />}
       <Card>
         <CardHeader title="Firmenprofil" subtitle="Erscheint im Kopf aller Protokolle und Berichte" />
-        <div className="grid gap-4 p-5 sm:grid-cols-2">
+        <div className="grid grid-cols-1 gap-4 p-5 sm:grid-cols-2">
           <div className="flex items-center gap-4 sm:col-span-2">
             <div className="grid h-16 w-32 place-items-center overflow-hidden rounded-lg border border-dashed border-line-strong bg-sunken">
               {logoKey ? <img src={fileUrl(logoKey)} alt="Logo" className="max-h-14 max-w-28 object-contain" /> : <span className="text-xs text-ink-3">Kein Logo</span>}
@@ -743,7 +743,7 @@ function CategoryEditor({ initial, onClose }: { initial: Partial<CategoryInfo>; 
     >
       <div className="flex flex-col gap-4">
         {(save.error || del.error) && <ErrorBox error={save.error ?? del.error} />}
-        <div className="grid gap-4 sm:grid-cols-2">
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
           <Field label="Bezeichnung">{(id) => <Input id={id} value={f.label} onChange={(e) => setF({ ...f, label: e.target.value })} placeholder="z. B. Rauchschutzvorhang" />}</Field>
           <Field label="Mehrzahl">{(id) => <Input id={id} value={f.plural} onChange={(e) => setF({ ...f, plural: e.target.value })} placeholder="z. B. Rauchschutzvorhänge" />}</Field>
           <Field label="Code-Präfix" hint="2–5 Zeichen, z. B. RSV">

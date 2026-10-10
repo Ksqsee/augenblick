@@ -388,7 +388,7 @@ export function InspectionForm({
           Offline-Prüfung: wird auf diesem Gerät gespeichert und übertragen, sobald wieder eine Verbindung besteht.
         </div>
       )}
-      <Card className="grid gap-4 p-4 sm:grid-cols-2">
+      <Card className="grid grid-cols-1 gap-4 p-4 sm:grid-cols-2">
         <label className="flex flex-col gap-1.5 text-[13px] font-medium text-ink-2">
           Art der Prüfung
           <Select value={d.kind} onChange={(e) => update({ kind: e.target.value as InspectionKind })}>
