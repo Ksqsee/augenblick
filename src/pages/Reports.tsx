@@ -1,11 +1,11 @@
-import { AlertTriangle, ClipboardList, Download, FileText, QrCode, ShieldCheck } from 'lucide-react';
+import { AlertTriangle, ClipboardList, Download, FileSpreadsheet, FileText, Footprints, QrCode, ShieldCheck } from 'lucide-react';
 import { type ReactNode, useMemo, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { SEVERITIES } from '../../shared/catalog';
 import { useAssets, useDefects, useMe, useProperties } from '../api';
 import { DueBadge } from '../components/AssetList';
 import { APP_NAME } from '../components/Logo';
-import { Button, Card, Chip, ErrorBox, PageHeader, Spinner } from '../components/ui';
+import { Button, Card, Chip, ErrorBox, Input, PageHeader, Segmented, Spinner } from '../components/ui';
 import { categoryLabel, fmtDate, fmtDateTime } from '../format';
 import { QrImage } from './Asset';
 import { PrintFrame } from './Protocol';
@@ -25,7 +25,7 @@ export function ReportsPage() {
   return (
     <>
       <PageHeader title="Berichte" subtitle="Nachweise für Betreiber, Behörden und Versicherer" />
-      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">
         <ReportCard
           icon={<ShieldCheck />}
           title="Compliance-Übersicht"
@@ -66,6 +66,26 @@ export function ReportsPage() {
                 Herunterladen
               </Button>
             </a>
+          }
+        />
+        <ReportCard
+          icon={<Footprints />}
+          title="Begehungsprotokolle"
+          text="Protokolle der Brandschutzbegehungen mit Feststellungen und Rechtsgrundlagen."
+          action={
+            <Link to="/begehungen">
+              <Button variant="secondary">Zu den Begehungen</Button>
+            </Link>
+          }
+        />
+        <ReportCard
+          icon={<FileSpreadsheet />}
+          title="Import"
+          text="Bestandslisten aus Excel oder CSV übernehmen – inklusive Objekten und Gebäuden."
+          action={
+            <Link to="/import">
+              <Button variant="secondary">Import öffnen</Button>
+            </Link>
           }
         />
         <ReportCard
@@ -203,19 +223,74 @@ export function DefectReport() {
   );
 }
 
+function randomLabel() {
+  const alphabet = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+  return 'PK-' + Array.from(crypto.getRandomValues(new Uint8Array(6)), (b) => alphabet[b % alphabet.length]).join('');
+}
+
 export function LabelSheet() {
   const [params] = useSearchParams();
   const preset = params.get('ids')?.split(',').filter(Boolean);
+  const [mode, setMode] = useState<'assets' | 'blank'>('assets');
+  return (
+    <PrintFrame title="QR-Etiketten" back="/berichte">
+      {!preset && (
+        <Segmented
+          className="no-print mb-4"
+          value={mode}
+          onChange={setMode}
+          options={[
+            { value: 'assets', label: 'Für vorhandene Elemente' },
+            { value: 'blank', label: 'Blanko-Etiketten' },
+          ]}
+        />
+      )}
+      {mode === 'assets' ? <AssetLabels preset={preset} /> : <BlankLabels />}
+    </PrintFrame>
+  );
+}
+
+function BlankLabels() {
+  const [count, setCount] = useState(24);
+  const [seed, setSeed] = useState(0);
+  const codes = useMemo(() => Array.from({ length: Math.min(300, Math.max(1, count)) }, randomLabel), [count, seed]);
+  return (
+    <>
+      <div className="no-print mb-5 flex flex-wrap items-end gap-3 rounded-lg bg-sunken p-3 text-sm">
+        <label className="flex flex-col gap-1">
+          <span className="text-xs text-ink-3">Anzahl</span>
+          <Input type="number" min={1} max={300} value={count} onChange={(e) => setCount(Number(e.target.value))} className="w-28" />
+        </label>
+        <Button variant="secondary" onClick={() => setSeed((s) => s + 1)}>
+          Neue Codes
+        </Button>
+        <p className="max-w-sm text-xs text-ink-3">
+          Etiketten vorab drucken und aufkleben. Beim ersten Scan legst du das Element an oder ordnest das Etikett einem vorhandenen Element zu.
+        </p>
+      </div>
+      <div className="grid grid-cols-4 gap-[3mm]">
+        {codes.map((c) => (
+          <div key={c} className="flex flex-col items-center rounded border border-line p-2 break-inside-avoid">
+            <QrImage code={c} size={92} />
+            <p className="mt-1 font-mono text-[12px] font-bold">{c}</p>
+          </div>
+        ))}
+      </div>
+    </>
+  );
+}
+
+function AssetLabels({ preset }: { preset?: string[] }) {
   const { data, isLoading } = useAssets();
   const [picked, setPicked] = useState<Set<string> | null>(preset ? new Set(preset) : null);
   const [propertyId, setPropertyId] = useState<string>('');
   const props = useMemo(() => [...new Map((data ?? []).map((a) => [a.propertyId, a.propertyName])).entries()], [data]);
-  if (isLoading) return <Spinner className="min-h-dvh items-center" />;
+  if (isLoading) return <Spinner />;
   const all = data ?? [];
   const selected = all.filter((a) => (picked ? picked.has(a.id) : propertyId ? a.propertyId === propertyId : true));
 
   return (
-    <PrintFrame title="QR-Etiketten" back="/berichte">
+    <>
       <div className="no-print mb-5 flex flex-wrap gap-2">
         <Chip
           active={!propertyId && !picked}
@@ -255,6 +330,6 @@ export function LabelSheet() {
           </div>
         ))}
       </div>
-    </PrintFrame>
+    </>
   );
 }

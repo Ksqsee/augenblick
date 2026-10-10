@@ -52,7 +52,9 @@ export function AssetsPage() {
           )
         }
       />
-      {creating && <AssetForm onClose={(createdId) => (createdId ? navigate(`/elemente/${createdId}`) : setParam('neu'))} />}
+      {creating && (
+        <AssetForm defaultLabel={params.get('etikett') ?? undefined} onClose={(createdId) => (createdId ? navigate(`/elemente/${createdId}`) : setParam('neu'))} />
+      )}
       {selected && <AssetDrawer asset={selected} onClose={() => setSelected(null)} />}
 
       <div className="mb-4 flex flex-col gap-3">

@@ -1,6 +1,7 @@
 import { type FormEvent, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { CATEGORIES, CATEGORY_LIST, type Category } from '../../shared/catalog';
+import { BUILDING_TYPES, type BuildingType } from '../../shared/walkthrough';
 import { api, type Asset, type PropertyDetail, useAction, useProperties, useProperty } from '../api';
 import { CategoryIcon } from './CategoryIcon';
 import { Button, ErrorBox, Field, Input, Modal, Select, Textarea, useToast } from './ui';
@@ -15,6 +16,7 @@ export function PropertyForm({ initial, onClose }: { initial?: PropertyDetail; o
     contactName: initial?.contactName ?? '',
     contactPhone: initial?.contactPhone ?? '',
     contactEmail: initial?.contactEmail ?? '',
+    buildingType: initial?.buildingType ?? ('general' as BuildingType),
   });
   const set = (k: keyof typeof f) => (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => setF({ ...f, [k]: e.target.value });
   const save = useAction(
@@ -44,13 +46,24 @@ export function PropertyForm({ initial, onClose }: { initial?: PropertyDetail; o
         </>
       }
     >
-      <form id="property-form" onSubmit={submit} className="grid gap-4 sm:grid-cols-2">
+      <form id="property-form" onSubmit={submit} className="grid grid-cols-1 gap-4 sm:grid-cols-2">
         {save.error && <ErrorBox error={save.error} />}
         <Field label="Name" className="sm:col-span-2">
           {(id) => <Input id={id} required autoFocus value={f.name} onChange={set('name')} placeholder="z. B. Grundschule Am Park" />}
         </Field>
         <Field label="Adresse" className="sm:col-span-2">
           {(id) => <Textarea id={id} className="min-h-16" value={f.address} onChange={set('address')} placeholder={'Straße Nr.\nPLZ Ort'} />}
+        </Field>
+        <Field label="Nutzung" hint="Steuert die Fragen der Brandschutzbegehung" className="sm:col-span-2">
+          {(id) => (
+            <Select id={id} value={f.buildingType} onChange={(e) => setF({ ...f, buildingType: e.target.value as BuildingType })}>
+              {Object.entries(BUILDING_TYPES).map(([k, v]) => (
+                <option key={k} value={k}>
+                  {v}
+                </option>
+              ))}
+            </Select>
+          )}
         </Field>
         <Field label="Ansprechperson">{(id) => <Input id={id} value={f.contactName} onChange={set('contactName')} />}</Field>
         <Field label="Telefon">{(id) => <Input id={id} type="tel" value={f.contactPhone} onChange={set('contactPhone')} />}</Field>
@@ -154,11 +167,13 @@ export function AssetForm({
   initial,
   buildings,
   defaultBuildingId,
+  defaultLabel,
   onClose,
 }: {
   initial?: Asset;
   buildings?: { id: string; name: string }[];
   defaultBuildingId?: string;
+  defaultLabel?: string;
   onClose: (createdId?: string) => void;
 }) {
   const toast = useToast();
@@ -170,14 +185,15 @@ export function AssetForm({
     manufacturer: initial?.manufacturer ?? '',
     model: initial?.model ?? '',
     code: '',
+    labelCode: initial?.labelCode ?? defaultLabel ?? '',
   });
   const [attrs, setAttrs] = useState<Record<string, string | number | boolean | null>>(initial?.attributes ?? {});
   const set = (k: keyof typeof f) => (e: React.ChangeEvent<HTMLInputElement>) => setF({ ...f, [k]: e.target.value });
   const save = useAction(
     () =>
       initial
-        ? api(`/assets/${initial.id}`, { method: 'PATCH', body: { ...f, attributes: attrs } })
-        : api<{ id: string; code: string }>('/assets', { body: { ...f, code: f.code || undefined, category, attributes: attrs } }),
+        ? api(`/assets/${initial.id}`, { method: 'PATCH', body: { ...f, labelCode: f.labelCode || undefined, attributes: attrs } })
+        : api<{ id: string; code: string }>('/assets', { body: { ...f, code: f.code || undefined, labelCode: f.labelCode || undefined, category, attributes: attrs } }),
     (r) => {
       const created = !initial && r && typeof r === 'object' ? (r as { id: string; code: string }) : undefined;
       toast(created ? `${created.code} angelegt` : 'Element gespeichert');
@@ -189,7 +205,7 @@ export function AssetForm({
     return (
       <Modal title="Neues Element" onClose={() => onClose()}>
         <p className="mb-4 text-sm text-ink-3">Welche Art von Element möchtest du anlegen?</p>
-        <div className="grid gap-3 sm:grid-cols-2">
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
           {CATEGORY_LIST.map((c) => (
             <button
               key={c.key}
@@ -243,7 +259,7 @@ export function AssetForm({
           e.preventDefault();
           save.mutate(undefined);
         }}
-        className="grid gap-4 sm:grid-cols-2"
+        className="grid grid-cols-1 gap-4 sm:grid-cols-2"
       >
         {save.error && (
           <div className="sm:col-span-2">
@@ -276,9 +292,12 @@ export function AssetForm({
             {(id) => <Input id={id} value={f.code} onChange={set('code')} placeholder={`${def.prefix}-…`} className="uppercase" />}
           </Field>
         )}
+        <Field label="QR-Etikett" hint="Optional: Code eines vorgedruckten Etiketts" className={initial ? 'sm:col-span-2' : 'sm:col-span-2'}>
+          {(id) => <Input id={id} value={f.labelCode} onChange={set('labelCode')} placeholder="z. B. PK-7Q2M9X" className="uppercase" />}
+        </Field>
         <div className="sm:col-span-2">
           <p className="mb-3 border-t border-line pt-4 text-[13px] font-semibold text-ink-2">Stammdaten</p>
-          <div className="grid gap-4 sm:grid-cols-2">
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             {def.attributes.map((a) => {
               const v = attrs[a.key];
               if (a.type === 'boolean')

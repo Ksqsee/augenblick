@@ -1,16 +1,17 @@
-import { ArrowLeft, ClipboardCheck, FileText, Pencil, QrCode, Trash2 } from 'lucide-react';
+import { useQuery } from '@tanstack/react-query';
+import { ArrowLeft, ClipboardCheck, FileText, Link2, Map, Pencil, Plus, QrCode, Search, Tag, Trash2, X } from 'lucide-react';
 import QRCode from 'qrcode';
 import { useEffect, useState } from 'react';
 import { Link, Navigate, useNavigate, useParams } from 'react-router-dom';
 import { CATEGORIES, INSPECTION_KINDS, SEVERITIES } from '../../shared/catalog';
-import { api, ApiError, useAction, useAsset, useMe } from '../api';
+import { api, ApiError, useAction, useAsset, useAssets, useMe } from '../api';
 import { useStartInspection } from '../components/AssetDrawer';
 import { DueBadge } from '../components/AssetList';
 import { CategoryIcon } from '../components/CategoryIcon';
 import { AssetForm, attributeRows } from '../components/forms';
-import { Badge, Button, Card, CardHeader, Empty, ErrorBox, KeyValue, PageHeader, Spinner, useToast } from '../components/ui';
+import { Badge, Button, Card, CardHeader, Empty, ErrorBox, Input, KeyValue, PageHeader, Spinner, useToast } from '../components/ui';
+import { MiniPlan } from './FloorPlan';
 import { fmtDate, fmtDateTime, RESULT_META } from '../format';
-import { useQuery } from '@tanstack/react-query';
 
 export function qrUrl(code: string) {
   return `${window.location.origin}/e/${encodeURIComponent(code)}`;
@@ -86,7 +87,7 @@ export function AssetPage() {
 
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-[1fr_320px]">
         <div className="flex flex-col gap-6">
-          <div className="grid gap-3 sm:grid-cols-3">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
             <Card className="p-4">
               <p className="text-xs text-ink-3">Status</p>
               <div className="mt-2">
@@ -165,6 +166,17 @@ export function AssetPage() {
               </Button>
             </Link>
           </Card>
+          <LabelCard assetId={a.id} label={a.labelCode} canEdit={canInspect} />
+          {a.floorPlan && a.markerX != null && a.markerY != null ? (
+            <MiniPlan plan={a.floorPlan} x={a.markerX} y={a.markerY} />
+          ) : (
+            <Card className="flex items-center gap-2 p-4 text-sm text-ink-3">
+              <Map className="size-4" /> Nicht auf einem Grundriss platziert
+              <Link to={`/objekte/${a.propertyId}?tab=grundrisse`} className="ml-auto text-xs font-medium text-ink-2 hover:underline">
+                Pläne
+              </Link>
+            </Card>
+          )}
           <Card className="px-4 py-1">
             <KeyValue
               items={[
@@ -180,24 +192,123 @@ export function AssetPage() {
   );
 }
 
-/** Ziel der QR-Codes: /e/:code → Elementseite. */
+function LabelCard({ assetId, label, canEdit }: { assetId: string; label: string | null; canEdit: boolean }) {
+  const toast = useToast();
+  const [value, setValue] = useState('');
+  const [editing, setEditing] = useState(false);
+  const save = useAction(
+    (v: string | null) => api(`/assets/${assetId}/label`, { method: 'PUT', body: { labelCode: v } }),
+    (_, v) => {
+      toast(v ? 'Etikett zugeordnet' : 'Etikett gelöst');
+      setEditing(false);
+      setValue('');
+    },
+  );
+  return (
+    <Card className="p-4">
+      <p className="mb-2 flex items-center gap-2 text-[13px] font-semibold text-ink-2">
+        <Tag className="size-4 text-ink-3" /> Vorgedrucktes Etikett
+      </p>
+      {save.error && <ErrorBox error={save.error} />}
+      {label && !editing ? (
+        <div className="flex items-center gap-2">
+          <span className="font-mono text-sm font-semibold">{label}</span>
+          {canEdit && (
+            <Button size="sm" variant="ghost" className="ml-auto" aria-label="Etikett lösen" onClick={() => confirm('Etikett vom Element lösen?') && save.mutate(null)}>
+              <X className="size-3.5" />
+            </Button>
+          )}
+        </div>
+      ) : canEdit ? (
+        editing ? (
+          <form
+            className="flex gap-2"
+            onSubmit={(e) => {
+              e.preventDefault();
+              if (value.trim()) save.mutate(value.trim());
+            }}
+          >
+            <Input autoFocus value={value} onChange={(e) => setValue(e.target.value)} placeholder="Etikett-Code" className="font-mono uppercase" />
+            <Button size="md" loading={save.isPending}>
+              OK
+            </Button>
+          </form>
+        ) : (
+          <Button size="sm" variant="secondary" icon={<Link2 className="size-3.5" />} onClick={() => setEditing(true)}>
+            Etikett zuordnen
+          </Button>
+        )
+      ) : (
+        <p className="text-sm text-ink-3">Keins</p>
+      )}
+    </Card>
+  );
+}
+
+/** Ziel der QR-Codes: /e/:code → Elementseite. Unbekannte Etiketten lassen sich zuordnen. */
 export function AssetByCode() {
   const { code = '' } = useParams();
   const q = useQuery({ queryKey: ['by-code', code], queryFn: () => api<{ id: string }>(`/assets/by-code/${encodeURIComponent(code)}`), retry: false });
   if (q.isLoading) return <Spinner />;
   if (q.data) return <Navigate to={`/elemente/${q.data.id}`} replace />;
+  if (!(q.error instanceof ApiError && q.error.status === 404)) return <ErrorBox error={q.error} />;
+  return <UnknownLabel code={code.toUpperCase()} />;
+}
+
+function UnknownLabel({ code }: { code: string }) {
+  const [q, setQ] = useState('');
+  const navigate = useNavigate();
+  const toast = useToast();
+  const assets = useAssets({ q: q.trim() || undefined });
+  const assign = useAction(
+    (assetId: string) => api(`/assets/${assetId}/label`, { method: 'PUT', body: { labelCode: code } }),
+    (_, assetId) => {
+      toast(`Etikett ${code} zugeordnet`);
+      navigate(`/elemente/${assetId}`, { replace: true });
+    },
+  );
+  const free = (assets.data ?? []).filter((a) => !a.labelCode).slice(0, 8);
   return (
-    <Card>
-      <Empty
-        icon={<QrCode className="size-5" />}
-        title={`Code ${code} nicht gefunden`}
-        text={q.error instanceof ApiError && q.error.status === 404 ? 'Dieser Code gehört zu keinem Element in deinem Workspace.' : undefined}
-        action={
-          <Link to={`/elemente?neu=1`}>
-            <Button>Element anlegen</Button>
-          </Link>
-        }
-      />
-    </Card>
+    <div className="mx-auto max-w-lg">
+      <PageHeader title={`Etikett ${code}`} subtitle="Dieses Etikett ist noch keinem Element zugeordnet." />
+      {assign.error && <ErrorBox error={assign.error} />}
+      <div className="flex flex-col gap-4">
+        <Link to={`/elemente?neu=1&etikett=${encodeURIComponent(code)}`}>
+          <Card className="flex items-center gap-3 p-4 hover:border-line-strong">
+            <span className="grid size-10 place-items-center rounded-lg bg-brand-soft text-brand-strong">
+              <Plus className="size-5" />
+            </span>
+            <span>
+              <span className="block text-sm font-semibold">Neues Element mit diesem Etikett</span>
+              <span className="block text-xs text-ink-3">Element anlegen und Etikett direkt verknüpfen</span>
+            </span>
+          </Card>
+        </Link>
+        <Card>
+          <CardHeader title="Vorhandenem Element zuordnen" />
+          <div className="p-4">
+            <div className="relative">
+              <Search className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-ink-3" />
+              <Input className="pl-9" placeholder="Code, Standort …" value={q} onChange={(e) => setQ(e.target.value)} />
+            </div>
+          </div>
+          <ul className="divide-y divide-line border-t border-line">
+            {free.map((a) => (
+              <li key={a.id}>
+                <button className="flex w-full items-center gap-3 px-4 py-3 text-left hover:bg-sunken" onClick={() => assign.mutate(a.id)}>
+                  <CategoryIcon category={a.category} size="sm" />
+                  <span className="min-w-0 flex-1">
+                    <span className="block text-sm font-medium">{a.code}</span>
+                    <span className="block truncate text-xs text-ink-3">{[a.location, a.buildingName, a.propertyName].filter(Boolean).join(' · ')}</span>
+                  </span>
+                  <Link2 className="size-4 text-ink-3" />
+                </button>
+              </li>
+            ))}
+            {!free.length && <li className="px-4 py-3 text-sm text-ink-3">Keine passenden Elemente ohne Etikett.</li>}
+          </ul>
+        </Card>
+      </div>
+    </div>
   );
 }

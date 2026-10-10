@@ -3,21 +3,34 @@ import { HTTPException } from 'hono/http-exception';
 import { ZodError } from 'zod';
 import { account, auth } from './auth';
 import { data } from './data';
-import { type AppEnv, csrfGuard } from './lib';
+import { type AppEnv, csrfGuard, requireAuth } from './lib';
+import { plans } from './plans';
+import { walks } from './walkthroughs';
+import { publicApi, work } from './work';
 
 const app = new Hono<AppEnv>().basePath('/api');
 
 app.use('*', async (c, next) => {
   await next();
   c.header('x-content-type-options', 'nosniff');
-  c.header('cache-control', c.res.headers.get('cache-control') ?? 'no-store');
+  c.header('referrer-policy', 'same-origin');
+  if (!c.res.headers.get('cache-control')) c.header('cache-control', 'no-store');
 });
 app.use('*', csrfGuard);
 
 app.get('/health', (c) => c.json({ ok: true }));
 app.route('/auth', auth);
+app.route('/public', publicApi);
 app.route('/account', account);
-app.route('/', data);
+
+// Alles Weitere nur mit gültiger Sitzung (einmalige Prüfung)
+const secured = new Hono<AppEnv>();
+secured.use('*', requireAuth);
+secured.route('/', walks);
+secured.route('/', plans);
+secured.route('/', work);
+secured.route('/', data);
+app.route('/', secured);
 
 app.notFound((c) => c.json({ error: 'Nicht gefunden' }, 404));
 app.onError((err, c) => {

@@ -8,6 +8,11 @@ import { AssetsPage } from './pages/Assets';
 import { InviteAccept, Login, Register } from './pages/Auth';
 import { Dashboard } from './pages/Dashboard';
 import { DefectsPage } from './pages/Defects';
+import { FloorPlanPage } from './pages/FloorPlan';
+import { ImportPage } from './pages/Import';
+import { OfflinePage, OfflineRun } from './pages/Offline';
+import { ExternalTaskPage, SubcontractorsPage } from './pages/Subcontractors';
+import { WalkthroughProtocol, WalkthroughRun, WalkthroughsPage } from './pages/Walkthroughs';
 import { InspectionRun } from './pages/InspectionRun';
 import { InspectionsPage } from './pages/Inspections';
 import { Protocol } from './pages/Protocol';
@@ -34,6 +39,31 @@ export function App() {
         <Route path="/login" element={<Login />} />
         <Route path="/registrieren" element={<Register />} />
         <Route path="/einladung/:token" element={<InviteAccept />} />
+        <Route path="/extern/:token" element={<ExternalTaskPage />} />
+        <Route
+          path="/druck/begehung/:id"
+          element={
+            <RequireAuth>
+              <WalkthroughProtocol />
+            </RequireAuth>
+          }
+        />
+        <Route
+          path="/begehung/:id"
+          element={
+            <RequireAuth>
+              <WalkthroughRun />
+            </RequireAuth>
+          }
+        />
+        <Route
+          path="/offline/pruefen/:assetId"
+          element={
+            <RequireAuth>
+              <OfflineRun />
+            </RequireAuth>
+          }
+        />
         <Route
           path="/druck/protokoll/:id"
           element={
@@ -89,6 +119,11 @@ export function App() {
           <Route path="e/:code" element={<AssetByCode />} />
           <Route path="pruefungen" element={<InspectionsPage />} />
           <Route path="maengel" element={<DefectsPage />} />
+          <Route path="begehungen" element={<WalkthroughsPage />} />
+          <Route path="grundrisse/:id" element={<FloorPlanPage />} />
+          <Route path="offline" element={<OfflinePage />} />
+          <Route path="import" element={<ImportPage />} />
+          <Route path="subunternehmer" element={<SubcontractorsPage />} />
           <Route path="aufgaben" element={<TasksPage />} />
           <Route path="berichte" element={<ReportsPage />} />
           <Route path="team" element={<TeamPage />} />

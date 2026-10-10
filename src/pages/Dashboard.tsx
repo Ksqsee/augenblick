@@ -1,5 +1,5 @@
 import clsx from 'clsx';
-import { AlertTriangle, ArrowRight, Building2, CalendarClock, CircleDashed, ClipboardCheck, ListTodo, Plus, ScanLine } from 'lucide-react';
+import { AlertTriangle, ArrowRight, Building2, CalendarClock, CircleDashed, ClipboardCheck, Footprints, ListTodo, Plus, ScanLine } from 'lucide-react';
 import type { ReactNode } from 'react';
 import { Link } from 'react-router-dom';
 import { useDashboard, useMe } from '../api';
@@ -83,19 +83,20 @@ export function Dashboard() {
               {c.assets} Elemente in {c.properties} Objekten
             </span>
           </div>
-          <div className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-5">
+          <div className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-6">
             <Stage to="/pruefungen?tab=overdue" tone="bad" label="Überfällig" value={c.overdue} sub="sofort prüfen" icon={<CalendarClock />} />
             <Stage to="/pruefungen?tab=soon" tone="warn" label="Bald fällig" value={c.soon} sub="in 30 Tagen" icon={<CalendarClock />} />
             <Stage
               to="/maengel"
               tone="brand"
               label="Offene Mängel"
-              value={c.openDefects}
-              sub={c.criticalDefects ? `${c.criticalDefects} kritisch` : 'keine kritischen'}
+              value={c.openDefects + c.openWalkDefects}
+              sub={c.criticalDefects ? `${c.criticalDefects} kritisch` : c.openWalkDefects ? `${c.openWalkDefects} aus Begehungen` : 'keine kritischen'}
               icon={<AlertTriangle />}
             />
             <Stage to="/pruefungen?tab=never" tone="info" label="Nie geprüft" value={c.never} sub="Erstprüfung offen" icon={<CircleDashed />} />
             <Stage to="/pruefungen?tab=done" tone="ok" label="Geprüft" value={c.inspections30d} sub="letzte 30 Tage" icon={<ClipboardCheck />} />
+            <Stage to="/begehungen" tone="muted" label="Begehungen" value={c.walkDue} sub="fällig in 30 Tagen" icon={<Footprints />} />
           </div>
         </section>
       )}

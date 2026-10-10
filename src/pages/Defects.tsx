@@ -1,5 +1,5 @@
 import clsx from 'clsx';
-import { AlertTriangle, Check, ListPlus, RotateCcw } from 'lucide-react';
+import { AlertTriangle, Check, Footprints, ListPlus, RotateCcw, Scale } from 'lucide-react';
 import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { SEVERITIES } from '../../shared/catalog';
@@ -13,7 +13,8 @@ const sevTone = (s: Defect['severity']) => (s === 'critical' || s === 'high' ? '
 
 export function DefectsPage() {
   const [status, setStatus] = useState<'open' | 'resolved'>('open');
-  const { data, isLoading, error } = useDefects(status);
+  const [source, setSource] = useState<'' | 'asset' | 'walkthrough'>('');
+  const { data, isLoading, error } = useDefects(status, source);
   const { data: me } = useMe();
   const toast = useToast();
   const [taskFor, setTaskFor] = useState<Defect | null>(null);
@@ -28,19 +29,35 @@ export function DefectsPage() {
       <PageHeader title="Mängel" subtitle="Alle Mängel aus Prüfungen, objektübergreifend" />
       {taskFor && (
         <TaskForm
-          initial={{ title: `Mangel beheben: ${taskFor.title}`, description: `${taskFor.code} · ${taskFor.location ?? ''}\n${taskFor.note}`.trim(), assetId: taskFor.assetId ?? null, defectId: taskFor.id, priority: taskFor.severity === 'critical' || taskFor.severity === 'high' ? 'high' : 'medium' }}
+          initial={{
+            title: `Mangel beheben: ${taskFor.title}`,
+            description: [taskFor.code && `${taskFor.code} · ${taskFor.location ?? ''}`, taskFor.legalBasis && `Grundlage: ${taskFor.legalBasis}`, taskFor.note].filter(Boolean).join('\n'),
+            assetId: taskFor.assetId ?? null,
+            defectId: taskFor.id,
+            propertyId: taskFor.propertyId ?? null,
+            priority: taskFor.severity === 'critical' || taskFor.severity === 'high' ? 'high' : 'medium' }}
           onClose={() => setTaskFor(null)}
         />
       )}
-      <Segmented
-        className="mb-4"
-        value={status}
-        onChange={setStatus}
-        options={[
-          { value: 'open', label: 'Offen' },
-          { value: 'resolved', label: 'Behoben' },
-        ]}
-      />
+      <div className="mb-4 flex flex-wrap gap-2">
+        <Segmented
+          value={status}
+          onChange={setStatus}
+          options={[
+            { value: 'open', label: 'Offen' },
+            { value: 'resolved', label: 'Behoben' },
+          ]}
+        />
+        <Segmented
+          value={source}
+          onChange={setSource}
+          options={[
+            { value: '', label: 'Alle' },
+            { value: 'asset', label: 'Elemente' },
+            { value: 'walkthrough', label: 'Begehungen' },
+          ]}
+        />
+      </div>
       {isLoading ? (
         <Spinner />
       ) : error ? (
@@ -54,7 +71,13 @@ export function DefectsPage() {
           {data.map((d) => (
             <Card key={d.id} className={clsx('flex flex-col gap-3 p-4 sm:flex-row sm:items-center', d.severity === 'critical' && d.status === 'open' && 'border-bad/40')}>
               <div className="flex min-w-0 flex-1 gap-3">
-                {d.category && <CategoryIcon category={d.category} size="sm" />}
+                {d.category ? (
+                  <CategoryIcon category={d.category} size="sm" />
+                ) : (
+                  <span className="grid size-8 shrink-0 place-items-center rounded-lg bg-brand-soft text-brand-strong">
+                    <Footprints className="size-4" />
+                  </span>
+                )}
                 <div className="min-w-0">
                   <div className="flex flex-wrap items-center gap-2">
                     <p className="text-sm font-semibold">{d.title}</p>
@@ -62,12 +85,23 @@ export function DefectsPage() {
                     {d.taskId && <Badge tone="info">Aufgabe</Badge>}
                   </div>
                   <p className="mt-0.5 text-xs text-ink-3">
-                    <Link to={`/elemente/${d.assetId}`} className="font-medium text-ink-2 hover:underline">
-                      {d.code}
-                    </Link>{' '}
+                    {d.assetId ? (
+                      <Link to={`/elemente/${d.assetId}`} className="font-medium text-ink-2 hover:underline">
+                        {d.code}
+                      </Link>
+                    ) : (
+                      <Link to={`/druck/begehung/${d.walkthroughId}`} className="font-medium text-ink-2 hover:underline">
+                        Begehung
+                      </Link>
+                    )}{' '}
                     · {[d.location, d.buildingName, d.propertyName].filter(Boolean).join(' · ')} · erfasst {fmtDate(d.createdAt)}
                     {d.resolvedAt && ` · behoben ${fmtDate(d.resolvedAt)}`}
                   </p>
+                  {d.legalBasis && (
+                    <p className="mt-1 inline-flex items-center gap-1 text-xs text-ink-3">
+                      <Scale className="size-3" /> {d.legalBasis}
+                    </p>
+                  )}
                   {d.note && <p className="mt-1.5 text-sm text-ink-2">{d.note}</p>}
                 </div>
               </div>

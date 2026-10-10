@@ -15,7 +15,7 @@ export function useStartInspection() {
   );
 }
 
-export function AssetDrawer({ asset, onClose }: { asset: Asset; onClose: () => void }) {
+export function AssetDrawer({ asset, onClose, children }: { asset: Asset; onClose: () => void; children?: React.ReactNode }) {
   const start = useStartInspection();
   const { data: me } = useMe();
   const canInspect = me?.user.role !== 'viewer';
@@ -67,6 +67,7 @@ export function AssetDrawer({ asset, onClose }: { asset: Asset; onClose: () => v
       <Card className="px-4">
         <KeyValue items={attributeRows(asset.category, asset.attributes)} />
       </Card>
+      {children}
     </Drawer>
   );
 }

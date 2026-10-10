@@ -4,31 +4,43 @@ import {
   Building2,
   ChevronsUpDown,
   ClipboardCheck,
+  CloudOff,
+  FileSpreadsheet,
   FileText,
+  Footprints,
+  HardHat,
+  WifiOff,
   LayoutGrid,
   ListTodo,
   LogOut,
   Menu,
   Package,
   ScanLine,
+  Search as SearchIcon,
   Settings,
   Users,
 } from 'lucide-react';
-import { type ReactNode, useState } from 'react';
+import { type ReactNode, useCallback, useState } from 'react';
 import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { ROLES } from '../../shared/catalog';
-import { api, type Me, queryClient, useMe } from '../api';
+import { api, clearMeCache, type Me, queryClient, useMe } from '../api';
+import { useOnline, useOutbox } from '../offline';
 import { Logo } from './Logo';
+import { SearchButton, SearchPalette, useSearchShortcut } from './Search';
 
 const NAV: { to: string; label: string; icon: ReactNode; group: string }[] = [
   { to: '/', label: 'Übersicht', icon: <LayoutGrid />, group: 'Arbeit' },
   { to: '/objekte', label: 'Objekte', icon: <Building2 />, group: 'Arbeit' },
   { to: '/elemente', label: 'Elemente', icon: <Package />, group: 'Arbeit' },
   { to: '/pruefungen', label: 'Prüfungen', icon: <ClipboardCheck />, group: 'Arbeit' },
+  { to: '/begehungen', label: 'Begehungen', icon: <Footprints />, group: 'Arbeit' },
   { to: '/maengel', label: 'Mängel', icon: <AlertTriangle />, group: 'Arbeit' },
   { to: '/aufgaben', label: 'Aufgaben', icon: <ListTodo />, group: 'Arbeit' },
+  { to: '/offline', label: 'Offline-Modus', icon: <CloudOff />, group: 'Arbeit' },
   { to: '/berichte', label: 'Berichte', icon: <FileText />, group: 'Auswertung' },
+  { to: '/import', label: 'Import', icon: <FileSpreadsheet />, group: 'Auswertung' },
   { to: '/team', label: 'Team', icon: <Users />, group: 'Verwaltung' },
+  { to: '/subunternehmer', label: 'Subunternehmer', icon: <HardHat />, group: 'Verwaltung' },
   { to: '/einstellungen', label: 'Einstellungen', icon: <Settings />, group: 'Verwaltung' },
 ];
 
@@ -86,7 +98,8 @@ function WorkspaceSwitcher({ me }: { me: Me }) {
           <button
             className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm text-ink-2 hover:bg-sunken"
             onClick={async () => {
-              await api('/auth/logout', { method: 'POST' });
+              await api('/auth/logout', { method: 'POST' }).catch(() => {});
+              clearMeCache();
               queryClient.clear();
               navigate('/login');
             }}
@@ -99,14 +112,21 @@ function WorkspaceSwitcher({ me }: { me: Me }) {
   );
 }
 
-function Sidebar({ me, onNavigate }: { me: Me; onNavigate?: () => void }) {
+function Sidebar({ me, onNavigate, onSearch }: { me: Me; onNavigate?: () => void; onSearch: () => void }) {
   const groups = [...new Set(NAV.map((n) => n.group))];
+  const outbox = useOutbox();
   return (
     <div className="flex h-full flex-col gap-5 p-3">
       <div className="px-2 pt-2">
         <Logo />
       </div>
       <WorkspaceSwitcher me={me} />
+      <SearchButton
+        onClick={() => {
+          onNavigate?.();
+          onSearch();
+        }}
+      />
       <NavLink
         to="/scan"
         onClick={onNavigate}
@@ -119,7 +139,7 @@ function Sidebar({ me, onNavigate }: { me: Me; onNavigate?: () => void }) {
           <div key={g} className="flex flex-col gap-0.5">
             <p className="px-3 pb-1 text-[11px] font-semibold tracking-wider text-ink-3 uppercase">{g}</p>
             {NAV.filter((n) => n.group === g).map((n) => (
-              <NavItem key={n.to} {...n} onClick={onNavigate} />
+              <NavItem key={n.to} {...n} label={n.to === '/offline' && outbox.length ? `${n.label} (${outbox.length})` : n.label} onClick={onNavigate} />
             ))}
           </div>
         ))}
@@ -128,33 +148,52 @@ function Sidebar({ me, onNavigate }: { me: Me; onNavigate?: () => void }) {
   );
 }
 
-const MOBILE = [NAV[0], NAV[3], { to: '/scan', label: 'Scannen', icon: <ScanLine />, group: '' }, NAV[4], NAV[2]];
+const nav = (to: string) => NAV.find((n) => n.to === to)!;
+const MOBILE = [nav('/'), nav('/pruefungen'), { to: '/scan', label: 'Scannen', icon: <ScanLine />, group: '' }, nav('/maengel'), nav('/elemente')];
 
 export function Shell() {
   const { data: me } = useMe();
   const [menu, setMenu] = useState(false);
+  const [search, setSearch] = useState(false);
+  const openSearch = useCallback(() => setSearch(true), []);
+  useSearchShortcut(openSearch);
+  const online = useOnline();
   const loc = useLocation();
   if (!me) return null;
   return (
     <div className="min-h-dvh lg:pl-64">
       <aside className="no-print fixed inset-y-0 left-0 hidden w-64 overflow-y-auto border-r border-line bg-canvas lg:block">
-        <Sidebar me={me} />
+        <Sidebar me={me} onSearch={openSearch} />
       </aside>
+      {search && <SearchPalette onClose={() => setSearch(false)} />}
 
       <header className="no-print sticky top-0 z-30 flex h-14 items-center justify-between border-b border-line bg-canvas/90 px-4 backdrop-blur lg:hidden">
         <Logo />
-        <button onClick={() => setMenu(true)} className="rounded-lg p-2 hover:bg-sunken" aria-label="Menü">
-          <Menu className="size-5" />
-        </button>
+        <div className="flex">
+          <button onClick={openSearch} className="rounded-lg p-2 hover:bg-sunken" aria-label="Suchen">
+            <SearchIcon className="size-5" />
+          </button>
+          <button onClick={() => setMenu(true)} className="rounded-lg p-2 hover:bg-sunken" aria-label="Menü">
+            <Menu className="size-5" />
+          </button>
+        </div>
       </header>
       {menu && (
         <div className="fixed inset-0 z-50 bg-ink/30 lg:hidden" onClick={() => setMenu(false)}>
           <div className="animate-in h-full w-72 overflow-y-auto bg-canvas" onClick={(e) => e.stopPropagation()}>
-            <Sidebar me={me} onNavigate={() => setMenu(false)} />
+            <Sidebar me={me} onNavigate={() => setMenu(false)} onSearch={openSearch} />
           </div>
         </div>
       )}
 
+      {!online && (
+        <NavLink
+          to="/offline"
+          className="no-print sticky top-14 z-20 flex items-center justify-center gap-2 bg-warn px-4 py-1.5 text-[13px] font-medium text-white lg:top-0"
+        >
+          <WifiOff className="size-4" /> Keine Verbindung – im Offline-Modus weiterprüfen
+        </NavLink>
+      )}
       <main key={loc.pathname} className="animate-in mx-auto max-w-6xl px-4 pt-6 pb-28 sm:px-6 lg:px-10 lg:pt-10 lg:pb-12">
         <Outlet />
       </main>
@@ -177,3 +216,4 @@ export function Shell() {
     </div>
   );
 }
+

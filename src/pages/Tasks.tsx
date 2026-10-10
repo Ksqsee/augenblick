@@ -1,8 +1,8 @@
 import clsx from 'clsx';
-import { Calendar, ListTodo, Plus, Trash2 } from 'lucide-react';
+import { Calendar, Copy, HardHat, Link2, ListTodo, Plus, Trash2 } from 'lucide-react';
 import { useState } from 'react';
 import { Link } from 'react-router-dom';
-import { api, type Task, useAction, useMe, useMembers, useTasks } from '../api';
+import { api, type Task, useAction, useMe, useMembers, useSubcontractors, useTasks } from '../api';
 import { Badge, Button, Card, Empty, ErrorBox, Field, Input, Modal, PageHeader, Segmented, Select, Spinner, Textarea, useToast } from '../components/ui';
 import { fmtDate } from '../format';
 
@@ -26,7 +26,13 @@ export function TaskForm({ initial, onClose }: { initial?: Partial<Task>; onClos
     priority: initial?.priority ?? 'medium',
     due: toDateInput(initial?.dueAt ?? null),
     assigneeId: initial?.assigneeId ?? '',
+    subcontractorId: initial?.subcontractorId ?? '',
   });
+  const subs = useSubcontractors();
+  const [shareToken, setShareToken] = useState(initial?.shareToken ?? null);
+  const share = useAction(() => api<{ token: string }>(`/tasks/${initial!.id}/share`, { method: 'POST' }), (r) => setShareToken(r.token));
+  const unshare = useAction(() => api(`/tasks/${initial!.id}/share`, { method: 'DELETE' }), () => setShareToken(null));
+  const shareUrl = shareToken ? `${window.location.origin}/extern/${shareToken}` : '';
   const save = useAction(
     () => {
       const body = {
@@ -36,8 +42,10 @@ export function TaskForm({ initial, onClose }: { initial?: Partial<Task>; onClos
         priority: f.priority,
         dueAt: f.due ? new Date(`${f.due}T12:00:00`).getTime() : null,
         assigneeId: f.assigneeId || null,
+        subcontractorId: f.subcontractorId || null,
         assetId: initial?.assetId ?? null,
         defectId: initial?.defectId ?? null,
+        propertyId: initial?.propertyId ?? null,
       };
       return initial?.id ? api(`/tasks/${initial.id}`, { method: 'PATCH', body }) : api('/tasks', { body });
     },
@@ -76,7 +84,7 @@ export function TaskForm({ initial, onClose }: { initial?: Partial<Task>; onClos
     >
       <form
         id="task-form"
-        className="grid gap-4 sm:grid-cols-2"
+        className="grid grid-cols-1 gap-4 sm:grid-cols-2"
         onSubmit={(e) => {
           e.preventDefault();
           save.mutate(undefined);
@@ -128,6 +136,53 @@ export function TaskForm({ initial, onClose }: { initial?: Partial<Task>; onClos
             </Select>
           )}
         </Field>
+        <Field label="Subunternehmer" className="sm:col-span-2">
+          {(id) => (
+            <Select id={id} value={f.subcontractorId} onChange={(e) => setF({ ...f, subcontractorId: e.target.value })}>
+              <option value="">Keiner</option>
+              {subs.data?.map((s) => (
+                <option key={s.id} value={s.id}>
+                  {s.company}
+                  {s.trade ? ` · ${s.trade}` : ''}
+                </option>
+              ))}
+            </Select>
+          )}
+        </Field>
+        {initial?.id && f.subcontractorId && f.subcontractorId === initial.subcontractorId && (
+          <div className="rounded-lg border border-line bg-sunken/50 p-3 sm:col-span-2">
+            <p className="mb-2 flex items-center gap-2 text-[13px] font-medium">
+              <Link2 className="size-4 text-ink-3" /> Link für den Subunternehmer
+            </p>
+            {shareToken ? (
+              <div className="flex gap-2">
+                <Input readOnly value={shareUrl} onFocus={(e) => e.target.select()} />
+                <Button
+                  type="button"
+                  variant="secondary"
+                  aria-label="Kopieren"
+                  onClick={async () => {
+                    await navigator.clipboard.writeText(shareUrl);
+                    toast('Link kopiert');
+                  }}
+                >
+                  <Copy className="size-4" />
+                </Button>
+                <Button type="button" variant="ghost" onClick={() => unshare.mutate(undefined)}>
+                  Sperren
+                </Button>
+              </div>
+            ) : (
+              <Button type="button" size="sm" variant="secondary" loading={share.isPending} onClick={() => share.mutate(undefined)}>
+                Link erzeugen
+              </Button>
+            )}
+            <p className="mt-2 text-xs text-ink-3">Über den Link sieht die Firma nur diese Aufgabe und kann sie als erledigt melden – ohne Konto.</p>
+          </div>
+        )}
+        {initial?.externalNote && (
+          <p className="rounded-lg bg-ok-soft px-3 py-2 text-sm text-ok sm:col-span-2">Rückmeldung: {initial.externalNote}</p>
+        )}
         {initial?.defectId && <p className="text-xs text-ink-3 sm:col-span-2">Verknüpft mit einem Mangel – wird beim Erledigen automatisch als behoben markiert.</p>}
       </form>
     </Modal>
@@ -202,6 +257,14 @@ export function TasksPage() {
                   <p className="flex flex-wrap items-center gap-x-2 text-xs text-ink-3">
                     {t.status === 'in_progress' && <span className="font-medium text-info">In Arbeit</span>}
                     {t.assigneeName && <span>{t.assigneeName}</span>}
+                    {t.subcontractorName && (
+                      <span className="inline-flex items-center gap-1">
+                        <HardHat className="size-3" />
+                        {t.subcontractorName}
+                      </span>
+                    )}
+                    {t.propertyName && !t.assetCode && <span>{t.propertyName}</span>}
+                    {t.externalDoneAt && <span className="font-medium text-ok">extern erledigt</span>}
                     {t.assetCode && (
                       <Link to={`/elemente/${t.assetId}`} onClick={(e) => e.stopPropagation()} className="hover:underline">
                         {t.assetCode}
