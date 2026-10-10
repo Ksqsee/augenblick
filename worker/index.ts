@@ -9,6 +9,7 @@ import { notifications } from './notify';
 import { data } from './data';
 import { type AppEnv, csrfGuard, type Env, requireAuth } from './lib';
 import { plans } from './plans';
+import { reports } from './reports';
 import { walks } from './walkthroughs';
 import { publicApi, work } from './work';
 
@@ -35,6 +36,7 @@ secured.route('/', inspections);
 secured.route('/', notifications);
 secured.route('/', walks);
 secured.route('/', plans);
+secured.route('/', reports);
 secured.route('/', work);
 secured.route('/', data);
 app.route('/', secured);

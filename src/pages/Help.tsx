@@ -41,7 +41,7 @@ const GUIDE: Topic[] = [
     steps: [
       'Manche Elemente haben mehrere Prüfarten mit eigener Frist, z. B. Feuerlöscher: Instandhaltung (2 Jahre), innere Prüfung (5 Jahre), Festigkeitsprüfung (10 Jahre).',
       'Optionale Prüfarten aktivierst du am Element unter „Prüfarten“ und gibst den ersten Termin an.',
-      'Die Übersicht zeigt immer die früheste fällige Prüfart eines Elements.',
+      'Die Übersicht zeigt immer die früheste fällige Prüfart eines Elements. Unter Prüfungen filterst du die Listen nach einer bestimmten Prüfart.',
       'Intervalle und Prüfpunkte je Prüfart passt du unter Einstellungen → Prüfvorlagen an.',
     ],
   },
@@ -94,7 +94,9 @@ const GUIDE: Topic[] = [
     steps: [
       'Jedes Protokoll lässt sich als PDF herunterladen; der Dateiname folgt dem Schema unter Einstellungen → Unternehmen (je Objekt überschreibbar).',
       'Unter Prüfungen → Durchgeführt mehrere Prüfungen auswählen und gesammelt als ZIP exportieren.',
-      'Compliance-Übersicht und Mängelbericht gibt es als PDF unter Berichte; dort auch CSV-Liste und vollständiges JSON-Backup.',
+      'Compliance-Übersicht, Mängelbericht und Objektbericht (je Objekt, auch direkt in der Objektansicht) gibt es als PDF unter Berichte.',
+      'Jeder erzeugte Bericht und jeder ZIP-Export landet automatisch unter Berichte → Erstellte Berichte und lässt sich dort später wieder herunterladen.',
+      'Die Elementliste gibt es als Excel-Datei: bearbeiten und über Import wieder einlesen. Außerdem CSV und vollständiges JSON-Backup.',
       'Ältere Prüfungen können archiviert werden (manuell oder automatisch) – sie bleiben als Nachweis erhalten.',
     ],
     link: ['/berichte', 'Zu den Berichten'],
@@ -126,6 +128,7 @@ const FAQ: [string, string][] = [
   ['Kann ich eine abgeschlossene Prüfung korrigieren?', 'Administratoren können eine Prüfung im Protokoll „wieder öffnen“. Ergebnis, Unterschrift und daraus entstandene Mängel werden zurückgesetzt und beim erneuten Abschluss neu angelegt.'],
   ['Sind die Prüfkataloge verbindlich?', 'Nein. Die Kataloge und Rechtsgrundlagen sind Orientierungshilfen. Maßgeblich sind Herstellerangaben, die geltenden Vorschriften und das Brandschutzkonzept. Prüfpunkte lassen sich anpassen.'],
   ['Wie kommen Benachrichtigungen aufs Handy?', 'Unter Einstellungen → Benachrichtigungen „Push aktivieren“. Auf dem iPhone muss die App dafür zuerst zum Home-Bildschirm hinzugefügt werden.'],
+  ['Kann ich nachts Ruhe haben?', 'Ja. Unter Einstellungen → Benachrichtigungen → „Nicht stören“ legst du einen Ruhezeitraum fest (optional das ganze Wochenende). Dann kommen keine Push-Nachrichten; in der App siehst du alles wie gewohnt.'],
   ['Kann ich eigene Elementarten anlegen?', 'Ja, unter Einstellungen → Prüfvorlagen → „Eigene Elementart“ – mit eigenen Prüfpunkten, Stammdatenfeldern und Code-Präfix. Bestehende Arten lassen sich als Variante kopieren.'],
 ];
 

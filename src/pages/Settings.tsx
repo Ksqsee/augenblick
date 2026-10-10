@@ -6,6 +6,7 @@ import { useNavigate, useSearchParams } from 'react-router-dom';
 import { CATEGORY_COLORS, type AttributeField, type Checkpoint } from '../../shared/catalog';
 import { buildFileName, DEFAULT_PDF_PATTERN, PDF_PLACEHOLDERS } from '../../shared/filename';
 import { LEGAL_DOCS } from '../../shared/legal';
+import { inQuietHours, type QuietHours } from '../../shared/quiet';
 import { api, type CategoryInfo, clearMeCache, downscale, type EffectiveSchedule, fileUrl, queryClient, type SlaPolicies, uploadBlob, useAction, useCategories, useMe, useSla, useTaskLabels } from '../api';
 import { CategoryIcon, COLOR_CLASSES } from '../components/CategoryIcon';
 import { Badge, Button, Card, CardHeader, ErrorBox, Field, Input, Modal, PageHeader, Segmented, Select, Spinner, Textarea, useToast } from '../components/ui';
@@ -197,6 +198,7 @@ interface NotifySettings {
   pushAvailable: boolean;
   vapidPublicKey: string | null;
   pushDevices: number;
+  quiet: QuietHours;
 }
 
 function urlB64ToUint8Array(b64: string) {
@@ -304,7 +306,51 @@ function Notifications() {
           </Button>
         </div>
       </Card>
+      <QuietCard initial={q.data.quiet} />
     </div>
+  );
+}
+
+/** „Nicht stören“: in diesem Zeitraum kein Push, In-App-Benachrichtigungen kommen weiter an. */
+function QuietCard({ initial }: { initial: QuietHours }) {
+  const toast = useToast();
+  const [f, setF] = useState<QuietHours>(initial);
+  const save = useAction(
+    () => api('/notifications/quiet', { method: 'PUT', body: { ...f, timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone || f.timeZone } }),
+    () => {
+      queryClient.invalidateQueries({ queryKey: ['notify-settings'] });
+      toast('Gespeichert');
+    },
+  );
+  const active = inQuietHours({ ...f, timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone || f.timeZone }, Date.now());
+  return (
+    <Card>
+      <CardHeader
+        title="Nicht stören"
+        subtitle="Im Ruhezeitraum kommen keine Push-Nachrichten. In der App siehst du alles wie gewohnt."
+        action={f.enabled && active ? <Badge tone="info">Gerade aktiv</Badge> : undefined}
+      />
+      <div className="flex flex-col gap-4 p-5">
+        {save.error && <ErrorBox error={save.error} />}
+        <label className="flex items-center gap-2 text-sm">
+          <input type="checkbox" className="size-4 accent-[var(--color-brand)]" checked={f.enabled} onChange={(e) => setF({ ...f, enabled: e.target.checked })} />
+          Ruhezeit verwenden
+        </label>
+        <div className="grid grid-cols-2 gap-4 sm:max-w-sm">
+          <Field label="Von">{(id) => <Input id={id} type="time" disabled={!f.enabled} value={f.from} onChange={(e) => setF({ ...f, from: e.target.value })} />}</Field>
+          <Field label="Bis">{(id) => <Input id={id} type="time" disabled={!f.enabled} value={f.to} onChange={(e) => setF({ ...f, to: e.target.value })} />}</Field>
+        </div>
+        <label className="flex items-center gap-2 text-sm">
+          <input type="checkbox" className="size-4 accent-[var(--color-brand)]" disabled={!f.enabled} checked={f.weekends} onChange={(e) => setF({ ...f, weekends: e.target.checked })} />
+          Am Wochenende ganztägig ruhig
+        </label>
+        <div>
+          <Button loading={save.isPending} onClick={() => save.mutate(undefined)}>
+            Speichern
+          </Button>
+        </div>
+      </div>
+    </Card>
   );
 }
 

@@ -4,6 +4,7 @@ import { z } from 'zod';
 import { type Category, SEVERITIES } from '../shared/catalog';
 import { DAY, SOON_WINDOW_DAYS } from '../shared/logic';
 import { BUILDING_TYPES } from '../shared/walkthrough';
+import { buildXlsx } from '../shared/xlsx';
 import { getCategoryDef, listCategories } from './categories';
 import { type AppEnv, type Ctx, id, logActivity, notFound, now, parseJson, requireRole } from './lib';
 
@@ -28,6 +29,7 @@ data.get('/dashboard', async (c) => {
          (SELECT COUNT(*) FROM assets WHERE tenant_id = ?1 AND deleted_at IS NULL AND next_due_at BETWEEN ?2 AND ?3) AS soon,
          (SELECT COUNT(*) FROM assets WHERE tenant_id = ?1 AND deleted_at IS NULL AND next_due_at IS NULL) AS never,
          (SELECT COUNT(*) FROM assets WHERE tenant_id = ?1 AND deleted_at IS NULL AND last_result = 'not_inspectable') AS notInspectable,
+         (SELECT COUNT(*) FROM assets WHERE tenant_id = ?1 AND deleted_at IS NULL AND created_at > ?4) AS newAssets,
          (SELECT COUNT(*) FROM defects WHERE tenant_id = ?1 AND status = 'open' AND asset_id IS NOT NULL) AS openDefects,
          (SELECT COUNT(*) FROM defects WHERE tenant_id = ?1 AND status = 'open' AND walkthrough_id IS NOT NULL) AS openWalkDefects,
          (SELECT COUNT(*) FROM defects WHERE tenant_id = ?1 AND status = 'open' AND severity = 'critical') AS criticalDefects,
@@ -333,12 +335,17 @@ data.get('/assets', async (c) => {
       `(lower(a.code) LIKE ?${i} OR lower(a.location) LIKE ?${i} OR lower(a.manufacturer) LIKE ?${i} OR lower(b.name) LIKE ?${i} OR lower(p.name) LIKE ?${i} OR lower(COALESCE(a.label_code,'')) LIKE ?${i})`,
     );
   }
-  if (q.due === 'overdue') where.push(`a.next_due_at < ${n}`);
-  if (q.due === 'soon') where.push(`a.next_due_at BETWEEN ${n} AND ${n + SOON_WINDOW_DAYS * DAY}`);
-  if (q.due === 'never') where.push('a.next_due_at IS NULL');
+  // Filter nach Prüfart: Termin dieser Prüfart statt des frühesten Termins
+  const sched = q.schedule && /^[a-zA-Z0-9_]{1,40}$/.test(q.schedule) ? q.schedule : null;
+  const dueCol = sched ? `json_extract(a.schedules, '$.${sched}.nextDueAt')` : 'a.next_due_at';
+  if (sched) where.push(`json_extract(a.schedules, '$.${sched}.enabled') = 1`);
+  if (q.due === 'overdue') where.push(`${dueCol} < ${n}`);
+  if (q.due === 'soon') where.push(`${dueCol} BETWEEN ${n} AND ${n + SOON_WINDOW_DAYS * DAY}`);
+  if (q.due === 'never') where.push(sched ? `json_extract(a.schedules, '$.${sched}.lastAt') IS NULL` : 'a.next_due_at IS NULL');
+  if (q.due === 'new') where.push(`a.created_at > ${n - 30 * DAY}`);
   if (q.due === 'not_inspectable') where.push(`a.last_result = 'not_inspectable'`);
   if (q.due === 'defects') where.push(`EXISTS (SELECT 1 FROM defects d WHERE d.asset_id = a.id AND d.status = 'open')`);
-  const order = q.due ? 'COALESCE(a.next_due_at, 0), a.code' : 'p.name, b.name, a.code';
+  const order = q.due === 'new' ? 'a.created_at DESC' : q.due ? `COALESCE(${dueCol}, 0), a.code` : 'p.name, b.name, a.code';
   const rows = await assetQuery(c, where.join(' AND ') || '1=1', order)
     .bind(...args)
     .all();
@@ -568,37 +575,47 @@ data.get('/files/:tenant/:name', async (c) => {
 });
 
 // ---------- Export ----------
-export const CSV_HEAD = ['Objekt', 'Gebäude', 'Art', 'Code', 'Etikett', 'Standort', 'Etage', 'Hersteller', 'Modell', 'Letzte Prüfung', 'Ergebnis', 'Nächste Prüfung', 'Offene Mängel'];
+/** Spalten des Element-Exports – Kopfzeile passt zur Import-Vorlage (Wiederimport möglich). */
+export const CSV_HEAD = ['Objekt', 'Gebäude', 'Art', 'Code', 'Etikett', 'Standort', 'Etage', 'Hersteller', 'Modell', 'Baujahr', 'Letzte Prüfung', 'Ergebnis', 'Nächste Prüfung', 'Offene Mängel'];
+const RESULT_TEXT: Record<string, string> = { ok: 'Ohne Mängel', defects: 'Mängel', critical: 'Kritisch', not_inspectable: 'Nicht prüfbar' };
+
+async function exportRows(c: Ctx) {
+  const rows = (await assetQuery(c, '1=1', 'p.name, b.name, a.code').bind(tid(c)).all<Record<string, unknown>>()).results.map((r) => mapAsset(r) as Record<string, unknown>);
+  const labels = new Map((await listCategories(c)).map((d) => [d.key, d.label]));
+  return rows.map((r) => {
+    const year = Number((r.attributes as Record<string, unknown>)?.year);
+    return {
+      cells: [r.propertyName, r.buildingName, labels.get(r.category as Category) ?? r.category, r.code, r.labelCode ?? '', r.location, r.floor, r.manufacturer, r.model] as (string | number | null)[],
+      year: Number.isFinite(year) && year > 0 ? year : null,
+      lastAt: r.lastInspectedAt as number | null,
+      result: r.lastResult ? (RESULT_TEXT[r.lastResult as string] ?? String(r.lastResult)) : '',
+      nextAt: r.nextDueAt as number | null,
+      defects: Number(r.openDefects ?? 0),
+    };
+  });
+}
 
 data.get('/export/assets.csv', async (c) => {
-  const rows = (await assetQuery(c, '1=1', 'p.name, b.name, a.code').bind(tid(c)).all()).results;
-  const labels = new Map((await listCategories(c)).map((d) => [d.key, d.label]));
   const esc = (v: unknown) => {
     const s = v == null ? '' : String(v);
     return /[";\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
   };
-  const date = (v: unknown) => (typeof v === 'number' ? new Date(v).toISOString().slice(0, 10) : '');
-  const lines = rows.map((r) =>
-    [
-      r.propertyName,
-      r.buildingName,
-      labels.get(r.category as Category) ?? r.category,
-      r.code,
-      r.labelCode ?? '',
-      r.location,
-      r.floor,
-      r.manufacturer,
-      r.model,
-      date(r.lastInspectedAt),
-      r.lastResult ?? '',
-      date(r.nextDueAt),
-      r.openDefects,
-    ]
-      .map(esc)
-      .join(';'),
-  );
-  return new Response('﻿' + [CSV_HEAD.join(';'), ...lines].join('\r\n'), {
+  const date = (v: number | null) => (v ? new Date(v).toISOString().slice(0, 10) : '');
+  const lines = (await exportRows(c)).map((r) => [...r.cells, r.year ?? '', date(r.lastAt), r.result, date(r.nextAt), r.defects].map(esc).join(';'));
+  return new Response('\uFEFF' + [CSV_HEAD.join(';'), ...lines].join('\r\n'), {
     headers: { 'content-type': 'text/csv; charset=utf-8', 'content-disposition': 'attachment; filename="elemente.csv"' },
+  });
+});
+
+data.get('/export/assets.xlsx', async (c) => {
+  const rows = await exportRows(c);
+  const d = (v: number | null) => (v ? new Date(v) : null);
+  const bytes = buildXlsx('Elemente', [CSV_HEAD, ...rows.map((r) => [...r.cells, r.year, d(r.lastAt), r.result, d(r.nextAt), r.defects])], [28, 18, 20, 12, 12, 28, 10, 16, 16, 9, 14, 14, 14, 12]);
+  return new Response(bytes, {
+    headers: {
+      'content-type': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      'content-disposition': `attachment; filename="Elemente_${new Date().toISOString().slice(0, 10)}.xlsx"`,
+    },
   });
 });
 
@@ -618,6 +635,7 @@ data.get('/export/backup.json', async (c) => {
     ['inspections', 'SELECT * FROM inspections WHERE tenant_id = ?'],
     ['walkthroughs', 'SELECT * FROM walkthroughs WHERE tenant_id = ?'],
     ['defects', 'SELECT * FROM defects WHERE tenant_id = ?'],
+    ['reports', 'SELECT id, kind, title, file_name, size, property_id, created_by, created_at FROM reports WHERE tenant_id = ?'],
     ['attachments', 'SELECT * FROM attachments WHERE tenant_id = ?'],
     ['tasks', 'SELECT id, title, description, status, priority, due_at, assignee_id, subcontractor_id, asset_id, defect_id, property_id, labels, external_note, external_done_at, first_response_at, closed_at, created_by, created_at, updated_at FROM tasks WHERE tenant_id = ?'],
     ['taskComments', 'SELECT * FROM task_comments WHERE tenant_id = ?'],

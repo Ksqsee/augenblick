@@ -1,19 +1,28 @@
 import { Archive, ClipboardCheck, Download, FileText, ScanLine, Trash2 } from 'lucide-react';
 import { useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
-import { api, type Asset, useAction, useAssets, useDashboard, useInspections, useMe } from '../api';
-import { scheduleLabel } from '../categories';
+import { api, archiveReport, type Asset, useAction, useAssets, useDashboard, useInspections, useMe } from '../api';
+import { allCategories, scheduleLabel, schedulesFor } from '../categories';
 import { AssetDrawer } from '../components/AssetDrawer';
 import { AssetList } from '../components/AssetList';
 import { CategoryIcon } from '../components/CategoryIcon';
-import { Badge, Button, Card, Empty, ErrorBox, PageHeader, Segmented, Spinner, useToast } from '../components/ui';
+import { Badge, Button, Card, Chip, Empty, ErrorBox, PageHeader, Segmented, Spinner, useToast } from '../components/ui';
 import { fmtDateTime, RESULT_META } from '../format';
 
-type Tab = 'overdue' | 'soon' | 'never' | 'drafts' | 'done' | 'archive';
+type Tab = 'overdue' | 'soon' | 'never' | 'not_inspectable' | 'new' | 'drafts' | 'done' | 'archive';
+type DueTab = 'overdue' | 'soon' | 'never' | 'not_inspectable' | 'new';
+
+/** Alle vorkommenden Prüfarten (Schlüssel → Bezeichnung) über alle Elementarten. */
+function scheduleOptions() {
+  const m = new Map<string, string>();
+  for (const c of allCategories()) for (const s of schedulesFor(c.key)) if (!m.has(s.key)) m.set(s.key, s.key === 'main' ? 'Hauptprüfung' : s.label);
+  return [...m];
+}
 
 export function InspectionsPage() {
   const [params, setParams] = useSearchParams();
   const tab = (params.get('tab') as Tab) ?? 'overdue';
+  const schedule = params.get('pruefart') ?? '';
   const { data: dash } = useDashboard();
   const c = dash?.counts;
   return (
@@ -35,6 +44,8 @@ export function InspectionsPage() {
           { value: 'overdue', label: 'Überfällig', count: c?.overdue },
           { value: 'soon', label: 'Bald fällig', count: c?.soon },
           { value: 'never', label: 'Nie geprüft', count: c?.never },
+          { value: 'not_inspectable', label: 'Nicht prüfbar', count: c?.notInspectable },
+          { value: 'new', label: 'Neue Elemente', count: c?.newAssets },
           { value: 'drafts', label: 'Entwürfe', count: c?.drafts },
           { value: 'done', label: 'Durchgeführt' },
           { value: 'archive', label: 'Archiv' },
@@ -43,25 +54,41 @@ export function InspectionsPage() {
       {tab === 'drafts' || tab === 'done' || tab === 'archive' ? (
         <InspectionList key={tab} status={tab === 'drafts' ? 'draft' : 'submitted'} archived={tab === 'archive'} />
       ) : (
-        <DueList due={tab} />
+        <DueList due={tab} schedule={tab === 'new' ? '' : schedule} onSchedule={(v) => setParams(v ? { tab, pruefart: v } : { tab }, { replace: true })} />
       )}
     </>
   );
 }
 
-function DueList({ due }: { due: 'overdue' | 'soon' | 'never' }) {
-  const { data, isLoading, error } = useAssets({ due });
+function DueList({ due, schedule, onSchedule }: { due: DueTab; schedule: string; onSchedule: (v: string) => void }) {
+  const { data, isLoading, error } = useAssets({ due, schedule: schedule || undefined });
   const [selected, setSelected] = useState<Asset | null>(null);
-  if (isLoading) return <Spinner />;
+  const options = scheduleOptions();
+  const chips = due !== 'new' && options.length > 1 && (
+    <div className="mb-3 flex flex-wrap gap-2" role="group" aria-label="Nach Prüfart filtern">
+      <Chip active={!schedule} onClick={() => onSchedule('')}>
+        Alle Prüfarten
+      </Chip>
+      {options.map(([k, label]) => (
+        <Chip key={k} active={schedule === k} onClick={() => onSchedule(k)}>
+          {label}
+        </Chip>
+      ))}
+    </div>
+  );
+  if (isLoading) return <>{chips}<Spinner /></>;
   if (error) return <ErrorBox error={error} />;
   const texts = {
     overdue: ['Nichts überfällig', 'Alle Elemente sind innerhalb ihres Prüfintervalls.'],
     soon: ['Nichts bald fällig', 'In den nächsten 30 Tagen läuft kein Prüfintervall ab.'],
     never: ['Alles mindestens einmal geprüft', 'Neu angelegte Elemente erscheinen hier bis zur Erstprüfung.'],
+    not_inspectable: ['Keine offenen „nicht prüfbar“', 'Elemente, die beim letzten Termin nicht zugänglich waren, erscheinen hier.'],
+    new: ['Keine neuen Elemente', 'Hier stehen Elemente, die in den letzten 30 Tagen angelegt wurden.'],
   }[due];
   return (
     <>
       {selected && <AssetDrawer asset={selected} onClose={() => setSelected(null)} />}
+      {chips}
       <Card className="overflow-hidden">
         {!data?.length ? (
           <Empty icon={<ClipboardCheck className="size-5" />} title={texts[0]} text={texts[1]} />
@@ -103,7 +130,9 @@ function InspectionList({ status, archived }: { status: 'draft' | 'submitted'; a
     try {
       const { protocolsZip, download } = await import('../pdf/reports');
       const bytes = await protocolsZip([...sel], me, (d, t) => setZipping(`${d}/${t}`));
-      download(bytes, `Pruefprotokolle_${new Date().toISOString().slice(0, 10)}.zip`, 'application/zip');
+      const fileName = `Pruefprotokolle_${new Date().toISOString().slice(0, 10)}.zip`;
+      download(bytes, fileName, 'application/zip');
+      await archiveReport(me, bytes, { kind: 'protocols', title: `${sel.size} Prüfprotokolle`, fileName }, 'application/zip').catch(() => false);
     } catch (e) {
       toast(e instanceof Error ? e.message : 'Export fehlgeschlagen', 'bad');
     } finally {

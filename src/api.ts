@@ -443,6 +443,7 @@ export interface Dashboard {
     soon: number;
     never: number;
     notInspectable: number;
+    newAssets: number;
     openDefects: number;
     criticalDefects: number;
     inspections30d: number;
@@ -557,4 +558,29 @@ export interface SearchResult {
   properties: { id: string; name: string; address: string }[];
   buildings: { id: string; name: string; propertyId: string; propertyName: string }[];
   assets: { id: string; code: string; category: Category; location: string; buildingName: string; propertyName: string }[];
+}
+
+// ---------- Berichtsarchiv ----------
+export type ReportKind = 'compliance' | 'defects' | 'property' | 'protocols';
+export interface ReportRow {
+  id: string;
+  kind: ReportKind;
+  title: string;
+  fileName: string;
+  contentType: string;
+  size: number;
+  propertyId: string | null;
+  createdAt: number;
+  createdBy: string | null;
+  createdById: string | null;
+}
+export const useReports = () => useQuery({ queryKey: ['reports'], queryFn: () => api<ReportRow[]>('/reports') });
+
+/** Erzeugten Bericht zusätzlich im Archiv ablegen (Lesezugriff darf nicht archivieren). */
+export async function archiveReport(me: Me, bytes: Uint8Array, meta: { kind: ReportKind; title: string; fileName: string; propertyId?: string }, type = 'application/pdf') {
+  if (me.user.role === 'viewer') return false;
+  const qs = new URLSearchParams({ kind: meta.kind, title: meta.title, fileName: meta.fileName, ...(meta.propertyId ? { propertyId: meta.propertyId } : {}) });
+  await api(`/reports?${qs}`, { method: 'POST', raw: new Blob([bytes as BlobPart], { type }), type });
+  queryClient.invalidateQueries({ queryKey: ['reports'] });
+  return true;
 }

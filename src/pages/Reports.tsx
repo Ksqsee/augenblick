@@ -1,11 +1,12 @@
-import { AlertTriangle, ClipboardList, DatabaseBackup, Download, FileSpreadsheet, FileText, Footprints, QrCode, ShieldCheck } from 'lucide-react';
+import { AlertTriangle, Building2, ClipboardList, DatabaseBackup, Download, FileArchive, FileSpreadsheet, FileText, Footprints, QrCode, ShieldCheck, Trash2 } from 'lucide-react';
 import { type ReactNode, useMemo, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { SEVERITIES } from '../../shared/catalog';
-import { api, type Asset, type Defect, type PropertyRow, useAssets, useDefects, useMe, useProperties } from '../api';
+import { api, archiveReport, type Asset, type Defect, type PropertyRow, type ReportRow, useAction, useAssets, useDefects, useMe, useProperties, useReports } from '../api';
 import { DueBadge } from '../components/AssetList';
 import { APP_NAME } from '../components/Logo';
-import { Button, Card, Chip, ErrorBox, Input, PageHeader, Segmented, Spinner, useToast } from '../components/ui';
+import { PropertyReportButton } from '../components/PropertyReportButton';
+import { Button, Card, Chip, ErrorBox, Input, PageHeader, Segmented, Select, Spinner, useToast } from '../components/ui';
 import { categoryLabel, fmtDate, fmtDateTime } from '../format';
 import { QrImage } from './Asset';
 import { PrintFrame } from './Protocol';
@@ -22,6 +23,9 @@ function ReportCard({ icon, title, text, action }: { icon: ReactNode; title: str
 }
 
 export function ReportsPage() {
+  const { data: props } = useProperties();
+  const [propId, setPropId] = useState('');
+  const pid = propId || props?.[0]?.id;
   return (
     <>
       <PageHeader title="Berichte" subtitle="Nachweise für Betreiber, Behörden und Versicherer" />
@@ -53,6 +57,23 @@ export function ReportsPage() {
           }
         />
         <ReportCard
+          icon={<Building2 />}
+          title="Objektbericht"
+          text="Ein Objekt komplett: Gebäude, alle Elemente mit Status, offene Mängel, Begehungen und Brandschutzbeauftragte."
+          action={
+            <div className="flex flex-wrap gap-2">
+              <Select aria-label="Objekt für den Objektbericht" className="h-10 min-w-0 flex-1" value={pid ?? ''} onChange={(e) => setPropId(e.target.value)}>
+                {props?.map((p) => (
+                  <option key={p.id} value={p.id}>
+                    {p.name}
+                  </option>
+                ))}
+              </Select>
+              <PropertyReportButton propertyId={pid} variant="primary" label="PDF" />
+            </div>
+          }
+        />
+        <ReportCard
           icon={<FileText />}
           title="Prüfprotokolle"
           text="Einzeln als PDF bei jeder Prüfung oder gesammelt als ZIP: unter Prüfungen → Durchgeführt mehrere auswählen."
@@ -64,14 +85,19 @@ export function ReportsPage() {
         />
         <ReportCard
           icon={<ClipboardList />}
-          title="Elementliste (CSV)"
-          text="Alle Elemente mit Status und Terminen als Tabelle, z. B. für Excel."
+          title="Elementliste (Excel)"
+          text="Alle Elemente mit Status und Terminen. Die Datei lässt sich bearbeiten und über Import wieder einlesen."
           action={
-            <a href="/api/export/assets.csv" download>
-              <Button variant="secondary" icon={<Download className="size-4" />}>
-                Herunterladen
-              </Button>
-            </a>
+            <div className="flex gap-2">
+              <a href="/api/export/assets.xlsx" download>
+                <Button variant="secondary" icon={<Download className="size-4" />}>
+                  Excel
+                </Button>
+              </a>
+              <a href="/api/export/assets.csv" download>
+                <Button variant="ghost">CSV</Button>
+              </a>
+            </div>
           }
         />
         <ReportCard
@@ -117,7 +143,78 @@ export function ReportsPage() {
           }
         />
       </div>
+      <ReportArchive />
     </>
+  );
+}
+
+const KIND_LABEL: Record<ReportRow['kind'], string> = { compliance: 'Compliance', defects: 'Mängel', property: 'Objekt', protocols: 'Protokolle' };
+const fmtSize = (n: number) => (n > 1024 * 1024 ? `${(n / 1024 / 1024).toFixed(1).replace('.', ',')} MB` : `${Math.max(1, Math.round(n / 1024))} KB`);
+
+/** Erstellte Berichte – bleiben gespeichert und lassen sich später erneut herunterladen. */
+function ReportArchive() {
+  const { data, isLoading, error } = useReports();
+  const { data: me } = useMe();
+  const toast = useToast();
+  const [kind, setKind] = useState<'' | ReportRow['kind']>('');
+  const del = useAction((id: string) => api(`/reports/${id}`, { method: 'DELETE' }), () => toast('Bericht gelöscht'));
+  const isAdmin = me && ['owner', 'admin'].includes(me.user.role);
+  const rows = (data ?? []).filter((r) => !kind || r.kind === kind);
+  return (
+    <section className="mt-10" aria-labelledby="archive-h">
+      <div className="mb-3 flex flex-wrap items-end justify-between gap-3">
+        <div>
+          <h2 id="archive-h" className="text-lg font-semibold">
+            Erstellte Berichte
+          </h2>
+          <p className="text-sm text-ink-3">Jeder erzeugte Bericht wird hier abgelegt und bleibt als Nachweis abrufbar.</p>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          <Chip active={!kind} onClick={() => setKind('')}>
+            Alle
+          </Chip>
+          {(Object.keys(KIND_LABEL) as ReportRow['kind'][]).map((k) => (
+            <Chip key={k} active={kind === k} onClick={() => setKind(k)}>
+              {KIND_LABEL[k]}
+            </Chip>
+          ))}
+        </div>
+      </div>
+      {isLoading ? (
+        <Spinner />
+      ) : error ? (
+        <ErrorBox error={error} />
+      ) : !rows.length ? (
+        <Card className="p-6 text-center text-sm text-ink-3">Noch keine Berichte erstellt. Erzeugte PDFs und ZIP-Exporte erscheinen automatisch hier.</Card>
+      ) : (
+        <Card className="divide-y divide-line overflow-hidden">
+          {del.error && <ErrorBox error={del.error} />}
+          {rows.map((r) => (
+            <div key={r.id} className="flex items-center gap-3 px-5 py-3">
+              <span className="grid size-9 shrink-0 place-items-center rounded-lg bg-sunken text-ink-2">
+                {r.contentType === 'application/zip' ? <FileArchive className="size-4" /> : <FileText className="size-4" />}
+              </span>
+              <div className="min-w-0 flex-1">
+                <p className="truncate text-sm font-medium">{r.title}</p>
+                <p className="truncate text-xs text-ink-3">
+                  {KIND_LABEL[r.kind]} · {fmtDateTime(r.createdAt)} · {r.createdBy ?? 'unbekannt'} · {fmtSize(r.size)}
+                </p>
+              </div>
+              <a href={`/api/reports/${r.id}/file`} download={r.fileName} aria-label={`${r.title} herunterladen`}>
+                <Button size="sm" variant="secondary" icon={<Download className="size-3.5" />}>
+                  <span className="hidden sm:inline">Herunterladen</span>
+                </Button>
+              </a>
+              {(isAdmin || r.createdById === me?.user.id) && (
+                <Button size="sm" variant="ghost" aria-label={`${r.title} löschen`} onClick={() => confirm(`„${r.title}“ aus dem Archiv löschen?`) && del.mutate(r.id)}>
+                  <Trash2 className="size-4" />
+                </Button>
+              )}
+            </div>
+          ))}
+        </Card>
+      )}
+    </section>
   );
 }
 
@@ -137,12 +234,19 @@ function PdfButton({ kind }: { kind: 'defects' | 'compliance' }) {
           const r = await import('../pdf/reports');
           const brand = await r.loadBrand(me);
           const date = new Date().toISOString().slice(0, 10);
+          let bytes: Uint8Array;
+          let fileName: string;
           if (kind === 'defects') {
-            r.download(await r.defectsPdf(await api<Defect[]>('/defects?status=open'), brand), `Maengelbericht_${date}.pdf`);
+            bytes = await r.defectsPdf(await api<Defect[]>('/defects?status=open'), brand);
+            fileName = `Maengelbericht_${date}.pdf`;
           } else {
             const [props, overdue, soon] = await Promise.all([api<PropertyRow[]>('/properties'), api<Asset[]>('/assets?due=overdue'), api<Asset[]>('/assets?due=soon')]);
-            r.download(await r.compliancePdf(props, overdue, soon, brand), `Compliance_${date}.pdf`);
+            bytes = await r.compliancePdf(props, overdue, soon, brand);
+            fileName = `Compliance_${date}.pdf`;
           }
+          r.download(bytes, fileName);
+          const title = kind === 'defects' ? 'Mängelbericht' : 'Compliance-Übersicht';
+          if (await archiveReport(me, bytes, { kind, title: `${title} ${fmtDate(Date.now())}`, fileName }).catch(() => false)) toast('Im Berichtsarchiv gespeichert');
         } catch (e) {
           toast(e instanceof Error ? e.message : 'PDF fehlgeschlagen', 'bad');
         } finally {

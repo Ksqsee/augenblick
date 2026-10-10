@@ -1,6 +1,7 @@
 import { Hono } from 'hono';
 import { z } from 'zod';
 import type { Role } from '../shared/catalog';
+import { DEFAULT_QUIET, inQuietHours, type QuietHours } from '../shared/quiet';
 import { type AppEnv, type Ctx, type Env, id, now, parseJson } from './lib';
 import { sendPush } from './push';
 
@@ -15,7 +16,7 @@ export const NOTIFY_TYPES = {
   member_joined: 'Neues Teammitglied',
 } as const;
 export type NotifyType = keyof typeof NOTIFY_TYPES;
-type Prefs = Partial<Record<NotifyType, { inApp?: boolean; push?: boolean }>>;
+type Prefs = Partial<Record<NotifyType, { inApp?: boolean; push?: boolean }>> & { quiet?: QuietHours };
 
 export interface NotifyInput {
   userIds?: string[];
@@ -28,6 +29,8 @@ export interface NotifyInput {
   dedupe?: string;
   /** Auslöser nicht selbst benachrichtigen */
   exceptUserId?: string;
+  /** „Nicht stören“ übergehen (nur für den Push-Test) */
+  ignoreQuiet?: boolean;
 }
 
 /** Benachrichtigung an Personen/Rollen eines Workspaces (respektiert Einstellungen). */
@@ -52,7 +55,8 @@ export async function notifyTenant(env: Env, tenantId: string, n: NotifyInput, c
   const stmts: D1PreparedStatement[] = [];
   const pushTo: string[] = [];
   for (const m of members) {
-    const p = parseJson<Prefs>(m.notify_prefs, {})[n.type] ?? {};
+    const all = parseJson<Prefs>(m.notify_prefs, {});
+    const p = all[n.type] ?? {};
     if (p.inApp !== false) {
       stmts.push(
         env.DB.prepare(
@@ -60,7 +64,7 @@ export async function notifyTenant(env: Env, tenantId: string, n: NotifyInput, c
         ).bind(id(), tenantId, m.user_id, n.type, n.title, n.body ?? '', n.link ?? null, n.dedupe ?? null, t),
       );
     }
-    if (p.push !== false) pushTo.push(m.user_id);
+    if (p.push !== false && (n.ignoreQuiet || !inQuietHours(all.quiet, t))) pushTo.push(m.user_id);
   }
   if (stmts.length) await env.DB.batch(stmts);
   if (pushTo.length && env.VAPID_PUBLIC_KEY && env.VAPID_PRIVATE_KEY) {
@@ -124,15 +128,36 @@ notifications.get('/notifications/settings', async (c) => {
   const u = c.get('user');
   const row = await c.env.DB.prepare('SELECT notify_prefs FROM memberships WHERE user_id = ? AND tenant_id = ?').bind(u.userId, u.tenantId).first<{ notify_prefs: string }>();
   const subs = await c.env.DB.prepare('SELECT COUNT(*) AS n FROM push_subscriptions WHERE user_id = ?').bind(u.userId).first<number>('n');
-  return c.json({ types: NOTIFY_TYPES, prefs: parseJson<Prefs>(row?.notify_prefs, {}), pushAvailable: !!c.env.VAPID_PUBLIC_KEY, vapidPublicKey: c.env.VAPID_PUBLIC_KEY ?? null, pushDevices: subs ?? 0 });
+  const { quiet, ...prefs } = parseJson<Prefs>(row?.notify_prefs, {});
+  return c.json({ types: NOTIFY_TYPES, prefs, quiet: { ...DEFAULT_QUIET, ...quiet }, pushAvailable: !!c.env.VAPID_PUBLIC_KEY, vapidPublicKey: c.env.VAPID_PUBLIC_KEY ?? null, pushDevices: subs ?? 0 });
 });
 
 notifications.put('/notifications/settings', async (c) => {
-  const u = c.get('user');
   const prefs = z.record(z.enum(Object.keys(NOTIFY_TYPES) as [NotifyType]), z.object({ inApp: z.boolean().optional(), push: z.boolean().optional() })).parse(await c.req.json());
-  await c.env.DB.prepare('UPDATE memberships SET notify_prefs = ? WHERE user_id = ? AND tenant_id = ?').bind(JSON.stringify(prefs), u.userId, u.tenantId).run();
+  await savePrefs(c, (old) => ({ ...prefs, quiet: old.quiet }));
   return c.json({ ok: true });
 });
+
+notifications.put('/notifications/quiet', async (c) => {
+  const hhmm = z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/, 'Uhrzeit als HH:MM');
+  const quiet = z
+    .object({ enabled: z.boolean(), from: hhmm, to: hhmm, weekends: z.boolean().default(false), timeZone: z.string().max(60).default(DEFAULT_QUIET.timeZone) })
+    .parse(await c.req.json());
+  try {
+    new Intl.DateTimeFormat('de-DE', { timeZone: quiet.timeZone });
+  } catch {
+    quiet.timeZone = DEFAULT_QUIET.timeZone;
+  }
+  await savePrefs(c, (old) => ({ ...old, quiet }));
+  return c.json({ ok: true });
+});
+
+async function savePrefs(c: Ctx, update: (old: Prefs) => Prefs) {
+  const u = c.get('user');
+  const row = await c.env.DB.prepare('SELECT notify_prefs FROM memberships WHERE user_id = ? AND tenant_id = ?').bind(u.userId, u.tenantId).first<{ notify_prefs: string }>();
+  const next = update(parseJson<Prefs>(row?.notify_prefs, {}));
+  await c.env.DB.prepare('UPDATE memberships SET notify_prefs = ? WHERE user_id = ? AND tenant_id = ?').bind(JSON.stringify(next), u.userId, u.tenantId).run();
+}
 
 notifications.post('/push/subscribe', async (c) => {
   const b = z.object({ endpoint: z.string().url().max(800), keys: z.object({ p256dh: z.string().max(200), auth: z.string().max(100) }) }).parse(await c.req.json());
@@ -153,6 +178,6 @@ notifications.post('/push/unsubscribe', async (c) => {
 });
 
 notifications.post('/push/test', async (c) => {
-  await notifyTenant(c.env, c.get('user').tenantId, { userIds: [c.get('user').userId], type: 'due_reminder', title: 'Testbenachrichtigung', body: 'Push-Benachrichtigungen funktionieren.', link: '/' });
+  await notifyTenant(c.env, c.get('user').tenantId, { userIds: [c.get('user').userId], type: 'due_reminder', title: 'Testbenachrichtigung', body: 'Push-Benachrichtigungen funktionieren.', link: '/', ignoreQuiet: true });
   return c.json({ ok: true });
 });

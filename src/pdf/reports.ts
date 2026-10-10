@@ -2,7 +2,7 @@
 import { INSPECTION_KINDS, SEVERITIES } from '../../shared/catalog';
 import { buildFileName, uniqueName } from '../../shared/filename';
 import { BUILDING_TYPES, WALK_SECTIONS, type WalkSection } from '../../shared/walkthrough';
-import { api, type Asset, type Defect, fileUrl, type Inspection, type Me, type PropertyRow, type Walkthrough } from '../api';
+import { api, type Asset, type Defect, fileUrl, type Inspection, type Me, type PropertyDetail, type PropertyRow, type Walkthrough } from '../api';
 import { getCategory } from '../categories';
 import { RESULT_META } from '../format';
 import { AMBER, type Brand, dataUrlBytes, Doc, GREEN, MUTED, RED } from './layout';
@@ -242,6 +242,98 @@ export async function compliancePdf(props: PropertyRow[], overdue: Asset[], soon
         list.map((a) => ({ cells: [a.code, getCategory(a.category).label, [a.propertyName, a.buildingName, a.location].filter(Boolean).join(' · '), d(a.nextDueAt)] })),
       );
   }
+  return doc.finish();
+}
+
+/** Objektbericht: Stammdaten, Brandschutzbeauftragte, Status je Gebäude, alle Elemente, offene Mängel, Begehungen. */
+export async function propertyPdf(p: PropertyDetail, defects: Defect[], brand: Brand): Promise<Uint8Array> {
+  const now = Date.now();
+  const soon = now + 30 * 86_400_000;
+  const doc = await Doc.create(brand, `Objektbericht ${p.name}`);
+  const overdue = p.assets.filter((a) => a.nextDueAt != null && a.nextDueAt < now);
+  const dueSoon = p.assets.filter((a) => a.nextDueAt != null && a.nextDueAt >= now && a.nextDueAt <= soon);
+  const never = p.assets.filter((a) => a.nextDueAt == null);
+  doc.title(`Objektbericht ${p.name}`, [p.address, `Stand ${dt(now)}`].filter(Boolean).join(' · '));
+  const officer = p.fireOfficers.find((o) => !o.appointedTo || o.appointedTo > now);
+  doc.facts([
+    ['Nutzung', BUILDING_TYPES[p.buildingType] ?? '–'],
+    ['Ansprechpartner', [p.contactName, p.contactPhone, p.contactEmail].filter(Boolean).join(' · ') || '–'],
+    ['Brandschutzbeauftragte/r', officer ? [officer.name, officer.company, officer.phone].filter(Boolean).join(' · ') : '–'],
+    ['Elemente', `${p.assets.length} in ${p.buildings.length} Gebäuden`],
+    ['Status', `${overdue.length} überfällig · ${dueSoon.length} in 30 Tagen fällig · ${never.length} ungeprüft · ${defects.length} offene Mängel`],
+  ]);
+  if (p.description) doc.text(p.description, { size: 9, color: MUTED });
+
+  doc.heading('Status je Gebäude');
+  doc.table(
+    [
+      { label: 'Gebäude', w: 4 },
+      { label: 'Elemente', w: 1.2, align: 'right' },
+      { label: 'Überfällig', w: 1.2, align: 'right' },
+      { label: 'Bald fällig', w: 1.2, align: 'right' },
+      { label: 'Ungeprüft', w: 1.2, align: 'right' },
+      { label: 'Mängel', w: 1, align: 'right' },
+    ],
+    p.buildings.map((b) => {
+      const list = p.assets.filter((a) => a.buildingId === b.id);
+      const o = list.filter((a) => overdue.includes(a)).length;
+      return {
+        cells: [b.name, String(list.length), String(o), String(list.filter((a) => dueSoon.includes(a)).length), String(list.filter((a) => never.includes(a)).length), String(list.reduce((n, a) => n + (a.openDefects ?? 0), 0))],
+        color: [undefined, undefined, o ? RED : undefined],
+      };
+    }),
+  );
+
+  for (const b of p.buildings) {
+    const list = p.assets.filter((a) => a.buildingId === b.id);
+    doc.heading(`Elemente · ${b.name} (${list.length})`);
+    if (!list.length) {
+      doc.text('Keine Elemente.', { color: MUTED });
+      continue;
+    }
+    doc.table(
+      [
+        { label: 'Code', w: 1.5 },
+        { label: 'Art', w: 2 },
+        { label: 'Standort', w: 3.4 },
+        { label: 'Letzte Prüfung', w: 1.5 },
+        { label: 'Ergebnis', w: 1.5 },
+        { label: 'Nächste', w: 1.4, align: 'right' },
+      ],
+      list.map((a) => ({
+        cells: [a.code, getCategory(a.category).label, [a.location, a.floor].filter(Boolean).join(' · '), d(a.lastInspectedAt), a.lastResult ? RESULT_META[a.lastResult].label : '–', d(a.nextDueAt)],
+        color: [undefined, undefined, undefined, undefined, resultColor(a.lastResult), a.nextDueAt != null && a.nextDueAt < now ? RED : undefined],
+      })),
+    );
+  }
+
+  doc.heading(`Offene Mängel (${defects.length})`);
+  if (!defects.length) doc.text('Keine offenen Mängel.', { color: MUTED });
+  for (const df of defects) {
+    doc.ensure(30);
+    doc.text(df.title, { bold: true, size: 9.5 });
+    doc.text([SEVERITIES[df.severity], df.code ?? 'Begehung', df.location, df.buildingName, `erfasst ${d(df.createdAt)}`].filter(Boolean).join(' · '), {
+      size: 8.5,
+      color: df.severity === 'critical' || df.severity === 'high' ? RED : MUTED,
+    });
+    if (df.note) doc.text(df.note, { size: 9 });
+    doc.gap(4);
+  }
+
+  const walks = p.walkthroughs.filter((w) => w.status === 'submitted');
+  doc.heading('Brandschutzbegehungen');
+  if (!walks.length) doc.text('Noch keine Begehung abgeschlossen.', { color: MUTED });
+  else
+    doc.table(
+      [
+        { label: 'Datum', w: 1.6 },
+        { label: 'Durchgeführt von', w: 3 },
+        { label: 'Ergebnis', w: 1.8 },
+        { label: 'Offene Mängel', w: 1.6, align: 'right' },
+        { label: 'Nächste', w: 1.6, align: 'right' },
+      ],
+      walks.map((w) => ({ cells: [d(w.inspectedAt), w.inspector, w.result ? RESULT_META[w.result].label : '–', String(w.openDefects), d(w.nextDueAt)], color: [undefined, undefined, resultColor(w.result)] })),
+    );
   return doc.finish();
 }
 

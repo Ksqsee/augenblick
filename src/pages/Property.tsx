@@ -3,6 +3,7 @@ import { useState } from 'react';
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { BUILDING_TYPES } from '../../shared/walkthrough';
 import { api, type Asset, type FireOfficer, fileUrl, useAction, useMe, useProperty } from '../api';
+import { PropertyReportButton } from '../components/PropertyReportButton';
 import { AssetDrawer } from '../components/AssetDrawer';
 import { AssetList } from '../components/AssetList';
 import { AssetForm, BuildingForm, PropertyForm } from '../components/forms';
@@ -70,6 +71,7 @@ export function PropertyPage() {
         subtitle={[p.address.split('\n').join(', '), BUILDING_TYPES[p.buildingType]].filter(Boolean).join(' · ')}
         actions={
           <div className="relative flex flex-wrap gap-2">
+            <PropertyReportButton propertyId={p.id} />
             {canInspect && (
               <Button variant="secondary" icon={<Footprints className="size-4" />} onClick={() => setWalk(true)}>
                 Begehung

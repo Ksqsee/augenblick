@@ -678,7 +678,7 @@ insert('custom_categories', {
     location: loc, floor, manufacturer: 'Stöbich', model: 'Fibershield', attributes: JSON.stringify({ width: 3 + i, controller: 'BMZ-Kopplung' }),
     last_inspection_id: iid, last_inspected_at: at, last_result: at ? 'ok' : null, next_due_at: nd,
     schedules: JSON.stringify({ main: at ? { enabled: true, lastAt: at, lastResult: 'ok', nextDueAt: nd } : { enabled: true } }),
-    created_at: NOW - 250 * DAY, updated_at: NOW - 20 * DAY,
+    created_at: NOW - (4 + i * 5) * DAY, updated_at: NOW - (4 + i * 5) * DAY,
   });
   if (at && iid) {
     insert('inspections', {
