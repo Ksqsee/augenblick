@@ -1,0 +1,9 @@
+{
+  "enabledMcpjsonServers": ["rea"],
+  "permissions": {
+    "allow": [
+      "mcp__rea",
+      "Bash(npx -y rea-agents@6.3.0:*)"
+    ]
+  }
+}
