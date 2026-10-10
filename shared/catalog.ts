@@ -239,7 +239,6 @@ export const CATEGORIES: Record<BuiltinCategory, CategoryDef> = {
   },
 };
 
-export const CATEGORY_LIST = Object.values(CATEGORIES);
 export const isBuiltin = (k: string): k is BuiltinCategory => k in CATEGORIES;
 
 /** Hauptprüfung immer zuerst; „main“ übernimmt Intervall und Prüfpunkte der Kategorie. */

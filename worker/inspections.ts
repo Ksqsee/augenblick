@@ -99,32 +99,41 @@ function writeSchedules(c: Ctx, assetId: string, s: Schedules, lastInspectionId?
     .run();
 }
 
-/** Termine eines Elements vollständig aus der Prüfhistorie neu berechnen (nach Wiedereröffnen/Löschen). */
-export async function recomputeAsset(c: Ctx, assetId: string) {
-  const a = await loadAsset(c, assetId);
-  const rows = (
-    await c.env.DB.prepare(
-      "SELECT id, schedule, result, inspected_at, next_due_at FROM inspections WHERE asset_id = ? AND status = 'submitted' ORDER BY inspected_at",
-    )
-      .bind(assetId)
-      .all<{ id: string; schedule: string; result: Result; inspected_at: number; next_due_at: number | null }>()
-  ).results;
-  const fresh: Schedules = {};
-  for (const [k, v] of Object.entries(a.schedules)) {
-    const inspected = rows.some((r) => r.schedule === k);
-    // Manuell gesetzte Ersttermine optionaler Prüfarten bleiben erhalten
-    fresh[k] = v.baseline
-      ? { enabled: true, baseline: v.baseline, lastAt: v.baseline.lastAt, nextDueAt: v.baseline.nextDueAt }
-      : { enabled: v.enabled || k === 'main', nextDueAt: !inspected && k !== 'main' ? (v.nextDueAt ?? null) : null };
-  }
-  let lastId: string | null = null;
-  let s = fresh;
-  for (const r of rows) {
-    s = applyInspection(s, r.schedule, r.inspected_at, r.result, r.next_due_at);
-    lastId = r.id;
-  }
-  await c.env.DB.prepare('UPDATE assets SET last_inspection_id = ? WHERE id = ?').bind(lastId, assetId).run();
-  await writeSchedules(c, assetId, s);
+/**
+ * Termine von Elementen vollständig aus der Prüfhistorie neu berechnen (nach Wiedereröffnen/Löschen).
+ * Feste Zahl an Queries, egal wie viele Elemente (D1: höchstens 100 Parameter und 50/1000 Queries je Aufruf).
+ */
+export async function recomputeAssets(c: Ctx, assetIds: string[]) {
+  if (!assetIds.length) return;
+  const ids = JSON.stringify(assetIds);
+  const [assets, history] = await c.env.DB.batch([
+    c.env.DB.prepare('SELECT id, schedules FROM assets WHERE tenant_id = ? AND id IN (SELECT value FROM json_each(?))').bind(tid(c), ids),
+    c.env.DB.prepare(
+      "SELECT asset_id, id, schedule, result, inspected_at, next_due_at FROM inspections WHERE tenant_id = ? AND status = 'submitted' AND asset_id IN (SELECT value FROM json_each(?)) ORDER BY inspected_at",
+    ).bind(tid(c), ids),
+  ]);
+  const rows = history.results as { asset_id: string; id: string; schedule: string; result: Result; inspected_at: number; next_due_at: number | null }[];
+  const updates = (assets.results as { id: string; schedules: string }[]).map((a) => {
+    const own = rows.filter((r) => r.asset_id === a.id);
+    let s: Schedules = {};
+    for (const [k, v] of Object.entries(parseJson<Schedules>(a.schedules, {}))) {
+      const inspected = own.some((r) => r.schedule === k);
+      // Manuell gesetzte Ersttermine optionaler Prüfarten bleiben erhalten
+      s[k] = v.baseline
+        ? { enabled: true, baseline: v.baseline, lastAt: v.baseline.lastAt, nextDueAt: v.baseline.nextDueAt }
+        : { enabled: v.enabled || k === 'main', nextDueAt: !inspected && k !== 'main' ? (v.nextDueAt ?? null) : null };
+    }
+    for (const r of own) s = applyInspection(s, r.schedule, r.inspected_at, r.result, r.next_due_at);
+    const sum = summarizeSchedules(s);
+    return { id: a.id, s, n: sum.nextDueAt, l: sum.lastAt, r: sum.lastResult, i: own.at(-1)?.id ?? null };
+  });
+  await c.env.DB.prepare(
+    `UPDATE assets SET schedules = json_extract(u.value, '$.s'), next_due_at = json_extract(u.value, '$.n'), last_inspected_at = json_extract(u.value, '$.l'),
+            last_result = json_extract(u.value, '$.r'), last_inspection_id = json_extract(u.value, '$.i'), updated_at = ?
+       FROM json_each(?) u WHERE assets.id = json_extract(u.value, '$.id') AND assets.tenant_id = ?`,
+  )
+    .bind(now(), JSON.stringify(updates), tid(c))
+    .run();
 }
 
 inspections.post('/assets/:id/inspections', async (c) => {
@@ -279,21 +288,28 @@ async function finalize(
   const nextDue = result === 'not_inspectable' ? null : addMonths(t, sched.intervalMonths);
   const asset = await loadAsset(c, opts.assetId);
   const schedules = applyInspection(asset.schedules, opts.schedule, t, result, nextDue);
-  await c.env.DB.batch([
-    c.env.DB.prepare("UPDATE inspections SET status='submitted', result=?, inspected_at=?, next_due_at=?, updated_at=? WHERE id=?").bind(result, t, nextDue, now(), opts.iid),
-    ...b.defects.map((d) =>
+  // Erst den Abschluss beanspruchen (nur aus dem Entwurf): ein gleichzeitiger zweiter Abschluss bekommt 409 und schreibt nichts
+  const claim = await c.env.DB.prepare("UPDATE inspections SET status='submitted', result=?, inspected_at=?, next_due_at=?, updated_at=? WHERE id=? AND status='draft'")
+    .bind(result, t, nextDue, now(), opts.iid)
+    .run();
+  if (!claim.meta.changes) throw new HTTPException(409, { message: 'Prüfung ist bereits abgeschlossen' });
+  const j = (k: string) => `json_extract(value, '$.${k}')`;
+  try {
+    // Mängel und Fotos mengenbasiert: feste Zahl an Statements
+    await c.env.DB.batch([
       c.env.DB.prepare(
         `INSERT INTO defects (id, tenant_id, property_id, asset_id, inspection_id, checkpoint_id, title, note, measure, severity, status, photo_key, created_at)
-         VALUES (?,?,?,?,?,?,?,?,?,?,'open',?,?)`,
-      ).bind(id(), tid(c), opts.propertyId, opts.assetId, opts.iid, d.checkpointId ?? null, d.title, d.note, d.measure, d.severity, d.photoKey ?? null, t),
-    ),
-    ...b.photos.map((p) =>
+         SELECT lower(hex(randomblob(8))), ?1, ?2, ?3, ?4, ${j('checkpointId')}, ${j('title')}, ${j('note')}, ${j('measure')}, ${j('severity')}, 'open', ${j('photoKey')}, ?5 FROM json_each(?6)`,
+      ).bind(tid(c), opts.propertyId, opts.assetId, opts.iid, t, JSON.stringify(b.defects)),
       c.env.DB.prepare(
         `INSERT INTO attachments (id, tenant_id, asset_id, inspection_id, file_key, name, content_type, caption, created_by, created_at)
-         VALUES (?,?,?,?,?,?,?,?,?,?)`,
-      ).bind(id(), tid(c), opts.assetId, opts.iid, p.key, 'Foto', 'image/jpeg', p.caption, c.get('user').userId, t),
-    ),
-  ]);
+         SELECT lower(hex(randomblob(8))), ?1, ?2, ?3, ${j('key')}, 'Foto', 'image/jpeg', ${j('caption')}, ?4, ?5 FROM json_each(?6)`,
+      ).bind(tid(c), opts.assetId, opts.iid, c.get('user').userId, t, JSON.stringify(b.photos)),
+    ]);
+  } catch (e) {
+    await c.env.DB.prepare("UPDATE inspections SET status='draft', result=NULL, inspected_at=NULL, next_due_at=NULL WHERE id=?").bind(opts.iid).run();
+    throw e;
+  }
   if (schedules !== asset.schedules) await writeSchedules(c, opts.assetId, schedules, opts.iid);
   await logActivity(c, 'submit', 'inspection', opts.iid, `Prüfung ${opts.code} (${sched.label}) abgeschlossen`);
   if (result === 'critical') {
@@ -367,7 +383,8 @@ inspections.post('/inspections/offline', async (c) => {
     });
     return c.json({ id: iid, ...r });
   } catch (e) {
-    await c.env.DB.prepare('DELETE FROM inspections WHERE id = ?').bind(iid).run();
+    // vollständig zurückrollen, damit ein erneuter Versuch mit derselben clientId sauber startet
+    await c.env.DB.batch([...dropSubmittedArtifacts(c, iid), c.env.DB.prepare('DELETE FROM inspections WHERE id = ?').bind(iid)]);
     throw e;
   }
 });
@@ -385,11 +402,14 @@ inspections.delete('/inspections/:id', async (c) => {
 });
 
 /** Löscht Mängel/Fotos einer abgeschlossenen Prüfung (Aufgaben bleiben, Verknüpfung wird gelöst). */
-function dropSubmittedArtifacts(c: Ctx, iid: string) {
+/** Mängel/Fotos abgeschlossener Prüfungen löschen; `ids` als JSON-Liste (ein Parameter, beliebig viele Prüfungen). */
+function dropSubmittedArtifacts(c: Ctx, iid: string | string[]) {
+  const ids = JSON.stringify(Array.isArray(iid) ? iid : [iid]);
+  const inList = 'inspection_id IN (SELECT value FROM json_each(?))';
   return [
-    c.env.DB.prepare('UPDATE tasks SET defect_id = NULL WHERE defect_id IN (SELECT id FROM defects WHERE inspection_id = ?)').bind(iid),
-    c.env.DB.prepare('DELETE FROM defects WHERE inspection_id = ?').bind(iid),
-    c.env.DB.prepare('DELETE FROM attachments WHERE inspection_id = ?').bind(iid),
+    c.env.DB.prepare(`UPDATE tasks SET defect_id = NULL WHERE defect_id IN (SELECT id FROM defects WHERE ${inList})`).bind(ids),
+    c.env.DB.prepare(`DELETE FROM defects WHERE ${inList}`).bind(ids),
+    c.env.DB.prepare(`DELETE FROM attachments WHERE ${inList}`).bind(ids),
   ];
 }
 
@@ -405,7 +425,7 @@ inspections.post('/inspections/:id/reopen', async (c) => {
       insp.id,
     ),
   ]);
-  await recomputeAsset(c, insp.assetId);
+  await recomputeAssets(c, [insp.assetId]);
   await logActivity(c, 'reopen', 'inspection', insp.id, `Prüfung ${insp.asset.code} wieder geöffnet`);
   return c.json({ ok: true });
 });
@@ -415,12 +435,18 @@ const idList = z.object({ ids: z.array(z.string().max(40)).min(1).max(500) });
 inspections.post('/inspections/batch-delete', async (c) => {
   requireRole(c, 'admin');
   const { ids } = idList.parse(await c.req.json());
-  const ph = ids.map(() => '?').join(',');
-  const rows = (await c.env.DB.prepare(`SELECT id, asset_id FROM inspections WHERE tenant_id = ? AND id IN (${ph})`).bind(tid(c), ...ids).all<{ id: string; asset_id: string }>())
-    .results;
+  const rows = (
+    await c.env.DB.prepare('SELECT id, asset_id FROM inspections WHERE tenant_id = ? AND id IN (SELECT value FROM json_each(?))')
+      .bind(tid(c), JSON.stringify(ids))
+      .all<{ id: string; asset_id: string }>()
+  ).results;
   if (!rows.length) return c.json({ deleted: 0 });
-  await c.env.DB.batch(rows.flatMap((r) => [...dropSubmittedArtifacts(c, r.id), c.env.DB.prepare('DELETE FROM inspections WHERE id = ?').bind(r.id)]));
-  for (const assetId of new Set(rows.map((r) => r.asset_id))) await recomputeAsset(c, assetId);
+  const found = rows.map((r) => r.id);
+  await c.env.DB.batch([
+    ...dropSubmittedArtifacts(c, found),
+    c.env.DB.prepare('DELETE FROM inspections WHERE tenant_id = ? AND id IN (SELECT value FROM json_each(?))').bind(tid(c), JSON.stringify(found)),
+  ]);
+  await recomputeAssets(c, [...new Set(rows.map((r) => r.asset_id))]);
   await logActivity(c, 'delete', 'inspection', null, `${rows.length} Prüfungen gelöscht`);
   return c.json({ deleted: rows.length });
 });
@@ -428,9 +454,8 @@ inspections.post('/inspections/batch-delete', async (c) => {
 inspections.post('/inspections/archive', async (c) => {
   requireRole(c, 'admin');
   const b = idList.extend({ archived: z.boolean() }).parse(await c.req.json());
-  const ph = b.ids.map(() => '?').join(',');
-  const r = await c.env.DB.prepare(`UPDATE inspections SET archived_at = ? WHERE tenant_id = ? AND status = 'submitted' AND id IN (${ph})`)
-    .bind(b.archived ? now() : null, tid(c), ...b.ids)
+  const r = await c.env.DB.prepare(`UPDATE inspections SET archived_at = ? WHERE tenant_id = ? AND status = 'submitted' AND id IN (SELECT value FROM json_each(?))`)
+    .bind(b.archived ? now() : null, tid(c), JSON.stringify(b.ids))
     .run();
   await logActivity(c, b.archived ? 'archive' : 'restore', 'inspection', null, `${r.meta.changes} Prüfungen ${b.archived ? 'archiviert' : 'wiederhergestellt'}`);
   return c.json({ changed: r.meta.changes });

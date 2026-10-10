@@ -516,7 +516,6 @@ export const useMembers = () =>
     queryFn: () => api<{ members: Member[]; invites: { id: string; email: string; role: Role; token: string; createdAt: number }[] }>('/account/members'),
   });
 export const useCategories = () => useQuery({ queryKey: ['categories'], queryFn: () => api<CategoryInfo[]>('/categories'), staleTime: 5 * 60_000 });
-export const useTemplates = useCategories;
 export const useNotifications = () =>
   useQuery({ queryKey: ['notifications'], queryFn: () => api<{ items: Notification[]; unread: number }>('/notifications'), refetchInterval: 60_000 });
 export const useTaskLabels = () => useQuery({ queryKey: ['task-labels'], queryFn: () => api<TaskLabel[]>('/tasks/labels') });

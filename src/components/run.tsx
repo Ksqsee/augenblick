@@ -270,6 +270,8 @@ export function useAutosave<T>(value: T, persist: (v: T) => Promise<unknown>, de
   const first = useRef(true);
   const persistRef = useRef(persist);
   persistRef.current = persist;
+  // Speichervorgänge nacheinander, damit ein langsamer älterer nicht einen neueren überschreibt
+  const queue = useRef<Promise<unknown>>(Promise.resolve());
   useEffect(() => {
     if (first.current) {
       first.current = false;
@@ -277,10 +279,9 @@ export function useAutosave<T>(value: T, persist: (v: T) => Promise<unknown>, de
     }
     setState('saving');
     const t = setTimeout(() => {
-      persistRef
-        .current(value)
-        .then(() => setState('saved'))
-        .catch(() => setState('error'));
+      queue.current = queue.current
+        .then(() => persistRef.current(value))
+        .then(() => setState('saved'), () => setState('error'));
     }, delay);
     return () => clearTimeout(t);
   }, [value, delay]);

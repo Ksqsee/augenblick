@@ -1,6 +1,6 @@
 // Begrenzung von Fehlversuchen gegen das Durchprobieren von Passwörtern, Tokens und API-Schlüsseln.
 import { HTTPException } from 'hono/http-exception';
-import type { Ctx, Env } from './lib';
+import { type Ctx, sha256Hex } from './lib';
 
 const MIN = 60_000;
 
@@ -23,10 +23,7 @@ export class TooManyRequests extends HTTPException {
 
 export const clientIp = (c: Ctx) => c.req.header('cf-connecting-ip') ?? c.req.header('x-real-ip') ?? 'local';
 
-async function key(scope: string, ident: string) {
-  const d = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(`${scope}:${ident.trim().toLowerCase()}`));
-  return Array.from(new Uint8Array(d).slice(0, 16), (b) => b.toString(16).padStart(2, '0')).join('');
-}
+const key = async (scope: string, ident: string) => (await sha256Hex(`${scope}:${ident.trim().toLowerCase()}`)).slice(0, 32);
 
 /** Wirft 429, wenn das Limit erreicht ist. */
 export async function assertNotThrottled(c: Ctx, scope: ThrottleScope, ident: string) {
@@ -44,9 +41,4 @@ export async function recordFailure(c: Ctx, scope: ThrottleScope, ident: string)
 
 export async function clearFailures(c: Ctx, scope: ThrottleScope, ident: string) {
   await c.env.DB.prepare('DELETE FROM auth_throttle WHERE scope = ? AND ident = ?').bind(scope, await key(scope, ident)).run();
-}
-
-/** Alte Einträge entfernen (täglicher Cron). */
-export function cleanupThrottle(env: Env, now = Date.now()) {
-  return env.DB.prepare('DELETE FROM auth_throttle WHERE created_at < ?').bind(now - 24 * 60 * MIN).run();
 }

@@ -54,3 +54,16 @@ describe('toImportRows', () => {
     expect(toImportRows([['Name']]).errors[0].message).toMatch(/Spalte fehlt/);
   });
 });
+
+describe('Zeilennummern', () => {
+  it('bleiben die Zeile der Quelldatei, auch wenn davor Zeilen fehlschlagen', () => {
+    const { rows, errors } = toImportRows([
+      ['Objekt', 'Gebäude', 'Art'],
+      ['A', 'Haus', 'Feuerlöscher'],
+      ['A', 'Haus', 'Gibt es nicht'],
+      ['A', 'Haus', 'Rauchmelder'],
+    ]);
+    expect(errors).toEqual([{ line: 3, message: 'Unbekannte Art „Gibt es nicht“' }]);
+    expect(rows.map((r) => r.line)).toEqual([2, 4]);
+  });
+});

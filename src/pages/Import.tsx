@@ -164,7 +164,7 @@ export function ImportPage() {
                   </thead>
                   <tbody className="divide-y divide-line">
                     {rows.slice(0, 200).map((r, i) => {
-                      const res = resultByLine.get(i + 2);
+                      const res = resultByLine.get(r.line);
                       return (
                         <tr key={i}>
                           <td className="px-3 py-2">{r.property}</td>

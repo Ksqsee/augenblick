@@ -366,12 +366,16 @@ const assetBody = z.object({
   labelCode: str(60).optional(),
 });
 
-export async function uniqueCode(c: Ctx, category: Category, taken?: Set<string>) {
+/** Zufälliger Code-Teil ohne verwechselbare Zeichen (0/O, 1/I). */
+export function randomCode(len: number) {
   const alphabet = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+  return Array.from(crypto.getRandomValues(new Uint8Array(len)), (b) => alphabet[b % alphabet.length]).join('');
+}
+
+export async function uniqueCode(c: Ctx, category: Category) {
+  const prefix = (await getCategoryDef(c, category)).prefix;
   for (let i = 0; i < 12; i++) {
-    const rnd = Array.from(crypto.getRandomValues(new Uint8Array(4)), (b) => alphabet[b % alphabet.length]).join('');
-    const code = `${(await getCategoryDef(c, category)).prefix}-${rnd}`;
-    if (taken?.has(code)) continue;
+    const code = `${prefix}-${randomCode(4)}`;
     const hit = await c.env.DB.prepare('SELECT 1 FROM assets WHERE tenant_id = ? AND code = ?').bind(tid(c), code).first();
     if (!hit) return code;
   }
@@ -643,8 +647,17 @@ data.get('/export/backup.json', async (c) => {
     ['assets', 'SELECT * FROM assets WHERE tenant_id = ?'],
     ['customCategories', 'SELECT * FROM custom_categories WHERE tenant_id = ?'],
     ['templateOverrides', 'SELECT * FROM template_overrides WHERE tenant_id = ?'],
-    ['inspections', 'SELECT * FROM inspections WHERE tenant_id = ?'],
-    ['walkthroughs', 'SELECT * FROM walkthroughs WHERE tenant_id = ?'],
+    // Unterschriften (Bilddaten) nicht im Backup – sonst sprengen große Workspaces den Worker-Speicher
+    [
+      'inspections',
+      `SELECT id, tenant_id, asset_id, inspector_id, kind, reason, status, result, answers, maintenance, checkpoints, notes, signature IS NOT NULL AS signed, signer_name,
+              next_due_at, inspected_at, created_at, updated_at, client_id, schedule, archived_at FROM inspections WHERE tenant_id = ?`,
+    ],
+    [
+      'walkthroughs',
+      `SELECT id, tenant_id, property_id, building_id, building_type, inspector_id, status, result, questions, answers, findings, notes, participants,
+              signature IS NOT NULL AS signed, signer_name, inspected_at, next_due_at, created_at, updated_at FROM walkthroughs WHERE tenant_id = ?`,
+    ],
     ['defects', 'SELECT * FROM defects WHERE tenant_id = ?'],
     ['reports', 'SELECT id, kind, title, file_name, size, property_id, created_by, created_at FROM reports WHERE tenant_id = ?'],
     ['attachments', 'SELECT * FROM attachments WHERE tenant_id = ?'],

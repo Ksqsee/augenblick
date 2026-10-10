@@ -4,8 +4,8 @@ import { z } from 'zod';
 import type { Category } from '../shared/catalog';
 import { DEFAULT_SLA, HOUR } from '../shared/sla';
 import { addMonths } from '../shared/logic';
-import { getSchedule } from './categories';
-import { str, tid, uniqueCode } from './data';
+import { getCategoryDef, getSchedule } from './categories';
+import { randomCode, str, tid } from './data';
 import { type AppEnv, type Ctx, id, logActivity, notFound, now, parseJson, requireRole, token } from './lib';
 import { notify, notifyTenant } from './notify';
 import { assertNotThrottled, clientIp, recordFailure } from './throttle';
@@ -382,6 +382,8 @@ const importRow = z.object({
   model: str(120).default(''),
   year: z.number().int().min(1900).max(2100).optional(),
   lastInspectedAt: z.number().int().optional(),
+  /** Zeile in der Quelldatei (für Fehlermeldungen) */
+  line: z.number().int().positive().optional(),
 });
 
 work.post('/import/assets', async (c) => {
@@ -392,23 +394,31 @@ work.post('/import/assets', async (c) => {
 
   const [props, builds, codes] = await c.env.DB.batch([
     c.env.DB.prepare('SELECT id, name FROM properties WHERE tenant_id = ? AND deleted_at IS NULL').bind(tid(c)),
-    c.env.DB.prepare(
-      'SELECT b.id, b.name, b.property_id AS propertyId FROM buildings b WHERE b.tenant_id = ? AND b.deleted_at IS NULL',
-    ).bind(tid(c)),
-    c.env.DB.prepare('SELECT upper(code) AS code, upper(COALESCE(label_code, \'\')) AS label FROM assets WHERE tenant_id = ? AND deleted_at IS NULL').bind(tid(c)),
+    c.env.DB.prepare('SELECT b.id, b.name, b.property_id AS propertyId FROM buildings b WHERE b.tenant_id = ? AND b.deleted_at IS NULL').bind(tid(c)),
+    // Codes bleiben auch nach dem Löschen belegt (UNIQUE), Etiketten werden beim Löschen frei
+    c.env.DB.prepare("SELECT upper(code) AS code, upper(COALESCE(label_code, '')) AS label FROM assets WHERE tenant_id = ?").bind(tid(c)),
   ]);
   const propByName = new Map((props.results as { id: string; name: string }[]).map((p) => [lower(p.name), p.id]));
   const buildByKey = new Map((builds.results as { id: string; name: string; propertyId: string }[]).map((b) => [`${b.propertyId}|${lower(b.name)}`, b.id]));
   const usedCodes = new Set((codes.results as { code: string; label: string }[]).flatMap((r) => [r.code, r.label].filter(Boolean)));
 
-  const stmts: D1PreparedStatement[] = [];
-  const newProps = new Map<string, string>();
-  const newBuilds = new Map<string, string>();
+  const newProps: { id: string; name: string }[] = [];
+  const newBuilds: { id: string; pid: string; name: string }[] = [];
+  const newAssets: Record<string, unknown>[] = [];
   const results: { line: number; status: 'ok' | 'error'; code?: string; message?: string }[] = [];
-  const intervals = new Map<Category, number>();
+  const kinds = new Map<Category, { prefix: string; interval: number } | null>();
 
   for (const [i, r] of rows.entries()) {
-    const line = i + 2;
+    const line = r.line ?? i + 2;
+    if (!kinds.has(r.category)) {
+      const def = await getCategoryDef(c, r.category).catch(() => null);
+      kinds.set(r.category, def && { prefix: def.prefix, interval: (await getSchedule(c, r.category)).intervalMonths });
+    }
+    const kind = kinds.get(r.category);
+    if (!kind) {
+      results.push({ line, status: 'error', message: `Unbekannte Art „${r.category}“` });
+      continue;
+    }
     const code = r.code?.toUpperCase();
     const label = r.labelCode?.toUpperCase();
     if (code && usedCodes.has(code)) {
@@ -419,56 +429,53 @@ work.post('/import/assets', async (c) => {
       results.push({ line, status: 'error', message: `Etikett ${label} ist bereits vergeben` });
       continue;
     }
-    let pid = propByName.get(lower(r.property)) ?? newProps.get(lower(r.property));
+    let pid = propByName.get(lower(r.property));
     if (!pid) {
       pid = id();
-      newProps.set(lower(r.property), pid);
-      stmts.push(
-        c.env.DB.prepare('INSERT INTO properties (id, tenant_id, name, created_at, updated_at) VALUES (?,?,?,?,?)').bind(pid, tid(c), r.property, t, t),
-      );
+      propByName.set(lower(r.property), pid);
+      newProps.push({ id: pid, name: r.property });
     }
     const bKey = `${pid}|${lower(r.building)}`;
-    let bid = buildByKey.get(bKey) ?? newBuilds.get(bKey);
+    let bid = buildByKey.get(bKey);
     if (!bid) {
       bid = id();
-      newBuilds.set(bKey, bid);
-      stmts.push(
-        c.env.DB.prepare('INSERT INTO buildings (id, tenant_id, property_id, name, created_at, updated_at) VALUES (?,?,?,?,?,?)').bind(bid, tid(c), pid, r.building, t, t),
-      );
+      buildByKey.set(bKey, bid);
+      newBuilds.push({ id: bid, pid, name: r.building });
     }
-    const finalCode = code ?? (await uniqueCode(c, r.category, usedCodes));
+    let finalCode = code;
+    while (!finalCode || usedCodes.has(finalCode)) finalCode = `${kind.prefix}-${randomCode(4)}`;
     usedCodes.add(finalCode);
     if (label) usedCodes.add(label);
-    if (!intervals.has(r.category)) {
-      try {
-        intervals.set(r.category, (await getSchedule(c, r.category)).intervalMonths);
-      } catch {
-        results.push({ line, status: 'error', message: `Unbekannte Art „${r.category}“` });
-        continue;
-      }
-    }
-    const next = r.lastInspectedAt ? addMonths(r.lastInspectedAt, intervals.get(r.category)!) : null;
+    const next = r.lastInspectedAt ? addMonths(r.lastInspectedAt, kind.interval) : null;
     const attrs = r.year ? { [r.category === 'smoke_alarm' ? 'manufactured' : 'year']: r.category === 'smoke_alarm' ? `${r.year}-01-01` : r.year } : {};
-    stmts.push(
-      c.env.DB.prepare(
-        `INSERT INTO assets (id, tenant_id, building_id, category, code, label_code, location, floor, manufacturer, model, attributes, last_inspected_at, next_due_at, schedules, created_at, updated_at)
-         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-      ).bind(id(), tid(c), bid, r.category, finalCode, label ?? null, r.location, r.floor, r.manufacturer, r.model, JSON.stringify(attrs), r.lastInspectedAt ?? null, next,
-        // Übernommene letzte Prüfung als Ausgangsstand (bleibt bei Neuberechnung erhalten)
-        JSON.stringify({ main: r.lastInspectedAt ? { enabled: true, lastAt: r.lastInspectedAt, nextDueAt: next, baseline: { lastAt: r.lastInspectedAt, nextDueAt: next } } : { enabled: true } }),
-        t, t),
-    );
+    newAssets.push({
+      id: id(), bid, category: r.category, code: finalCode, label: label ?? null, location: r.location, floor: r.floor, manufacturer: r.manufacturer, model: r.model,
+      attributes: JSON.stringify(attrs), last: r.lastInspectedAt ?? null, next,
+      // Übernommene letzte Prüfung als Ausgangsstand (bleibt bei Neuberechnung erhalten)
+      schedules: JSON.stringify({ main: r.lastInspectedAt ? { enabled: true, lastAt: r.lastInspectedAt, nextDueAt: next, baseline: { lastAt: r.lastInspectedAt, nextDueAt: next } } : { enabled: true } }),
+    });
     results.push({ line, status: 'ok', code: finalCode });
   }
 
   const summary = {
-    created: results.filter((r) => r.status === 'ok').length,
+    created: newAssets.length,
     failed: results.filter((r) => r.status === 'error').length,
-    newProperties: newProps.size,
-    newBuildings: newBuilds.size,
+    newProperties: newProps.length,
+    newBuildings: newBuilds.length,
   };
-  if (!dryRun && stmts.length) {
-    for (let i = 0; i < stmts.length; i += 200) await c.env.DB.batch(stmts.slice(i, i + 200));
+  if (!dryRun && newAssets.length) {
+    // Drei Statements in einem Batch: atomar und unabhängig von der Zeilenzahl (D1-Grenzen je Aufruf)
+    const j = (k: string) => `json_extract(value, '$.${k}')`;
+    await c.env.DB.batch([
+      c.env.DB.prepare(`INSERT INTO properties (id, tenant_id, name, created_at, updated_at) SELECT ${j('id')}, ?1, ${j('name')}, ?2, ?2 FROM json_each(?3)`).bind(tid(c), t, JSON.stringify(newProps)),
+      c.env.DB.prepare(
+        `INSERT INTO buildings (id, tenant_id, property_id, name, created_at, updated_at) SELECT ${j('id')}, ?1, ${j('pid')}, ${j('name')}, ?2, ?2 FROM json_each(?3)`,
+      ).bind(tid(c), t, JSON.stringify(newBuilds)),
+      c.env.DB.prepare(
+        `INSERT INTO assets (id, tenant_id, building_id, category, code, label_code, location, floor, manufacturer, model, attributes, last_inspected_at, next_due_at, schedules, created_at, updated_at)
+         SELECT ${['id', 'bid', 'category', 'code', 'label', 'location', 'floor', 'manufacturer', 'model', 'attributes', 'last', 'next', 'schedules'].map((k, n) => (n === 0 ? j(k) + ', ?1' : j(k))).join(', ')}, ?2, ?2 FROM json_each(?3)`,
+      ).bind(tid(c), t, JSON.stringify(newAssets)),
+    ]);
     await logActivity(c, 'import', 'asset', null, `${summary.created} Elemente importiert`);
   }
   return c.json({ dryRun, summary, results });

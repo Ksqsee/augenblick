@@ -109,8 +109,6 @@ export async function getSchedule(c: Ctx, category: string, schedule = 'main'): 
 export const categories = new Hono<AppEnv>();
 
 categories.get('/categories', async (c) => c.json(await listCategories(c)));
-// Kompatibilität (ältere Clients)
-categories.get('/templates', async (c) => c.json(await listCategories(c)));
 
 const checkpointList = z.array(z.object({ id: str(40).min(1), label: str(300).min(2), hint: str(300).optional() })).min(1).max(100);
 

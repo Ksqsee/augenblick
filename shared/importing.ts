@@ -160,6 +160,8 @@ export interface ImportRow {
   model: string;
   year?: number;
   lastInspectedAt?: number;
+  /** Zeile in der Quelldatei (Kopfzeile = 1) */
+  line: number;
 }
 
 /** Tabellenzeilen in Import-Zeilen umwandeln, mit Fehlern je Zeile. */
@@ -182,6 +184,7 @@ export function toImportRows(table: unknown[][], extra?: { key: string; label: s
     if (s('lastInspectedAt') && last == null) return errors.push({ line, message: `Datum nicht lesbar „${s('lastInspectedAt')}“` });
     const year = s('year') ? Number(s('year')) : undefined;
     rows.push({
+      line,
       property: s('property'),
       building: s('building'),
       category,

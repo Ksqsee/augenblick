@@ -144,6 +144,13 @@ export function syncOutbox() {
           const key = await upload(p.key);
           if (key) photos.push({ ...p, key });
         }
+        // Hochgeladene Fotos sofort im Eintrag vermerken, damit ein erneuter Versuch sie nicht noch einmal hochlädt
+        const local = [...item.draft.defects.map((d) => d.photoKey), ...(item.draft.photos ?? []).map((p) => p.key)].filter((k) => k?.startsWith('local:'));
+        if (local.length) {
+          const updated = { ...item, draft: { ...item.draft, defects, photos } };
+          await set('outbox', (await getOutbox()).map((x) => (x.clientId === item.clientId ? updated : x)), store);
+          for (const k of local) await del(`photo:${k}`, store);
+        }
         await api('/inspections/offline', {
           body: {
             ...item.draft,
@@ -156,9 +163,6 @@ export function syncOutbox() {
             checkpoints: item.checkpoints,
           },
         });
-        for (const k of [...item.draft.defects.map((d) => d.photoKey), ...(item.draft.photos ?? []).map((p) => p.key)]) {
-          if (k?.startsWith('local:')) await del(`photo:${k}`, store);
-        }
         await removeFromOutbox(item.clientId);
         sent++;
       } catch (e) {

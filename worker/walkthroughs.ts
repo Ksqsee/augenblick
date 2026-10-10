@@ -141,15 +141,24 @@ walks.post('/walkthroughs/:id/submit', async (c) => {
   const t = now();
   const next = addMonths(t, WALK_INTERVAL_MONTHS);
   const byId = new Map(w.questions.map((q) => [q.id, q]));
-  await c.env.DB.batch([
-    c.env.DB.prepare("UPDATE walkthroughs SET status='submitted', result=?, inspected_at=?, next_due_at=?, updated_at=? WHERE id=?").bind(result, t, next, t, wid),
-    ...b.findings.map((f) =>
-      c.env.DB.prepare(
-        `INSERT INTO defects (id, tenant_id, property_id, walkthrough_id, checkpoint_id, title, note, measure, legal_basis, severity, status, photo_key, created_at)
-         VALUES (?,?,?,?,?,?,?,?,?,?,'open',?,?)`,
-      ).bind(id(), tid(c), w.propertyId, wid, f.questionId ?? null, f.title, f.note, f.measure, (f.questionId && byId.get(f.questionId)?.basis) || '', f.severity, f.photoKey ?? null, t),
-    ),
-  ]);
+  // wie bei Prüfungen: erst beanspruchen, dann Mängel mengenbasiert schreiben
+  const claim = await c.env.DB.prepare("UPDATE walkthroughs SET status='submitted', result=?, inspected_at=?, next_due_at=?, updated_at=? WHERE id=? AND status='draft'")
+    .bind(result, t, next, t, wid)
+    .run();
+  if (!claim.meta.changes) throw new HTTPException(409, { message: 'Begehung ist bereits abgeschlossen' });
+  const findings = b.findings.map((f) => ({ ...f, basis: (f.questionId && byId.get(f.questionId)?.basis) || '' }));
+  const j = (k: string) => `json_extract(value, '$.${k}')`;
+  try {
+    await c.env.DB.prepare(
+      `INSERT INTO defects (id, tenant_id, property_id, walkthrough_id, checkpoint_id, title, note, measure, legal_basis, severity, status, photo_key, created_at)
+       SELECT lower(hex(randomblob(8))), ?1, ?2, ?3, ${j('questionId')}, ${j('title')}, ${j('note')}, ${j('measure')}, ${j('basis')}, ${j('severity')}, 'open', ${j('photoKey')}, ?4 FROM json_each(?5)`,
+    )
+      .bind(tid(c), w.propertyId, wid, t, JSON.stringify(findings))
+      .run();
+  } catch (e) {
+    await c.env.DB.prepare("UPDATE walkthroughs SET status='draft', result=NULL, inspected_at=NULL, next_due_at=NULL WHERE id=?").bind(wid).run();
+    throw e;
+  }
   await logActivity(c, 'submit', 'walkthrough', wid, `Begehung ${w.propertyName} abgeschlossen`);
   await notify(c, {
     roles: ['owner', 'admin'],

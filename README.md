@@ -77,7 +77,7 @@ npm run check              # Typprüfung + Unit-Tests + Build
 ## Tests
 
 - **Unit-Tests** (`npm test`, Vitest): Fachlogik, Import/Export, Übersetzungen, Ruhezeiten, Web Push.
-- **Browser-Tests** (`e2e/`, Playwright): acht Reihen von der Registrierung bis zu den Sicherheitskorrekturen.
+- **Browser-Tests** (`e2e/`, Playwright): neun Reihen von der Registrierung über Sicherheitskorrekturen bis zu Massenoperationen.
   Vor jeder Reihe wird die lokale D1 geleert und mit Demodaten befüllt.
 
 ```bash

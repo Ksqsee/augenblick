@@ -39,8 +39,8 @@ export async function notifyTenant(env: Env, tenantId: string, n: NotifyInput, c
   const parts: string[] = [];
   const args: unknown[] = [tenantId];
   if (n.userIds?.length) {
-    parts.push(`m.user_id IN (${n.userIds.map(() => '?').join(',')})`);
-    args.push(...n.userIds);
+    parts.push('m.user_id IN (SELECT value FROM json_each(?))');
+    args.push(JSON.stringify(n.userIds));
   }
   if (n.roles?.length) {
     parts.push(`m.role IN (${n.roles.map(() => '?').join(',')})`);
@@ -82,8 +82,8 @@ export async function notifyTenant(env: Env, tenantId: string, n: NotifyInput, c
 
 async function pushAll(env: Env, userIds: string[], data: { title: string; body: string; link: string }) {
   const subs = (
-    await env.DB.prepare(`SELECT id, endpoint, p256dh, auth FROM push_subscriptions WHERE user_id IN (${userIds.map(() => '?').join(',')})`)
-      .bind(...userIds)
+    await env.DB.prepare('SELECT id, endpoint, p256dh, auth FROM push_subscriptions WHERE user_id IN (SELECT value FROM json_each(?))')
+      .bind(JSON.stringify(userIds))
       .all<{ id: string; endpoint: string; p256dh: string; auth: string }>()
   ).results;
   const cfg = { publicKey: env.VAPID_PUBLIC_KEY!, privateKey: env.VAPID_PRIVATE_KEY!, subject: env.VAPID_SUBJECT ?? 'mailto:admin@example.com' };
@@ -122,8 +122,8 @@ notifications.post('/notifications/read', async (c) => {
   const u = c.get('user');
   const { ids } = z.object({ ids: z.array(z.string()).max(200).optional() }).parse(await c.req.json());
   if (ids?.length) {
-    await c.env.DB.prepare(`UPDATE notifications SET read_at = ? WHERE user_id = ? AND tenant_id = ? AND id IN (${ids.map(() => '?').join(',')})`)
-      .bind(now(), u.userId, u.tenantId, ...ids)
+    await c.env.DB.prepare('UPDATE notifications SET read_at = ? WHERE user_id = ? AND tenant_id = ? AND id IN (SELECT value FROM json_each(?))')
+      .bind(now(), u.userId, u.tenantId, JSON.stringify(ids))
       .run();
   } else {
     await c.env.DB.prepare('UPDATE notifications SET read_at = ? WHERE user_id = ? AND tenant_id = ? AND read_at IS NULL').bind(now(), u.userId, u.tenantId).run();
