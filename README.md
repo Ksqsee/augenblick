@@ -88,6 +88,7 @@ BASE=http://localhost:4173 npm run e2e   # gegen den Produktions-Build (npx vite
 ```
 
 Lokal wird Chromium aus `PLAYWRIGHT_BROWSERS_PATH` genutzt, in CI per `npx playwright install chromium`.
+Reihe 06 braucht `pdftotext` (Paket `poppler-utils`).
 
 **CI** (`.github/workflows/ci.yml`): bei jedem Push Typprüfung, Unit-Tests und Build, danach alle Browser-Tests.
 Bei Fehlern werden die Screenshots als Artefakt angehängt.

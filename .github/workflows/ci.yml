@@ -44,6 +44,8 @@ jobs:
         env:
           PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: '1'
       - run: npx playwright install --with-deps chromium
+      # pdftotext prüft den Inhalt erzeugter PDFs (Reihe 06)
+      - run: sudo apt-get install -y --no-install-recommends poppler-utils
       # Dev-Server wird vom Runner gestartet; DEMO_PASSWORD erzeugt er zufällig
       - run: npm run e2e -- --serve
       - if: failure()
@@ -51,4 +53,5 @@ jobs:
         with:
           name: e2e-screenshots
           path: e2e/.out/**/*.png
+          include-hidden-files: true
           retention-days: 7
