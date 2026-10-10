@@ -17,7 +17,7 @@ Vorgehen:
 - Login-URL von Augenblick Control
 - Zugangsdaten **nie** ins Repo, in Commits oder Logs schreiben; der Nutzer gibt
   sie im Chat. Empfehlung an den Nutzer: eigenen Test-User mit wenig Rechten.
-- Tech-Stack (Vorschlag: Next.js + TypeScript)
+- Tech-Stack: entschieden – Vite/React + Hono auf Cloudflare Workers, D1, R2 (siehe README)
 
 ## Tools
 

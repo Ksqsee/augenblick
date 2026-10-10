@@ -1,0 +1,18 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "pruefkompass",
+  "main": "worker/index.ts",
+  "compatibility_date": "2026-09-01",
+  "compatibility_flags": ["nodejs_compat"],
+  "assets": {
+    "not_found_handling": "single-page-application",
+    "run_worker_first": ["/api/*"]
+  },
+  "d1_databases": [
+    { "binding": "DB", "database_name": "pruefkompass", "database_id": "fa1add86-9b17-49b3-af9f-ff0d5ddb556f", "migrations_dir": "migrations" }
+  ],
+  "r2_buckets": [
+    { "binding": "FILES", "bucket_name": "pruefkompass-files" }
+  ],
+  "observability": { "enabled": true }
+}
