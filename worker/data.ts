@@ -34,7 +34,7 @@ data.get('/dashboard', async (c) => {
          (SELECT COUNT(*) FROM defects WHERE tenant_id = ?1 AND status = 'open' AND asset_id IS NOT NULL) AS openDefects,
          (SELECT COUNT(*) FROM defects WHERE tenant_id = ?1 AND status = 'open' AND walkthrough_id IS NOT NULL) AS openWalkDefects,
          (SELECT COUNT(*) FROM defects WHERE tenant_id = ?1 AND status = 'open' AND severity = 'critical') AS criticalDefects,
-         (SELECT COUNT(*) FROM inspections WHERE tenant_id = ?1 AND status = 'submitted' AND inspected_at > ?4) AS inspections30d,
+         (SELECT COUNT(*) FROM inspections WHERE tenant_id = ?1 AND status = 'submitted' AND superseded_at IS NULL AND inspected_at > ?4) AS inspections30d,
          (SELECT COUNT(*) FROM inspections WHERE tenant_id = ?1 AND status = 'draft') AS drafts,
          (SELECT COUNT(*) FROM properties p WHERE p.tenant_id = ?1 AND p.deleted_at IS NULL AND COALESCE(
             (SELECT MAX(w.next_due_at) FROM walkthroughs w WHERE w.property_id = p.id AND w.status = 'submitted'), 0) < ?3) AS walkDue`,
@@ -43,7 +43,7 @@ data.get('/dashboard', async (c) => {
     c.env.DB.prepare(
       `SELECT i.id, i.result, i.inspected_at AS inspectedAt, a.code, a.category, a.location, u.name AS inspector
          FROM inspections i JOIN assets a ON a.id = i.asset_id JOIN users u ON u.id = i.inspector_id
-        WHERE i.tenant_id = ? AND i.status = 'submitted' ORDER BY i.inspected_at DESC LIMIT 8`,
+        WHERE i.tenant_id = ? AND i.status = 'submitted' AND i.superseded_at IS NULL ORDER BY i.inspected_at DESC LIMIT 8`,
     ).bind(t),
     c.env.DB.prepare(
       `SELECT id, title, priority, due_at AS dueAt, status FROM tasks
@@ -433,7 +433,8 @@ data.get('/assets/:id', async (c) => {
   if (!a) notFound('Element');
   const [inspections, defects, plan, files] = await c.env.DB.batch([
     c.env.DB.prepare(
-      `SELECT i.id, i.kind, i.schedule, i.status, i.result, i.inspected_at AS inspectedAt, i.created_at AS createdAt, i.archived_at AS archivedAt, u.name AS inspector
+      `SELECT i.id, i.kind, i.kinds, i.purpose, i.schedule, i.status, i.result, i.inspected_at AS inspectedAt, i.created_at AS createdAt, i.archived_at AS archivedAt,
+              i.superseded_at AS supersededAt, u.name AS inspector
          FROM inspections i JOIN users u ON u.id = i.inspector_id WHERE i.asset_id = ? AND i.tenant_id = ? ORDER BY COALESCE(i.inspected_at, i.created_at) DESC`,
     ).bind(a.id, tid(c)),
     c.env.DB.prepare(
@@ -451,7 +452,7 @@ data.get('/assets/:id', async (c) => {
   ]);
   return c.json({
     ...mapAsset(a),
-    inspections: inspections.results,
+    inspections: (inspections.results as Record<string, unknown>[]).map((r) => ({ ...r, kinds: parseJson<string[]>(r.kinds as string, []) })),
     defects: defects.results,
     floorPlan: plan.results[0] ?? null,
     attachments: files.results,
@@ -516,12 +517,54 @@ data.put('/assets/:id/marker', async (c) => {
 
 data.delete('/assets/:id', async (c) => {
   requireRole(c, 'admin');
-  const r = await c.env.DB.prepare('UPDATE assets SET deleted_at=?, label_code=NULL WHERE id=? AND tenant_id=? AND deleted_at IS NULL')
+  const r = await c.env.DB.prepare('UPDATE assets SET deleted_at=?, deleted_label=label_code, label_code=NULL WHERE id=? AND tenant_id=? AND deleted_at IS NULL')
     .bind(now(), c.req.param('id'), tid(c))
     .run();
   if (!r.meta.changes) notFound('Element');
   await logActivity(c, 'delete', 'asset', c.req.param('id'), 'Element gelöscht');
   return c.json({ ok: true });
+});
+
+// ---------- Papierkorb ----------
+export const TRASH_DAYS = 30;
+
+/** Gelöschte Elemente der letzten 30 Tage (nur Admins). */
+data.get('/trash/assets', async (c) => {
+  requireRole(c, 'admin');
+  const rows = await c.env.DB.prepare(
+    `SELECT a.id, a.code, a.category, a.location, a.deleted_at AS deletedAt, b.name AS buildingName, p.name AS propertyName,
+            b.deleted_at IS NOT NULL OR p.deleted_at IS NOT NULL AS parentDeleted
+       FROM assets a JOIN buildings b ON b.id = a.building_id JOIN properties p ON p.id = b.property_id
+      WHERE a.tenant_id = ? AND a.deleted_at > ? ORDER BY a.deleted_at DESC LIMIT 500`,
+  )
+    .bind(tid(c), now() - TRASH_DAYS * DAY)
+    .all();
+  return c.json(rows.results);
+});
+
+/** Element aus dem Papierkorb wiederherstellen (innerhalb von 30 Tagen, Gebäude und Objekt müssen noch bestehen). */
+data.post('/assets/:id/restore', async (c) => {
+  requireRole(c, 'admin');
+  const a = await c.env.DB.prepare(
+    `SELECT a.id, a.code, a.deleted_at, a.deleted_label, b.deleted_at AS bDel, p.deleted_at AS pDel
+       FROM assets a JOIN buildings b ON b.id = a.building_id JOIN properties p ON p.id = b.property_id WHERE a.id = ? AND a.tenant_id = ?`,
+  )
+    .bind(c.req.param('id'), tid(c))
+    .first<{ id: string; code: string; deleted_at: number | null; deleted_label: string | null; bDel: number | null; pDel: number | null }>();
+  if (!a || !a.deleted_at) notFound('Gelöschtes Element');
+  if (a.deleted_at < now() - TRASH_DAYS * DAY) throw new HTTPException(410, { message: `Nur innerhalb von ${TRASH_DAYS} Tagen wiederherstellbar` });
+  if (a.bDel || a.pDel) throw new HTTPException(409, { message: 'Gebäude oder Objekt wurde ebenfalls gelöscht' });
+  // Etikett nur zurückgeben, wenn es inzwischen nicht neu vergeben wurde
+  let label = a.deleted_label;
+  if (label) {
+    const taken = await c.env.DB.prepare('SELECT 1 FROM assets WHERE tenant_id = ?1 AND deleted_at IS NULL AND (upper(label_code) = upper(?2) OR upper(code) = upper(?2))')
+      .bind(tid(c), label)
+      .first();
+    if (taken) label = null;
+  }
+  await c.env.DB.prepare('UPDATE assets SET deleted_at = NULL, deleted_label = NULL, label_code = ?, updated_at = ? WHERE id = ?').bind(label, now(), a.id).run();
+  await logActivity(c, 'restore', 'asset', a.id, `Element ${a.code} wiederhergestellt`);
+  return c.json({ ok: true, labelRestored: !!label || !a.deleted_label });
 });
 
 // ---------- Mängel ----------
@@ -651,12 +694,13 @@ data.get('/export/backup.json', async (c) => {
     [
       'inspections',
       `SELECT id, tenant_id, asset_id, inspector_id, kind, reason, status, result, answers, maintenance, checkpoints, notes, signature IS NOT NULL AS signed, signer_name,
-              next_due_at, inspected_at, created_at, updated_at, client_id, schedule, archived_at FROM inspections WHERE tenant_id = ?`,
+              next_due_at, inspected_at, created_at, updated_at, client_id, schedule, archived_at, kinds, purpose, supersedes_id, superseded_by, superseded_at, follow_up_of
+              FROM inspections WHERE tenant_id = ?`,
     ],
     [
       'walkthroughs',
       `SELECT id, tenant_id, property_id, building_id, building_type, inspector_id, status, result, questions, answers, findings, notes, participants,
-              signature IS NOT NULL AS signed, signer_name, inspected_at, next_due_at, created_at, updated_at FROM walkthroughs WHERE tenant_id = ?`,
+              signature IS NOT NULL AS signed, signer_name, inspected_at, next_due_at, created_at, updated_at, purpose, follow_up_of FROM walkthroughs WHERE tenant_id = ?`,
     ],
     ['defects', 'SELECT * FROM defects WHERE tenant_id = ?'],
     ['reports', 'SELECT id, kind, title, file_name, size, property_id, created_by, created_at FROM reports WHERE tenant_id = ?'],

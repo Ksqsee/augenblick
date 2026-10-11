@@ -257,6 +257,33 @@ export const INSPECTION_KINDS = {
   special: 'Sonderprüfung',
 } as const;
 export type InspectionKind = keyof typeof INSPECTION_KINDS;
+/** Eigene Prüfungsart des Workspaces (Schlüssel „k_…“). */
+export interface CustomKind {
+  key: string;
+  label: string;
+}
+export const isCustomKindKey = (k: string) => /^k_[a-z0-9]{4,24}$/.test(k);
+/** Bezeichnung einer eingebauten oder eigenen Prüfungsart. */
+export function kindLabel(key: string, custom: CustomKind[] = []): string {
+  return (INSPECTION_KINDS as Record<string, string>)[key] ?? custom.find((k) => k.key === key)?.label ?? key;
+}
+
+/** Anlass einer Prüfung. Berichtigung ersetzt eine abgeschlossene Prüfung, Nachprüfung kontrolliert die Mängelbehebung. */
+export const INSPECTION_PURPOSES = {
+  regular: 'Regelprüfung',
+  correction: 'Berichtigung',
+  follow_up: 'Nachprüfung',
+} as const;
+export type InspectionPurpose = keyof typeof INSPECTION_PURPOSES;
+
+/** Anlass einer Brandschutzbegehung. */
+export const WALK_PURPOSES = {
+  regular: 'Regelmäßige Begehung',
+  extraordinary: 'Außerordentliche Begehung',
+  after_change: 'Begehung nach Änderung',
+  follow_up: 'Nachbegehung',
+} as const;
+export type WalkPurpose = keyof typeof WALK_PURPOSES;
 
 export const SEVERITIES = {
   low: 'Gering',

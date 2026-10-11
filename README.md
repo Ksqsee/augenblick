@@ -15,17 +15,22 @@ API: [`docs/api.md`](docs/api.md)
 - **Prüfarten** mit eigenen Fristen je Element (z. B. Feuerlöscher: Instandhaltung, innere Prüfung, Festigkeitsprüfung)
 - Mängel mit Schweregrad, Beschreibung, **Maßnahme** und Foto
 - **Gesamtbewertung** automatisch oder vom Prüfer festgelegt (mit Pflicht-Begründung im Protokoll)
+- **Mehrere Arten der Prüfung** je Prüfung, auch eigene Arten des Workspaces
+- **Berichtigung** abgeschlossener Prüfungen: neue Fassung ersetzt die alte, die als Nachweis erhalten bleibt
+- **Nachprüfung** nach Mängelbehebung: nur beanstandete Punkte, behobene Mängel werden geschlossen, Turnus bleibt
 - Prüfung wieder öffnen, archivieren (auch automatisch), mehrere löschen
 - **Offline-Modus** (PWA): Gebäude vorab laden, ohne Netz prüfen, automatische Synchronisation
-- **Brandschutzbegehung** je Objekt mit Fragenkatalog nach Nutzung und Rechtsgrundlagen
+- **Brandschutzbegehung** je Objekt mit Fragenkatalog nach Nutzung und Rechtsgrundlagen; Anlass
+  (regelmäßig, außerordentlich, nach Änderung) und **Nachbegehung** zu einer früheren Begehung
 
 **Verwalten**
 - Objekte, Gebäude, **Grundrisse** (Bild/PDF) mit Element-Markern, Brandschutzbeauftragte je Objekt
 - **Eigene Elementarten** und Varianten; Prüfvorlagen je Prüfart anpassbar
 - Prüfungsliste mit Reitern Überfällig, Bald fällig, Nie geprüft, Nicht prüfbar, Neue Elemente, Entwürfe,
-  Durchgeführt, Archiv – filterbar nach Prüfart
+  Durchgeführt, Archiv, Berichtigt – filterbar nach Prüfart
 - **Mängel** und **Aufgaben** mit Labels, SLA-Richtlinien, Kommentaren, Statistik
 - **Subunternehmer**: Aufgabe per Link teilen, Rückmeldung ohne Konto
+- **Papierkorb**: gelöschte Elemente 30 Tage lang mit Historie wiederherstellbar
 - QR-Etiketten (auch Blanko-Etiketten, die beim ersten Scan zugeordnet werden), Suche (Strg+K)
 - **Import** aus Excel/CSV mit Vorschau
 
@@ -38,8 +43,8 @@ API: [`docs/api.md`](docs/api.md)
 
 **Team und Konto**
 - Rollen (Inhaber, Admin, Prüfer, Lesezugriff), Einladungen, Inhaberschaft übertragen, Aktivitätsprotokoll
-- **Benachrichtigungen** in der App und per Web Push, mit „Nicht stören“-Zeitraum; täglicher Cron für Fälligkeiten,
-  Wochenübersicht, SLA, Archiv; Hinweis bei Anmeldung von einem neuen Gerät
+- **Benachrichtigungen** in der App und per Web Push, mit „Nicht stören“-Zeitraum; täglicher Cron für Fälligkeiten
+  (einstellbare Vorab-Erinnerung), Wochenübersicht, SLA, Archiv; Hinweis bei Anmeldung von einem neuen Gerät
 - Passwort-Link durch Admin (kein E-Mail-Versand), Sitzungen verwalten, DSGVO-Export/-Löschung, Rechtstexte mit Zustimmung
 - **API-Zugangsschlüssel** (lesen oder lesen+schreiben) für Fremdsysteme; **Speicherverbrauch** des Workspaces
 - Anleitung & Hilfe in der App
@@ -58,7 +63,7 @@ src/          Oberfläche (pages/, components/, pdf/ für die PDF-Erzeugung, off
 worker/       API: auth (Login, Konto, API-Schlüssel, Speicher), data, inspections, walkthroughs,
               plans, categories, work (Aufgaben, Subunternehmer, Import), reports, notify, push, cron
 shared/       Code für Browser und Worker
-migrations/   D1-Schema (0001 … 0007)
+migrations/   D1-Schema (0001 … 0008)
 e2e/          Browser-Tests und Runner
 .github/      CI
 scripts/      seed.ts – Demodaten
@@ -77,7 +82,7 @@ npm run check              # Typprüfung + Unit-Tests + Build
 ## Tests
 
 - **Unit-Tests** (`npm test`, Vitest): Fachlogik, Import/Export, Übersetzungen, Ruhezeiten, Web Push.
-- **Browser-Tests** (`e2e/`, Playwright): neun Reihen von der Registrierung über Sicherheitskorrekturen bis zu Massenoperationen.
+- **Browser-Tests** (`e2e/`, Playwright): zehn Reihen von der Registrierung über Sicherheitskorrekturen und Massenoperationen bis zu Berichtigung und Nachprüfung.
   Vor jeder Reihe wird die lokale D1 geleert und mit Demodaten befüllt.
 
 ```bash

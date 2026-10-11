@@ -288,6 +288,21 @@ const EN: Record<string, string> = {
   Überfällig: 'Overdue',
   'Überfällige Elemente': 'Overdue items',
   überfällig: 'overdue',
+  // Prüfanlass, Berichtigung, Nachprüfung, Begehungsanlass
+  Regelprüfung: 'Regular inspection',
+  Berichtigung: 'Correction',
+  Nachprüfung: 'Follow-up inspection',
+  Anlass: 'Occasion',
+  'Regelmäßige Begehung': 'Regular walkthrough',
+  'Außerordentliche Begehung': 'Extraordinary walkthrough',
+  'Begehung nach Änderung': 'Walkthrough after alteration',
+  Nachbegehung: 'Follow-up walkthrough',
+  'Berichtigt durch': 'Corrected by',
+  'Diese Prüfung wurde berichtigt und ist nicht mehr gültig.': 'This inspection has been corrected and is no longer valid.',
+  'Ersetzt Prüfung vom': 'Supersedes inspection of',
+  'Nachprüfung zur Prüfung vom': 'Follow-up to inspection of',
+  'Nachbegehung zur Begehung vom': 'Follow-up to walkthrough of',
+  'Prüfung vom': 'Inspection of',
 };
 
 /** Standardtext in die Dokumentsprache übersetzen; unbekannte Texte bleiben unverändert. */

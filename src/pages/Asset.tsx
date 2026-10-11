@@ -4,7 +4,7 @@ import { ArrowLeft, ClipboardCheck, FileText, Link2, Map, Paperclip, Pencil, Plu
 import QRCode from 'qrcode';
 import { useEffect, useRef, useState } from 'react';
 import { Link, Navigate, useNavigate, useParams } from 'react-router-dom';
-import { INSPECTION_KINDS, SEVERITIES } from '../../shared/catalog';
+import { INSPECTION_PURPOSES, kindLabel, SEVERITIES } from '../../shared/catalog';
 import { api, ApiError, type AssetDetail, type Attachment, downscale, fileUrl, queryClient, uploadBlob, useAction, useAsset, useAssets, useMe } from '../api';
 import { summarizeSchedules } from '../../shared/logic';
 import { scheduleLabel, schedulesFor } from '../categories';
@@ -150,14 +150,20 @@ export function AssetPage() {
                       <FileText className="size-4 text-ink-3" />
                       <span className="min-w-0 flex-1">
                         <span className="block text-sm font-medium">
-                          {scheduleLabel(a.category, i.schedule ?? 'main')} <span className="font-normal text-ink-3">· {INSPECTION_KINDS[i.kind]}</span>
+                          {scheduleLabel(a.category, i.schedule ?? 'main')}{' '}
+                          <span className="font-normal text-ink-3">
+                            · {(i.kinds?.length ? i.kinds : [i.kind]).map((k) => kindLabel(k, me?.tenant.inspectionKinds)).join(', ')}
+                          </span>
                         </span>
                         <span className="block text-xs text-ink-3">
                           {fmtDateTime(i.inspectedAt ?? i.createdAt)} · {i.inspector}
                         </span>
                       </span>
                       {i.archivedAt && <Badge>Archiv</Badge>}
-                      {i.status === 'draft' ? <Badge tone="info">Entwurf</Badge> : i.result && <Badge tone={RESULT_META[i.result].tone}>{RESULT_META[i.result].label}</Badge>}
+                      {i.purpose && i.purpose !== 'regular' && <Badge>{INSPECTION_PURPOSES[i.purpose]}</Badge>}
+                      {i.supersededAt ? (
+                        <Badge>Berichtigt</Badge>
+                      ) : i.status === 'draft' ? <Badge tone="info">Entwurf</Badge> : i.result && <Badge tone={RESULT_META[i.result].tone}>{RESULT_META[i.result].label}</Badge>}
                     </Link>
                   </li>
                 ))}

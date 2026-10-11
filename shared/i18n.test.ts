@@ -1,12 +1,12 @@
 import { describe, expect, it } from 'vitest';
-import { CATEGORIES, INSPECTION_KINDS, SEVERITIES } from './catalog';
+import { CATEGORIES, INSPECTION_KINDS, INSPECTION_PURPOSES, SEVERITIES, WALK_PURPOSES } from './catalog';
 import { readFileSync } from 'node:fs';
 import { tr, zonedDay } from './i18n';
 import { WALK_QUESTIONS, WALK_SECTIONS } from './walkthrough';
 
 describe('Dokumentsprache', () => {
   it('alle eingebauten Standardtexte haben eine englische Fassung', () => {
-    const texts: string[] = [...Object.values(INSPECTION_KINDS), ...Object.values(SEVERITIES), ...Object.values(WALK_SECTIONS), ...WALK_QUESTIONS.map((q) => q.text)];
+    const texts: string[] = [...Object.values(INSPECTION_KINDS), ...Object.values(INSPECTION_PURPOSES), ...Object.values(WALK_PURPOSES), ...Object.values(SEVERITIES), ...Object.values(WALK_SECTIONS), ...WALK_QUESTIONS.map((q) => q.text)];
     for (const c of Object.values(CATEGORIES)) {
       texts.push(c.label, ...c.checkpoints.map((p) => p.label), ...c.maintenance.map((m) => m.label), ...c.attributes.map((a) => a.label));
       for (const s of c.schedules) texts.push(s.label, ...(s.checkpoints ?? []).map((p) => p.label));

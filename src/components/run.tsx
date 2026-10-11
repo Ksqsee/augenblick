@@ -3,13 +3,13 @@ import clsx from 'clsx';
 import { ArrowLeft, Camera, Check, CheckCheck, Cloud, CloudOff, HardDrive, Loader2, Minus, Trash2, X } from 'lucide-react';
 import { createContext, type ReactNode, useCallback, useContext, useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { type Category, type Checkpoint, INSPECTION_KINDS, type InspectionKind, SEVERITIES, type Severity } from '../../shared/catalog';
+import { type Category, type Checkpoint, type CustomKind, INSPECTION_KINDS, SEVERITIES, type Severity } from '../../shared/catalog';
 import { type Answer, computeResult, finalResult, isComplete, type Result, type ResultOverride } from '../../shared/logic';
-import { type DefectDraft, fileUrl, uploadPhoto } from '../api';
+import { type DefectDraft, fileUrl, uploadPhoto, useMe } from '../api';
 import { defectsLabel, RESULT_META } from '../format';
 import { CategoryIcon } from './CategoryIcon';
 import { SignaturePad } from './SignaturePad';
-import { Button, Card, Input, Select, Textarea } from './ui';
+import { Button, Card, Input, Textarea } from './ui';
 
 // ---------- Fotos: online → R2, offline → IndexedDB ----------
 export interface PhotoStore {
@@ -290,7 +290,8 @@ export function useAutosave<T>(value: T, persist: (v: T) => Promise<unknown>, de
 
 // ---------- Komplettes Prüfformular für ein Element ----------
 export interface InspectionDraft {
-  kind: InspectionKind;
+  /** Arten der Prüfung (mindestens eine) */
+  kinds: string[];
   notInspectable: boolean;
   answers: Record<string, Answer>;
   maintenance: string[];
@@ -322,9 +323,12 @@ export function InspectionForm({
   submit,
   discard,
   offline,
+  banner,
 }: {
   subject: InspectionSubject;
   scheduleLabel?: string;
+  /** Hinweis oben, z. B. bei Berichtigung oder Nachprüfung */
+  banner?: ReactNode;
   checkpoints: Checkpoint[];
   inspectorName: string;
   initial: InspectionDraft;
@@ -367,7 +371,8 @@ export function InspectionForm({
     }
   };
 
-  const missing = !complete ? `Noch ${ids.length - answered} Prüfpunkte offen` : needsReason ? 'Begründung zur Gesamtbewertung fehlt' : !d.signature ? 'Unterschrift fehlt' : undefined;
+  const noKind = !d.kinds?.length;
+  const missing = noKind ? 'Bitte mindestens eine Art der Prüfung auswählen' : !complete ? `Noch ${ids.length - answered} Prüfpunkte offen` : needsReason ? 'Begründung zur Gesamtbewertung fehlt' : !d.signature ? 'Unterschrift fehlt' : undefined;
 
   return (
     <RunFrame
@@ -385,7 +390,7 @@ export function InspectionForm({
       extraResult={d.defects.length ? defectsLabel(d.defects.length) : undefined}
       hint={missing}
       error={error}
-      canSubmit={complete && !needsReason && !!d.signature && !d.defects.some((x) => !x.title.trim())}
+      canSubmit={!noKind && complete && !needsReason && !!d.signature && !d.defects.some((x) => !x.title.trim())}
       submitting={submitting}
       onSubmit={onSubmit}
       submitLabel={offline ? 'Abschließen (offline)' : 'Abschließen'}
@@ -395,18 +400,10 @@ export function InspectionForm({
           Offline-Prüfung: wird auf diesem Gerät gespeichert und übertragen, sobald wieder eine Verbindung besteht.
         </div>
       )}
-      <Card className="grid grid-cols-1 gap-4 p-4 sm:grid-cols-2">
-        <label className="flex flex-col gap-1.5 text-[13px] font-medium text-ink-2">
-          Art der Prüfung
-          <Select value={d.kind} onChange={(e) => update({ kind: e.target.value as InspectionKind })}>
-            {Object.entries(INSPECTION_KINDS).map(([k, v]) => (
-              <option key={k} value={k}>
-                {v}
-              </option>
-            ))}
-          </Select>
-        </label>
-        <label className="flex cursor-pointer items-center justify-between gap-3 self-end rounded-lg border border-line px-3 py-2.5 text-sm">
+      {banner}
+      <Card className="flex flex-col gap-4 p-4">
+        <KindPicker value={d.kinds ?? []} onChange={(kinds) => update({ kinds })} />
+        <label className="flex cursor-pointer items-center justify-between gap-3 rounded-lg border border-line px-3 py-2.5 text-sm sm:max-w-sm">
           <span>
             <span className="block font-medium">Nicht prüfbar</span>
             <span className="block text-xs text-ink-3">z. B. kein Zugang</span>
@@ -548,6 +545,40 @@ export function InspectionForm({
         <Trash2 className="size-3.5" /> Entwurf verwerfen
       </button>
     </RunFrame>
+  );
+}
+
+/** Mehrfachauswahl der Prüfungsarten (eingebaut und eigene des Workspaces). */
+function KindPicker({ value, onChange }: { value: string[]; onChange: (v: string[]) => void }) {
+  const { data: me } = useMe();
+  const custom: CustomKind[] = me?.tenant.inspectionKinds ?? [];
+  const options: [string, string][] = [...Object.entries(INSPECTION_KINDS), ...custom.map((k) => [k.key, k.label] as [string, string])];
+  // auch nicht mehr vorhandene Arten anzeigen, damit sie abgewählt werden können
+  for (const k of value) if (!options.some(([o]) => o === k)) options.push([k, k]);
+  return (
+    <div>
+      <p className="mb-2 text-[13px] font-medium text-ink-2">Art der Prüfung</p>
+      <div className="flex flex-wrap gap-2" role="group" aria-label="Art der Prüfung">
+        {options.map(([k, label]) => {
+          const on = value.includes(k);
+          return (
+            <button
+              key={k}
+              type="button"
+              aria-pressed={on}
+              onClick={() => onChange(on ? value.filter((x) => x !== k) : [...value, k])}
+              className={clsx(
+                'inline-flex h-9 items-center gap-1.5 rounded-full border px-3.5 text-[13px] font-medium transition',
+                on ? 'border-ink bg-ink text-white' : 'border-line bg-surface text-ink-2 hover:border-line-strong',
+              )}
+            >
+              {on && <Check className="size-3.5" />}
+              {label}
+            </button>
+          );
+        })}
+      </div>
+    </div>
   );
 }
 

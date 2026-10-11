@@ -445,12 +445,24 @@ function Company() {
   const [archive, setArchive] = useState<number | ''>(t.archiveAfterMonths ?? '');
   const [language, setLanguage] = useState<DocLanguage>(t.language ?? 'de');
   const [timeZone, setTimeZone] = useState(t.timeZone || 'Europe/Berlin');
+  const [reminderDays, setReminderDays] = useState<number | ''>(t.reminderDays ?? '');
+  const [kinds, setKinds] = useState<{ key?: string; label: string }[]>(t.inspectionKinds ?? []);
+  const [newKind, setNewKind] = useState('');
   const [logoKey, setLogoKey] = useState<string | null>(t.logoKey);
   const [uploading, setUploading] = useState(false);
   const ref = useRef<HTMLInputElement>(null);
   const set = (k: keyof typeof f) => (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => setF({ ...f, [k]: e.target.value });
   const save = useAction(
-    () => api('/account/company', { method: 'PATCH', body: { ...f, logoKey, archiveAfterMonths: archive === '' ? null : Number(archive), language, timeZone } }),
+    () => api('/account/company', { method: 'PATCH', body: {
+          ...f,
+          logoKey,
+          archiveAfterMonths: archive === '' ? null : Number(archive),
+          language,
+          timeZone,
+          reminderDays: reminderDays === '' ? null : Number(reminderDays),
+          inspectionKinds: kinds.filter((k) => k.label.trim().length >= 2),
+        },
+      }),
     () => {
       queryClient.invalidateQueries({ queryKey: ['me'] });
       toast('Gespeichert');
@@ -556,6 +568,49 @@ function Company() {
         </div>
       </Card>
       <Card>
+        <CardHeader title="Erinnerung vor Fälligkeit" subtitle="Benachrichtigt Prüfer und Admins, wenn Prüfungen in der gewählten Zeit fällig werden – zusätzlich zur Meldung bei Überfälligkeit." />
+        <div className="flex items-center gap-3 p-5 text-sm">
+          <Select aria-label="Erinnerung vor Fälligkeit" value={reminderDays} onChange={(e) => setReminderDays(e.target.value === '' ? '' : Number(e.target.value))} className="w-60">
+            <option value="">Keine Vorab-Erinnerung</option>
+            {[...new Set([7, 14, 30, 60, 90, ...(reminderDays === '' ? [] : [reminderDays])])]
+              .sort((a, b) => a - b)
+              .map((d) => (
+                <option key={d} value={d}>
+                  {d} Tage vorher
+                </option>
+              ))}
+          </Select>
+        </div>
+      </Card>
+      <Card>
+        <CardHeader title="Eigene Prüfungsarten" subtitle="Ergänzen die festen Arten (z. B. Wiederkehrende Prüfung, Erstprüfung). Bei jeder Prüfung lassen sich mehrere Arten auswählen." />
+        <div className="flex flex-col gap-2 p-5">
+          {kinds.map((k, i) => (
+            <div key={k.key ?? `neu-${i}`} className="flex gap-2">
+              <Input aria-label="Bezeichnung der Prüfungsart" value={k.label} onChange={(e) => setKinds(kinds.map((x, j) => (j === i ? { ...x, label: e.target.value } : x)))} />
+              <Button type="button" variant="ghost" aria-label="Prüfungsart entfernen" onClick={() => setKinds(kinds.filter((_, j) => j !== i))}>
+                <Trash2 className="size-4" />
+              </Button>
+            </div>
+          ))}
+          <div className="flex gap-2">
+            <Input placeholder="z. B. Abnahmeprüfung" aria-label="Neue Prüfungsart" value={newKind} onChange={(e) => setNewKind(e.target.value)} />
+            <Button
+              type="button"
+              variant="secondary"
+              disabled={newKind.trim().length < 2}
+              onClick={() => {
+                setKinds([...kinds, { label: newKind.trim() }]);
+                setNewKind('');
+              }}
+            >
+              Hinzufügen
+            </Button>
+          </div>
+          <p className="text-xs text-ink-3">Entfernte Arten bleiben in bestehenden Protokollen sichtbar. Änderungen werden mit „Speichern“ übernommen.</p>
+        </div>
+      </Card>
+      <Card>
         <CardHeader title="Sprache und Zeitzone" subtitle="Die Oberfläche bleibt deutsch. Die Sprache gilt für erzeugte Dokumente: PDF-Protokolle, Berichte und Excel-Export." />
         <div className="grid grid-cols-1 gap-4 p-5 sm:grid-cols-2">
           <Field label="Sprache der Dokumente" hint="Standardtexte der Prüfkataloge werden übersetzt; eigene Texte bleiben, wie sie sind.">
@@ -591,7 +646,68 @@ function Company() {
         </a>
       </div>
       <StorageCard />
+      <TrashCard />
     </form>
+  );
+}
+
+interface TrashRow {
+  id: string;
+  code: string;
+  category: string;
+  location: string;
+  deletedAt: number;
+  buildingName: string;
+  propertyName: string;
+  parentDeleted: number;
+}
+
+/** Papierkorb: gelöschte Elemente der letzten 30 Tage wiederherstellen. */
+function TrashCard() {
+  const toast = useToast();
+  const q = useQuery({ queryKey: ['trash'], queryFn: () => api<TrashRow[]>('/trash/assets') });
+  const restore = useAction(
+    (id: string) => api<{ labelRestored: boolean }>(`/assets/${id}/restore`, { method: 'POST' }),
+    (r) => {
+      queryClient.invalidateQueries();
+      toast(r.labelRestored ? 'Element wiederhergestellt' : 'Wiederhergestellt – das Etikett war inzwischen anders vergeben');
+    },
+  );
+  return (
+    <Card>
+      <CardHeader title="Papierkorb" subtitle="Gelöschte Elemente lassen sich 30 Tage lang mit ihrer Prüfhistorie wiederherstellen." />
+      {restore.error && (
+        <div className="px-5 pb-3">
+          <ErrorBox error={restore.error} />
+        </div>
+      )}
+      {q.isLoading ? (
+        <Spinner />
+      ) : !q.data?.length ? (
+        <p className="px-5 pb-5 text-sm text-ink-3">Der Papierkorb ist leer.</p>
+      ) : (
+        <ul className="divide-y divide-line">
+          {q.data.map((a) => (
+            <li key={a.id} className="flex items-center gap-3 px-5 py-3">
+              <CategoryIcon category={a.category} size="sm" />
+              <span className="min-w-0 flex-1">
+                <span className="block text-sm font-medium">{a.code}</span>
+                <span className="block truncate text-xs text-ink-3">
+                  {[a.location, a.buildingName, a.propertyName].filter(Boolean).join(' · ')} · gelöscht {fmtDateTime(a.deletedAt)}
+                </span>
+              </span>
+              {a.parentDeleted ? (
+                <span className="text-xs text-ink-3">Gebäude gelöscht</span>
+              ) : (
+                <Button type="button" size="sm" variant="secondary" loading={restore.isPending && restore.variables === a.id} onClick={() => restore.mutate(a.id)}>
+                  Wiederherstellen
+                </Button>
+              )}
+            </li>
+          ))}
+        </ul>
+      )}
+    </Card>
   );
 }
 

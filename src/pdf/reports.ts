@@ -1,5 +1,5 @@
 // PDF-Erzeugung im Browser (keine Server-Rechenzeit, funktioniert auch offline).
-import { INSPECTION_KINDS, SEVERITIES } from '../../shared/catalog';
+import { SEVERITIES, WALK_PURPOSES } from '../../shared/catalog';
 import { buildFileName, uniqueName } from '../../shared/filename';
 import { type DocLanguage, isValidTimeZone, LOCALE, tr } from '../../shared/i18n';
 import { BUILDING_TYPES, WALK_SECTIONS, type WalkSection } from '../../shared/walkthrough';
@@ -78,6 +78,9 @@ export async function inspectionPdf(i: Inspection, brand: Brand): Promise<Uint8A
     `${T('Nr.')} ${i.id.slice(0, 8).toUpperCase()}`,
     ...(i.status === 'draft' ? [T('ENTWURF')] : []),
   ]);
+  if (i.supersededAt) doc.text(`${T('Diese Prüfung wurde berichtigt und ist nicht mehr gültig.')} ${T('Berichtigt durch')}: ${T('Prüfung vom')} ${d(i.supersededByDate ?? i.supersededAt)}`, { bold: true, color: RED });
+  if (i.purpose === 'correction' && i.supersedesId) doc.text(`${T('Berichtigung')}: ${T('Ersetzt Prüfung vom')} ${d(i.supersedesDate)}`, { bold: true });
+  if (i.followUpOf) doc.text(`${T('Nachprüfung zur Prüfung vom')} ${d(i.followUpDate)}`, { bold: true });
   const attrs = (def.attributes ?? []).map(({ key, label }) => {
     const v = i.asset.attributes[key];
     return [T(label), v === true ? T('Ja') : v === false ? T('Nein') : v == null || v === '' ? '–' : String(v)] as [string, string];
@@ -86,7 +89,7 @@ export async function inspectionPdf(i: Inspection, brand: Brand): Promise<Uint8A
     [T('Objekt'), i.asset.propertyName],
     [T('Prüfdatum'), dt(i.inspectedAt ?? i.createdAt)],
     [T('Gebäude'), i.asset.buildingName],
-    [T('Art der Prüfung'), T(INSPECTION_KINDS[i.kind])],
+    [T('Art der Prüfung'), (i.kindLabels ?? [i.kind]).map((k) => T(k)).join(', ')],
     [T('Standort'), [i.asset.location, i.asset.floor].filter(Boolean).join(', ')],
     [T('Prüfer/in'), i.inspectorName],
     [T('Hersteller / Typ'), [i.asset.manufacturer, i.asset.model].filter(Boolean).join(' / ')],
@@ -158,11 +161,13 @@ export async function walkthroughPdf(w: Walkthrough, brand: Brand): Promise<Uint
   doc.facts([
     [T('Adresse'), w.propertyAddress.split('\n').join(', ')],
     [T('Nutzung'), T(BUILDING_TYPES[w.buildingType])],
+    [T('Anlass'), T(WALK_PURPOSES[w.purpose ?? 'regular'])],
     [T('Durchgeführt von'), w.inspectorName],
     [T('Nächste Begehung'), d(w.nextDueAt)],
     [T('Teilnehmende'), w.participants],
     [T('Feststellungen'), String(w.findings.length)],
   ]);
+  if (w.followUpOf) doc.text(`${T('Nachbegehung zur Begehung vom')} ${d(w.followUpDate)}`, { bold: true });
   if (w.findings.length) {
     doc.heading(T('Feststellungen'));
     for (const [n, f] of w.findings.entries()) {

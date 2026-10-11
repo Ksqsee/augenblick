@@ -1,5 +1,5 @@
 import { QueryClient, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import type { AttributeField, Category, CategoryDef, Checkpoint, InspectionKind, Role, Severity } from '../shared/catalog';
+import type { AttributeField, Category, CategoryDef, Checkpoint, CustomKind, InspectionKind, InspectionPurpose, Role, Severity, WalkPurpose } from '../shared/catalog';
 import type { Answer, Result, ResultOverride, Schedules } from '../shared/logic';
 import type { BuildingType, WalkQuestion } from '../shared/walkthrough';
 
@@ -58,6 +58,10 @@ export interface Tenant {
   /** Sprache erzeugter Dokumente */
   language: 'de' | 'en';
   timeZone: string;
+  /** Erinnerung so viele Tage vor Fälligkeit (null = aus) */
+  reminderDays: number | null;
+  /** eigene Prüfungsarten */
+  inspectionKinds: CustomKind[];
 }
 
 export interface Me {
@@ -124,6 +128,9 @@ export interface AssetDetail extends Asset {
   inspections: {
     id: string;
     kind: InspectionKind;
+    kinds: string[];
+    purpose: InspectionPurpose;
+    supersededAt: number | null;
     schedule: string;
     status: string;
     result: Result | null;
@@ -178,6 +185,8 @@ export interface FloorPlan {
 export interface WalkRow {
   id: string;
   status: 'draft' | 'submitted';
+  purpose?: WalkPurpose;
+  followUpOf?: string | null;
   result: Result | null;
   buildingType?: BuildingType;
   inspectedAt: number | null;
@@ -204,6 +213,9 @@ export interface Walkthrough {
   propertyId: string;
   buildingId: string | null;
   buildingType: BuildingType;
+  purpose: WalkPurpose;
+  followUpOf: string | null;
+  followUpDate: number | null;
   status: 'draft' | 'submitted';
   result: Result | null;
   questions: WalkQuestion[];
@@ -296,6 +308,16 @@ export interface Inspection {
   propertyId: string;
   status: 'draft' | 'submitted';
   kind: InspectionKind;
+  kinds: string[];
+  kindLabels: string[];
+  purpose: InspectionPurpose;
+  supersedesId: string | null;
+  supersedesDate: number | null;
+  supersededBy: string | null;
+  supersededAt: number | null;
+  supersededByDate: number | null;
+  followUpOf: string | null;
+  followUpDate: number | null;
   schedule: string;
   scheduleLabel: string;
   photos: InspectionPhoto[];
@@ -338,6 +360,11 @@ export interface Inspection {
 export interface InspectionRow {
   id: string;
   kind: InspectionKind;
+  kinds: string[];
+  purpose: InspectionPurpose;
+  supersededAt: number | null;
+  supersededBy: string | null;
+  supersedesId: string | null;
   schedule: string;
   archivedAt: number | null;
   propertyId: string;
@@ -497,11 +524,10 @@ export const useAssets = (params: Record<string, string | undefined> = {}) => {
   return useQuery({ queryKey: ['assets', qs], queryFn: () => api<Asset[]>(`/assets${qs ? `?${qs}` : ''}`) });
 };
 export const useAsset = (id: string) => useQuery({ queryKey: ['asset', id], queryFn: () => api<AssetDetail>(`/assets/${id}`) });
-export const useInspections = (status?: string, archived = false) =>
-  useQuery({
-    queryKey: ['inspections', status ?? 'all', archived],
-    queryFn: () => api<InspectionRow[]>(`/inspections?${new URLSearchParams({ ...(status ? { status } : {}), ...(archived ? { archived: '1' } : {}) })}`),
-  });
+export const useInspections = (params: Record<string, string | undefined> = {}) => {
+  const qs = new URLSearchParams(Object.entries(params).filter(([, v]) => v) as [string, string][]).toString();
+  return useQuery({ queryKey: ['inspections', qs], queryFn: () => api<InspectionRow[]>(`/inspections?${qs}`) });
+};
 export const useInspection = (id: string) => useQuery({ queryKey: ['inspection', id], queryFn: () => api<Inspection>(`/inspections/${id}`) });
 export const useDefects = (status = 'open', source = '') =>
   useQuery({ queryKey: ['defects', status, source], queryFn: () => api<Defect[]>(`/defects?status=${status}${source ? `&source=${source}` : ''}`) });

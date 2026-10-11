@@ -14,7 +14,7 @@ export async function runDaily(env: Env, now = Date.now()) {
     env.DB.prepare('DELETE FROM notifications WHERE created_at < ?').bind(now - 180 * DAY),
   ]);
   // shortcut: rund 5 Queries je Workspace in einem Aufruf; ab ~150 Workspaces (D1: 1000 Queries je Aufruf, Free 50) auf Queues umstellen
-  const tenants = (await env.DB.prepare('SELECT id, archive_after_months, timezone FROM tenants').all<{ id: string; archive_after_months: number | null; timezone: string }>()).results;
+  const tenants = (await env.DB.prepare('SELECT id, archive_after_months, timezone, reminder_days FROM tenants').all<Tenant>()).results;
   for (const t of tenants) {
     try {
       await runTenant(env, t, now);
@@ -24,7 +24,9 @@ export async function runDaily(env: Env, now = Date.now()) {
   }
 }
 
-async function runTenant(env: Env, t: { id: string; archive_after_months: number | null; timezone: string }, now: number) {
+type Tenant = { id: string; archive_after_months: number | null; timezone: string; reminder_days: number | null };
+
+async function runTenant(env: Env, t: Tenant, now: number) {
   // Tag und Wochentag in der Zeitzone des Workspaces
   const { ymd: today, weekday } = zonedDay(now, t.timezone);
   const isMonday = weekday === 1;
@@ -42,6 +44,24 @@ async function runTenant(env: Env, t: { id: string; archive_after_months: number
       link: '/pruefungen?tab=overdue',
       dedupe: `overdue-${today}`,
     });
+  }
+  // 1b) Vorab-Erinnerung: Elemente, deren Termin seit gestern in die Vorlaufzeit gerückt ist
+  if (t.reminder_days) {
+    const ahead = now + t.reminder_days * DAY;
+    const upcoming = await env.DB.prepare(
+      'SELECT COUNT(*) AS n FROM assets WHERE tenant_id = ? AND deleted_at IS NULL AND next_due_at < ? AND next_due_at >= ?',
+    )
+      .bind(t.id, ahead, ahead - DAY)
+      .first<number>('n');
+    if (upcoming) {
+      await notifyTenant(env, t.id, {
+        roles: ['owner', 'admin', 'inspector'],
+        type: 'due_reminder',
+        title: `${upcoming} ${upcoming === 1 ? 'Prüfung wird' : 'Prüfungen werden'} in ${t.reminder_days} Tagen fällig`,
+        link: '/pruefungen?tab=soon',
+        dedupe: `ahead-${today}`,
+      });
+    }
   }
   // 2) Wochenübersicht montags
   if (isMonday) {

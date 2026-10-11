@@ -52,4 +52,5 @@ nachvollzogen und – soweit behoben – mit einem automatisierten Angriffstest 
 - **Rollen:** an allen schreibenden Routen geprüft.
 - **API-Schlüssel:** nur als Hash gespeichert, Rolle gedeckelt, kein Zugriff auf Konto und Benachrichtigungen.
 - **Service Worker:** cacht keine API-Antworten.
+- **Nachweise (11.10.2026):** Berichtigungen ändern die ursprüngliche Prüfung nicht (Unterschrift, Befunde und Datum bleiben erhalten); berichtigen dürfen nur die prüfende Person oder Admins, Lesezugriff nie. Papierkorb und Wiederherstellung nur für Admins (`e2e/10-corrections.cjs`).
 - **Secrets:** In Repo und Git-Historie keine Zugangsdaten gefunden.

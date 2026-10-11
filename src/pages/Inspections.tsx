@@ -7,9 +7,10 @@ import { AssetDrawer } from '../components/AssetDrawer';
 import { AssetList } from '../components/AssetList';
 import { CategoryIcon } from '../components/CategoryIcon';
 import { Badge, Button, Card, Chip, Empty, ErrorBox, PageHeader, Segmented, Spinner, useToast } from '../components/ui';
+import { INSPECTION_PURPOSES } from '../../shared/catalog';
 import { fmtDateTime, RESULT_META } from '../format';
 
-type Tab = 'overdue' | 'soon' | 'never' | 'not_inspectable' | 'new' | 'drafts' | 'done' | 'archive';
+type Tab = 'overdue' | 'soon' | 'never' | 'not_inspectable' | 'new' | 'drafts' | 'done' | 'archive' | 'corrected';
 type DueTab = 'overdue' | 'soon' | 'never' | 'not_inspectable' | 'new';
 
 /** Alle vorkommenden Prüfarten (Schlüssel → Bezeichnung) über alle Elementarten. */
@@ -49,10 +50,11 @@ export function InspectionsPage() {
           { value: 'drafts', label: 'Entwürfe', count: c?.drafts },
           { value: 'done', label: 'Durchgeführt' },
           { value: 'archive', label: 'Archiv' },
+          { value: 'corrected', label: 'Berichtigt' },
         ]}
       />
-      {tab === 'drafts' || tab === 'done' || tab === 'archive' ? (
-        <InspectionList key={tab} status={tab === 'drafts' ? 'draft' : 'submitted'} archived={tab === 'archive'} />
+      {tab === 'drafts' || tab === 'done' || tab === 'archive' || tab === 'corrected' ? (
+        <InspectionList key={tab} status={tab === 'drafts' ? 'draft' : 'submitted'} archived={tab === 'archive'} corrected={tab === 'corrected'} />
       ) : (
         <DueList due={tab} schedule={tab === 'new' ? '' : schedule} onSchedule={(v) => setParams(v ? { tab, pruefart: v } : { tab }, { replace: true })} />
       )}
@@ -100,14 +102,14 @@ function DueList({ due, schedule, onSchedule }: { due: DueTab; schedule: string;
   );
 }
 
-function InspectionList({ status, archived }: { status: 'draft' | 'submitted'; archived: boolean }) {
-  const { data, isLoading, error } = useInspections(status, archived);
+function InspectionList({ status, archived, corrected }: { status: 'draft' | 'submitted'; archived: boolean; corrected: boolean }) {
+  const { data, isLoading, error } = useInspections(corrected ? { superseded: '1' } : { status, archived: archived ? '1' : undefined });
   const { data: me } = useMe();
   const toast = useToast();
   const [sel, setSel] = useState<Set<string>>(new Set());
   const [zipping, setZipping] = useState<string | null>(null);
   const isAdmin = me && ['owner', 'admin'].includes(me.user.role);
-  const selectable = status === 'submitted';
+  const selectable = status === 'submitted' && !corrected;
   const archive = useAction((v: { ids: string[]; archived: boolean }) => api<{ changed: number }>('/inspections/archive', { body: v }), (r, v) => {
     toast(`${r.changed} ${v.archived ? 'archiviert' : 'wiederhergestellt'}`);
     setSel(new Set());
@@ -181,8 +183,14 @@ function InspectionList({ status, archived }: { status: 'draft' | 'submitted'; a
         {!rows.length ? (
           <Empty
             icon={<FileText className="size-5" />}
-            title={status === 'draft' ? 'Keine offenen Entwürfe' : archived ? 'Archiv ist leer' : 'Noch keine Prüfungen'}
-            text={archived ? 'Archivierte Prüfungen bleiben als Nachweis erhalten, erscheinen aber nicht mehr in den Listen.' : undefined}
+            title={corrected ? 'Keine berichtigten Prüfungen' : status === 'draft' ? 'Keine offenen Entwürfe' : archived ? 'Archiv ist leer' : 'Noch keine Prüfungen'}
+            text={
+              corrected
+                ? 'Wird eine abgeschlossene Prüfung berichtigt, bleibt die ursprüngliche Fassung hier als Nachweis erhalten.'
+                : archived
+                  ? 'Archivierte Prüfungen bleiben als Nachweis erhalten, erscheinen aber nicht mehr in den Listen.'
+                  : undefined
+            }
           />
         ) : (
           <ul className="divide-y divide-line">
@@ -201,6 +209,11 @@ function InspectionList({ status, archived }: { status: 'draft' | 'submitted'; a
                   <span className="min-w-0 flex-1">
                     <span className="block text-sm font-medium">
                       {i.code} <span className="font-normal text-ink-3">· {scheduleLabel(i.category, i.schedule ?? 'main')}</span>
+                      {i.purpose && i.purpose !== 'regular' && (
+                        <Badge tone="muted" className="ml-2">
+                          {INSPECTION_PURPOSES[i.purpose]}
+                        </Badge>
+                      )}
                     </span>
                     <span className="block truncate text-xs text-ink-3">{[i.location, i.buildingName, i.propertyName].filter(Boolean).join(' · ')}</span>
                   </span>
@@ -209,7 +222,13 @@ function InspectionList({ status, archived }: { status: 'draft' | 'submitted'; a
                     <br />
                     {i.inspector}
                   </span>
-                  {i.status === 'draft' ? <Badge tone="info">Entwurf</Badge> : i.result && <Badge tone={RESULT_META[i.result].tone}>{RESULT_META[i.result].label}</Badge>}
+                  {i.supersededAt ? (
+                    <Badge tone="muted">Berichtigt</Badge>
+                  ) : i.status === 'draft' ? (
+                    <Badge tone="info">Entwurf</Badge>
+                  ) : (
+                    i.result && <Badge tone={RESULT_META[i.result].tone}>{RESULT_META[i.result].label}</Badge>
+                  )}
                 </Link>
               </li>
             ))}

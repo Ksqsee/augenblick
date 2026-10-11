@@ -2,6 +2,7 @@ import { Link, useNavigate, useParams } from 'react-router-dom';
 import { api, type Inspection, queryClient, useInspection } from '../api';
 import { InspectionForm } from '../components/run';
 import { Button, ErrorBox, Spinner, useToast } from '../components/ui';
+import { fmtDate } from '../format';
 
 export function InspectionRun() {
   const { id = '' } = useParams();
@@ -36,8 +37,21 @@ function Online({ insp }: { insp: Inspection }) {
       checkpoints={insp.checkpoints}
       inspectorName={insp.inspectorName}
       back={`/elemente/${insp.assetId}`}
+      banner={
+        insp.purpose === 'correction' ? (
+          <div className="rounded-xl border border-warn/30 bg-warn-soft px-4 py-3 text-sm text-warn">
+            Berichtigung der Prüfung vom {insp.supersedesDate ? fmtDate(insp.supersedesDate) : '–'}. Nach dem Abschluss ersetzt sie die ursprüngliche
+            Prüfung; diese bleibt unverändert als Nachweis unter „Berichtigt“ erhalten.
+          </div>
+        ) : insp.purpose === 'follow_up' ? (
+          <div className="rounded-xl border border-info/20 bg-info-soft px-4 py-3 text-sm text-info">
+            Nachprüfung zur Prüfung vom {insp.followUpDate ? fmtDate(insp.followUpDate) : '–'}: geprüft werden nur die beanstandeten Punkte. Mängel an
+            Punkten, die jetzt in Ordnung sind, gelten danach als behoben. Der Prüfturnus bleibt unverändert.
+          </div>
+        ) : undefined
+      }
       initial={{
-        kind: insp.kind,
+        kinds: insp.kinds,
         notInspectable: insp.notInspectable,
         answers: insp.answers,
         maintenance: insp.maintenance,

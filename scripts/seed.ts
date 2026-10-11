@@ -477,12 +477,14 @@ for (const ps of properties) {
         const inspId = id();
         const inspector = pick(inspectors);
         const nd = notInsp ? null : addMonths(t, interval);
+        const firstKind = hi === 0 && history.length === 1 && rnd() < 0.3 ? 'initial' : 'periodic';
         insert('inspections', {
           id: inspId,
           tenant_id: tenantId,
           asset_id: assetId,
           inspector_id: inspector.id,
-          kind: hi === 0 && history.length === 1 && rnd() < 0.3 ? 'initial' : 'periodic',
+          kind: firstKind,
+          kinds: JSON.stringify([firstKind]),
           reason: 'planned',
           status: 'submitted',
           result,
@@ -682,7 +684,7 @@ insert('custom_categories', {
   });
   if (at && iid) {
     insert('inspections', {
-      id: iid, tenant_id: tenantId, asset_id: aid, inspector_id: people.inspector.id, kind: 'periodic', reason: 'planned', status: 'submitted', result: 'ok',
+      id: iid, tenant_id: tenantId, asset_id: aid, inspector_id: people.inspector.id, kind: 'periodic', kinds: '["periodic"]', reason: 'planned', status: 'submitted', result: 'ok',
       answers: JSON.stringify(Object.fromEntries(rsvCheckpoints.map((c) => [c.id, 'ok']))), maintenance: JSON.stringify({ items: ['clean'], defects: [], notInspectable: false }),
       checkpoints: JSON.stringify(rsvCheckpoints), notes: '', signature: signature(people.inspector.name), signer_name: people.inspector.name,
       next_due_at: nd, inspected_at: at, created_at: at, updated_at: at,

@@ -41,8 +41,8 @@ Für API-Schlüssel gelten diese Regeln:
 | `GET /assets` | Elemente. Filter: `due=overdue\|soon\|never\|not_inspectable\|new\|defects`, `schedule=<Prüfart>`, `propertyId`, `buildingId`, `category`, `q` |
 | `GET /assets/:id` | Element mit Prüfarten, Historie, offenen Mängeln, Anhängen |
 | `GET /assets/by-code/:code` | Element über Code oder QR-Etikett |
-| `GET /inspections?status=submitted\|draft&archived=1` | Prüfungen |
-| `GET /inspections/:id` | Prüfung mit Prüfpunkten, Befunden, Mängeln (inkl. Maßnahme), Gesamtbewertung |
+| `GET /inspections?status=submitted\|draft&archived=1` | Prüfungen (ohne berichtigte); `superseded=1` liefert die durch eine Berichtigung ersetzten |
+| `GET /inspections/:id` | Prüfung mit Prüfpunkten, Befunden, Mängeln (inkl. Maßnahme), Gesamtbewertung, Arten (`kinds`, `kindLabels`), Anlass (`purpose`: `regular`, `correction`, `follow_up`) und Verweisen (`supersedesId`, `supersededBy`, `followUpOf`) |
 | `GET /walkthroughs`, `GET /walkthroughs/:id` | Brandschutzbegehungen |
 | `GET /defects?status=open\|resolved\|all` | Mängel aus Prüfungen und Begehungen |
 | `GET /tasks`, `GET /tasks/:id/comments`, `GET /tasks/stats?days=30` | Aufgaben, Kommentare, Statistik |
@@ -57,6 +57,9 @@ Für API-Schlüssel gelten diese Regeln:
 | `POST /assets` | Element anlegen: `{ buildingId, category, location, floor, manufacturer, model, attributes, code? }` |
 | `PATCH /assets/:id` | Element ändern |
 | `PUT /assets/:id/schedules` | Prüfart aktivieren/deaktivieren: `{ key, enabled, nextDueAt? }` |
+| `POST /assets/:id/inspections` | Prüfungsentwurf anlegen: `{ schedule? }` oder Nachprüfung `{ purpose: "follow_up", followUpOf }` |
+| `PUT /inspections/:id`, `POST /inspections/:id/submit` | Entwurf speichern bzw. abschließen; Arten als `kinds: ["periodic", …]` (eingebaute Schlüssel oder eigene `k_…`) |
+| `POST /inspections/:id/correct` | Berichtigung einer abgeschlossenen Prüfung anlegen (eigene Prüfung oder Admin); liefert den Entwurf |
 | `PATCH /defects/:id` | Mangel als behoben markieren / wieder öffnen |
 | `POST /tasks`, `PATCH /tasks/:id` | Aufgaben anlegen und ändern |
 | `POST /tasks/:id/comments` | Kommentar: `{ body }` |

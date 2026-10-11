@@ -156,12 +156,12 @@ Grundlage ist diese Analyse; Augenblick Control wurde seither nicht erneut geöf
 | Prüfvorlagen, eigene Protokolle/Varianten, eigene Prüfpunkte | ✓ | eigene Elementarten, Vorlagen je Prüfart |
 | Prüfarten (`yearly`, `monthly`, `inner`, `strength`) | ✓ | je Element mit eigener Frist |
 | Prüfablauf inkl. Art der Prüfung, Wartungsarbeiten, Mängel, Maßnahmen, Fotos, Gesamtbewertung, Unterschrift | ✓ | Gesamtbewertung überschreibbar mit Begründung |
-| Entwürfe, Offline-Sync, fehlgeschlagene Syncs | ✓ | PWA mit Warteschlange |
+| Entwürfe, Offline-Sync, fehlgeschlagene Syncs | ~ | PWA mit Warteschlange; Verwaltung fehlgeschlagener Syncs auf dem Server siehe Abschnitt 7 |
 | Wieder öffnen, Archiv, Mehrfachlöschen | ✓ | |
 | Brandschutzbegehung mit Katalog nach Gebäudeart | ✓ | eigener Fragenkatalog und eigene Formulierungen |
 | Prüfungs-Reiter (Überfällig, Bald fällig, Nicht prüfbar, Durchgeführt, Neue Geräte), Filter nach Prüfart | ✓ | Mängel-Reiter als eigene Seite |
 | Mängel-Dashboard, Aufgaben mit Labels, SLA, Kommentaren, Statistik | ✓ | |
-| Subunternehmer | ✓ (anders) | Link je Aufgabe statt eigener Rolle/Konto |
+| Subunternehmer | ~ | Link je Aufgabe; externe Firma mit eigenem Zugang siehe Abschnitt 7 |
 | Berichte: Prüfprotokoll, Objektbericht, Compliance, Mängelbericht, Excel-Elementliste (re-importierbar), JSON-Backup, Archiv | ✓ | PDF entsteht im Browser |
 | Batch-ZIP-Export, PDF-Dateinamenschema | ✓ | |
 | UUID-/QR-Etiketten, Scan, Zuordnung beim ersten Scan | ✓ | |
@@ -170,6 +170,29 @@ Grundlage ist diese Analyse; Augenblick Control wurde seither nicht erneut geöf
 | Firmenprofil, Logo, Sprache, Zeitzone | ✓ | Sprache gilt für Dokumente; Oberfläche deutsch |
 | Sitzungen, Rechtstexte mit Versionen, DSGVO | ✓ | |
 | Speicher-Statistik (`storage-stats`) | ✓ | |
-| Zugangsschlüssel (`access-keys`) | ✓ | siehe [`docs/api.md`](../api.md) |
+| Zugangsschlüssel (`access-keys`) | ~ | im Original Einladungscodes für fremde Firmen (siehe Abschnitt 7); Prüfkompass hat zusätzlich API-Schlüssel ([`docs/api.md`](../api.md)) |
 | Billing (Stripe, Pläne, Testphase) | – | bewusst weggelassen |
 | E-Mail (Passwort vergessen, E-Mail-Bestätigung, Mail-Erinnerungen) | – | bewusst weggelassen; Passwort-Link durch Admin |
+
+## 7. Nachträglich gefunden (Abgleich der Oberflächentexte, 11.10.2026)
+
+Methode: Die rund 1 050 deutschen Oberflächentexte aus dem ausgelieferten Web-Bundle des Originals wurden
+thematisch gruppiert, daraus Funktionen abgeleitet und mit dem Code von Prüfkompass verglichen
+(nur Funktionen; keine Texte übernommen). Der vermutete „Kunden-Link (24 h)“ gehört zur Bezahlung und
+entfällt.
+
+| Funktion | Stand | Umsetzung in Prüfkompass |
+|----------|-------|--------------------------|
+| Berichtigung abgeschlossener Prüfungen (Original bleibt als Nachweis, Reiter „Berichtigt“) | ✓ | `POST /inspections/:id/correct`, Migration 0008 |
+| Prüfanlass: Nachprüfung nach Mängelbehebung (nur beanstandete Punkte, Turnus bleibt) | ✓ | `POST /assets/:id/inspections` mit `purpose: follow_up` |
+| Begehungsanlass (regelmäßig, außerordentlich, nach Änderung, Nachbegehung) | ✓ | `POST /properties/:id/walkthroughs` mit `purpose` |
+| Mehrere und eigene „Arten der Prüfung“ je Prüfung | ✓ | `kinds`, eigene Arten in den Unternehmenseinstellungen |
+| Erinnerung X Tage vor Fälligkeit | ✓ | täglicher Cron, Einstellung je Workspace |
+| Papierkorb für Elemente (30 Tage) | ✓ | `GET /trash/assets`, `POST /assets/:id/restore` |
+| Zugriff je Mitglied auf Objekte/Gebäude beschränken, Anlegerechte | geplant | |
+| Berichtsgenerator mit Filtern, Suche in Prüfungen | geplant | |
+| Jährlicher Compliance-Bericht (Begehungen, Mängel, Behebungsquote) | geplant | |
+| Brandschutzbeauftragten-Status je Mitglied mit Verlauf | geplant | |
+| Fehlgeschlagene Offline-Übertragungen auf dem Server (erneut versuchen, endgültig löschen) | geplant | |
+| Selbstanpassende Prüfintervalle | geplant | |
+| Subunternehmer als externe Firma mit Einladungscode | geplant | |

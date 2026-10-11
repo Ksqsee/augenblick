@@ -1,9 +1,9 @@
 import { getCategory } from '../categories';
 import clsx from 'clsx';
-import { Archive, ArrowLeft, Download, Printer, RotateCcw } from 'lucide-react';
+import { Archive, ArrowLeft, Download, FilePen, Printer, Repeat, RotateCcw } from 'lucide-react';
 import { type ReactNode, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
-import { INSPECTION_KINDS, SEVERITIES } from '../../shared/catalog';
+import { INSPECTION_PURPOSES, SEVERITIES } from '../../shared/catalog';
 import { api, fileUrl, type Inspection, useAction, useInspection, useMe } from '../api';
 import { APP_NAME } from '../components/Logo';
 import { attributeRows } from '../components/forms';
@@ -56,13 +56,41 @@ export function Protocol() {
           <p className="font-mono text-base font-semibold">{i.asset.code}</p>
           <p className="text-ink-3">Protokoll-Nr. {i.id.slice(0, 8).toUpperCase()}</p>
           {i.status === 'draft' && <p className="font-semibold text-bad">ENTWURF</p>}
+          {i.supersededAt && <p className="font-semibold text-bad">BERICHTIGT</p>}
           {i.archivedAt && <p className="text-ink-3">archiviert {fmtDate(i.archivedAt)}</p>}
         </div>
       </header>
 
+      {i.supersededAt && (
+        <p className="mt-3 rounded border-2 border-bad p-2 font-medium text-bad">
+          Diese Prüfung wurde berichtigt und ist nicht mehr gültig.{' '}
+          {i.supersededBy && (
+            <Link to={`/druck/protokoll/${i.supersededBy}`} className="underline">
+              Berichtigt durch Prüfung vom {fmtDate(i.supersededByDate ?? i.supersededAt)}
+            </Link>
+          )}
+        </p>
+      )}
+      {i.purpose === 'correction' && i.supersedesId && (
+        <p className="mt-3 rounded border border-line p-2">
+          {INSPECTION_PURPOSES.correction}:{' '}
+          <Link to={`/druck/protokoll/${i.supersedesId}`} className="underline">
+            ersetzt Prüfung vom {fmtDate(i.supersedesDate)}
+          </Link>
+        </p>
+      )}
+      {i.followUpOf && (
+        <p className="mt-3 rounded border border-line p-2">
+          {INSPECTION_PURPOSES.follow_up}{' '}
+          <Link to={`/druck/protokoll/${i.followUpOf}`} className="underline">
+            zur Prüfung vom {fmtDate(i.followUpDate)}
+          </Link>
+        </p>
+      )}
+
       <section className="mt-4 grid grid-cols-2 gap-x-8 gap-y-1">
         <Row k="Objekt" v={i.asset.propertyName} />
-        <Row k="Prüfart" v={INSPECTION_KINDS[i.kind]} />
+        <Row k="Art der Prüfung" v={i.kindLabels.join(', ')} />
         <Row k="Gebäude" v={i.asset.buildingName} />
         <Row k="Prüfdatum" v={fmtDateTime(i.inspectedAt ?? i.createdAt)} />
         <Row k="Standort" v={[i.asset.location, i.asset.floor].filter(Boolean).join(', ')} />
@@ -188,13 +216,38 @@ function ProtocolActions({ i }: { i: Inspection }) {
       navigate(`/pruefung/${i.id}`);
     },
   );
+  const canCorrect = me && i.status === 'submitted' && !i.supersededAt && me.user.role !== 'viewer' && (isAdmin || i.inspectorId === me.user.id);
+  const canFollowUp = me && i.status === 'submitted' && !i.supersededAt && me.user.role !== 'viewer' && Object.values(i.answers).includes('defect');
+  const correct = useAction(
+    () => api<{ id: string }>(`/inspections/${i.id}/correct`, { method: 'POST' }),
+    (r) => navigate(`/pruefung/${r.id}`),
+  );
+  const followUp = useAction(
+    () => api<{ id: string }>(`/assets/${i.assetId}/inspections`, { body: { purpose: 'follow_up', followUpOf: i.id } }),
+    (r) => navigate(`/pruefung/${r.id}`),
+  );
   const archive = useAction(
     () => api('/inspections/archive', { body: { ids: [i.id], archived: !i.archivedAt } }),
     () => toast(i.archivedAt ? 'Wiederhergestellt' : 'Archiviert'),
   );
   return (
     <>
-      {isAdmin && i.status === 'submitted' && (
+      {canFollowUp && (
+        <Button variant="ghost" icon={<Repeat className="size-4" />} loading={followUp.isPending} onClick={() => followUp.mutate(undefined)}>
+          Nachprüfung
+        </Button>
+      )}
+      {canCorrect && (
+        <Button
+          variant="ghost"
+          icon={<FilePen className="size-4" />}
+          loading={correct.isPending}
+          onClick={() => confirm('Prüfung berichtigen? Es entsteht eine neue Fassung zum Bearbeiten; die ursprüngliche bleibt als Nachweis erhalten.') && correct.mutate(undefined)}
+        >
+          Berichtigen
+        </Button>
+      )}
+      {isAdmin && i.status === 'submitted' && !i.supersededAt && (
         <>
           <Button variant="ghost" icon={<Archive className="size-4" />} loading={archive.isPending} onClick={() => archive.mutate(undefined)}>
             {i.archivedAt ? 'Aus Archiv holen' : 'Archivieren'}

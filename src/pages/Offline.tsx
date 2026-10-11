@@ -285,8 +285,8 @@ export function OfflineRun() {
         inspectorName={me?.user.name ?? ''}
         back="/offline"
         initial={
-          state.draft ?? {
-            kind: asset.lastInspectedAt ? 'periodic' : 'initial',
+          (state.draft && { ...state.draft, kinds: state.draft.kinds ?? [(state.draft as { kind?: string }).kind ?? 'periodic'] }) ?? {
+            kinds: [asset.lastInspectedAt ? 'periodic' : 'initial'],
             notInspectable: false,
             answers: {},
             maintenance: [],

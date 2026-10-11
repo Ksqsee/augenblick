@@ -1,9 +1,9 @@
 import { useQuery } from '@tanstack/react-query';
 import clsx from 'clsx';
-import { ChevronDown, ClipboardList, Download, Footprints, Plus, Scale, Trash2 } from 'lucide-react';
+import { ChevronDown, ClipboardList, Download, Footprints, Plus, Repeat, Scale, Trash2 } from 'lucide-react';
 import { useCallback, useMemo, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
-import { SEVERITIES } from '../../shared/catalog';
+import { SEVERITIES, WALK_PURPOSES, type WalkPurpose } from '../../shared/catalog';
 import { type Answer, computeResult, isComplete } from '../../shared/logic';
 import { BUILDING_TYPES, type BuildingType, WALK_SECTIONS, type WalkSection } from '../../shared/walkthrough';
 import { api, type Finding, type PropertyDetail, queryClient, useAction, useMe, useProperties, useWalkthrough, useWalkthroughs, type Walkthrough } from '../api';
@@ -61,6 +61,7 @@ export function WalkthroughsPage() {
                 <span className="block truncate text-xs text-ink-3">
                   {fmtDateTime(w.inspectedAt ?? w.createdAt)} · {w.inspector}
                   {w.buildingType && ` · ${BUILDING_TYPES[w.buildingType]}`}
+                  {w.purpose && w.purpose !== 'regular' && ` · ${WALK_PURPOSES[w.purpose]}`}
                 </span>
               </span>
               {w.openDefects > 0 && <Badge tone="warn">{defectsLabel(w.openDefects)} offen</Badge>}
@@ -73,15 +74,22 @@ export function WalkthroughsPage() {
   );
 }
 
-export function StartWalkthrough({ onClose, propertyId: fixed }: { onClose: () => void; propertyId?: string }) {
+export function StartWalkthrough({ onClose, propertyId: fixed, followUpOf }: { onClose: () => void; propertyId?: string; followUpOf?: string }) {
   const props = useProperties();
   const navigate = useNavigate();
   const [propertyId, setPropertyId] = useState(fixed ?? '');
   const detail = useQuery({ queryKey: ['property', propertyId], queryFn: () => api<PropertyDetail>(`/properties/${propertyId}`), enabled: !!propertyId });
   const [buildingId, setBuildingId] = useState('');
   const [type, setType] = useState<BuildingType | ''>('');
+  const [purpose, setPurpose] = useState<WalkPurpose>(followUpOf ? 'follow_up' : 'regular');
+  const [origin, setOrigin] = useState(followUpOf ?? '');
+  // Ausgangsbegehungen für eine Nachbegehung: abgeschlossen, mit Feststellungen
+  const origins = (detail.data?.walkthroughs ?? []).filter((w) => w.status === 'submitted' && w.result && w.result !== 'ok');
   const start = useAction(
-    () => api<{ id: string }>(`/properties/${propertyId}/walkthroughs`, { body: { buildingId: buildingId || null, buildingType: type || undefined } }),
+    () =>
+      api<{ id: string }>(`/properties/${propertyId}/walkthroughs`, {
+        body: purpose === 'follow_up' ? { purpose, followUpOf: origin } : { buildingId: buildingId || null, buildingType: type || undefined, purpose },
+      }),
     (r) => navigate(`/begehung/${r.id}`),
   );
   const effectiveType = type || detail.data?.buildingType || 'general';
@@ -94,7 +102,7 @@ export function StartWalkthrough({ onClose, propertyId: fixed }: { onClose: () =
           <Button variant="ghost" onClick={onClose}>
             Abbrechen
           </Button>
-          <Button disabled={!propertyId} loading={start.isPending} onClick={() => start.mutate(undefined)}>
+          <Button disabled={!propertyId || (purpose === 'follow_up' && !origin)} loading={start.isPending} onClick={() => start.mutate(undefined)}>
             Starten
           </Button>
         </>
@@ -116,22 +124,10 @@ export function StartWalkthrough({ onClose, propertyId: fixed }: { onClose: () =
             )}
           </Field>
         )}
-        <Field label="Bereich" hint="Optional – sonst gilt die Begehung für das ganze Objekt">
+        <Field label="Anlass">
           {(id) => (
-            <Select id={id} value={buildingId} disabled={!detail.data} onChange={(e) => setBuildingId(e.target.value)}>
-              <option value="">Gesamtes Objekt</option>
-              {detail.data?.buildings.map((b) => (
-                <option key={b.id} value={b.id}>
-                  {b.name}
-                </option>
-              ))}
-            </Select>
-          )}
-        </Field>
-        <Field label="Nutzung" hint="Bestimmt die zusätzlichen nutzungsspezifischen Fragen">
-          {(id) => (
-            <Select id={id} value={type || effectiveType} onChange={(e) => setType(e.target.value as BuildingType)}>
-              {Object.entries(BUILDING_TYPES).map(([k, v]) => (
+            <Select id={id} value={purpose} onChange={(e) => setPurpose(e.target.value as WalkPurpose)}>
+              {Object.entries(WALK_PURPOSES).map(([k, v]) => (
                 <option key={k} value={k}>
                   {v}
                 </option>
@@ -139,6 +135,47 @@ export function StartWalkthrough({ onClose, propertyId: fixed }: { onClose: () =
             </Select>
           )}
         </Field>
+        {purpose === 'follow_up' ? (
+          <Field label="Ausgangsbegehung" hint="Geprüft werden nur die dort beanstandeten Fragen; behobene Feststellungen werden geschlossen.">
+            {(id) => (
+              <Select id={id} value={origin} disabled={!detail.data} onChange={(e) => setOrigin(e.target.value)}>
+                <option value="">{origins.length ? 'Bitte wählen …' : 'Keine Begehung mit Feststellungen'}</option>
+                {origins.map((w) => (
+                  <option key={w.id} value={w.id}>
+                    {fmtDate(w.inspectedAt)}
+                    {w.buildingName ? ` · ${w.buildingName}` : ''} · {w.openDefects} offen
+                  </option>
+                ))}
+              </Select>
+            )}
+          </Field>
+        ) : (
+          <>
+            <Field label="Bereich" hint="Optional – sonst gilt die Begehung für das ganze Objekt">
+              {(id) => (
+                <Select id={id} value={buildingId} disabled={!detail.data} onChange={(e) => setBuildingId(e.target.value)}>
+                  <option value="">Gesamtes Objekt</option>
+                  {detail.data?.buildings.map((b) => (
+                    <option key={b.id} value={b.id}>
+                      {b.name}
+                    </option>
+                  ))}
+                </Select>
+              )}
+            </Field>
+            <Field label="Nutzung" hint="Bestimmt die zusätzlichen nutzungsspezifischen Fragen">
+              {(id) => (
+                <Select id={id} value={type || effectiveType} onChange={(e) => setType(e.target.value as BuildingType)}>
+                  {Object.entries(BUILDING_TYPES).map(([k, v]) => (
+                    <option key={k} value={k}>
+                      {v}
+                    </option>
+                  ))}
+                </Select>
+              )}
+            </Field>
+          </>
+        )}
       </div>
     </Modal>
   );
@@ -372,7 +409,16 @@ export function WalkthroughProtocol() {
   const sections = [...new Set(w.questions.map((q) => q.section as WalkSection))];
   const res = w.result ? RESULT_META[w.result] : null;
   return (
-    <PrintFrame title="Begehungsprotokoll" back={`/objekte/${w.propertyId}`} actions={<WalkPdfButton w={w} />}>
+    <PrintFrame
+      title="Begehungsprotokoll"
+      back={`/objekte/${w.propertyId}`}
+      actions={
+        <>
+          <FollowUpWalkButton w={w} />
+          <WalkPdfButton w={w} />
+        </>
+      }
+    >
       <header className="flex items-start justify-between border-b-2 border-ink pb-3">
         <div>
           <p className="text-[11px] tracking-wider text-ink-3 uppercase">{w.tenantName}</p>
@@ -385,6 +431,7 @@ export function WalkthroughProtocol() {
         <div className="text-right text-ink-2">
           <p>{fmtDateTime(w.inspectedAt ?? w.createdAt)}</p>
           <p>Nutzung: {BUILDING_TYPES[w.buildingType]}</p>
+          <p>Anlass: {WALK_PURPOSES[w.purpose ?? 'regular']}</p>
           <p>Nächste Begehung: {fmtDate(w.nextDueAt)}</p>
           {w.status === 'draft' && <p className="font-semibold text-bad">ENTWURF</p>}
         </div>
@@ -393,6 +440,14 @@ export function WalkthroughProtocol() {
         Adresse: {w.propertyAddress.split('\n').join(', ') || '–'} · Durchgeführt von {w.inspectorName}
         {w.participants && ` · Teilnehmende: ${w.participants}`}
       </p>
+      {w.followUpOf && (
+        <p className="mt-2 rounded border border-line p-2">
+          Nachbegehung{' '}
+          <Link to={`/druck/begehung/${w.followUpOf}`} className="underline">
+            zur Begehung vom {fmtDate(w.followUpDate)}
+          </Link>
+        </p>
+      )}
 
       {w.findings.length > 0 && (
         <section className="mt-5 break-inside-avoid">
@@ -459,6 +514,20 @@ export function WalkthroughProtocol() {
         <ClipboardList className="size-3" /> Rechtsgrundlagen sind Orientierungshinweise; maßgeblich sind die im Einzelfall geltenden Vorschriften und das Brandschutzkonzept.
       </p>
     </PrintFrame>
+  );
+}
+
+function FollowUpWalkButton({ w }: { w: Walkthrough }) {
+  const { data: me } = useMe();
+  const [open, setOpen] = useState(false);
+  if (!me || me.user.role === 'viewer' || w.status !== 'submitted' || !Object.values(w.answers).includes('defect')) return null;
+  return (
+    <>
+      <Button variant="ghost" icon={<Repeat className="size-4" />} onClick={() => setOpen(true)}>
+        Nachbegehung
+      </Button>
+      {open && <StartWalkthrough propertyId={w.propertyId} followUpOf={w.id} onClose={() => setOpen(false)} />}
+    </>
   );
 }
 
