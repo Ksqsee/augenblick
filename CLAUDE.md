@@ -37,7 +37,7 @@ Cron-Trigger; geteilte Fachlogik in `shared/` mit Vitest. Deploy über `npm run 
 ## Tools
 
 - Browser: Chromium unter `PLAYWRIGHT_BROWSERS_PATH=/opt/pw-browsers` (nicht `playwright install`).
-- **REA** (`rea-agents@6.3.0`, MCP-Server `rea` über `.mcp.json`) und der Skill
+- **REA** (`rea-agents@6.4.0`, MCP-Server `rea` über `.mcp.json`) und der Skill
   `reverse-engineer-anything` (`.claude/skills/`) sind eingerichtet. REA analysiert lokale Artefakte
   (JS/Electron-Ordner, `.asar`, Binaries), nicht direkt eine Web-App. Nur für Software einsetzen,
   an der der Nutzer die Rechte hat.
