@@ -168,6 +168,9 @@ export async function walkthroughPdf(w: Walkthrough, brand: Brand): Promise<Uint
     [T('Feststellungen'), String(w.findings.length)],
   ]);
   if (w.followUpOf) doc.text(`${T('Nachbegehung zur Begehung vom')} ${d(w.followUpDate)}`, { bold: true });
+  if (w.inspectorFireOfficer === false)
+    doc.text(T('Hinweis: Die durchführende Person war zum Zeitpunkt der Begehung im Workspace nicht als Brandschutzbeauftragte/r hinterlegt.'), { color: AMBER });
+  else if (w.inspectorFireOfficer && w.inspectorQualification) doc.text(`${T('Qualifikation')}: ${w.inspectorQualification}`, { color: MUTED });
   if (w.findings.length) {
     doc.heading(T('Feststellungen'));
     for (const [n, f] of w.findings.entries()) {
@@ -391,4 +394,148 @@ export async function protocolsZip(ids: string[], me: Me, onProgress?: (done: nu
   return zipSync(files, { level: 0 });
 }
 
+export interface SelectionRow {
+  id: string;
+  inspectedAt: number | null;
+  createdAt: number;
+  code: string;
+  category: string;
+  location: string;
+  buildingName: string;
+  propertyName: string;
+  result: string | null;
+  inspector: string;
+  purpose?: string;
+}
 
+/** Prüfbericht für eine gefilterte Auswahl: Kennzahlen und Liste aller Prüfungen. */
+export async function selectionPdf(rows: SelectionRow[], filters: [string, string][], brand: Brand): Promise<Uint8Array> {
+  useBrand(brand);
+  const doc = await Doc.create(brand, T('Prüfbericht'));
+  doc.title(T('Prüfbericht'), `${rows.length} ${T('Prüfungen')} · ${T('Stand')} ${dt(Date.now())}`);
+  if (filters.length) doc.facts(filters.map(([k, v]) => [T(k), v]));
+  const count = (r: string) => rows.filter((x) => x.result === r).length;
+  doc.facts([
+    [T('Ohne Mängel'), String(count('ok'))],
+    [T('Mit Mängeln'), String(count('defects'))],
+    [T('Kritisch'), String(count('critical'))],
+    [T('Nicht prüfbar'), String(count('not_inspectable'))],
+  ]);
+  doc.heading(T('Prüfungen'));
+  if (!rows.length) doc.text(T('Keine.'), { color: MUTED });
+  else
+    doc.table(
+      [
+        { label: T('Prüfdatum'), w: 1.5 },
+        { label: T('Code'), w: 1.5 },
+        { label: T('Art'), w: 2 },
+        { label: T('Ort'), w: 4.2 },
+        { label: T('Prüfer/in'), w: 1.8 },
+        { label: T('Ergebnis'), w: 1.6, align: 'right' },
+      ],
+      rows.map((r) => ({
+        cells: [
+          d(r.inspectedAt ?? r.createdAt),
+          r.code,
+          T(getCategory(r.category).label),
+          [r.propertyName, r.buildingName, r.location].filter(Boolean).join(' · '),
+          r.inspector,
+          r.result ? T(RESULT_META[r.result as keyof typeof RESULT_META].label) : '–',
+        ],
+        color: [undefined, undefined, undefined, undefined, undefined, resultColor(r.result)],
+      })),
+    );
+  return doc.finish();
+}
+
+export interface AnnualData {
+  year: number;
+  properties: {
+    id: string;
+    name: string;
+    address: string;
+    inspections: number;
+    followUps: number;
+    byResult: Record<string, number>;
+    byCategory: Record<string, number>;
+    defects: { total: number; critical: number; fromWalkthroughs: number; resolved: number; open: number; resolutionRate: number | null; avgDaysToResolve: number | null };
+    walkthroughs: { inspectedAt: number; purpose: string; result: string | null; inspector: string; fireOfficer: boolean | null; qualification: string; findings: number }[];
+    fireOfficers: { name: string; qualification: string; appointedFrom: number; appointedTo: number | null }[];
+  }[];
+}
+
+/** Jahresbericht (Compliance-Zusammenfassung eines Kalenderjahres) je Objekt. */
+export async function annualPdf(data: AnnualData, brand: Brand): Promise<Uint8Array> {
+  useBrand(brand);
+  const doc = await Doc.create(brand, `${T('Jahresbericht')} ${data.year}`);
+  const sum = (f: (p: AnnualData['properties'][number]) => number) => data.properties.reduce((s, p) => s + f(p), 0);
+  const total = sum((p) => p.defects.total);
+  const resolved = sum((p) => p.defects.resolved);
+  doc.title(`${T('Jahresbericht')} ${data.year}`, `${data.properties.length} ${T('Objekte')} · ${T('Stand')} ${dt(Date.now())}`);
+  doc.facts([
+    [T('Prüfungen'), String(sum((p) => p.inspections))],
+    [T('davon Nachprüfungen'), String(sum((p) => p.followUps))],
+    [T('Begehungen'), String(sum((p) => p.walkthroughs.length))],
+    [T('Mängel erfasst'), String(total)],
+    [T('Mängel behoben'), String(resolved)],
+    [T('Behebungsquote'), total ? `${Math.round((resolved / total) * 100)} %` : '–'],
+  ]);
+  doc.table(
+    [
+      { label: T('Objekt'), w: 4 },
+      { label: T('Prüfungen'), w: 1.3, align: 'right' },
+      { label: T('Begehungen'), w: 1.3, align: 'right' },
+      { label: T('Mängel'), w: 1.1, align: 'right' },
+      { label: T('Behoben'), w: 1.1, align: 'right' },
+      { label: T('Quote'), w: 1, align: 'right' },
+    ],
+    data.properties.map((p) => ({
+      cells: [p.name, String(p.inspections), String(p.walkthroughs.length), String(p.defects.total), String(p.defects.resolved), p.defects.resolutionRate == null ? '–' : `${p.defects.resolutionRate} %`],
+      color: [undefined, undefined, p.walkthroughs.length ? undefined : RED],
+    })),
+  );
+  for (const p of data.properties) {
+    doc.heading(p.name);
+    if (p.address) doc.text(p.address.split('\n').join(', '), { color: MUTED });
+    doc.facts([
+      [T('Prüfungen'), String(p.inspections)],
+      [T('Ohne Mängel'), String(p.byResult.ok ?? 0)],
+      [T('Mit Mängeln'), String(p.byResult.defects ?? 0)],
+      [T('Kritisch'), String(p.byResult.critical ?? 0)],
+      [T('Nicht prüfbar'), String(p.byResult.not_inspectable ?? 0)],
+      [T('Mängel erfasst'), `${p.defects.total} (${p.defects.critical} ${T('kritisch')})`],
+      [T('Mängel behoben'), `${p.defects.resolved}${p.defects.avgDaysToResolve != null ? ` · Ø ${p.defects.avgDaysToResolve} ${T('Tage')}` : ''}`],
+      [T('Noch offen'), String(p.defects.open)],
+    ]);
+    const cats = Object.entries(p.byCategory);
+    if (cats.length) doc.text(cats.map(([k, n]) => `${T(getCategory(k).label)}: ${n}`).join(' · '));
+    doc.text(T('Begehungen'), { bold: true });
+    if (!p.walkthroughs.length) doc.text(T('Im Berichtsjahr keine Begehung durchgeführt.'), { color: RED });
+    else
+      doc.table(
+        [
+          { label: T('Datum'), w: 1.4 },
+          { label: T('Anlass'), w: 2.6 },
+          { label: T('Durchgeführt von'), w: 3.2 },
+          { label: T('Feststellungen'), w: 1.4, align: 'right' },
+          { label: T('Ergebnis'), w: 1.6, align: 'right' },
+        ],
+        p.walkthroughs.map((w) => ({
+          cells: [
+            d(w.inspectedAt),
+            T(WALK_PURPOSES[w.purpose as keyof typeof WALK_PURPOSES] ?? w.purpose),
+            `${w.inspector}${w.fireOfficer === false ? ` (${T('nicht als Brandschutzbeauftragte/r hinterlegt')})` : w.fireOfficer && w.qualification ? ` (${w.qualification})` : ''}`,
+            String(w.findings),
+            w.result ? T(RESULT_META[w.result as keyof typeof RESULT_META].label) : '–',
+          ],
+          color: [undefined, undefined, w.fireOfficer === false ? AMBER : undefined, undefined, resultColor(w.result)],
+        })),
+      );
+    if (p.fireOfficers.length) {
+      doc.text(T('Brandschutzbeauftragte'), { bold: true });
+      for (const f of p.fireOfficers) doc.text(`${f.name}${f.qualification ? ` · ${f.qualification}` : ''} · ${d(f.appointedFrom)} – ${f.appointedTo ? d(f.appointedTo) : T('heute')}`);
+    }
+    doc.gap(6);
+  }
+  return doc.finish();
+}

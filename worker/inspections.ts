@@ -5,7 +5,7 @@ import { type Category, type Checkpoint, type CustomKind, INSPECTION_KINDS, type
 import { type Answer, addMonths, applyInspection, computeResult, DAY, finalResult, isComplete, type Result, type Schedules, summarizeSchedules } from '../shared/logic';
 import { getCategoryDef, getSchedule, listCategories } from './categories';
 import { assetQuery, mapAsset, severityEnum, str, tid } from './data';
-import { type AppEnv, type Ctx, id, logActivity, notFound, now, parseJson, requireRole } from './lib';
+import { type AppEnv, assertInScope, type Ctx, id, logActivity, notFound, now, parseJson, requireRole, scopeSql } from './lib';
 import { notify } from './notify';
 
 export const inspections = new Hono<AppEnv>();
@@ -65,17 +65,45 @@ inspections.get('/inspections', async (c) => {
     args.push(q.status);
     where.push(`i.status = ?${args.length}`);
   }
-  if (q.propertyId) {
-    args.push(q.propertyId);
-    where.push(`p.id = ?${args.length}`);
+  // Filter für Liste und Berichtsgenerator
+  const eq: [string, string | undefined][] = [
+    ['p.id', q.propertyId],
+    ['b.id', q.buildingId],
+    ['a.category', q.category],
+    ['i.result', q.result],
+    ['i.inspector_id', q.inspectorId],
+    ['i.purpose', q.purpose],
+    ['i.schedule', q.schedule],
+  ];
+  for (const [col, v] of eq) {
+    if (!v) continue;
+    args.push(v);
+    where.push(`${col} = ?${args.length}`);
+  }
+  for (const [col, v, op] of [
+    ['COALESCE(i.inspected_at, i.created_at)', q.from, '>='],
+    ['COALESCE(i.inspected_at, i.created_at)', q.to, '<='],
+  ] as const) {
+    if (!v || !/^\d{1,15}$/.test(v)) continue;
+    args.push(Number(v));
+    where.push(`${col} ${op} ?${args.length}`);
+  }
+  if (q.kind) {
+    args.push(q.kind);
+    where.push(`EXISTS (SELECT 1 FROM json_each(i.kinds) k WHERE k.value = ?${args.length})`);
+  }
+  if (q.q) {
+    args.push(`%${q.q.toLowerCase()}%`);
+    const n = args.length;
+    where.push(`(lower(a.code) LIKE ?${n} OR lower(a.location) LIKE ?${n} OR lower(b.name) LIKE ?${n} OR lower(p.name) LIKE ?${n} OR lower(COALESCE(a.label_code, '')) LIKE ?${n})`);
   }
   const rows = await c.env.DB.prepare(
     `SELECT i.id, i.kind, i.kinds, i.purpose, i.schedule, i.status, i.result, i.inspected_at AS inspectedAt, i.created_at AS createdAt, i.next_due_at AS nextDueAt,
             i.archived_at AS archivedAt, i.superseded_at AS supersededAt, i.superseded_by AS supersededBy, i.supersedes_id AS supersedesId, a.id AS assetId, a.code, a.category, a.location, b.name AS buildingName, p.id AS propertyId, p.name AS propertyName,
-            u.name AS inspector
+            u.name AS inspector, i.inspector_id AS inspectorId, b.id AS buildingId
        FROM inspections i JOIN assets a ON a.id = i.asset_id JOIN buildings b ON b.id = a.building_id
        JOIN properties p ON p.id = b.property_id JOIN users u ON u.id = i.inspector_id
-      WHERE i.tenant_id = ?1 AND ${where.join(' AND ')} ORDER BY COALESCE(i.inspected_at, i.created_at) DESC LIMIT 1000`,
+      WHERE i.tenant_id = ?1 AND ${scopeSql(c, 'a.building_id', 'building')} AND ${where.join(' AND ')} ORDER BY COALESCE(i.inspected_at, i.created_at) DESC LIMIT 1000`,
   )
     .bind(...args)
     .all();
@@ -85,7 +113,7 @@ inspections.get('/inspections', async (c) => {
 async function loadAsset(c: Ctx, assetId: string) {
   const a = await c.env.DB.prepare(
     `SELECT a.id, a.code, a.category, a.schedules, b.property_id AS propertyId FROM assets a JOIN buildings b ON b.id = a.building_id
-      WHERE a.id = ? AND a.tenant_id = ? AND a.deleted_at IS NULL`,
+      WHERE a.id = ? AND a.tenant_id = ? AND a.deleted_at IS NULL AND ${scopeSql(c, 'a.building_id', 'building')}`,
   )
     .bind(assetId, tid(c))
     .first<{ id: string; code: string; category: Category; schedules: string; propertyId: string }>();
@@ -210,7 +238,7 @@ export async function loadInspection(c: Ctx, iid: string) {
        LEFT JOIN inspections o ON o.id = i.supersedes_id AND o.tenant_id = i.tenant_id
        LEFT JOIN inspections n ON n.id = i.superseded_by AND n.tenant_id = i.tenant_id
        LEFT JOIN inspections f ON f.id = i.follow_up_of AND f.tenant_id = i.tenant_id
-      WHERE i.id = ? AND i.tenant_id = ?`,
+      WHERE i.id = ? AND i.tenant_id = ? AND ${scopeSql(c, 'a.building_id', 'building')}`,
   )
     .bind(iid, tid(c))
     .first<Record<string, unknown>>();
@@ -567,7 +595,11 @@ inspections.post('/inspections/:id/reopen', async (c) => {
 inspections.post('/inspections/:id/correct', async (c) => {
   requireRole(c, 'inspector');
   const u = c.get('user');
-  const old = await c.env.DB.prepare('SELECT * FROM inspections WHERE id = ? AND tenant_id = ?').bind(c.req.param('id'), tid(c)).first<Record<string, unknown>>();
+  const old = await c.env.DB.prepare(
+    `SELECT i.* FROM inspections i JOIN assets a ON a.id = i.asset_id WHERE i.id = ? AND i.tenant_id = ? AND ${scopeSql(c, 'a.building_id', 'building')}`,
+  )
+    .bind(c.req.param('id'), tid(c))
+    .first<Record<string, unknown>>();
   if (!old) notFound('Prüfung');
   if (old.status !== 'submitted') throw new HTTPException(409, { message: 'Nur abgeschlossene Prüfungen können berichtigt werden' });
   if (old.superseded_at) throw new HTTPException(409, { message: 'Diese Prüfung wurde bereits berichtigt' });
@@ -636,6 +668,7 @@ inspections.get('/offline/buildings/:id', async (c) => {
     .bind(c.req.param('id'), tid(c))
     .first();
   if (!b) notFound('Gebäude');
+  assertInScope(c, 'building', b.id as string);
   const assets = await assetQuery(c, 'a.building_id = ?2').bind(tid(c), b.id).all();
   return c.json({ building: b, assets: assets.results.map(mapAsset), categories: await listCategories(c), preparedAt: now() });
 });
@@ -647,7 +680,7 @@ inspections.post('/assets/:id/attachments', async (c) => {
     .object({ key: z.string().max(200), name: str(200).default(''), contentType: z.string().max(80), size: z.number().int().min(0).default(0), caption: str(300).default('') })
     .parse(await c.req.json());
   if (!isTenantKey(c, b.key)) throw new HTTPException(400, { message: 'Ungültige Datei' });
-  const a = await loadAsset(c, c.req.param('id'));
+  const a = await loadAsset(c, c.req.param('id')); // prüft auch den Zugriffsbereich
   const aid = id();
   await c.env.DB.prepare(
     'INSERT INTO attachments (id, tenant_id, asset_id, file_key, name, content_type, size, caption, created_by, created_at) VALUES (?,?,?,?,?,?,?,?,?,?)',
@@ -659,7 +692,9 @@ inspections.post('/assets/:id/attachments', async (c) => {
 
 inspections.delete('/attachments/:id', async (c) => {
   requireRole(c, 'inspector');
-  const row = await c.env.DB.prepare('SELECT file_key, inspection_id FROM attachments WHERE id = ? AND tenant_id = ?')
+  const row = await c.env.DB.prepare(
+    `SELECT file_key, inspection_id FROM attachments WHERE id = ? AND tenant_id = ? AND asset_id IN (SELECT id FROM assets WHERE ${scopeSql(c, 'building_id', 'building')})`,
+  )
     .bind(c.req.param('id'), tid(c))
     .first<{ file_key: string; inspection_id: string | null }>();
   if (!row) notFound('Anhang');

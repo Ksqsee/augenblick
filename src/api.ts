@@ -1,4 +1,4 @@
-import { QueryClient, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { keepPreviousData, QueryClient, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import type { AttributeField, Category, CategoryDef, Checkpoint, CustomKind, InspectionKind, InspectionPurpose, Role, Severity, WalkPurpose } from '../shared/catalog';
 import type { Answer, Result, ResultOverride, Schedules } from '../shared/logic';
 import type { BuildingType, WalkQuestion } from '../shared/walkthrough';
@@ -65,7 +65,7 @@ export interface Tenant {
 }
 
 export interface Me {
-  user: { id: string; name: string; email: string; role: Role };
+  user: { id: string; name: string; email: string; role: Role; scoped?: boolean; canCreate?: boolean };
   tenant: Tenant;
   workspaces: { id: string; name: string; role: Role }[];
   pendingLegal: string[];
@@ -216,6 +216,9 @@ export interface Walkthrough {
   purpose: WalkPurpose;
   followUpOf: string | null;
   followUpDate: number | null;
+  /** Status der durchführenden Person beim Abschluss; null = unbekannt (Entwurf oder älter) */
+  inspectorFireOfficer: boolean | null;
+  inspectorQualification: string;
   status: 'draft' | 'submitted';
   result: Result | null;
   questions: WalkQuestion[];
@@ -365,6 +368,8 @@ export interface InspectionRow {
   supersededAt: number | null;
   supersededBy: string | null;
   supersedesId: string | null;
+  inspectorId: string;
+  buildingId: string;
   schedule: string;
   archivedAt: number | null;
   propertyId: string;
@@ -451,6 +456,11 @@ export interface Member {
   email: string;
   role: Role;
   joinedAt: number;
+  /** null = gesamter Workspace */
+  scope: { propertyIds: string[]; buildingIds: string[] } | null;
+  canCreate: boolean;
+  fireOfficer: boolean;
+  fireOfficerQualification: string;
 }
 
 export interface EffectiveSchedule {
@@ -526,7 +536,7 @@ export const useAssets = (params: Record<string, string | undefined> = {}) => {
 export const useAsset = (id: string) => useQuery({ queryKey: ['asset', id], queryFn: () => api<AssetDetail>(`/assets/${id}`) });
 export const useInspections = (params: Record<string, string | undefined> = {}) => {
   const qs = new URLSearchParams(Object.entries(params).filter(([, v]) => v) as [string, string][]).toString();
-  return useQuery({ queryKey: ['inspections', qs], queryFn: () => api<InspectionRow[]>(`/inspections?${qs}`) });
+  return useQuery({ queryKey: ['inspections', qs], queryFn: () => api<InspectionRow[]>(`/inspections?${qs}`), placeholderData: keepPreviousData });
 };
 export const useInspection = (id: string) => useQuery({ queryKey: ['inspection', id], queryFn: () => api<Inspection>(`/inspections/${id}`) });
 export const useDefects = (status = 'open', source = '') =>
@@ -594,7 +604,7 @@ export interface SearchResult {
 }
 
 // ---------- Berichtsarchiv ----------
-export type ReportKind = 'compliance' | 'defects' | 'property' | 'protocols';
+export type ReportKind = 'compliance' | 'defects' | 'property' | 'protocols' | 'selection' | 'annual';
 export interface ReportRow {
   id: string;
   kind: ReportKind;

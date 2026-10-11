@@ -8,6 +8,7 @@ import { AssetList } from '../components/AssetList';
 import { CategoryIcon } from '../components/CategoryIcon';
 import { Badge, Button, Card, Chip, Empty, ErrorBox, PageHeader, Segmented, Spinner, useToast } from '../components/ui';
 import { INSPECTION_PURPOSES } from '../../shared/catalog';
+import { EMPTY_FILTER, filterParams, type InspectionFilter, InspectionFilters } from '../components/InspectionFilters';
 import { fmtDateTime, RESULT_META } from '../format';
 
 type Tab = 'overdue' | 'soon' | 'never' | 'not_inspectable' | 'new' | 'drafts' | 'done' | 'archive' | 'corrected';
@@ -103,7 +104,11 @@ function DueList({ due, schedule, onSchedule }: { due: DueTab; schedule: string;
 }
 
 function InspectionList({ status, archived, corrected }: { status: 'draft' | 'submitted'; archived: boolean; corrected: boolean }) {
-  const { data, isLoading, error } = useInspections(corrected ? { superseded: '1' } : { status, archived: archived ? '1' : undefined });
+  const [filter, setFilter] = useState<InspectionFilter>(EMPTY_FILTER);
+  const { data, isLoading, error } = useInspections({
+    ...(corrected ? { superseded: '1' } : { status, archived: archived ? '1' : undefined }),
+    ...(status === 'submitted' ? filterParams(filter) : {}),
+  });
   const { data: me } = useMe();
   const toast = useToast();
   const [sel, setSel] = useState<Set<string>>(new Set());
@@ -118,7 +123,12 @@ function InspectionList({ status, archived, corrected }: { status: 'draft' | 'su
     toast(`${r.deleted} Prüfungen gelöscht`);
     setSel(new Set());
   });
-  if (isLoading) return <Spinner />;
+  const filters = status === 'submitted' && (
+    <div className="mb-3">
+      <InspectionFilters value={filter} onChange={(f) => (setFilter(f), setSel(new Set()))} />
+    </div>
+  );
+  if (isLoading) return <>{filters}<Spinner /></>;
   if (error) return <ErrorBox error={error} />;
   const rows = data ?? [];
   const toggle = (id: string) => setSel((s) => {
@@ -143,6 +153,7 @@ function InspectionList({ status, archived, corrected }: { status: 'draft' | 'su
   };
   return (
     <>
+      {filters}
       {selectable && rows.length > 0 && (
         <div className="mb-3 flex flex-wrap items-center gap-2">
           <label className="mr-2 flex items-center gap-2 text-sm text-ink-2">

@@ -1,13 +1,14 @@
-import { AlertTriangle, Building2, ClipboardList, DatabaseBackup, Download, FileArchive, FileSpreadsheet, FileText, Footprints, QrCode, ShieldCheck, Trash2 } from 'lucide-react';
+import { AlertTriangle, Building2, CalendarRange, ClipboardList, DatabaseBackup, Download, FileArchive, FileSpreadsheet, FileText, Filter, Footprints, QrCode, ShieldCheck, Trash2 } from 'lucide-react';
 import { type ReactNode, useMemo, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
-import { SEVERITIES } from '../../shared/catalog';
-import { api, archiveReport, type Asset, type Defect, type PropertyRow, type ReportRow, useAction, useAssets, useDefects, useMe, useProperties, useReports } from '../api';
+import { kindLabel, SEVERITIES } from '../../shared/catalog';
+import { api, archiveReport, type Asset, type Defect, type PropertyRow, type ReportRow, useAction, useAssets, useDefects, useInspections, useMe, useMembers, useProperties, useReports } from '../api';
+import { describeFilter, EMPTY_FILTER, filterParams, type InspectionFilter, InspectionFilters } from '../components/InspectionFilters';
 import { DueBadge } from '../components/AssetList';
 import { APP_NAME } from '../components/Logo';
 import { PropertyReportButton } from '../components/PropertyReportButton';
 import { Button, Card, Chip, ErrorBox, Input, PageHeader, Segmented, Select, Spinner, useToast } from '../components/ui';
-import { categoryLabel, fmtDate, fmtDateTime } from '../format';
+import { categoryLabel, fmtDate, fmtDateTime, RESULT_META } from '../format';
 import { QrImage } from './Asset';
 import { PrintFrame } from './Protocol';
 
@@ -29,7 +30,9 @@ export function ReportsPage() {
   return (
     <>
       <PageHeader title="Berichte" subtitle="Nachweise für Betreiber, Behörden und Versicherer" />
+      <ReportBuilder />
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">
+        <AnnualReportCard />
         <ReportCard
           icon={<ShieldCheck />}
           title="Compliance-Übersicht"
@@ -148,7 +151,158 @@ export function ReportsPage() {
   );
 }
 
-const KIND_LABEL: Record<ReportRow['kind'], string> = { compliance: 'Compliance', defects: 'Mängel', property: 'Objekt', protocols: 'Protokolle' };
+const KIND_LABEL: Record<ReportRow['kind'], string> = {
+  compliance: 'Compliance',
+  defects: 'Mängel',
+  property: 'Objekt',
+  protocols: 'Protokolle',
+  selection: 'Prüfbericht',
+  annual: 'Jahresbericht',
+};
+
+/** Neuen Bericht aus gefilterten Prüfungen erstellen: Übersicht als PDF oder alle Protokolle als ZIP. */
+function ReportBuilder() {
+  const { data: me } = useMe();
+  const toast = useToast();
+  const [f, setF] = useState<InspectionFilter>({ ...EMPTY_FILTER, period: 'year' });
+  const [busy, setBusy] = useState<string | null>(null);
+  const { data, isLoading } = useInspections({ status: 'submitted', ...filterParams(f) });
+  const props = useProperties();
+  const members = useMembers();
+  const rows = data ?? [];
+  const counts = Object.fromEntries((['ok', 'defects', 'critical', 'not_inspectable'] as const).map((r) => [r, rows.filter((x) => x.result === r).length]));
+  const description = () =>
+    describeFilter(f, {
+      property: props.data?.find((p) => p.id === f.propertyId)?.name,
+      building: rows.find((r) => r.buildingId === f.buildingId)?.buildingName,
+      inspector: members.data?.members.find((m) => m.id === f.inspectorId)?.name,
+      category: f.category ? categoryLabel(f.category) : undefined,
+      kind: f.kind ? kindLabel(f.kind, me?.tenant.inspectionKinds) : undefined,
+    });
+  const run = async (what: 'pdf' | 'zip') => {
+    if (!me || !rows.length) return;
+    setBusy(what);
+    try {
+      const r = await import('../pdf/reports');
+      const date = new Date().toISOString().slice(0, 10);
+      if (what === 'pdf') {
+        const bytes = await r.selectionPdf(rows, description(), await r.loadBrand(me));
+        const fileName = `Pruefbericht_${date}.pdf`;
+        r.download(bytes, fileName);
+        if (await archiveReport(me, bytes, { kind: 'selection', title: `Prüfbericht (${rows.length} Prüfungen)`, fileName, propertyId: f.propertyId || undefined }).catch(() => false)) toast('Im Berichtsarchiv gespeichert');
+      } else {
+        const bytes = await r.protocolsZip(rows.map((x) => x.id), me, (d, t) => setBusy(`${d}/${t}`));
+        const fileName = `Pruefprotokolle_${date}.zip`;
+        r.download(bytes, fileName, 'application/zip');
+        await archiveReport(me, bytes, { kind: 'protocols', title: `${rows.length} Prüfprotokolle`, fileName, propertyId: f.propertyId || undefined }, 'application/zip').catch(() => false);
+      }
+    } catch (e) {
+      toast(e instanceof Error ? e.message : 'Bericht fehlgeschlagen', 'bad');
+    } finally {
+      setBusy(null);
+    }
+  };
+  return (
+    <Card className="mb-6 p-5">
+      <div className="mb-4 flex items-start gap-3">
+        <div className="grid size-10 shrink-0 place-items-center rounded-lg bg-brand-soft text-brand-strong">
+          <Filter className="size-5" />
+        </div>
+        <div>
+          <h2 className="font-semibold">Neuen Bericht erstellen</h2>
+          <p className="text-sm text-ink-3">Prüfungen nach Zeitraum, Objekt, Elementart, Ergebnis, Prüfer oder Art auswählen – als Übersicht (PDF) oder mit allen Protokollen (ZIP).</p>
+        </div>
+      </div>
+      <InspectionFilters value={f} onChange={setF} />
+      <div className="mt-4 flex flex-wrap items-center gap-3">
+        <p className="mr-auto text-sm text-ink-2" aria-live="polite">
+          {isLoading ? (
+            'Zählt …'
+          ) : (
+            <>
+              <span className="font-semibold">{rows.length} Prüfungen</span>
+              {rows.length > 0 && (
+                <span className="text-ink-3">
+                  {' '}
+                  · {counts.ok} {RESULT_META.ok.label.toLowerCase()} · {counts.defects} mit Mängeln · {counts.critical} kritisch · {counts.not_inspectable} nicht prüfbar
+                </span>
+              )}
+              {rows.length >= 1000 && <span className="text-warn"> (auf 1000 begrenzt – Filter eingrenzen)</span>}
+            </>
+          )}
+        </p>
+        <Button icon={<Download className="size-4" />} disabled={!rows.length || !!busy} loading={busy === 'pdf'} onClick={() => run('pdf')}>
+          Prüfbericht (PDF)
+        </Button>
+        <Button variant="secondary" icon={<FileArchive className="size-4" />} disabled={!rows.length || !!busy} loading={!!busy && busy !== 'pdf'} onClick={() => run('zip')}>
+          {busy && busy !== 'pdf' ? `PDF ${busy}` : 'Protokolle (ZIP)'}
+        </Button>
+      </div>
+    </Card>
+  );
+}
+
+/** Jahresbericht: Zusammenfassung eines Kalenderjahres je Objekt (Prüfungen, Mängel, Behebungsquote, Begehungen). */
+function AnnualReportCard() {
+  const { data: me } = useMe();
+  const { data: props } = useProperties();
+  const toast = useToast();
+  const thisYear = new Date().getFullYear();
+  const [year, setYear] = useState(thisYear);
+  const [propertyId, setPropertyId] = useState('');
+  const [busy, setBusy] = useState(false);
+  return (
+    <ReportCard
+      icon={<CalendarRange />}
+      title="Jahresbericht"
+      text="Zusammenfassung eines Jahres je Objekt: Prüfungen nach Ergebnis, erfasste und behobene Mängel mit Behebungsquote, Begehungen und Brandschutzbeauftragte."
+      action={
+        <div className="flex flex-wrap gap-2">
+          <Select aria-label="Jahr" className="h-10 w-24" value={year} onChange={(e) => setYear(Number(e.target.value))}>
+            {[0, 1, 2, 3, 4].map((n) => (
+              <option key={n} value={thisYear - n}>
+                {thisYear - n}
+              </option>
+            ))}
+          </Select>
+          <Select aria-label="Objekt für den Jahresbericht" className="h-10 min-w-0 flex-1" value={propertyId} onChange={(e) => setPropertyId(e.target.value)}>
+            <option value="">Alle Objekte</option>
+            {props?.map((p) => (
+              <option key={p.id} value={p.id}>
+                {p.name}
+              </option>
+            ))}
+          </Select>
+          <Button
+            icon={<Download className="size-4" />}
+            loading={busy}
+            disabled={!me}
+            onClick={async () => {
+              if (!me) return;
+              setBusy(true);
+              try {
+                const r = await import('../pdf/reports');
+                const data = await api<import('../pdf/reports').AnnualData>(`/reports/annual?year=${year}${propertyId ? `&propertyId=${propertyId}` : ''}`);
+                const bytes = await r.annualPdf(data, await r.loadBrand(me));
+                const name = propertyId ? props?.find((p) => p.id === propertyId)?.name : undefined;
+                const fileName = `Jahresbericht_${year}${name ? `_${name.replace(/[^\p{L}\p{N}]+/gu, '-')}` : ''}.pdf`;
+                r.download(bytes, fileName);
+                if (await archiveReport(me, bytes, { kind: 'annual', title: `Jahresbericht ${year}${name ? ` ${name}` : ''}`, fileName, propertyId: propertyId || undefined }).catch(() => false))
+                  toast('Im Berichtsarchiv gespeichert');
+              } catch (e) {
+                toast(e instanceof Error ? e.message : 'PDF fehlgeschlagen', 'bad');
+              } finally {
+                setBusy(false);
+              }
+            }}
+          >
+            PDF
+          </Button>
+        </div>
+      }
+    />
+  );
+}
 const fmtSize = (n: number) => (n > 1024 * 1024 ? `${(n / 1024 / 1024).toFixed(1).replace('.', ',')} MB` : `${Math.max(1, Math.round(n / 1024))} KB`);
 
 /** Erstellte Berichte – bleiben gespeichert und lassen sich später erneut herunterladen. */

@@ -22,6 +22,23 @@ export interface SessionUser {
   email: string;
   /** gesetzt, wenn die Anfrage per API-Schlüssel statt Sitzung kommt */
   apiKeyId?: string;
+  /** Zugriffsbereich (nur Prüfer/Lesezugriff); null = gesamter Workspace */
+  scope?: Scope | null;
+  /** darf neue Elemente anlegen */
+  canCreate?: boolean;
+}
+
+/** Aufgelöster Zugriffsbereich: erlaubte Gebäude und die Objekte, zu denen sie gehören. */
+export interface Scope {
+  properties: string[];
+  buildings: string[];
+  /** vollständig freigegebene Objekte (nicht nur einzelne Gebäude) */
+  fullProperties: string[];
+}
+/** Gespeicherte Form in `memberships.scope`. */
+export interface ScopeSetting {
+  propertyIds: string[];
+  buildingIds: string[];
 }
 
 export type AppEnv = { Bindings: Env; Variables: { user: SessionUser } };
@@ -80,16 +97,17 @@ export const requireSession: MiddlewareHandler<AppEnv> = async (c, next) => {
   const sid = getCookie(c, SESSION_COOKIE);
   if (!sid) throw new HTTPException(401, { message: 'Nicht angemeldet' });
   const row = await c.env.DB.prepare(
-    `SELECT s.id AS sessionId, s.user_id AS userId, s.tenant_id AS tenantId, s.expires_at, m.role, u.name, u.email
+    `SELECT s.id AS sessionId, s.user_id AS userId, s.tenant_id AS tenantId, s.expires_at, m.role, m.scope AS rawScope, m.can_create AS canCreate, u.name, u.email
        FROM sessions s
        JOIN users u ON u.id = s.user_id
        JOIN memberships m ON m.user_id = s.user_id AND m.tenant_id = s.tenant_id
       WHERE s.id = ?`,
   )
     .bind(sid)
-    .first<SessionUser & { expires_at: number }>();
+    .first<Omit<SessionUser, 'scope' | 'canCreate'> & { expires_at: number; rawScope: string | null; canCreate: number }>();
   if (!row || row.expires_at < now()) throw new HTTPException(401, { message: 'Sitzung abgelaufen' });
-  c.set('user', row);
+  const { rawScope, canCreate, expires_at: _, ...user } = row;
+  c.set('user', { ...user, ...(await resolveScope(c, user.tenantId, user.role, rawScope, canCreate)) });
   await next();
 };
 
@@ -118,15 +136,26 @@ export const requireAuth: MiddlewareHandler<AppEnv> = async (c, next) => {
   };
   if (!key.startsWith(API_KEY_PREFIX)) return reject('Ungültiger API-Schlüssel');
   const row = await c.env.DB.prepare(
-    `SELECT k.id, k.tenant_id, k.scope, k.name, k.expires_at, k.revoked_at, k.last_used_at, k.created_by, m.role
+    `SELECT k.id, k.tenant_id, k.scope, k.name, k.expires_at, k.revoked_at, k.last_used_at, k.created_by, m.role, m.scope AS rawScope, m.can_create AS canCreate
        FROM api_keys k JOIN memberships m ON m.user_id = k.created_by AND m.tenant_id = k.tenant_id
       WHERE k.key_hash = ?`,
   )
     .bind(await sha256Hex(key))
-    .first<{ id: string; tenant_id: string; scope: 'read' | 'write'; name: string; expires_at: number | null; revoked_at: number | null; last_used_at: number | null; created_by: string; role: Role }>();
+    .first<{ id: string; tenant_id: string; scope: 'read' | 'write'; name: string; expires_at: number | null; revoked_at: number | null; last_used_at: number | null; created_by: string; role: Role; rawScope: string | null; canCreate: number }>();
   if (!row || row.revoked_at || (row.expires_at && row.expires_at < now())) return reject('Ungültiger oder widerrufener API-Schlüssel');
   const cap: Role = row.scope === 'write' ? 'inspector' : 'viewer';
-  c.set('user', { sessionId: `api:${row.id}`, userId: row.created_by, tenantId: row.tenant_id, role: RANK[row.role] < RANK[cap] ? row.role : cap, name: `API: ${row.name}`, email: '', apiKeyId: row.id });
+  const role = RANK[row.role] < RANK[cap] ? row.role : cap;
+  c.set('user', {
+    sessionId: `api:${row.id}`,
+    userId: row.created_by,
+    tenantId: row.tenant_id,
+    role,
+    name: `API: ${row.name}`,
+    email: '',
+    apiKeyId: row.id,
+    // Bereich der Person, die den Schlüssel erstellt hat (falls sie inzwischen eingeschränkt wurde)
+    ...(await resolveScope(c, row.tenant_id, row.role, row.rawScope, row.canCreate)),
+  });
   if ((row.last_used_at ?? 0) < now() - 60_000) c.executionCtx.waitUntil(c.env.DB.prepare('UPDATE api_keys SET last_used_at = ? WHERE id = ?').bind(now(), row.id).run());
   await next();
 };
@@ -146,7 +175,60 @@ export const csrfGuard: MiddlewareHandler<AppEnv> = async (c, next) => {
   await next();
 };
 
-const RANK: Record<Role, number> = { viewer: 0, inspector: 1, admin: 2, owner: 3 };
+export const RANK: Record<Role, number> = { viewer: 0, inspector: 1, admin: 2, owner: 3 };
+
+const SAFE_ID = /^[a-z0-9]{1,40}$/;
+
+/** Gespeicherten Bereich in erlaubte Gebäude/Objekte auflösen. Admins und Inhaber sind nie eingeschränkt. */
+async function resolveScope(c: Ctx, tenantId: string, role: Role, raw: string | null, canCreate: number): Promise<Pick<SessionUser, 'scope' | 'canCreate'>> {
+  if (RANK[role] >= RANK.admin) return { scope: null, canCreate: true };
+  const set = parseJson<ScopeSetting | null>(raw, null);
+  if (!set) return { scope: null, canCreate: !!canCreate };
+  const rows = (
+    await c.env.DB.prepare(
+      `SELECT id, property_id FROM buildings WHERE tenant_id = ? AND deleted_at IS NULL
+          AND (property_id IN (SELECT value FROM json_each(?)) OR id IN (SELECT value FROM json_each(?)))`,
+    )
+      .bind(tenantId, JSON.stringify(set.propertyIds ?? []), JSON.stringify(set.buildingIds ?? []))
+      .all<{ id: string; property_id: string }>()
+  ).results;
+  return {
+    scope: {
+      buildings: rows.map((r) => r.id),
+      properties: [...new Set([...(set.propertyIds ?? []), ...rows.map((r) => r.property_id)])],
+      fullProperties: set.propertyIds ?? [],
+    },
+    canCreate: !!canCreate,
+  };
+}
+
+/**
+ * SQL-Bedingung für den Zugriffsbereich: `col` ist eine Gebäude- bzw. Objekt-ID-Spalte.
+ * Die IDs stammen aus der Datenbank und werden zusätzlich auf [a-z0-9] geprüft, bevor sie als Literale eingesetzt werden.
+ */
+export function scopeSql(c: Ctx, col: string, kind: 'building' | 'property'): string {
+  const s = c.get('user').scope;
+  if (!s) return '1=1';
+  const ids = (kind === 'building' ? s.buildings : s.properties).filter((x) => SAFE_ID.test(x));
+  return ids.length ? `${col} IN (${ids.map((x) => `'${x}'`).join(',')})` : '0=1';
+}
+
+/** Gebäude/Objekt im Zugriffsbereich? Sonst 404 (Existenz nicht verraten). */
+export function assertInScope(c: Ctx, kind: 'building' | 'property', idValue: string | null | undefined) {
+  const s = c.get('user').scope;
+  if (!s) return;
+  if (!idValue || !(kind === 'building' ? s.buildings : s.properties).includes(idValue)) notFound(kind === 'building' ? 'Gebäude' : 'Objekt');
+}
+
+/** Eingeschränkte Mitglieder ohne Anlegerecht dürfen keine neuen Elemente anlegen. */
+export function requireCreate(c: Ctx) {
+  if (c.get('user').canCreate === false) throw new HTTPException(403, { message: 'Keine Berechtigung, neue Einträge anzulegen' });
+}
+
+/** Für Bereiche ohne Objektbezug (Import, Workspace-Berichte): nur ohne Einschränkung. */
+export function requireUnscoped(c: Ctx) {
+  if (c.get('user').scope) throw new HTTPException(403, { message: 'Nur ohne eingeschränkten Zugriffsbereich möglich' });
+}
 
 export function requireRole(c: Ctx, min: Role) {
   if (RANK[c.get('user').role] < RANK[min]) throw new HTTPException(403, { message: 'Keine Berechtigung' });

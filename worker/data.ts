@@ -7,7 +7,7 @@ import { BUILDING_TYPES } from '../shared/walkthrough';
 import { type DocLanguage, tr } from '../shared/i18n';
 import { buildXlsx } from '../shared/xlsx';
 import { getCategoryDef, listCategories } from './categories';
-import { type AppEnv, type Ctx, id, logActivity, notFound, now, parseJson, requireRole } from './lib';
+import { type AppEnv, assertInScope, type Ctx, id, logActivity, notFound, now, parseJson, requireCreate, requireRole, scopeSql } from './lib';
 
 export const data = new Hono<AppEnv>();
 
@@ -16,38 +16,68 @@ export const str = (max = 500) => z.string().trim().max(max);
 const buildingTypeEnum = z.enum(Object.keys(BUILDING_TYPES) as [keyof typeof BUILDING_TYPES]);
 export const severityEnum = z.enum(Object.keys(SEVERITIES) as ['low', 'medium', 'high', 'critical']);
 
+/** Mängel im Zugriffsbereich: Begehungsmängel über das Objekt, Elementmängel über das Gebäude. */
+export function defectScope(c: Ctx, d: string) {
+  if (!c.get('user').scope) return '1=1';
+  return `((${d}.asset_id IS NULL AND ${scopeSql(c, `${d}.property_id`, 'property')}) OR ${d}.asset_id IN (SELECT id FROM assets WHERE ${scopeSql(c, 'building_id', 'building')}))`;
+}
+
+/** Aufgaben im Zugriffsbereich: über Element bzw. Objekt; ohne Bezug nur eigene oder zugewiesene. */
+export function taskScope(c: Ctx, t: string) {
+  const u = c.get('user');
+  if (!u.scope) return '1=1';
+  const me = /^[a-z0-9]{1,40}$/.test(u.userId) ? `'${u.userId}'` : "''";
+  return `(CASE WHEN ${t}.asset_id IS NOT NULL THEN ${t}.asset_id IN (SELECT id FROM assets WHERE ${scopeSql(c, 'building_id', 'building')})
+               WHEN ${t}.property_id IS NOT NULL THEN ${scopeSql(c, `${t}.property_id`, 'property')}
+               ELSE ${t}.assignee_id = ${me} OR ${t}.created_by = ${me} END)`;
+}
+
+/** Element im Zugriffsbereich (und vorhanden)? Liefert das Gebäude. */
+export async function assetInScope(c: Ctx, assetId: string) {
+  const a = await c.env.DB.prepare('SELECT id, building_id FROM assets WHERE id = ? AND tenant_id = ? AND deleted_at IS NULL')
+    .bind(assetId, tid(c))
+    .first<{ id: string; building_id: string }>();
+  if (!a) notFound('Element');
+  assertInScope(c, 'building', a.building_id);
+  return a;
+}
+
 // ---------- Dashboard ----------
 data.get('/dashboard', async (c) => {
   const t = tid(c);
   const n = now();
   const soon = n + SOON_WINDOW_DAYS * DAY;
+  const sa = `AND ${scopeSql(c, 'building_id', 'building')}`;
+  const sp = `AND ${scopeSql(c, 'id', 'property')}`;
+  const sd = `AND ${defectScope(c, 'defects')}`;
+  const si = c.get('user').scope ? `AND asset_id IN (SELECT id FROM assets WHERE ${scopeSql(c, 'building_id', 'building')})` : '';
   const [counts, props, recent, tasks] = await c.env.DB.batch([
     c.env.DB.prepare(
       `SELECT
-         (SELECT COUNT(*) FROM properties WHERE tenant_id = ?1 AND deleted_at IS NULL) AS properties,
-         (SELECT COUNT(*) FROM assets WHERE tenant_id = ?1 AND deleted_at IS NULL) AS assets,
-         (SELECT COUNT(*) FROM assets WHERE tenant_id = ?1 AND deleted_at IS NULL AND next_due_at < ?2) AS overdue,
-         (SELECT COUNT(*) FROM assets WHERE tenant_id = ?1 AND deleted_at IS NULL AND next_due_at BETWEEN ?2 AND ?3) AS soon,
-         (SELECT COUNT(*) FROM assets WHERE tenant_id = ?1 AND deleted_at IS NULL AND next_due_at IS NULL) AS never,
-         (SELECT COUNT(*) FROM assets WHERE tenant_id = ?1 AND deleted_at IS NULL AND last_result = 'not_inspectable') AS notInspectable,
-         (SELECT COUNT(*) FROM assets WHERE tenant_id = ?1 AND deleted_at IS NULL AND created_at > ?4) AS newAssets,
-         (SELECT COUNT(*) FROM defects WHERE tenant_id = ?1 AND status = 'open' AND asset_id IS NOT NULL) AS openDefects,
-         (SELECT COUNT(*) FROM defects WHERE tenant_id = ?1 AND status = 'open' AND walkthrough_id IS NOT NULL) AS openWalkDefects,
-         (SELECT COUNT(*) FROM defects WHERE tenant_id = ?1 AND status = 'open' AND severity = 'critical') AS criticalDefects,
-         (SELECT COUNT(*) FROM inspections WHERE tenant_id = ?1 AND status = 'submitted' AND superseded_at IS NULL AND inspected_at > ?4) AS inspections30d,
-         (SELECT COUNT(*) FROM inspections WHERE tenant_id = ?1 AND status = 'draft') AS drafts,
-         (SELECT COUNT(*) FROM properties p WHERE p.tenant_id = ?1 AND p.deleted_at IS NULL AND COALESCE(
+         (SELECT COUNT(*) FROM properties WHERE tenant_id = ?1 AND deleted_at IS NULL ${sp}) AS properties,
+         (SELECT COUNT(*) FROM assets WHERE tenant_id = ?1 AND deleted_at IS NULL ${sa}) AS assets,
+         (SELECT COUNT(*) FROM assets WHERE tenant_id = ?1 AND deleted_at IS NULL AND next_due_at < ?2 ${sa}) AS overdue,
+         (SELECT COUNT(*) FROM assets WHERE tenant_id = ?1 AND deleted_at IS NULL AND next_due_at BETWEEN ?2 AND ?3 ${sa}) AS soon,
+         (SELECT COUNT(*) FROM assets WHERE tenant_id = ?1 AND deleted_at IS NULL AND next_due_at IS NULL ${sa}) AS never,
+         (SELECT COUNT(*) FROM assets WHERE tenant_id = ?1 AND deleted_at IS NULL AND last_result = 'not_inspectable' ${sa}) AS notInspectable,
+         (SELECT COUNT(*) FROM assets WHERE tenant_id = ?1 AND deleted_at IS NULL AND created_at > ?4 ${sa}) AS newAssets,
+         (SELECT COUNT(*) FROM defects WHERE tenant_id = ?1 AND status = 'open' AND asset_id IS NOT NULL ${sd}) AS openDefects,
+         (SELECT COUNT(*) FROM defects WHERE tenant_id = ?1 AND status = 'open' AND walkthrough_id IS NOT NULL ${sd}) AS openWalkDefects,
+         (SELECT COUNT(*) FROM defects WHERE tenant_id = ?1 AND status = 'open' AND severity = 'critical' ${sd}) AS criticalDefects,
+         (SELECT COUNT(*) FROM inspections WHERE tenant_id = ?1 AND status = 'submitted' AND superseded_at IS NULL AND inspected_at > ?4 ${si}) AS inspections30d,
+         (SELECT COUNT(*) FROM inspections WHERE tenant_id = ?1 AND status = 'draft' ${si}) AS drafts,
+         (SELECT COUNT(*) FROM properties p WHERE p.tenant_id = ?1 AND p.deleted_at IS NULL AND ${scopeSql(c, 'p.id', 'property')} AND COALESCE(
             (SELECT MAX(w.next_due_at) FROM walkthroughs w WHERE w.property_id = p.id AND w.status = 'submitted'), 0) < ?3) AS walkDue`,
     ).bind(t, n, soon, n - 30 * DAY),
     propertyStatusQuery(c).bind(t, n, soon),
     c.env.DB.prepare(
       `SELECT i.id, i.result, i.inspected_at AS inspectedAt, a.code, a.category, a.location, u.name AS inspector
          FROM inspections i JOIN assets a ON a.id = i.asset_id JOIN users u ON u.id = i.inspector_id
-        WHERE i.tenant_id = ? AND i.status = 'submitted' AND i.superseded_at IS NULL ORDER BY i.inspected_at DESC LIMIT 8`,
+        WHERE i.tenant_id = ? AND i.status = 'submitted' AND i.superseded_at IS NULL AND ${scopeSql(c, 'a.building_id', 'building')} ORDER BY i.inspected_at DESC LIMIT 8`,
     ).bind(t),
     c.env.DB.prepare(
       `SELECT id, title, priority, due_at AS dueAt, status FROM tasks
-        WHERE tenant_id = ? AND status IN ('open','in_progress') ORDER BY COALESCE(due_at, 9e15), created_at LIMIT 6`,
+        WHERE tenant_id = ? AND status IN ('open','in_progress') AND ${taskScope(c, 'tasks')} ORDER BY COALESCE(due_at, 9e15), created_at LIMIT 6`,
     ).bind(t),
   ]);
   return c.json({ counts: counts.results[0], properties: props.results, recent: recent.results, tasks: tasks.results });
@@ -60,15 +90,15 @@ function propertyStatusQuery(c: Ctx) {
             SUM(CASE WHEN a.next_due_at < ?2 THEN 1 ELSE 0 END) AS overdue,
             SUM(CASE WHEN a.next_due_at BETWEEN ?2 AND ?3 THEN 1 ELSE 0 END) AS soon,
             SUM(CASE WHEN a.id IS NOT NULL AND a.next_due_at IS NULL THEN 1 ELSE 0 END) AS never,
-            (SELECT COUNT(*) FROM defects d WHERE d.property_id = p.id AND d.status = 'open') AS openDefects,
+            (SELECT COUNT(*) FROM defects d WHERE d.property_id = p.id AND d.status = 'open' AND ${defectScope(c, 'd')}) AS openDefects,
             (SELECT MAX(w.inspected_at) FROM walkthroughs w WHERE w.property_id = p.id AND w.status = 'submitted') AS lastWalkAt,
             (SELECT MAX(w.next_due_at) FROM walkthroughs w WHERE w.property_id = p.id AND w.status = 'submitted') AS nextWalkAt,
             MAX(a.last_inspected_at) AS lastInspectedAt,
             MIN(a.next_due_at) AS nextDueAt
        FROM properties p
-       LEFT JOIN buildings b ON b.property_id = p.id AND b.deleted_at IS NULL
+       LEFT JOIN buildings b ON b.property_id = p.id AND b.deleted_at IS NULL AND ${scopeSql(c, 'b.id', 'building')}
        LEFT JOIN assets a ON a.building_id = b.id AND a.deleted_at IS NULL
-      WHERE p.tenant_id = ?1 AND p.deleted_at IS NULL
+      WHERE p.tenant_id = ?1 AND p.deleted_at IS NULL AND ${scopeSql(c, 'p.id', 'property')}
       GROUP BY p.id ORDER BY p.name`,
   );
 }
@@ -80,16 +110,16 @@ data.get('/search', async (c) => {
   const like = `%${q}%`;
   const [props, builds, assets] = await c.env.DB.batch([
     c.env.DB.prepare(
-      `SELECT id, name, address FROM properties WHERE tenant_id = ?1 AND deleted_at IS NULL AND (lower(name) LIKE ?2 OR lower(address) LIKE ?2) LIMIT 6`,
+      `SELECT id, name, address FROM properties WHERE tenant_id = ?1 AND deleted_at IS NULL AND ${scopeSql(c, 'id', 'property')} AND (lower(name) LIKE ?2 OR lower(address) LIKE ?2) LIMIT 6`,
     ).bind(tid(c), like),
     c.env.DB.prepare(
       `SELECT b.id, b.name, p.id AS propertyId, p.name AS propertyName FROM buildings b JOIN properties p ON p.id = b.property_id
-        WHERE b.tenant_id = ?1 AND b.deleted_at IS NULL AND p.deleted_at IS NULL AND lower(b.name) LIKE ?2 LIMIT 6`,
+        WHERE b.tenant_id = ?1 AND b.deleted_at IS NULL AND p.deleted_at IS NULL AND ${scopeSql(c, 'b.id', 'building')} AND lower(b.name) LIKE ?2 LIMIT 6`,
     ).bind(tid(c), like),
     c.env.DB.prepare(
       `SELECT a.id, a.code, a.category, a.location, b.name AS buildingName, p.name AS propertyName
          FROM assets a JOIN buildings b ON b.id = a.building_id JOIN properties p ON p.id = b.property_id
-        WHERE a.tenant_id = ?1 AND a.deleted_at IS NULL AND (lower(a.code) LIKE ?2 OR lower(a.location) LIKE ?2 OR lower(a.manufacturer) LIKE ?2 OR lower(COALESCE(a.label_code,'')) LIKE ?2)
+        WHERE a.tenant_id = ?1 AND a.deleted_at IS NULL AND ${scopeSql(c, 'a.building_id', 'building')} AND (lower(a.code) LIKE ?2 OR lower(a.location) LIKE ?2 OR lower(a.manufacturer) LIKE ?2 OR lower(COALESCE(a.label_code,'')) LIKE ?2)
         LIMIT 10`,
     ).bind(tid(c), like),
   ]);
@@ -130,6 +160,7 @@ data.post('/properties', async (c) => {
 });
 
 data.get('/properties/:id', async (c) => {
+  assertInScope(c, 'property', c.req.param('id'));
   const p = await c.env.DB.prepare(
     `SELECT id, name, address, description, contact_name AS contactName, contact_phone AS contactPhone, contact_email AS contactEmail,
             building_type AS buildingType, pdf_pattern AS pdfPattern, created_at AS createdAt
@@ -139,7 +170,7 @@ data.get('/properties/:id', async (c) => {
     .first();
   if (!p) notFound('Objekt');
   const [buildings, plans, walks, officers] = await c.env.DB.batch([
-    c.env.DB.prepare('SELECT id, name, address FROM buildings WHERE property_id = ? AND tenant_id = ? AND deleted_at IS NULL ORDER BY name').bind(
+    c.env.DB.prepare(`SELECT id, name, address FROM buildings WHERE property_id = ? AND tenant_id = ? AND deleted_at IS NULL AND ${scopeSql(c, 'id', 'building')} ORDER BY name`).bind(
       p.id,
       tid(c),
     ),
@@ -147,10 +178,10 @@ data.get('/properties/:id', async (c) => {
       `SELECT f.id, f.building_id AS buildingId, f.name, f.level, f.width, f.height, f.file_key AS fileKey,
               (SELECT COUNT(*) FROM assets a WHERE a.floor_plan_id = f.id AND a.deleted_at IS NULL) AS markers
          FROM floor_plans f JOIN buildings b ON b.id = f.building_id
-        WHERE b.property_id = ? AND f.tenant_id = ? AND f.deleted_at IS NULL ORDER BY f.level, f.name`,
+        WHERE b.property_id = ? AND f.tenant_id = ? AND f.deleted_at IS NULL AND ${scopeSql(c, 'b.id', 'building')} ORDER BY f.level, f.name`,
     ).bind(p.id, tid(c)),
     c.env.DB.prepare(
-      `SELECT w.id, w.status, w.result, w.inspected_at AS inspectedAt, w.created_at AS createdAt, w.next_due_at AS nextDueAt, u.name AS inspector,
+      `SELECT w.id, w.status, w.result, w.purpose, w.building_id AS buildingId, w.inspected_at AS inspectedAt, w.created_at AS createdAt, w.next_due_at AS nextDueAt, u.name AS inspector,
               (SELECT COUNT(*) FROM defects d WHERE d.walkthrough_id = w.id AND d.status = 'open') AS openDefects
          FROM walkthroughs w JOIN users u ON u.id = w.inspector_id
         WHERE w.property_id = ? AND w.tenant_id = ? ORDER BY COALESCE(w.inspected_at, w.created_at) DESC LIMIT 20`,
@@ -306,7 +337,7 @@ export function assetQuery(c: Ctx, where = '1=1', order = 'a.code') {
             b.id AS buildingId, b.name AS buildingName, p.id AS propertyId, p.name AS propertyName,
             (SELECT COUNT(*) FROM defects d WHERE d.asset_id = a.id AND d.status = 'open') AS openDefects
        FROM assets a JOIN buildings b ON b.id = a.building_id JOIN properties p ON p.id = b.property_id
-      WHERE a.tenant_id = ?1 AND a.deleted_at IS NULL AND ${where}
+      WHERE a.tenant_id = ?1 AND a.deleted_at IS NULL AND ${scopeSql(c, 'a.building_id', 'building')} AND ${where}
       ORDER BY ${order}`,
   );
 }
@@ -393,7 +424,9 @@ async function assertLabelFree(c: Ctx, label: string, exceptAssetId?: string) {
 
 data.post('/assets', async (c) => {
   requireRole(c, 'inspector');
+  requireCreate(c);
   const b = assetBody.parse(await c.req.json());
+  assertInScope(c, 'building', b.buildingId);
   const building = await c.env.DB.prepare('SELECT id FROM buildings WHERE id = ? AND tenant_id = ? AND deleted_at IS NULL')
     .bind(b.buildingId, tid(c))
     .first();
@@ -420,7 +453,7 @@ data.post('/assets', async (c) => {
 data.get('/assets/by-code/:code', async (c) => {
   const code = c.req.param('code');
   const row = await c.env.DB.prepare(
-    'SELECT id FROM assets WHERE tenant_id = ? AND deleted_at IS NULL AND (upper(code) = upper(?) OR upper(label_code) = upper(?))',
+    `SELECT id FROM assets WHERE tenant_id = ? AND deleted_at IS NULL AND ${scopeSql(c, 'building_id', 'building')} AND (upper(code) = upper(?) OR upper(label_code) = upper(?))`,
   )
     .bind(tid(c), code, code)
     .first();
@@ -462,6 +495,8 @@ data.get('/assets/:id', async (c) => {
 data.patch('/assets/:id', async (c) => {
   requireRole(c, 'inspector');
   const b = assetBody.omit({ category: true, code: true }).parse(await c.req.json());
+  await assetInScope(c, c.req.param('id'));
+  assertInScope(c, 'building', b.buildingId);
   const building = await c.env.DB.prepare('SELECT id FROM buildings WHERE id = ? AND tenant_id = ? AND deleted_at IS NULL')
     .bind(b.buildingId, tid(c))
     .first();
@@ -483,6 +518,7 @@ data.patch('/assets/:id', async (c) => {
 data.put('/assets/:id/label', async (c) => {
   requireRole(c, 'inspector');
   const { labelCode } = z.object({ labelCode: str(60).nullable() }).parse(await c.req.json());
+  await assetInScope(c, c.req.param('id'));
   const label = labelCode?.toUpperCase() || null;
   if (label) await assertLabelFree(c, label, c.req.param('id'));
   const r = await c.env.DB.prepare('UPDATE assets SET label_code=?, updated_at=? WHERE id=? AND tenant_id=? AND deleted_at IS NULL')
@@ -499,6 +535,7 @@ data.put('/assets/:id/marker', async (c) => {
   const b = z
     .object({ floorPlanId: z.string().nullable(), x: z.number().min(0).max(1).nullable(), y: z.number().min(0).max(1).nullable() })
     .parse(await c.req.json());
+  await assetInScope(c, c.req.param('id'));
   if (b.floorPlanId) {
     const ok = await c.env.DB.prepare(
       `SELECT 1 FROM floor_plans f JOIN assets a ON a.building_id = f.building_id
@@ -579,7 +616,7 @@ data.get('/defects', async (c) => {
             (SELECT t.id FROM tasks t WHERE t.defect_id = d.id LIMIT 1) AS taskId
        FROM defects d JOIN properties p ON p.id = d.property_id
        LEFT JOIN assets a ON a.id = d.asset_id LEFT JOIN buildings b ON b.id = a.building_id
-      WHERE d.tenant_id = ?1 AND (?2 IS NULL OR d.status = ?2) AND p.deleted_at IS NULL AND (a.id IS NULL OR a.deleted_at IS NULL) ${srcWhere}
+      WHERE d.tenant_id = ?1 AND (?2 IS NULL OR d.status = ?2) AND p.deleted_at IS NULL AND ${defectScope(c, 'd')} AND (a.id IS NULL OR a.deleted_at IS NULL) ${srcWhere}
       ORDER BY CASE d.severity WHEN 'critical' THEN 0 WHEN 'high' THEN 1 WHEN 'medium' THEN 2 ELSE 3 END, d.created_at DESC`,
   )
     .bind(tid(c), status)
@@ -591,7 +628,7 @@ data.patch('/defects/:id', async (c) => {
   requireRole(c, 'inspector');
   const { status } = z.object({ status: z.enum(['open', 'resolved']) }).parse(await c.req.json());
   const t = now();
-  const r = await c.env.DB.prepare('UPDATE defects SET status=?, resolved_at=?, resolved_by=? WHERE id=? AND tenant_id=?')
+  const r = await c.env.DB.prepare(`UPDATE defects SET status=?, resolved_at=?, resolved_by=? WHERE id=? AND tenant_id=? AND ${defectScope(c, 'defects')}`)
     .bind(status, status === 'resolved' ? t : null, status === 'resolved' ? c.get('user').userId : null, c.req.param('id'), tid(c))
     .run();
   if (!r.meta.changes) notFound('Mangel');
@@ -683,7 +720,11 @@ data.get('/export/backup.json', async (c) => {
   const t = tid(c);
   const tables: [string, string][] = [
     ['tenant', 'SELECT id, name, address, phone, email, website, pdf_pattern, archive_after_months, created_at FROM tenants WHERE id = ?'],
-    ['members', 'SELECT u.id, u.name, u.email, m.role, m.created_at FROM memberships m JOIN users u ON u.id = m.user_id WHERE m.tenant_id = ?'],
+    [
+      'members',
+      'SELECT u.id, u.name, u.email, m.role, m.scope, m.can_create, m.fire_officer, m.fire_officer_qualification, m.created_at FROM memberships m JOIN users u ON u.id = m.user_id WHERE m.tenant_id = ?',
+    ],
+    ['memberFlagHistory', 'SELECT * FROM member_flag_history WHERE tenant_id = ?'],
     ['properties', 'SELECT * FROM properties WHERE tenant_id = ?'],
     ['buildings', 'SELECT * FROM buildings WHERE tenant_id = ?'],
     ['floorPlans', 'SELECT * FROM floor_plans WHERE tenant_id = ?'],

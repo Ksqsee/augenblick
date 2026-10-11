@@ -263,7 +263,12 @@ account.get('/me', async (c) => {
   )
     .bind(u.userId)
     .all();
-  return c.json({ user: { id: u.userId, name: u.name, email: u.email, role: u.role }, tenant, workspaces: workspaces.results, pendingLegal });
+  return c.json({
+    user: { id: u.userId, name: u.name, email: u.email, role: u.role, scoped: !!u.scope, canCreate: u.canCreate !== false },
+    tenant,
+    workspaces: workspaces.results,
+    pendingLegal,
+  });
 });
 
 account.post('/switch', async (c) => {
@@ -453,11 +458,18 @@ account.post('/delete', async (c) => {
 account.get('/members', async (c) => {
   const u = c.get('user');
   const members = await c.env.DB.prepare(
-    `SELECT u.id, u.name, u.email, m.role, m.created_at AS joinedAt FROM memberships m JOIN users u ON u.id = m.user_id
+    `SELECT u.id, u.name, u.email, m.role, m.created_at AS joinedAt, m.scope, m.can_create AS canCreate,
+            m.fire_officer AS fireOfficer, m.fire_officer_qualification AS fireOfficerQualification
+       FROM memberships m JOIN users u ON u.id = m.user_id
       WHERE m.tenant_id = ? ORDER BY u.name`,
   )
     .bind(u.tenantId)
-    .all();
+    .all<Record<string, unknown>>();
+  for (const m of members.results) {
+    m.scope = parseJson(m.scope as string, null);
+    m.canCreate = !!m.canCreate;
+    m.fireOfficer = !!m.fireOfficer;
+  }
   const invites = await c.env.DB.prepare(
     'SELECT id, email, role, token, created_at AS createdAt FROM invites WHERE tenant_id = ? AND accepted_at IS NULL ORDER BY created_at DESC',
   )
@@ -505,6 +517,96 @@ account.patch('/members/:userId', async (c) => {
   if (cur.role === 'owner') throw new HTTPException(400, { message: 'Die Inhaber-Rolle kann nicht geändert werden' });
   await c.env.DB.prepare('UPDATE memberships SET role = ? WHERE tenant_id = ? AND user_id = ?').bind(role, u.tenantId, target).run();
   return c.json({ ok: true });
+});
+
+/**
+ * Zugriffsbereich und Anlegerecht eines Prüfers/Lesezugriffs festlegen.
+ * `scope: null` = gesamter Workspace; sonst nur die genannten Objekte (mit allen Gebäuden) und einzelne Gebäude.
+ */
+account.put('/members/:userId/access', async (c) => {
+  requireRole(c, 'admin');
+  const u = c.get('user');
+  const ids = z.array(z.string().regex(/^[a-z0-9]{1,40}$/)).max(500);
+  const b = z
+    .object({ scope: z.object({ propertyIds: ids.default([]), buildingIds: ids.default([]) }).nullable(), canCreate: z.boolean() })
+    .parse(await c.req.json());
+  const target = c.req.param('userId');
+  const cur = await c.env.DB.prepare('SELECT role FROM memberships WHERE tenant_id = ? AND user_id = ?').bind(u.tenantId, target).first<{ role: string }>();
+  if (!cur) throw new HTTPException(404, { message: 'Mitglied nicht gefunden' });
+  if (cur.role === 'owner' || cur.role === 'admin') throw new HTTPException(400, { message: 'Admins und Inhaber haben immer Zugriff auf den gesamten Workspace' });
+  let scope: { propertyIds: string[]; buildingIds: string[] } | null = null;
+  if (b.scope) {
+    // nur IDs aus diesem Workspace übernehmen
+    const [props, builds] = await c.env.DB.batch([
+      c.env.DB.prepare('SELECT id FROM properties WHERE tenant_id = ? AND deleted_at IS NULL AND id IN (SELECT value FROM json_each(?))').bind(u.tenantId, JSON.stringify(b.scope.propertyIds)),
+      c.env.DB.prepare('SELECT id FROM buildings WHERE tenant_id = ? AND deleted_at IS NULL AND id IN (SELECT value FROM json_each(?))').bind(u.tenantId, JSON.stringify(b.scope.buildingIds)),
+    ]);
+    scope = { propertyIds: (props.results as { id: string }[]).map((r) => r.id), buildingIds: (builds.results as { id: string }[]).map((r) => r.id) };
+    if (scope.propertyIds.length !== b.scope.propertyIds.length || scope.buildingIds.length !== b.scope.buildingIds.length) {
+      throw new HTTPException(400, { message: 'Unbekanntes Objekt oder Gebäude' });
+    }
+  }
+  await c.env.DB.prepare('UPDATE memberships SET scope = ?, can_create = ? WHERE tenant_id = ? AND user_id = ?')
+    .bind(scope ? JSON.stringify(scope) : null, b.canCreate ? 1 : 0, u.tenantId, target)
+    .run();
+  const what = scope ? `${scope.propertyIds.length} Objekte, ${scope.buildingIds.length} Gebäude` : 'gesamter Workspace';
+  await logActivity(c, 'update', 'member', target, `Zugriff geändert: ${what}${b.canCreate ? '' : ', ohne Anlegerecht'}`);
+  return c.json({ ok: true });
+});
+
+const GENESIS = '0'.repeat(64);
+const flagHash = (prev: string, r: { user_id: string; flag: string; value: number; note: string; changed_by: string; changed_at: number }) =>
+  sha256Hex([prev, r.user_id, r.flag, r.value, r.note, r.changed_by, r.changed_at].join('|'));
+
+/** Status „Brandschutzbeauftragte/r“ eines Mitglieds setzen; jede Änderung wird verkettet protokolliert. */
+account.put('/members/:userId/fire-officer', async (c) => {
+  requireRole(c, 'admin');
+  const u = c.get('user');
+  const b = z.object({ value: z.boolean(), qualification: z.string().trim().max(300).default('') }).parse(await c.req.json());
+  const target = c.req.param('userId');
+  const cur = await c.env.DB.prepare('SELECT fire_officer, fire_officer_qualification FROM memberships WHERE tenant_id = ? AND user_id = ?')
+    .bind(u.tenantId, target)
+    .first<{ fire_officer: number; fire_officer_qualification: string }>();
+  if (!cur) throw new HTTPException(404, { message: 'Mitglied nicht gefunden' });
+  if (!!cur.fire_officer === b.value && cur.fire_officer_qualification === b.qualification) return c.json({ ok: true, changed: false });
+  const last = await c.env.DB.prepare('SELECT hash FROM member_flag_history WHERE tenant_id = ? AND user_id = ? ORDER BY changed_at DESC, rowid DESC LIMIT 1')
+    .bind(u.tenantId, target)
+    .first<string>('hash');
+  const row = { user_id: target, flag: 'fire_officer', value: b.value ? 1 : 0, note: b.qualification, changed_by: u.userId, changed_at: now() };
+  const prev = last ?? GENESIS;
+  await c.env.DB.batch([
+    c.env.DB.prepare('UPDATE memberships SET fire_officer = ?, fire_officer_qualification = ? WHERE tenant_id = ? AND user_id = ?').bind(row.value, b.qualification, u.tenantId, target),
+    c.env.DB.prepare(
+      'INSERT INTO member_flag_history (id, tenant_id, user_id, flag, value, note, changed_by, changed_at, prev_hash, hash) VALUES (?,?,?,?,?,?,?,?,?,?)',
+    ).bind(id(), u.tenantId, target, row.flag, row.value, row.note, row.changed_by, row.changed_at, prev, await flagHash(prev, row)),
+  ]);
+  await logActivity(c, 'update', 'member', target, b.value ? 'Als Brandschutzbeauftragte/r hinterlegt' : 'Status Brandschutzbeauftragte/r entfernt');
+  return c.json({ ok: true, changed: true });
+});
+
+/** Verlauf des Status mit Prüfung der Hash-Kette (erkennt nachträglich veränderte oder gelöschte Einträge). */
+account.get('/members/:userId/fire-officer-history', async (c) => {
+  requireRole(c, 'admin');
+  const u = c.get('user');
+  const rows = (
+    await c.env.DB.prepare(
+      `SELECT h.user_id, h.flag, h.value, h.note, h.changed_by, h.changed_at, h.prev_hash, h.hash, us.name AS changedByName
+         FROM member_flag_history h LEFT JOIN users us ON us.id = h.changed_by
+        WHERE h.tenant_id = ? AND h.user_id = ? ORDER BY h.changed_at, h.rowid`,
+    )
+      .bind(u.tenantId, c.req.param('userId'))
+      .all<{ user_id: string; flag: string; value: number; note: string; changed_by: string; changed_at: number; prev_hash: string; hash: string; changedByName: string | null }>()
+  ).results;
+  let prev = GENESIS;
+  let chainValid = true;
+  for (const r of rows) {
+    if (r.prev_hash !== prev || r.hash !== (await flagHash(prev, r))) chainValid = false;
+    prev = r.hash;
+  }
+  return c.json({
+    chainValid,
+    entries: rows.map((r) => ({ value: !!r.value, qualification: r.note, changedAt: r.changed_at, changedBy: r.changedByName ?? 'unbekannt' })),
+  });
 });
 
 /** Admin erzeugt einmaligen Link zum Neusetzen des Passworts (24 h gültig). */
