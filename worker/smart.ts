@@ -3,7 +3,8 @@ import { Hono } from 'hono';
 import { z } from 'zod';
 import { DAY } from '../shared/logic';
 import { DEFAULT_SLA, HOUR } from '../shared/sla';
-import { defectScope, tid } from './data';
+import { sortByUrgency } from '../shared/tasks';
+import { defectScope, taskScope, tid } from './data';
 import { type AppEnv, type Ctx, id, logActivity, now, requireRole, scopeSql } from './lib';
 
 export const smart = new Hono<AppEnv>();
@@ -74,7 +75,7 @@ smart.get('/smart/suggestions', async (c) => {
   const [r, defects, walks, drafts, tasks] = await Promise.all([
     rounds(c, 14),
     c.env.DB.prepare(
-      `SELECT d.id, d.severity FROM defects d WHERE d.tenant_id = ?1 AND d.status = 'open' AND d.severity IN ('high','critical')
+      `SELECT d.id, d.severity FROM defects d WHERE d.tenant_id = ?1 AND d.status = 'open' AND d.hidden_at IS NULL AND d.severity IN ('high','critical')
           AND ${defectScope(c, 'd')} AND NOT EXISTS (SELECT 1 FROM tasks k WHERE k.defect_id = d.id) LIMIT 200`,
     )
       .bind(t)
@@ -156,7 +157,7 @@ export async function tasksFromDefects(c: Ctx, opts: { severities: string[]; ins
     await c.env.DB.prepare(
       `SELECT d.id, d.title, d.measure, d.severity, d.asset_id, d.property_id, a.code
          FROM defects d LEFT JOIN assets a ON a.id = d.asset_id
-        WHERE d.tenant_id = ?1 AND d.status = 'open' AND d.severity IN (SELECT value FROM json_each(?2))
+        WHERE d.tenant_id = ?1 AND d.status = 'open' AND d.hidden_at IS NULL AND d.severity IN (SELECT value FROM json_each(?2))
           AND (?3 IS NULL OR d.inspection_id = ?3) AND (?4 IS NULL OR d.id = ?4) AND ${defectScope(c, 'd')}
           AND NOT EXISTS (SELECT 1 FROM tasks k WHERE k.defect_id = d.id) LIMIT 200`,
     )
@@ -182,13 +183,85 @@ export async function tasksFromDefects(c: Ctx, opts: { severities: string[]; ins
   });
   const j = (k: string) => `json_extract(value, '$.${k}')`;
   await c.env.DB.prepare(
-    `INSERT INTO tasks (id, tenant_id, title, description, status, priority, due_at, asset_id, defect_id, property_id, labels, created_by, created_at, updated_at)
-     SELECT ${j('id')}, ?1, ${j('title')}, ${j('description')}, 'open', ${j('priority')}, ${j('due')}, ${j('asset')}, ${j('defect')}, ${j('property')}, '[]', ?2, ?3, ?3 FROM json_each(?4)`,
+    `INSERT INTO tasks (id, tenant_id, title, description, kind, status, priority, due_at, asset_id, defect_id, property_id, labels, created_by, created_at, updated_at)
+     SELECT ${j('id')}, ?1, ${j('title')}, ${j('description')}, 'defect', 'open', ${j('priority')}, ${j('due')}, ${j('asset')}, ${j('defect')}, ${j('property')}, '[]', ?2, ?3, ?3 FROM json_each(?4)`,
+  )
+    .bind(t, c.get('user').userId, n, JSON.stringify(items))
+    .run();
+  // Anlegende Person beobachtet die neuen Aufgaben
+  await c.env.DB.prepare(
+    `INSERT OR IGNORE INTO task_watchers (task_id, user_id, tenant_id, created_at)
+     SELECT ${j('id')}, m.user_id, ?1, ?3 FROM json_each(?4) JOIN memberships m ON m.tenant_id = ?1 AND m.user_id = ?2`,
   )
     .bind(t, c.get('user').userId, n, JSON.stringify(items))
     .run();
   return items.length;
 }
+
+/**
+ * Handlungsbedarf: schwere offene Mängel ohne Aufgabe, überfällige Aufgaben und überfällige Elemente –
+ * in einer Liste, nach Dringlichkeit sortiert (siehe shared/tasks.ts).
+ */
+export async function actionRequired(c: Ctx) {
+  const t = tid(c);
+  const n = now();
+  const [defects, tasks, assets] = await c.env.DB.batch([
+    c.env.DB.prepare(
+      `SELECT d.id, d.title, d.severity, d.created_at AS createdAt, a.id AS assetId, a.code, p.name AS propertyName, b.name AS buildingName
+         FROM defects d JOIN properties p ON p.id = d.property_id LEFT JOIN assets a ON a.id = d.asset_id LEFT JOIN buildings b ON b.id = a.building_id
+        WHERE d.tenant_id = ?1 AND d.status = 'open' AND d.hidden_at IS NULL AND d.severity IN ('high','critical') AND p.deleted_at IS NULL
+          AND (a.id IS NULL OR a.deleted_at IS NULL) AND ${defectScope(c, 'd')}
+          AND NOT EXISTS (SELECT 1 FROM tasks k WHERE k.defect_id = d.id AND k.status IN ('open','in_progress')) LIMIT 300`,
+    ).bind(t),
+    c.env.DB.prepare(
+      `SELECT k.id, k.title, k.kind, k.priority, k.due_at AS dueAt, u.name AS assigneeName, a.code
+         FROM tasks k LEFT JOIN users u ON u.id = k.assignee_id LEFT JOIN assets a ON a.id = k.asset_id
+        WHERE k.tenant_id = ?1 AND k.status IN ('open','in_progress') AND k.due_at < ?2 AND ${taskScope(c, 'k')} LIMIT 300`,
+    ).bind(t, n),
+    c.env.DB.prepare(
+      `SELECT a.id, a.code, a.category, a.location, a.next_due_at AS dueAt, b.name AS buildingName, p.name AS propertyName
+         FROM assets a JOIN buildings b ON b.id = a.building_id JOIN properties p ON p.id = b.property_id
+        WHERE a.tenant_id = ?1 AND a.deleted_at IS NULL AND b.deleted_at IS NULL AND p.deleted_at IS NULL
+          AND a.next_due_at < ?2 AND ${scopeSql(c, 'b.id', 'building')} ORDER BY a.next_due_at LIMIT 300`,
+    ).bind(t, n),
+  ]);
+  type R = Record<string, unknown>;
+  const items = [
+    ...(defects.results as R[]).map((d) => ({
+      kind: 'defect' as const,
+      id: d.id as string,
+      level: d.severity as string,
+      at: d.createdAt as number,
+      title: d.title as string,
+      subtitle: [d.code ?? 'Begehung', d.buildingName, d.propertyName].filter(Boolean).join(' · '),
+      reason: 'ohne Aufgabe',
+      assetId: (d.assetId as string | null) ?? null,
+    })),
+    ...(tasks.results as R[]).map((k) => ({
+      kind: 'task' as const,
+      id: k.id as string,
+      level: k.priority as string,
+      at: k.dueAt as number,
+      title: k.title as string,
+      subtitle: [k.code, k.assigneeName ?? 'ohne Zuständige'].filter(Boolean).join(' · '),
+      reason: 'Aufgabe überfällig',
+      assetId: null,
+    })),
+    ...(assets.results as R[]).map((a) => ({
+      kind: 'asset' as const,
+      id: a.id as string,
+      level: null,
+      at: a.dueAt as number,
+      title: `${a.code}${a.location ? ` – ${a.location}` : ''}`,
+      subtitle: [a.buildingName, a.propertyName].filter(Boolean).join(' · '),
+      reason: 'Prüfung überfällig',
+      assetId: a.id as string,
+    })),
+  ];
+  return sortByUrgency(items, n).slice(0, 300);
+}
+
+smart.get('/smart/action-required', async (c) => c.json(await actionRequired(c)));
 
 smart.post('/smart/tasks-from-defects', async (c) => {
   requireRole(c, 'inspector');

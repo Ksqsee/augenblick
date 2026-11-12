@@ -124,10 +124,31 @@ export const TOOLS: Tool[] = [
   {
     name: 'resolve_defect',
     title: 'Mangel als behoben markieren',
-    description: 'Setzt einen Mangel auf behoben (oder mit reopen=true wieder auf offen).',
-    inputSchema: obj({ defectId: str('ID des Mangels'), reopen: { type: 'boolean', description: 'wieder öffnen statt beheben' } }, ['defectId']),
+    description: 'Setzt einen Mangel auf behoben, optional mit Behebungsnotiz (wer/wann wird gespeichert), oder mit reopen=true wieder auf offen.',
+    inputSchema: obj(
+      { defectId: str('ID des Mangels'), note: str('Behebungsnotiz, z. B. „Schließer getauscht durch Fa. Hansen“'), reopen: { type: 'boolean', description: 'wieder öffnen statt beheben' } },
+      ['defectId'],
+    ),
     readOnly: false,
-    run: (a, api) => api({ method: 'PATCH', path: `/defects/${enc(String(a.defectId))}`, body: { status: a.reopen ? 'open' : 'resolved' } }),
+    run: (a, api) =>
+      api({ method: 'PATCH', path: `/defects/${enc(String(a.defectId))}`, body: a.reopen ? { status: 'open' } : { status: 'resolved', note: a.note ? String(a.note) : '' } }),
+  },
+  {
+    name: 'get_defect',
+    title: 'Mangel abrufen',
+    description: 'Ein Mangel mit allen Angaben, Fotos (vorher/nachher), Behebung, verknüpften Aufgaben und Verlauf.',
+    inputSchema: obj({ defectId: str('ID des Mangels') }, ['defectId']),
+    readOnly: true,
+    run: (a, api) => api({ method: 'GET', path: `/defects/${enc(String(a.defectId))}` }),
+  },
+  {
+    name: 'list_action_required',
+    title: 'Handlungsbedarf',
+    description:
+      'Eine nach Dringlichkeit sortierte Liste: kritische/hohe offene Mängel ohne Aufgabe, überfällige Aufgaben und überfällige Elemente. Jeder Eintrag hat kind (defect/task/asset), id, title, reason und urgency.',
+    inputSchema: obj({ limit: { type: 'integer', description: 'höchstens so viele Einträge (Standard 50)', minimum: 1, maximum: 300 } }),
+    readOnly: true,
+    run: async (a, api) => ((await api({ method: 'GET', path: '/smart/action-required' })) as Json[]).slice(0, Number(a.limit ?? 50)),
   },
   {
     name: 'list_tasks',
@@ -152,6 +173,7 @@ export const TOOLS: Tool[] = [
         dueDate: str('Fälligkeit (ISO-Datum); ohne Angabe gilt die SLA-Frist'),
         assetCode: str('Code des betroffenen Elements'),
         propertyId: str('ID des Objekts'),
+        kind: str('Typ: inspection = Prüfauftrag (braucht assetCode), other = Sonstiges', { enum: ['inspection', 'other'] }),
       },
       ['title'],
     ),
@@ -161,7 +183,7 @@ export const TOOLS: Tool[] = [
       return api({
         method: 'POST',
         path: '/tasks',
-        body: { title: a.title, description: a.description ?? '', priority: a.priority ?? 'medium', dueAt: toMs(a.dueDate) ?? null, assetId, propertyId: a.propertyId ?? null },
+        body: { title: a.title, description: a.description ?? '', kind: a.kind ?? undefined, priority: a.priority ?? 'medium', dueAt: toMs(a.dueDate) ?? null, assetId, propertyId: a.propertyId ?? null },
       });
     },
   },
@@ -178,6 +200,7 @@ export const TOOLS: Tool[] = [
       const body = {
         title: t.title,
         description: t.description,
+        kind: t.kind,
         status: a.status,
         priority: t.priority,
         dueAt: t.dueAt,
@@ -194,10 +217,35 @@ export const TOOLS: Tool[] = [
   {
     name: 'add_task_comment',
     title: 'Kommentar zu Aufgabe',
-    description: 'Fügt einer Aufgabe einen Kommentar hinzu.',
-    inputSchema: obj({ taskId: str('ID der Aufgabe'), comment: str('Text') }, ['taskId', 'comment']),
+    description: 'Fügt einer Aufgabe eine interne Notiz hinzu (für Subunternehmer unsichtbar). Erwähnte Mitglieder werden benachrichtigt und beobachten die Aufgabe.',
+    inputSchema: obj(
+      { taskId: str('ID der Aufgabe'), comment: str('Text'), mentions: { type: 'array', items: { type: 'string' }, description: 'Nutzer-IDs der erwähnten Teammitglieder' } },
+      ['taskId', 'comment'],
+    ),
     readOnly: false,
-    run: (a, api) => api({ method: 'POST', path: `/tasks/${enc(String(a.taskId))}/comments`, body: { body: a.comment } }),
+    run: (a, api) => api({ method: 'POST', path: `/tasks/${enc(String(a.taskId))}/comments`, body: { body: a.comment, mentions: Array.isArray(a.mentions) ? a.mentions : [] } }),
+  },
+  {
+    name: 'bulk_update_tasks',
+    title: 'Mehrere Aufgaben ändern',
+    description: 'Setzt Status, Zuständige (Nutzer-ID oder null), Priorität und/oder Fälligkeit für mehrere Aufgaben auf einmal.',
+    inputSchema: obj(
+      {
+        taskIds: { type: 'array', items: { type: 'string' }, description: 'IDs der Aufgaben' },
+        status: str('neuer Status', { enum: ['open', 'in_progress', 'done', 'cancelled'] }),
+        assigneeId: { type: ['string', 'null'], description: 'Nutzer-ID oder null für „niemand“' },
+        priority: str('Priorität', { enum: ['low', 'medium', 'high'] }),
+        dueDate: str('Fälligkeit (ISO-Datum)'),
+      },
+      ['taskIds'],
+    ),
+    readOnly: false,
+    run: (a, api) =>
+      api({
+        method: 'POST',
+        path: '/tasks/bulk',
+        body: { ids: a.taskIds, status: a.status, assigneeId: a.assigneeId, priority: a.priority, dueAt: a.dueDate ? toMs(a.dueDate) : undefined },
+      }),
   },
   {
     name: 'list_categories',

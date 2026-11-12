@@ -161,6 +161,7 @@ Grundlage ist diese Analyse; Augenblick Control wurde seither nicht erneut geöf
 | Brandschutzbegehung mit Katalog nach Gebäudeart | ✓ | eigener Fragenkatalog und eigene Formulierungen |
 | Prüfungs-Reiter (Überfällig, Bald fällig, Nicht prüfbar, Durchgeführt, Neue Geräte), Filter nach Prüfart | ✓ | Mängel-Reiter als eigene Seite |
 | Mängel-Dashboard, Aufgaben mit Labels, SLA, Kommentaren, Statistik | ✓ | |
+| Aufgabentypen, Beobachter, @-Erwähnungen, Mehrfachbearbeitung, Fälligkeitsgruppen; Behebung mit Notiz/Nachher-Foto, Ausblenden, Mangel-Detail, Handlungsbedarf | ✓ | über das Vorbild hinaus (Migration 0012) |
 | Subunternehmer | ~ | Link je Aufgabe; externe Firma mit eigenem Zugang siehe Abschnitt 7 |
 | Berichte: Prüfprotokoll, Objektbericht, Compliance, Mängelbericht, Excel-Elementliste (re-importierbar), JSON-Backup, Archiv | ✓ | PDF entsteht im Browser |
 | Batch-ZIP-Export, PDF-Dateinamenschema | ✓ | |

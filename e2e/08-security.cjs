@@ -134,6 +134,36 @@ function client() {
   const k2 = (await insp('/account/api-keys', { body: { name: 'x', scope: 'read' } })).status;
   check(k2 === 403, `Prüfer darf keine Schlüssel anlegen (${k2})`);
 
+  console.log('· #17 Aufgaben und Mängel: Rollen und Workspace-Grenzen');
+  const reader = client();
+  await reader.login('lesen@example.com');
+  const myDefect = (await owner('/defects')).json[0];
+  check((await reader(`/defects/${myDefect.id}/hide`, { body: { reason: 'x' } })).status === 403, 'Lesezugriff blendet nicht aus');
+  check((await insp(`/defects/${myDefect.id}/hide`, { body: { reason: 'x' } })).status === 403, 'Prüfer blendet nicht aus');
+  check((await reader(`/defects/${myDefect.id}`, { method: 'PATCH', body: { status: 'resolved', note: 'x' } })).status === 403, 'Lesezugriff behebt nicht');
+  check((await reader('/tasks/bulk', { body: { ids: ['x'], status: 'done' } })).status === 403, 'Lesezugriff ohne Mehrfachbearbeitung');
+  // Daten im fremden Workspace (Mallory) anlegen
+  const mProp = (await mallory('/properties', { body: { name: 'Mallory Objekt' } })).json.id;
+  const mDefect = (await mallory('/defects', { body: { propertyId: mProp, title: 'Fremder Mangel', severity: 'low' } })).json.id;
+  const mTask = (await mallory('/tasks', { body: { title: 'Fremde Aufgabe', propertyId: mProp } })).json.id;
+  check(!!mDefect && !!mTask, 'Fremde Daten angelegt');
+  const malloryId = (await mallory('/account/me')).json.user.id;
+  check((await owner(`/defects/${mDefect}`)).status === 404, 'fremder Mangel-Detail → 404');
+  check((await owner(`/defects/${mDefect}/hide`, { body: { reason: 'x' } })).status === 404, 'fremden Mangel ausblenden → 404');
+  check((await owner(`/defects/${mDefect}`, { method: 'PATCH', body: { status: 'resolved' } })).status === 404, 'fremden Mangel beheben → 404');
+  check((await owner(`/tasks/${mTask}/watchers`)).status === 404, 'fremde Beobachter → 404');
+  check((await owner(`/tasks/${mTask}/watch`, { method: 'POST' })).status === 404, 'fremde Aufgabe beobachten → 404');
+  check((await owner(`/tasks/${mTask}/comments`, { body: { body: 'x' } })).status === 404, 'fremde Aufgabe kommentieren → 404');
+  check((await owner('/tasks/bulk', { body: { ids: [mTask], status: 'done' } })).status === 404, 'fremde Aufgabe in Mehrfachbearbeitung → 404');
+  check((await mallory('/tasks')).json.find((t) => t.id === mTask)?.status === 'open', 'fremde Aufgabe unverändert');
+  const ownTask = (await owner('/tasks', { body: { title: 'Sicherheitstest Erwähnung' } })).json.id;
+  const men = await owner(`/tasks/${ownTask}/comments`, { body: { body: '@Mallory', mentions: [malloryId] } });
+  check(men.status === 400, `Erwähnung eines Nicht-Mitglieds abgelehnt (${men.status})`);
+  check(!(await mallory('/notifications')).json.items.some((x) => /Sicherheitstest/.test(x.title)), 'keine Meldung an Nicht-Mitglied');
+  check((await owner('/tasks', { body: { title: 'x', defectId: mDefect } })).status === 400, 'Aufgabe mit fremdem Mangel abgelehnt');
+  const fk = await owner(`/defects/${myDefect.id}`, { method: 'PATCH', body: { status: 'resolved', photoKey: `${'x'.repeat(8)}/fremd` } });
+  check(fk.status === 400, `fremder Foto-Schlüssel bei Behebung abgelehnt (${fk.status})`);
+
   console.log(fail.length ? `FAILED ${fail.length}: ${fail.join('; ')}` : 'ALL CHECKS OK');
   if (fail.length) process.exitCode = 1;
 })().catch((e) => {

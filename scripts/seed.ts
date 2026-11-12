@@ -626,6 +626,17 @@ for (const [i, [title, priority, dueDays, status]] of generalTasks.entries()) {
   });
 }
 
+// Aufgabentyp, Prüfauftrag zum am längsten überfälligen Feuerlöscher, Beobachter (anlegende und zuständige Person)
+sql.push(`UPDATE tasks SET kind = 'defect' WHERE defect_id IS NOT NULL AND tenant_id = ${q(tenantId)};`);
+sql.push(
+  `INSERT INTO tasks (id, tenant_id, title, description, kind, status, priority, due_at, assignee_id, asset_id, labels, created_by, created_at, updated_at)
+   SELECT ${q(id())}, ${q(tenantId)}, 'Prüfung ' || a.code || ' nachholen', 'Prüfung ist überfällig – bitte beim nächsten Termin vor Ort erledigen.', 'inspection', 'open', 'medium', ${q(NOW + 2 * DAY)},
+          ${q(people.inspector2.id)}, a.id, '[]', ${q(people.owner.id)}, ${q(NOW - 2 * DAY)}, ${q(NOW - 2 * DAY)}
+     FROM assets a WHERE a.tenant_id = ${q(tenantId)} AND a.category = 'extinguisher' AND a.next_due_at < ${q(NOW)} ORDER BY a.next_due_at LIMIT 1;`,
+);
+sql.push(`INSERT OR IGNORE INTO task_watchers (task_id, user_id, tenant_id, created_at) SELECT id, created_by, tenant_id, created_at FROM tasks WHERE tenant_id = ${q(tenantId)};`);
+sql.push(`INSERT OR IGNORE INTO task_watchers (task_id, user_id, tenant_id, created_at) SELECT id, assignee_id, tenant_id, created_at FROM tasks WHERE tenant_id = ${q(tenantId)} AND assignee_id IS NOT NULL;`);
+
 const comments: [number, string, string | null, string, number][] = [
   [0, people.owner.name, people.owner.id, 'Fachfirma ist beauftragt, Termin kommende Woche.', 8],
   [0, 'Türtechnik Hansen KG', null, 'Ersatzteil bestellt, Lieferzeit ca. 5 Werktage.', 6],

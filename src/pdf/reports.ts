@@ -120,6 +120,8 @@ export async function inspectionPdf(i: Inspection, brand: Brand): Promise<Uint8A
       if (df.measure) doc.text(`${T('Maßnahme')}: ${df.measure}`, { x: 58, width: doc.width - 12 });
       const img = await fetchBytes(df.photoKey);
       if (img) await doc.image(img.bytes, img.type, 200, 130);
+      const res = i.resolutions?.find((r) => (r.checkpointId ?? '') === (df.checkpointId ?? '') && r.title === df.title);
+      if (res) await resolution(doc, res, { x: 58, width: doc.width - 12 });
       doc.gap(4);
     }
   }
@@ -215,10 +217,29 @@ export async function walkthroughPdf(w: Walkthrough, brand: Brand): Promise<Uint
   return doc.finish();
 }
 
+/** Behebung eines Mangels: wer, wann, Notiz und Nachher-Foto. */
+async function resolution(
+  doc: Doc,
+  r: { resolvedAt: number | null; resolvedByName?: string | null; note?: string; photoKey?: string | null },
+  pos: { x?: number; width?: number } = {},
+) {
+  doc.text(`${T('Behoben am')} ${d(r.resolvedAt)}${r.resolvedByName ? ` ${T('von')} ${r.resolvedByName}` : ''}`, { size: 9, bold: true, color: GREEN, ...pos });
+  if (r.note) doc.text(`${T('Behebungsnotiz')}: ${r.note}`, { size: 9, ...pos });
+  const after = await fetchBytes(r.photoKey);
+  if (after) {
+    doc.text(T('Foto nach Behebung'), { size: 8.5, color: MUTED, ...pos });
+    await doc.image(after.bytes, after.type, 180, 110);
+  }
+}
+
 export async function defectsPdf(defects: Defect[], brand: Brand): Promise<Uint8Array> {
   useBrand(brand);
   const doc = await Doc.create(brand, T('Mängelbericht'));
-  doc.title(T('Mängelbericht'), `${defects.length} ${T('offene Mängel')} · ${T('Stand')} ${dt(Date.now())}`);
+  const resolvedCount = defects.filter((x) => x.status === 'resolved').length;
+  doc.title(
+    T('Mängelbericht'),
+    `${defects.length - resolvedCount} ${T('offene Mängel')}${resolvedCount ? ` · ${resolvedCount} ${T('behoben')}` : ''} · ${T('Stand')} ${dt(Date.now())}`,
+  );
   for (const [n, df] of defects.entries()) {
     doc.ensure(40);
     doc.text(`${n + 1}. ${T(df.title)}`, { bold: true });
@@ -230,6 +251,7 @@ export async function defectsPdf(defects: Defect[], brand: Brand): Promise<Uint8
     if (df.measure) doc.text(`${T('Maßnahme')}: ${df.measure}`, { size: 9 });
     const img = await fetchBytes(df.photoKey);
     if (img) await doc.image(img.bytes, img.type, 180, 110);
+    if (df.status === 'resolved') await resolution(doc, { resolvedAt: df.resolvedAt, resolvedByName: df.resolvedByName, note: df.resolutionNote, photoKey: df.resolutionPhotoKey });
     doc.gap(6);
   }
   if (!defects.length) doc.text(T('Keine offenen Mängel.'), { color: MUTED });

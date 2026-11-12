@@ -7,7 +7,9 @@ import { sendPush } from './push';
 
 export const NOTIFY_TYPES = {
   task_assigned: 'Aufgabe zugewiesen',
-  task_comment: 'Kommentar zu meiner Aufgabe',
+  task_comment: 'Kommentar zu meiner oder beobachteter Aufgabe',
+  task_mention: 'Erwähnung in einem Kommentar',
+  task_watch: 'Statusänderung beobachteter Aufgaben',
   task_external: 'Rückmeldung von Subunternehmern',
   critical_defect: 'Kritischer Mangel festgestellt',
   walkthrough_submitted: 'Begehung abgeschlossen',

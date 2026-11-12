@@ -7,7 +7,7 @@ import { BUILDING_TYPES } from '../shared/walkthrough';
 import { type DocLanguage, tr } from '../shared/i18n';
 import { buildXlsx } from '../shared/xlsx';
 import { getCategoryDef, listCategories } from './categories';
-import { tasksFromDefects } from './smart';
+import { actionRequired, tasksFromDefects } from './smart';
 import { type AppEnv, assertInScope, type Ctx, id, logActivity, notFound, now, parseJson, requireCreate, requireRole, scopeSql } from './lib';
 
 export const data = new Hono<AppEnv>();
@@ -62,9 +62,9 @@ data.get('/dashboard', async (c) => {
          (SELECT COUNT(*) FROM assets WHERE tenant_id = ?1 AND deleted_at IS NULL AND next_due_at IS NULL ${sa}) AS never,
          (SELECT COUNT(*) FROM assets WHERE tenant_id = ?1 AND deleted_at IS NULL AND last_result = 'not_inspectable' ${sa}) AS notInspectable,
          (SELECT COUNT(*) FROM assets WHERE tenant_id = ?1 AND deleted_at IS NULL AND created_at > ?4 ${sa}) AS newAssets,
-         (SELECT COUNT(*) FROM defects WHERE tenant_id = ?1 AND status = 'open' AND asset_id IS NOT NULL ${sd}) AS openDefects,
-         (SELECT COUNT(*) FROM defects WHERE tenant_id = ?1 AND status = 'open' AND walkthrough_id IS NOT NULL ${sd}) AS openWalkDefects,
-         (SELECT COUNT(*) FROM defects WHERE tenant_id = ?1 AND status = 'open' AND severity = 'critical' ${sd}) AS criticalDefects,
+         (SELECT COUNT(*) FROM defects WHERE tenant_id = ?1 AND status = 'open' AND hidden_at IS NULL AND asset_id IS NOT NULL ${sd}) AS openDefects,
+         (SELECT COUNT(*) FROM defects WHERE tenant_id = ?1 AND status = 'open' AND hidden_at IS NULL AND walkthrough_id IS NOT NULL ${sd}) AS openWalkDefects,
+         (SELECT COUNT(*) FROM defects WHERE tenant_id = ?1 AND status = 'open' AND hidden_at IS NULL AND severity = 'critical' ${sd}) AS criticalDefects,
          (SELECT COUNT(*) FROM inspections WHERE tenant_id = ?1 AND status = 'submitted' AND superseded_at IS NULL AND inspected_at > ?4 ${si}) AS inspections30d,
          (SELECT COUNT(*) FROM inspections WHERE tenant_id = ?1 AND status = 'draft' ${si}) AS drafts,
          (SELECT COUNT(*) FROM properties p WHERE p.tenant_id = ?1 AND p.deleted_at IS NULL AND ${scopeSql(c, 'p.id', 'property')} AND COALESCE(
@@ -91,7 +91,7 @@ function propertyStatusQuery(c: Ctx) {
             SUM(CASE WHEN a.next_due_at < ?2 THEN 1 ELSE 0 END) AS overdue,
             SUM(CASE WHEN a.next_due_at BETWEEN ?2 AND ?3 THEN 1 ELSE 0 END) AS soon,
             SUM(CASE WHEN a.id IS NOT NULL AND a.next_due_at IS NULL THEN 1 ELSE 0 END) AS never,
-            (SELECT COUNT(*) FROM defects d WHERE d.property_id = p.id AND d.status = 'open' AND ${defectScope(c, 'd')}) AS openDefects,
+            (SELECT COUNT(*) FROM defects d WHERE d.property_id = p.id AND d.status = 'open' AND d.hidden_at IS NULL AND ${defectScope(c, 'd')}) AS openDefects,
             (SELECT MAX(w.inspected_at) FROM walkthroughs w WHERE w.property_id = p.id AND w.status = 'submitted') AS lastWalkAt,
             (SELECT MAX(w.next_due_at) FROM walkthroughs w WHERE w.property_id = p.id AND w.status = 'submitted') AS nextWalkAt,
             MAX(a.last_inspected_at) AS lastInspectedAt,
@@ -183,7 +183,7 @@ data.get('/properties/:id', async (c) => {
     ).bind(p.id, tid(c)),
     c.env.DB.prepare(
       `SELECT w.id, w.status, w.result, w.purpose, w.building_id AS buildingId, w.inspected_at AS inspectedAt, w.created_at AS createdAt, w.next_due_at AS nextDueAt, u.name AS inspector,
-              (SELECT COUNT(*) FROM defects d WHERE d.walkthrough_id = w.id AND d.status = 'open') AS openDefects
+              (SELECT COUNT(*) FROM defects d WHERE d.walkthrough_id = w.id AND d.status = 'open' AND d.hidden_at IS NULL) AS openDefects
          FROM walkthroughs w JOIN users u ON u.id = w.inspector_id
         WHERE w.property_id = ? AND w.tenant_id = ? ORDER BY COALESCE(w.inspected_at, w.created_at) DESC LIMIT 20`,
     ).bind(p.id, tid(c)),
@@ -336,7 +336,7 @@ export function assetQuery(c: Ctx, where = '1=1', order = 'a.code') {
             a.last_inspection_id AS lastInspectionId, a.last_inspected_at AS lastInspectedAt, a.last_result AS lastResult,
             a.next_due_at AS nextDueAt, a.created_at AS createdAt, a.schedules,
             b.id AS buildingId, b.name AS buildingName, p.id AS propertyId, p.name AS propertyName,
-            (SELECT COUNT(*) FROM defects d WHERE d.asset_id = a.id AND d.status = 'open') AS openDefects
+            (SELECT COUNT(*) FROM defects d WHERE d.asset_id = a.id AND d.status = 'open' AND d.hidden_at IS NULL) AS openDefects
        FROM assets a JOIN buildings b ON b.id = a.building_id JOIN properties p ON p.id = b.property_id
       WHERE a.tenant_id = ?1 AND a.deleted_at IS NULL AND ${scopeSql(c, 'a.building_id', 'building')} AND ${where}
       ORDER BY ${order}`,
@@ -377,7 +377,7 @@ data.get('/assets', async (c) => {
   if (q.due === 'never') where.push(sched ? `json_extract(a.schedules, '$.${sched}.lastAt') IS NULL` : 'a.next_due_at IS NULL');
   if (q.due === 'new') where.push(`a.created_at > ${n - 30 * DAY}`);
   if (q.due === 'not_inspectable') where.push(`a.last_result = 'not_inspectable'`);
-  if (q.due === 'defects') where.push(`EXISTS (SELECT 1 FROM defects d WHERE d.asset_id = a.id AND d.status = 'open')`);
+  if (q.due === 'defects') where.push(`EXISTS (SELECT 1 FROM defects d WHERE d.asset_id = a.id AND d.status = 'open' AND d.hidden_at IS NULL)`);
   const order = q.due === 'new' ? 'a.created_at DESC' : q.due ? `COALESCE(${dueCol}, 0), a.code` : 'p.name, b.name, a.code';
   const rows = await assetQuery(c, where.join(' AND ') || '1=1', order)
     .bind(...args)
@@ -472,7 +472,7 @@ data.get('/assets/:id', async (c) => {
          FROM inspections i JOIN users u ON u.id = i.inspector_id WHERE i.asset_id = ? AND i.tenant_id = ? ORDER BY COALESCE(i.inspected_at, i.created_at) DESC`,
     ).bind(a.id, tid(c)),
     c.env.DB.prepare(
-      `SELECT id, title, note, severity, status, created_at AS createdAt, resolved_at AS resolvedAt, inspection_id AS inspectionId, photo_key AS photoKey
+      `SELECT id, title, note, severity, status, created_at AS createdAt, resolved_at AS resolvedAt, inspection_id AS inspectionId, photo_key AS photoKey, hidden_at AS hiddenAt, resolution_note AS resolutionNote
          FROM defects WHERE asset_id = ? AND tenant_id = ? ORDER BY status = 'open' DESC, created_at DESC`,
     ).bind(a.id, tid(c)),
     c.env.DB.prepare('SELECT id, name, width, height, file_key AS fileKey FROM floor_plans WHERE id = ? AND tenant_id = ? AND deleted_at IS NULL').bind(
@@ -606,23 +606,70 @@ data.post('/assets/:id/restore', async (c) => {
 });
 
 // ---------- Mängel ----------
+const DEFECT_COLS = `d.id, d.title, d.note, d.measure, d.severity, d.status, d.created_at AS createdAt, d.resolved_at AS resolvedAt, d.inspection_id AS inspectionId,
+            d.walkthrough_id AS walkthroughId, d.legal_basis AS legalBasis, d.checkpoint_id AS checkpointId,
+            d.photo_key AS photoKey, d.resolution_note AS resolutionNote, d.resolution_photo_key AS resolutionPhotoKey, ru.name AS resolvedByName,
+            d.hidden_at AS hiddenAt, d.hidden_reason AS hiddenReason, hu.name AS hiddenByName,
+            a.id AS assetId, a.code, a.category, a.location, b.name AS buildingName, p.id AS propertyId, p.name AS propertyName,
+            (SELECT t.id FROM tasks t WHERE t.defect_id = d.id ORDER BY t.status IN ('done','cancelled'), t.created_at DESC LIMIT 1) AS taskId,
+            (SELECT t.status FROM tasks t WHERE t.defect_id = d.id ORDER BY t.status IN ('done','cancelled'), t.created_at DESC LIMIT 1) AS taskStatus`;
+const DEFECT_FROM = `defects d JOIN properties p ON p.id = d.property_id
+       LEFT JOIN assets a ON a.id = d.asset_id LEFT JOIN buildings b ON b.id = a.building_id
+       LEFT JOIN users ru ON ru.id = d.resolved_by LEFT JOIN users hu ON hu.id = d.hidden_by`;
+
 data.get('/defects', async (c) => {
   const status = c.req.query('status') === 'resolved' ? 'resolved' : c.req.query('status') === 'all' ? null : 'open';
   const source = c.req.query('source');
+  // Ausgeblendete zählen nicht mit und erscheinen nur mit ?hidden=1 (dann unabhängig vom Status)
+  const hidden = c.req.query('hidden') === '1';
   const srcWhere = source === 'walkthrough' ? 'AND d.walkthrough_id IS NOT NULL' : source === 'asset' ? 'AND d.asset_id IS NOT NULL' : '';
   const rows = await c.env.DB.prepare(
-    `SELECT d.id, d.title, d.note, d.measure, d.severity, d.status, d.created_at AS createdAt, d.resolved_at AS resolvedAt, d.inspection_id AS inspectionId,
-            d.walkthrough_id AS walkthroughId, d.legal_basis AS legalBasis,
-            d.photo_key AS photoKey, a.id AS assetId, a.code, a.category, a.location, b.name AS buildingName, p.id AS propertyId, p.name AS propertyName,
-            (SELECT t.id FROM tasks t WHERE t.defect_id = d.id LIMIT 1) AS taskId
-       FROM defects d JOIN properties p ON p.id = d.property_id
-       LEFT JOIN assets a ON a.id = d.asset_id LEFT JOIN buildings b ON b.id = a.building_id
-      WHERE d.tenant_id = ?1 AND (?2 IS NULL OR d.status = ?2) AND p.deleted_at IS NULL AND ${defectScope(c, 'd')} AND (a.id IS NULL OR a.deleted_at IS NULL) ${srcWhere}
+    `SELECT ${DEFECT_COLS}
+       FROM ${DEFECT_FROM}
+      WHERE d.tenant_id = ?1 AND (?2 IS NULL OR d.status = ?2) AND ${hidden ? 'd.hidden_at IS NOT NULL' : 'd.hidden_at IS NULL'}
+        AND p.deleted_at IS NULL AND ${defectScope(c, 'd')} AND (a.id IS NULL OR a.deleted_at IS NULL) ${srcWhere}
       ORDER BY CASE d.severity WHEN 'critical' THEN 0 WHEN 'high' THEN 1 WHEN 'medium' THEN 2 ELSE 3 END, d.created_at DESC`,
   )
-    .bind(tid(c), status)
+    .bind(tid(c), hidden ? null : status)
     .all();
   return c.json(rows.results);
+});
+
+/** Handlungsbedarf (Mängel ohne Aufgabe, überfällige Aufgaben und Elemente) – auch unter /smart/action-required. */
+data.get('/defects/action-required', async (c) => c.json(await actionRequired(c)));
+
+async function defectInScope(c: Ctx, defectId: string) {
+  const d = await c.env.DB.prepare(`SELECT ${DEFECT_COLS} FROM ${DEFECT_FROM} WHERE d.id = ?1 AND d.tenant_id = ?2 AND p.deleted_at IS NULL AND ${defectScope(c, 'd')}`)
+    .bind(defectId, tid(c))
+    .first<Record<string, unknown>>();
+  if (!d) notFound('Mangel');
+  return d;
+}
+
+/** Mangel-Detail: alle Angaben, Fotos vorher/nachher, verknüpfte Aufgaben und Verlauf. */
+data.get('/defects/:id', async (c) => {
+  const d = await defectInScope(c, c.req.param('id'));
+  const [tasks, history, origin] = await c.env.DB.batch([
+    c.env.DB.prepare(
+      `SELECT t.id, t.title, t.status, t.priority, t.due_at AS dueAt, u.name AS assigneeName FROM tasks t LEFT JOIN users u ON u.id = t.assignee_id
+        WHERE t.defect_id = ? AND t.tenant_id = ? ORDER BY t.created_at DESC`,
+    ).bind(d.id, tid(c)),
+    c.env.DB.prepare(
+      `SELECT ac.action, ac.summary, ac.created_at AS createdAt, COALESCE(u.name, 'Extern') AS userName FROM activity ac LEFT JOIN users u ON u.id = ac.user_id
+        WHERE ac.tenant_id = ?1 AND ((ac.entity = 'defect' AND ac.entity_id = ?2) OR (ac.entity = 'task' AND ac.entity_id IN (SELECT id FROM tasks WHERE defect_id = ?2 AND tenant_id = ?1)))
+        ORDER BY ac.created_at LIMIT 100`,
+    ).bind(tid(c), d.id),
+    c.env.DB.prepare(
+      `SELECT u.name, i.inspected_at AS at FROM inspections i JOIN users u ON u.id = i.inspector_id WHERE i.id = ?1 AND i.tenant_id = ?2
+       UNION ALL SELECT u.name, w.inspected_at FROM walkthroughs w JOIN users u ON u.id = w.inspector_id WHERE w.id = ?3 AND w.tenant_id = ?2`,
+    ).bind(d.inspectionId ?? '', tid(c), d.walkthroughId ?? ''),
+  ]);
+  const by = (origin.results[0] as { name: string } | undefined)?.name ?? null;
+  const events = [
+    { action: 'create', summary: d.inspectionId ? 'Bei der Prüfung erfasst' : d.walkthroughId ? 'Bei der Begehung erfasst' : 'Erfasst', createdAt: d.createdAt, userName: by },
+    ...(history.results as { action: string; summary: string; createdAt: number; userName: string }[]).filter((h) => !(h.action === 'create' && h.summary.startsWith('Mangel'))),
+  ];
+  return c.json({ ...d, tasks: tasks.results, history: events });
 });
 
 /** Mangel ohne Prüfung melden (z. B. per Diktat unterwegs) – am Element oder am Objekt. */
@@ -670,15 +717,48 @@ data.post('/defects', async (c) => {
   return c.json({ id: did, taskCreated });
 });
 
+/** Mangel als behoben markieren (optional mit Behebungsnotiz und Nachher-Foto) oder wieder öffnen. */
 data.patch('/defects/:id', async (c) => {
   requireRole(c, 'inspector');
-  const { status } = z.object({ status: z.enum(['open', 'resolved']) }).parse(await c.req.json());
+  const b = z
+    .object({
+      status: z.enum(['open', 'resolved']),
+      note: str(2000).default(''),
+      photoKey: z.string().max(200).nullable().default(null),
+    })
+    .parse(await c.req.json());
+  if (b.photoKey && !b.photoKey.startsWith(`${tid(c)}/`)) throw new HTTPException(400, { message: 'Ungültige Datei' });
   const t = now();
-  const r = await c.env.DB.prepare(`UPDATE defects SET status=?, resolved_at=?, resolved_by=? WHERE id=? AND tenant_id=? AND ${defectScope(c, 'defects')}`)
-    .bind(status, status === 'resolved' ? t : null, status === 'resolved' ? c.get('user').userId : null, c.req.param('id'), tid(c))
+  const resolved = b.status === 'resolved';
+  const r = await c.env.DB.prepare(
+    `UPDATE defects SET status=?, resolved_at=?, resolved_by=?, resolution_note=?, resolution_photo_key=? WHERE id=? AND tenant_id=? AND ${defectScope(c, 'defects')}`,
+  )
+    .bind(b.status, resolved ? t : null, resolved ? c.get('user').userId : null, resolved ? b.note : '', resolved ? b.photoKey : null, c.req.param('id'), tid(c))
     .run();
   if (!r.meta.changes) notFound('Mangel');
-  await logActivity(c, status === 'resolved' ? 'resolve' : 'reopen', 'defect', c.req.param('id'), status === 'resolved' ? 'Mangel behoben' : 'Mangel wieder geöffnet');
+  await logActivity(c, resolved ? 'resolve' : 'reopen', 'defect', c.req.param('id'), resolved ? `Mangel behoben${b.note ? `: ${b.note.slice(0, 120)}` : ''}${b.photoKey ? ' (mit Foto)' : ''}` : 'Mangel wieder geöffnet');
+  return c.json({ ok: true });
+});
+
+/** Ausblenden (z. B. Duplikat, nicht relevant) – nur Admins; zählt danach nicht mehr mit. */
+data.post('/defects/:id/hide', async (c) => {
+  requireRole(c, 'admin');
+  const { reason } = z.object({ reason: str(300).min(1, 'Bitte einen Grund angeben') }).parse(await c.req.json());
+  const r = await c.env.DB.prepare('UPDATE defects SET hidden_at = ?, hidden_by = ?, hidden_reason = ? WHERE id = ? AND tenant_id = ? AND hidden_at IS NULL')
+    .bind(now(), c.get('user').userId, reason, c.req.param('id'), tid(c))
+    .run();
+  if (!r.meta.changes) notFound('Mangel');
+  await logActivity(c, 'hide', 'defect', c.req.param('id'), `Mangel ausgeblendet: ${reason}`);
+  return c.json({ ok: true });
+});
+
+data.post('/defects/:id/unhide', async (c) => {
+  requireRole(c, 'admin');
+  const r = await c.env.DB.prepare("UPDATE defects SET hidden_at = NULL, hidden_by = NULL, hidden_reason = '' WHERE id = ? AND tenant_id = ? AND hidden_at IS NOT NULL")
+    .bind(c.req.param('id'), tid(c))
+    .run();
+  if (!r.meta.changes) notFound('Mangel');
+  await logActivity(c, 'unhide', 'defect', c.req.param('id'), 'Mangel wieder eingeblendet');
   return c.json({ ok: true });
 });
 
@@ -794,6 +874,7 @@ data.get('/export/backup.json', async (c) => {
     ['attachments', 'SELECT * FROM attachments WHERE tenant_id = ?'],
     ['tasks', 'SELECT id, title, description, status, priority, due_at, assignee_id, subcontractor_id, asset_id, defect_id, property_id, labels, external_note, external_done_at, first_response_at, closed_at, created_by, created_at, updated_at FROM tasks WHERE tenant_id = ?'],
     ['taskComments', 'SELECT * FROM task_comments WHERE tenant_id = ?'],
+    ['taskWatchers', 'SELECT task_id, user_id, created_at FROM task_watchers WHERE tenant_id = ?'],
     ['taskLabels', 'SELECT * FROM task_labels WHERE tenant_id = ?'],
     ['slaPolicies', 'SELECT * FROM sla_policies WHERE tenant_id = ?'],
     ['subcontractors', 'SELECT * FROM subcontractors WHERE tenant_id = ?'],

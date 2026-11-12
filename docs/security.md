@@ -30,6 +30,7 @@ nachvollzogen und – soweit behoben – mit einem automatisierten Angriffstest 
 | 18 | mittel | KI-Funktionen (Diktat, Strukturierung, Typenschild) verursachen Kosten je Aufruf | Drossel 150 Aufrufe je Person/Stunde (`ai-user`), Audio max. 8 MB, nur Prüfer-Rolle; Typenschild nur mit Dateien des eigenen Workspaces |
 | 19 | mittel | MCP-Endpunkt ohne CSRF-Header (Clients sind keine Browser) | `/api/mcp*` nimmt ausschließlich API-Schlüssel an (keine Sitzungs-Cookies), alle Werkzeuge laufen über die normale API mit Rolle und Scope des Schlüssels; Freigabe-Tokens und Unterschriften werden nicht ausgegeben (`e2e/11-ai-mcp.cjs`) |
 | 20 | niedrig | Mangel ohne Prüfung (`POST /defects`) mit fremdem Element/Foto | Element und Objekt werden auf den Workspace geprüft, Foto-Schlüssel nur mit eigenem Präfix (`e2e/12-overhaul.cjs`) |
+| 21 | mittel | Aufgaben/Mängel (12.11.2026): Ausblenden, Behebung, Mehrfachbearbeitung, Beobachter und @-Erwähnungen | Ausblenden nur Admins; Beheben/Mehrfachbearbeitung/Kommentare ab Prüfer; alle Abfragen mit Workspace und Zugriffsbereich (`defectScope`/`taskScope`), fremde IDs → 404, Mehrfachbearbeitung ändert nur gefundene Aufgaben im Bereich; Nachher-Foto nur mit eigenem Präfix; Erwähnungen nur für Mitglieder, die die Aufgabe sehen dürfen (sonst 400, keine Meldung); Beobachter nur Mitglieder, Benachrichtigungen nur an aktuelle Mitglieder; interne Notizen nie im Subunternehmer-Link; verknüpfter Mangel einer Aufgabe muss im Bereich liegen (`e2e/08-security.cjs` #17, `e2e/14-tasks-defects.cjs`) |
 
 ## Offen / bewusst akzeptiert
 

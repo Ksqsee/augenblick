@@ -878,7 +878,7 @@ function ApiKeys() {
             behandeln und einen eigenen Schlüssel dafür anlegen, der sich jederzeit widerrufen lässt.
           </p>
           <p className="text-xs text-ink-3">
-            Werkzeuge u. a.: dashboard, search, list_assets, get_asset, plan_rounds, list_defects, resolve_defect, list_tasks, create_task, update_task_status, add_task_comment,
+            Werkzeuge u. a.: dashboard, search, list_assets, get_asset, plan_rounds, list_action_required, list_defects, get_defect, resolve_defect, list_tasks, create_task, update_task_status, bulk_update_tasks, add_task_comment,
             create_asset, structure_dictation.
           </p>
         </div>

@@ -328,6 +328,13 @@ const EN: Record<string, string> = {
   Prüfungsart: 'Inspection type',
   Suche: 'Search',
   Alle: 'All',
+  // Behebung von Mängeln
+  'Behoben am': 'Resolved on',
+  von: 'by',
+  behoben: 'resolved',
+  'Foto nach Behebung': 'Photo after rectification',
+  Behebungsnotiz: 'Rectification note',
+  'Ausgeblendet': 'Hidden',
 };
 
 /** Standardtext in die Dokumentsprache übersetzen; unbekannte Texte bleiben unverändert. */

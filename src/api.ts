@@ -1,6 +1,7 @@
 import { keepPreviousData, QueryClient, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import type { AttributeField, Category, CategoryDef, Checkpoint, CustomKind, InspectionKind, InspectionPurpose, Role, Severity, WalkPurpose } from '../shared/catalog';
 import type { Answer, Result, ResultOverride, Schedules } from '../shared/logic';
+import type { TaskKind } from '../shared/tasks';
 import type { BuildingType, WalkQuestion } from '../shared/walkthrough';
 
 export class ApiError extends Error {
@@ -291,6 +292,33 @@ export interface Defect {
   propertyId?: string;
   propertyName?: string;
   taskId?: string | null;
+  taskStatus?: Task['status'] | null;
+  checkpointId?: string | null;
+  /** Behebung */
+  resolutionNote?: string;
+  resolutionPhotoKey?: string | null;
+  resolvedByName?: string | null;
+  /** Ausgeblendet (zählt nicht mit) */
+  hiddenAt?: number | null;
+  hiddenReason?: string;
+  hiddenByName?: string | null;
+}
+
+export interface DefectDetail extends Defect {
+  tasks: { id: string; title: string; status: Task['status']; priority: Task['priority']; dueAt: number | null; assigneeName: string | null }[];
+  history: { action: string; summary: string; createdAt: number; userName: string | null }[];
+}
+
+export interface ActionItem {
+  kind: 'defect' | 'task' | 'asset';
+  id: string;
+  level: string | null;
+  at: number;
+  title: string;
+  subtitle: string;
+  reason: string;
+  assetId: string | null;
+  urgency: number;
 }
 
 export interface DefectDraft {
@@ -311,6 +339,8 @@ export interface Inspection {
   id: string;
   assetId: string;
   propertyId: string;
+  /** Behebung der hier festgestellten Mängel */
+  resolutions?: { checkpointId: string | null; title: string; resolvedAt: number; resolvedByName: string | null; note: string; photoKey: string | null }[];
   status: 'draft' | 'submitted';
   kind: InspectionKind;
   kinds: string[];
@@ -393,6 +423,7 @@ export interface Task {
   id: string;
   title: string;
   description: string;
+  kind: TaskKind;
   status: 'open' | 'in_progress' | 'done' | 'cancelled';
   priority: 'low' | 'medium' | 'high';
   dueAt: number | null;
@@ -414,6 +445,14 @@ export interface Task {
   closedAt: number | null;
   sla: { responseDue: number; resolveDue: number; responseBreached: boolean; resolveBreached: boolean };
   createdAt: number;
+  createdBy: string;
+  createdByName: string | null;
+  watchers: number;
+  watching: boolean;
+  defectTitle: string | null;
+  defectSeverity: Severity | null;
+  defectStatus: 'open' | 'resolved' | null;
+  assetNextDueAt: number | null;
 }
 
 export interface TaskLabel {
@@ -430,6 +469,7 @@ export interface TaskComment {
   userId: string | null;
   authorName: string;
   body: string;
+  mentions: string[];
   createdAt: number;
 }
 
@@ -541,8 +581,15 @@ export const useInspections = (params: Record<string, string | undefined> = {}) 
   return useQuery({ queryKey: ['inspections', qs], queryFn: () => api<InspectionRow[]>(`/inspections?${qs}`), placeholderData: keepPreviousData });
 };
 export const useInspection = (id: string) => useQuery({ queryKey: ['inspection', id], queryFn: () => api<Inspection>(`/inspections/${id}`) });
-export const useDefects = (status = 'open', source = '') =>
-  useQuery({ queryKey: ['defects', status, source], queryFn: () => api<Defect[]>(`/defects?status=${status}${source ? `&source=${source}` : ''}`) });
+export const useDefects = (status = 'open', source = '', hidden = false) =>
+  useQuery({
+    queryKey: ['defects', status, source, hidden],
+    queryFn: () => api<Defect[]>(`/defects?status=${status}${source ? `&source=${source}` : ''}${hidden ? '&hidden=1' : ''}`),
+  });
+export const useDefect = (id: string | null) => useQuery({ queryKey: ['defect', id], queryFn: () => api<DefectDetail>(`/defects/${id}`), enabled: !!id });
+export const useActionRequired = () => useQuery({ queryKey: ['action-required'], queryFn: () => api<ActionItem[]>('/smart/action-required') });
+export const useTaskWatchers = (id: string | undefined) =>
+  useQuery({ queryKey: ['task-watchers', id], queryFn: () => api<{ userId: string; name: string }[]>(`/tasks/${id}/watchers`), enabled: !!id });
 export const useWalkthroughs = () => useQuery({ queryKey: ['walkthroughs'], queryFn: () => api<WalkRow[]>('/walkthroughs') });
 export const useWalkthrough = (id: string) => useQuery({ queryKey: ['walkthrough', id], queryFn: () => api<Walkthrough>(`/walkthroughs/${id}`) });
 export const useFloorPlan = (id: string) => useQuery({ queryKey: ['floorplan', id], queryFn: () => api<FloorPlan>(`/floor-plans/${id}`) });
