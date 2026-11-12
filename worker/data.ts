@@ -7,6 +7,7 @@ import { BUILDING_TYPES } from '../shared/walkthrough';
 import { type DocLanguage, tr } from '../shared/i18n';
 import { buildXlsx } from '../shared/xlsx';
 import { getCategoryDef, listCategories } from './categories';
+import { tasksFromDefects } from './smart';
 import { type AppEnv, type Ctx, id, logActivity, notFound, now, parseJson, requireRole } from './lib';
 
 export const data = new Hono<AppEnv>();
@@ -585,6 +586,49 @@ data.get('/defects', async (c) => {
     .bind(tid(c), status)
     .all();
   return c.json(rows.results);
+});
+
+/** Mangel ohne Prüfung melden (z. B. per Diktat unterwegs) – am Element oder am Objekt. */
+data.post('/defects', async (c) => {
+  requireRole(c, 'inspector');
+  const b = z
+    .object({
+      assetId: z.string().max(40).nullable().default(null),
+      propertyId: z.string().max(40).nullable().default(null),
+      title: str(300).min(1, 'Mangel ohne Beschreibung'),
+      note: str(2000).default(''),
+      measure: str(1000).default(''),
+      severity: severityEnum,
+      photoKey: z.string().max(200).nullable().default(null),
+    })
+    .parse(await c.req.json());
+  if (b.photoKey && !b.photoKey.startsWith(`${tid(c)}/`)) throw new HTTPException(400, { message: 'Ungültige Datei' });
+  let propertyId = b.propertyId;
+  let code: string | null = null;
+  if (b.assetId) {
+    const a = await c.env.DB.prepare('SELECT a.code, b.property_id AS pid FROM assets a JOIN buildings b ON b.id = a.building_id WHERE a.id = ? AND a.tenant_id = ? AND a.deleted_at IS NULL')
+      .bind(b.assetId, tid(c))
+      .first<{ code: string; pid: string }>();
+    if (!a) notFound('Element');
+    propertyId = a.pid;
+    code = a.code;
+  } else {
+    const p = propertyId ? await c.env.DB.prepare('SELECT 1 FROM properties WHERE id = ? AND tenant_id = ? AND deleted_at IS NULL').bind(propertyId, tid(c)).first() : null;
+    if (!p) throw new HTTPException(400, { message: 'Bitte Element oder Objekt angeben' });
+  }
+  const did = id();
+  await c.env.DB.prepare(
+    `INSERT INTO defects (id, tenant_id, property_id, asset_id, title, note, measure, severity, status, photo_key, created_at) VALUES (?,?,?,?,?,?,?,?,'open',?,?)`,
+  )
+    .bind(did, tid(c), propertyId, b.assetId, b.title, b.note, b.measure, b.severity, b.photoKey, now())
+    .run();
+  await logActivity(c, 'create', 'defect', did, `Mangel ${code ? `an ${code} ` : ''}gemeldet: ${b.title}`);
+  let taskCreated = false;
+  if (b.severity === 'high' || b.severity === 'critical') {
+    const auto = await c.env.DB.prepare('SELECT auto_tasks FROM tenants WHERE id = ?').bind(tid(c)).first<number>('auto_tasks');
+    if (auto) taskCreated = (await tasksFromDefects(c, { severities: [b.severity], defectId: did })) > 0;
+  }
+  return c.json({ id: did, taskCreated });
 });
 
 data.patch('/defects/:id', async (c) => {

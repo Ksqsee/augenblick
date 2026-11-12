@@ -29,3 +29,11 @@ describe('Diktat auswerten (ohne KI)', () => {
     expect(suggestMeasure('alles gut')).toBe('');
   });
 });
+
+describe('Element-Code im Text', () => {
+  it('erkennt Codes, auch gesprochen, aber keine normalen Wörter', () => {
+    expect(parseCapture('Brandschutztür BSK-8Z9L schließt nicht')[0].assetCode).toBe('BSK-8Z9L');
+    expect(parseCapture('Feuerlöscher fl 7k2m fehlt')[0].assetCode).toBe('FL-7K2M');
+    expect(parseCapture('Tür im OG klemmt stark')[0].assetCode).toBeNull();
+  });
+});

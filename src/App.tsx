@@ -23,6 +23,7 @@ import { Protocol } from './pages/Protocol';
 import { PropertiesPage } from './pages/Properties';
 import { PropertyPage } from './pages/Property';
 import { ComplianceReport, DefectReport, LabelSheet, ReportsPage } from './pages/Reports';
+import { RoundPage } from './pages/Round';
 import { ScanPage } from './pages/Scan';
 import { SettingsPage } from './pages/Settings';
 import { TasksPage } from './pages/Tasks';
@@ -151,6 +152,7 @@ export function App() {
           <Route path="team" element={<TeamPage />} />
           <Route path="einstellungen" element={<SettingsPage />} />
           <Route path="scan" element={<ScanPage />} />
+          <Route path="rundgang/:id" element={<RoundPage />} />
           <Route path="hilfe" element={<HelpPage />} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Route>

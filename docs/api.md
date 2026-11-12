@@ -64,6 +64,38 @@ Für API-Schlüssel gelten diese Regeln:
 | `POST /tasks`, `PATCH /tasks/:id` | Aufgaben anlegen und ändern |
 | `POST /tasks/:id/comments` | Kommentar: `{ body }` |
 | `POST /import/assets` | Massenimport (wie Import-Seite) |
+| `POST /defects` | Mangel ohne Prüfung melden: `{ assetId? , propertyId?, title, severity, note?, measure?, photoKey? }` – Element oder Objekt ist Pflicht; bei `high`/`critical` entsteht automatisch eine Aufgabe (Workspace-Einstellung), Antwort `{ id, taskCreated }` |
+| `POST /smart/tasks-from-defects` | Für offene Mängel ohne Aufgabe je eine Aufgabe mit SLA-Frist: `{ severities? }` → `{ created }` |
+
+## Smarte Funktionen und KI
+
+| Endpunkt | Beschreibung |
+|----------|--------------|
+| `GET /smart/suggestions` | Priorisierte Vorschläge (Rundgänge, Mängel ohne Aufgabe, fällige Begehungen, liegengebliebene Entwürfe, überfällige Aufgaben) |
+| `GET /smart/rounds?days=30` | Fällige Elemente je Gebäude in Laufreihenfolge (Etage, Standort) |
+| `GET /ai/status` | Welche KI-Funktionen verfügbar sind: `{ transcribe, structure: "ai"|"rules", vision }` |
+| `POST /ai/parse` | Text (z. B. Diktat) in Mängel/Aufgaben/Notizen zerlegen: `{ text, checkpoints? }` → `{ items, source }`; ohne KI regelbasiert |
+| `POST /ai/transcribe` | Sprachaufnahme (`audio/webm`, `ogg`, `mp4`, `wav` …, max. 8 MB, Rohdaten im Body) → `{ text }` |
+| `POST /ai/typeplate` | Typenschild-Foto auslesen: `{ key }` (vorher über `POST /files` hochgeladen) → Hersteller, Modell, Baujahr, Seriennummer, Zulassung |
+
+KI-Aufrufe laufen über Cloudflare Workers AI (keine Daten an weitere Anbieter) und sind auf 150 je Person und Stunde begrenzt.
+
+## MCP-Server (Claude und andere KI-Assistenten)
+
+Prüfkompass spricht das Model Context Protocol (Streamable HTTP, zustandslos, JSON-Antworten).
+
+- **URL:** `https://<instanz>/api/mcp` mit Header `Authorization: Bearer pk_…`
+- **Ohne eigene Header** (z. B. Connector in Claude Desktop/claude.ai): `https://<instanz>/api/mcp/k/pk_…` – die Adresse wie ein Passwort behandeln.
+- Rechte wie der Schlüssel: Lese-Schlüssel sehen nur lesende Werkzeuge erfolgreich, schreibende liefern `isError`.
+
+```bash
+claude mcp add --transport http pruefkompass https://<instanz>/api/mcp --header "Authorization: Bearer pk_…"
+```
+
+Werkzeuge: `dashboard`, `search`, `list_properties`, `get_property`, `list_assets`, `get_asset`, `list_inspections`,
+`get_inspection`, `list_defects`, `resolve_defect`, `report_defect`, `list_tasks`, `create_task`, `update_task_status`,
+`add_task_comment`, `list_categories`, `create_asset`, `list_walkthroughs`, `plan_rounds`, `get_suggestions`,
+`create_tasks_from_defects`, `structure_dictation`.
 
 ### Beispiel: Element anlegen
 

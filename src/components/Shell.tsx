@@ -2,6 +2,7 @@ import clsx from 'clsx';
 import {
   AlertTriangle,
   Building2,
+  ChevronDown,
   ChevronsUpDown,
   ClipboardCheck,
   CloudOff,
@@ -11,40 +12,42 @@ import {
   HardHat,
   LifeBuoy,
   WifiOff,
-  LayoutGrid,
   ListTodo,
   LogOut,
   Menu,
+  Mic,
   Package,
   ScanLine,
   Search as SearchIcon,
   Settings,
+  Sun,
   Users,
 } from 'lucide-react';
-import { type ReactNode, useCallback, useState } from 'react';
+import { type ReactNode, useCallback, useEffect, useState } from 'react';
 import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { ROLES } from '../../shared/catalog';
 import { api, clearMeCache, type Me, queryClient, useMe } from '../api';
 import { useOnline, useOutbox } from '../offline';
 import { Bell } from './Bell';
+import { CaptureSheet, openCapture, useCaptureListener } from './CaptureSheet';
 import { Logo } from './Logo';
 import { SearchButton, SearchPalette, useSearchShortcut } from './Search';
 
-const NAV: { to: string; label: string; icon: ReactNode; group: string }[] = [
-  { to: '/', label: 'Übersicht', icon: <LayoutGrid />, group: 'Arbeit' },
-  { to: '/objekte', label: 'Objekte', icon: <Building2 />, group: 'Arbeit' },
-  { to: '/elemente', label: 'Elemente', icon: <Package />, group: 'Arbeit' },
-  { to: '/pruefungen', label: 'Prüfungen', icon: <ClipboardCheck />, group: 'Arbeit' },
-  { to: '/begehungen', label: 'Begehungen', icon: <Footprints />, group: 'Arbeit' },
-  { to: '/maengel', label: 'Mängel', icon: <AlertTriangle />, group: 'Arbeit' },
-  { to: '/aufgaben', label: 'Aufgaben', icon: <ListTodo />, group: 'Arbeit' },
-  { to: '/offline', label: 'Offline-Modus', icon: <CloudOff />, group: 'Arbeit' },
-  { to: '/berichte', label: 'Berichte', icon: <FileText />, group: 'Auswertung' },
-  { to: '/import', label: 'Import', icon: <FileSpreadsheet />, group: 'Auswertung' },
-  { to: '/team', label: 'Team', icon: <Users />, group: 'Verwaltung' },
-  { to: '/subunternehmer', label: 'Subunternehmer', icon: <HardHat />, group: 'Verwaltung' },
-  { to: '/einstellungen', label: 'Einstellungen', icon: <Settings />, group: 'Verwaltung' },
-  { to: '/hilfe', label: 'Anleitung & Hilfe', icon: <LifeBuoy />, group: 'Verwaltung' },
+const NAV: { to: string; label: string; icon: ReactNode; group: 'main' | 'more' }[] = [
+  { to: '/', label: 'Heute', icon: <Sun />, group: 'main' },
+  { to: '/objekte', label: 'Objekte', icon: <Building2 />, group: 'main' },
+  { to: '/elemente', label: 'Elemente', icon: <Package />, group: 'main' },
+  { to: '/pruefungen', label: 'Prüfungen', icon: <ClipboardCheck />, group: 'main' },
+  { to: '/maengel', label: 'Mängel', icon: <AlertTriangle />, group: 'main' },
+  { to: '/aufgaben', label: 'Aufgaben', icon: <ListTodo />, group: 'main' },
+  { to: '/begehungen', label: 'Begehungen', icon: <Footprints />, group: 'main' },
+  { to: '/berichte', label: 'Berichte', icon: <FileText />, group: 'more' },
+  { to: '/offline', label: 'Offline-Modus', icon: <CloudOff />, group: 'more' },
+  { to: '/import', label: 'Import', icon: <FileSpreadsheet />, group: 'more' },
+  { to: '/team', label: 'Team', icon: <Users />, group: 'more' },
+  { to: '/subunternehmer', label: 'Subunternehmer', icon: <HardHat />, group: 'more' },
+  { to: '/einstellungen', label: 'Einstellungen', icon: <Settings />, group: 'more' },
+  { to: '/hilfe', label: 'Anleitung & Hilfe', icon: <LifeBuoy />, group: 'more' },
 ];
 
 function NavItem({ to, label, icon, onClick }: { to: string; label: string; icon: ReactNode; onClick?: () => void }) {
@@ -116,8 +119,24 @@ function WorkspaceSwitcher({ me }: { me: Me }) {
 }
 
 function Sidebar({ me, onNavigate, onSearch }: { me: Me; onNavigate?: () => void; onSearch: () => void }) {
-  const groups = [...new Set(NAV.map((n) => n.group))];
   const outbox = useOutbox();
+  const location = useLocation();
+  const inMore = NAV.some((n) => n.group === 'more' && n.to !== '/' && location.pathname.startsWith(n.to));
+  const [more, setMore] = useState(() => {
+    try {
+      return localStorage.getItem('pk:nav-more') !== '0';
+    } catch {
+      return true;
+    }
+  });
+  useEffect(() => {
+    try {
+      localStorage.setItem('pk:nav-more', more ? '1' : '0');
+    } catch {
+      /* egal */
+    }
+  }, [more]);
+  const showMore = more || inMore;
   return (
     <div className="flex h-full flex-col gap-5 p-3">
       <div className="flex items-center justify-between px-2 pt-2">
@@ -133,22 +152,35 @@ function Sidebar({ me, onNavigate, onSearch }: { me: Me; onNavigate?: () => void
           onSearch();
         }}
       />
-      <NavLink
-        to="/scan"
-        onClick={onNavigate}
-        className="flex h-10 items-center justify-center gap-2 rounded-lg bg-brand text-sm font-semibold text-white shadow-sm transition hover:bg-brand-strong"
-      >
-        <ScanLine className="size-[18px]" /> Code scannen
-      </NavLink>
-      <nav className="flex flex-1 flex-col gap-4">
-        {groups.map((g) => (
-          <div key={g} className="flex flex-col gap-0.5">
-            <p className="px-3 pb-1 text-[11px] font-semibold tracking-wider text-ink-3 uppercase">{g}</p>
-            {NAV.filter((n) => n.group === g).map((n) => (
-              <NavItem key={n.to} {...n} label={n.to === '/offline' && outbox.length ? `${n.label} (${outbox.length})` : n.label} onClick={onNavigate} />
-            ))}
-          </div>
+      <div className="grid grid-cols-[1fr_auto] gap-2">
+        <button
+          onClick={() => {
+            onNavigate?.();
+            openCapture(contextFromPath(location.pathname));
+          }}
+          className="flex h-11 items-center justify-center gap-2 rounded-xl bg-brand text-sm font-semibold text-white shadow-sm transition hover:bg-brand-strong active:scale-[0.98]"
+        >
+          <Mic className="size-[18px]" /> Erfassen
+        </button>
+        <NavLink to="/scan" onClick={onNavigate} aria-label="Code scannen" title="Code scannen" className="grid size-11 place-items-center rounded-xl bg-surface text-ink shadow-card hover:bg-sunken">
+          <ScanLine className="size-[18px]" />
+        </NavLink>
+      </div>
+      <nav className="flex flex-1 flex-col gap-0.5">
+        {NAV.filter((n) => n.group === 'main').map((n) => (
+          <NavItem key={n.to} {...n} onClick={onNavigate} />
         ))}
+        <button
+          onClick={() => setMore((m) => !m)}
+          aria-expanded={showMore}
+          className="mt-3 flex h-8 items-center gap-2 px-3 text-[11px] font-semibold tracking-wider text-ink-3 uppercase hover:text-ink"
+        >
+          Mehr <ChevronDown className={clsx('size-3.5 transition', showMore && 'rotate-180')} />
+        </button>
+        {showMore &&
+          NAV.filter((n) => n.group === 'more').map((n) => (
+            <NavItem key={n.to} {...n} label={n.to === '/offline' && outbox.length ? `${n.label} (${outbox.length})` : n.label} onClick={onNavigate} />
+          ))}
       </nav>
       <div className="flex flex-wrap gap-x-3 gap-y-1 px-3 pb-2 text-[11px] text-ink-3">
         <NavLink to="/rechtliches/terms" className="hover:text-ink">
@@ -165,8 +197,17 @@ function Sidebar({ me, onNavigate, onSearch }: { me: Me; onNavigate?: () => void
   );
 }
 
-const nav = (to: string) => NAV.find((n) => n.to === to)!;
-const MOBILE = [nav('/'), nav('/pruefungen'), { to: '/scan', label: 'Scannen', icon: <ScanLine />, group: '' }, nav('/maengel'), nav('/elemente')];
+/** Seite → Kontext fürs Erfassen (Element oder Objekt vorwählen) */
+function contextFromPath(path: string) {
+  const a = path.match(/^\/elemente\/([^/]+)/);
+  if (a) return { assetId: a[1] };
+  const p = path.match(/^\/objekte\/([^/]+)/);
+  if (p) return { propertyId: p[1] };
+  return {};
+}
+
+const tabCls = ({ isActive }: { isActive: boolean }) =>
+  clsx('flex flex-col items-center justify-center gap-0.5 py-2 text-[11px] font-medium [&>svg]:size-[22px]', isActive ? 'text-ink' : 'text-ink-3');
 
 export function Shell() {
   const { data: me } = useMe();
@@ -176,6 +217,7 @@ export function Shell() {
   useSearchShortcut(openSearch);
   const online = useOnline();
   const loc = useLocation();
+  const [capture, closeCapture] = useCaptureListener();
   if (!me) return null;
   return (
     <div className="min-h-dvh lg:pl-64">
@@ -190,9 +232,6 @@ export function Shell() {
           <Bell />
           <button onClick={openSearch} className="rounded-lg p-2 hover:bg-sunken" aria-label="Suchen">
             <SearchIcon className="size-5" />
-          </button>
-          <button onClick={() => setMenu(true)} className="rounded-lg p-2 hover:bg-sunken" aria-label="Menü">
-            <Menu className="size-5" />
           </button>
         </div>
       </header>
@@ -216,21 +255,34 @@ export function Shell() {
         <Outlet />
       </main>
 
-      <nav className="no-print fixed inset-x-0 bottom-0 z-30 grid grid-cols-5 border-t border-line bg-surface/95 pb-[env(safe-area-inset-bottom)] backdrop-blur lg:hidden">
-        {MOBILE.map((n) => (
-          <NavLink
-            key={n.to}
-            to={n.to}
-            end={n.to === '/'}
-            className={({ isActive }) =>
-              clsx('flex flex-col items-center gap-0.5 py-2 text-[11px] font-medium [&>svg]:size-5', isActive ? 'text-brand' : 'text-ink-3')
-            }
+      <nav className="no-print fixed inset-x-0 bottom-0 z-30 grid grid-cols-5 items-end border-t border-line bg-surface/95 pb-[env(safe-area-inset-bottom)] backdrop-blur lg:hidden" aria-label="Hauptnavigation">
+        <NavLink to="/" end className={tabCls}>
+          <Sun />
+          Heute
+        </NavLink>
+        <NavLink to="/pruefungen" className={tabCls}>
+          <ClipboardCheck />
+          Prüfen
+        </NavLink>
+        <div className="flex justify-center">
+          <button
+            onClick={() => openCapture(contextFromPath(loc.pathname))}
+            aria-label="Erfassen"
+            className="-mt-5 mb-1 grid size-14 place-items-center rounded-full bg-brand text-white shadow-lift ring-4 ring-canvas transition active:scale-95"
           >
-            {n.icon}
-            {n.label}
-          </NavLink>
-        ))}
+            <Mic className="size-6" />
+          </button>
+        </div>
+        <NavLink to="/maengel" className={tabCls}>
+          <AlertTriangle />
+          Mängel
+        </NavLink>
+        <button onClick={() => setMenu(true)} className={tabCls({ isActive: false })}>
+          <Menu />
+          Mehr
+        </button>
       </nav>
+      {capture && <CaptureSheet initial={capture} onClose={closeCapture} />}
     </div>
   );
 }

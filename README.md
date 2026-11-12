@@ -10,6 +10,17 @@ API: [`docs/api.md`](docs/api.md)
 
 ## Funktionen
 
+**Einfach und smart**
+- Startseite **Heute**: eine Zeile Lage, drei Aktionen (Erfassen, Code scannen, Rundgang), Zahlen,
+  priorisierte Vorschläge mit Ein-Klick-Aktionen, Rundgänge je Gebäude
+- **Erfassen per Sprache** (zentraler Mikrofon-Knopf): einsprechen oder tippen, Prüfkompass zerlegt den Text in
+  Mängel (Schwere, Maßnahme), Aufgaben (Frist) und Notizen; Element-Codes werden erkannt, die aktuelle Seite gibt den Ort vor
+- **Diktat in jedem Textfeld** und „Befund einsprechen“ im Prüfablauf (Mängel landen beim passenden Prüfpunkt);
+  Vorschläge für Maßnahme und Schweregrad; Workers AI (Whisper/Llama), ohne KI Spracherkennung des Browsers und Regeln
+- **Rundgang**: fällige Elemente eines Gebäudes in Laufreihenfolge, nach jeder Prüfung direkt weiter zum nächsten
+- **Automatische Aufgaben** für schwere Mängel (SLA-Frist), abschaltbar; **Typenschild-Foto** füllt Hersteller/Modell
+- **MCP-Server** im Worker (`/api/mcp`): Prüfkompass als Werkzeugkasten für Claude – siehe `docs/api.md`
+
 **Prüfen**
 - Prüfung je Element mit Prüfpunkten (i. O. / Mangel / n. z.), Wartungsarbeiten, Fotos, Bemerkungen und Unterschrift
 - **Prüfarten** mit eigenen Fristen je Element (z. B. Feuerlöscher: Instandhaltung, innere Prüfung, Festigkeitsprüfung)

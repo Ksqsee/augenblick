@@ -150,17 +150,17 @@ smart.get('/smart/suggestions', async (c) => {
 });
 
 /** Für offene schwere Mängel ohne Aufgabe je eine Aufgabe anlegen (Frist nach SLA-Richtlinie). */
-export async function tasksFromDefects(c: Ctx, opts: { severities: string[]; inspectionId?: string }) {
+export async function tasksFromDefects(c: Ctx, opts: { severities: string[]; inspectionId?: string; defectId?: string }) {
   const t = tid(c);
   const rows = (
     await c.env.DB.prepare(
       `SELECT d.id, d.title, d.measure, d.severity, d.asset_id, d.property_id, a.code
          FROM defects d LEFT JOIN assets a ON a.id = d.asset_id
         WHERE d.tenant_id = ?1 AND d.status = 'open' AND d.severity IN (SELECT value FROM json_each(?2))
-          AND (?3 IS NULL OR d.inspection_id = ?3)
+          AND (?3 IS NULL OR d.inspection_id = ?3) AND (?4 IS NULL OR d.id = ?4)
           AND NOT EXISTS (SELECT 1 FROM tasks k WHERE k.defect_id = d.id) LIMIT 200`,
     )
-      .bind(t, JSON.stringify(opts.severities), opts.inspectionId ?? null)
+      .bind(t, JSON.stringify(opts.severities), opts.inspectionId ?? null, opts.defectId ?? null)
       .all<{ id: string; title: string; measure: string; severity: string; asset_id: string | null; property_id: string; code: string | null }>()
   ).results;
   if (!rows.length) return 0;

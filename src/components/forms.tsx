@@ -1,9 +1,11 @@
 import { getCategory, allCategories } from '../categories';
-import { type FormEvent, useState } from 'react';
+import { useQuery } from '@tanstack/react-query';
+import { Camera } from 'lucide-react';
+import { type FormEvent, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { type Category } from '../../shared/catalog';
 import { BUILDING_TYPES, type BuildingType } from '../../shared/walkthrough';
-import { api, type Asset, type PropertyDetail, useAction, useProperties, useProperty } from '../api';
+import { api, type Asset, type PropertyDetail, uploadPhoto, useAction, useProperties, useProperty } from '../api';
 import { CategoryIcon } from './CategoryIcon';
 import { Button, ErrorBox, Field, Input, Modal, Select, Textarea, useToast } from './ui';
 
@@ -170,6 +172,55 @@ function BuildingPicker({ value, onChange }: { value: string; onChange: (v: stri
   );
 }
 
+interface PlateResult {
+  manufacturer: string | null;
+  model: string | null;
+  year: number | null;
+  serial: string | null;
+  approval: string | null;
+}
+
+/** Typenschild fotografieren → Hersteller, Modell, Seriennummer ausfüllen (nur mit Workers AI). */
+function TypePlateButton({ onRead }: { onRead: (r: PlateResult) => void }) {
+  const status = useQuery({ queryKey: ['ai-status'], queryFn: () => api<{ vision: boolean }>('/ai/status'), staleTime: 600_000 });
+  const ref = useRef<HTMLInputElement>(null);
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState('');
+  if (!status.data?.vision) return null;
+  return (
+    <div className="flex flex-wrap items-center gap-3 rounded-xl bg-brand-soft p-3 sm:col-span-2">
+      <input
+        ref={ref}
+        type="file"
+        accept="image/*"
+        capture="environment"
+        className="hidden"
+        onChange={async (e) => {
+          const file = e.target.files?.[0];
+          e.target.value = '';
+          if (!file) return;
+          setBusy(true);
+          setMsg('');
+          try {
+            const key = await uploadPhoto(file);
+            const r = await api<PlateResult>('/ai/typeplate', { body: { key } });
+            onRead(r);
+            setMsg([r.manufacturer, r.model, r.year && `Baujahr ${r.year}`, r.approval && `Zulassung ${r.approval}`].filter(Boolean).join(' · ') || 'Nichts lesbar');
+          } catch (x) {
+            setMsg(x instanceof Error ? x.message : 'Nicht lesbar');
+          } finally {
+            setBusy(false);
+          }
+        }}
+      />
+      <Button type="button" size="sm" variant="secondary" loading={busy} icon={<Camera className="size-4" />} onClick={() => ref.current?.click()}>
+        Typenschild fotografieren
+      </Button>
+      <span className="min-w-0 flex-1 text-xs text-brand-strong">{msg || 'Füllt Hersteller, Modell und Seriennummer automatisch aus.'}</span>
+    </div>
+  );
+}
+
 export function AssetForm({
   initial,
   buildings,
@@ -292,6 +343,11 @@ export function AssetForm({
           {(id) => <Input id={id} value={f.location} onChange={set('location')} />}
         </Field>
         <Field label="Etage">{(id) => <Input id={id} value={f.floor} onChange={set('floor')} placeholder="EG, 1. OG …" />}</Field>
+        <TypePlateButton
+          onRead={(r) =>
+            setF((x) => ({ ...x, manufacturer: r.manufacturer ?? x.manufacturer, model: [r.model, r.serial && `SN ${r.serial}`].filter(Boolean).join(' · ') || x.model }))
+          }
+        />
         <Field label="Hersteller">{(id) => <Input id={id} value={f.manufacturer} onChange={set('manufacturer')} />}</Field>
         <Field label="Typ / Modell">{(id) => <Input id={id} value={f.model} onChange={set('model')} />}</Field>
         {!initial && (

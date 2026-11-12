@@ -79,9 +79,8 @@ require('fs').mkdirSync(OUT, { recursive: true });
   await shot('07-dashboard');
   await p.goto(BASE + '/maengel');
   await p.getByText('Dichtungen (Rauch-').first().waitFor();
-  await p.getByRole('button', { name: 'Aufgabe', exact: true }).first().click();
-  await p.getByRole('button', { name: 'Speichern', exact: true }).click();
-  await p.waitForTimeout(700);
+  // schwerer Mangel (Hoch) → Aufgabe wurde automatisch angelegt
+  await p.getByText('Aufgabe', { exact: true }).first().waitFor();
   await shot('08-defects');
   await p.goto(BASE + '/elemente'); await p.waitForTimeout(800); await shot('09-assets');
   await p.goto(BASE + '/pruefungen?tab=never'); await p.waitForTimeout(800); await shot('10-inspections');

@@ -446,6 +446,7 @@ function Company() {
   const [language, setLanguage] = useState<DocLanguage>(t.language ?? 'de');
   const [timeZone, setTimeZone] = useState(t.timeZone || 'Europe/Berlin');
   const [reminderDays, setReminderDays] = useState<number | ''>(t.reminderDays ?? '');
+  const [autoTasks, setAutoTasks] = useState(t.autoTasks !== false);
   const [kinds, setKinds] = useState<{ key?: string; label: string }[]>(t.inspectionKinds ?? []);
   const [newKind, setNewKind] = useState('');
   const [logoKey, setLogoKey] = useState<string | null>(t.logoKey);
@@ -460,6 +461,7 @@ function Company() {
           language,
           timeZone,
           reminderDays: reminderDays === '' ? null : Number(reminderDays),
+          autoTasks,
           inspectionKinds: kinds.filter((k) => k.label.trim().length >= 2),
         },
       }),
@@ -581,6 +583,17 @@ function Company() {
               ))}
           </Select>
         </div>
+      </Card>
+      <Card>
+        <CardHeader title="Automatisierung" subtitle="Arbeit, die Prüfkompass selbst erledigt." />
+        <label className="flex cursor-pointer items-start justify-between gap-4 p-5 text-sm">
+          <span>
+            <span className="block font-medium">Aufgaben für schwere Mängel automatisch anlegen</span>
+            <span className="block text-xs text-ink-3">Bei Mängeln der Stufe „Hoch“ oder „Kritisch“ entsteht sofort eine Aufgabe mit Frist nach SLA-Richtlinie – aus Prüfungen und aus dem Erfassen.</span>
+          </span>
+          <input type="checkbox" role="switch" aria-label="Aufgaben automatisch anlegen" className="peer sr-only" checked={autoTasks} onChange={(e) => setAutoTasks(e.target.checked)} />
+          <span className="relative mt-0.5 h-6 w-10 shrink-0 rounded-full bg-line transition peer-checked:bg-ink after:absolute after:top-0.5 after:left-0.5 after:size-5 after:rounded-full after:bg-white after:shadow after:transition peer-checked:after:translate-x-4" />
+        </label>
       </Card>
       <Card>
         <CardHeader title="Eigene Prüfungsarten" subtitle="Ergänzen die festen Arten (z. B. Wiederkehrende Prüfung, Erstprüfung). Bei jeder Prüfung lassen sich mehrere Arten auswählen." />
@@ -848,6 +861,27 @@ function ApiKeys() {
             })}
           </div>
         )}
+      </Card>
+
+      <Card>
+        <CardHeader title="Mit Claude verbinden (MCP)" subtitle="Prüfkompass als Werkzeugkasten für den eigenen KI-Assistenten" />
+        <div className="flex flex-col gap-3 p-5 text-sm text-ink-2">
+          <p>
+            Prüfkompass hat einen eingebauten MCP-Server. Damit kann Claude Fälligkeiten abfragen, Rundgänge planen, Mängel auswerten, Aufgaben anlegen und Diktate
+            strukturieren – mit genau den Rechten des Schlüssels (Nur lesen oder Lesen + Schreiben).
+          </p>
+          <p className="font-medium text-ink">Claude Code</p>
+          <pre className="overflow-x-auto rounded-lg bg-sunken p-3 font-mono text-xs text-ink">{`claude mcp add --transport http pruefkompass ${origin}/api/mcp \\\n  --header "Authorization: Bearer pk_…"`}</pre>
+          <p className="font-medium text-ink">Claude Desktop / claude.ai (eigener Connector)</p>
+          <p>
+            Als URL <span className="font-mono text-xs break-all">{`${origin}/api/mcp/k/pk_…`}</span> eintragen – der Schlüssel steckt dann in der Adresse. Diese Adresse wie ein Passwort
+            behandeln und einen eigenen Schlüssel dafür anlegen, der sich jederzeit widerrufen lässt.
+          </p>
+          <p className="text-xs text-ink-3">
+            Werkzeuge u. a.: dashboard, search, list_assets, get_asset, plan_rounds, list_defects, resolve_defect, list_tasks, create_task, update_task_status, add_task_comment,
+            create_asset, structure_dictation.
+          </p>
+        </div>
       </Card>
 
       <Card>

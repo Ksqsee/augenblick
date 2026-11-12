@@ -27,6 +27,9 @@ nachvollzogen und – soweit behoben – mit einem automatisierten Angriffstest 
 | 16 | niedrig | API-Schlüssel entfernter Mitglieder wurden bei erneuter Einladung wieder gültig | Schlüssel werden beim Entfernen und bei Kontolöschung widerrufen |
 | 6 (Teil) | mittel | Kontolöschung unvollständig | bekannte Geräte und User-Agent der Zustimmungen werden gelöscht, API-Schlüssel widerrufen |
 | 17 | info | Klick auf Push-Nachricht öffnete beliebige URL | nur Ziele innerhalb der App |
+| 18 | mittel | KI-Funktionen (Diktat, Strukturierung, Typenschild) verursachen Kosten je Aufruf | Drossel 150 Aufrufe je Person/Stunde (`ai-user`), Audio max. 8 MB, nur Prüfer-Rolle; Typenschild nur mit Dateien des eigenen Workspaces |
+| 19 | mittel | MCP-Endpunkt ohne CSRF-Header (Clients sind keine Browser) | `/api/mcp*` nimmt ausschließlich API-Schlüssel an (keine Sitzungs-Cookies), alle Werkzeuge laufen über die normale API mit Rolle und Scope des Schlüssels; Freigabe-Tokens und Unterschriften werden nicht ausgegeben (`e2e/11-ai-mcp.cjs`) |
+| 20 | niedrig | Mangel ohne Prüfung (`POST /defects`) mit fremdem Element/Foto | Element und Objekt werden auf den Workspace geprüft, Foto-Schlüssel nur mit eigenem Präfix (`e2e/12-overhaul.cjs`) |
 
 ## Offen / bewusst akzeptiert
 
@@ -40,6 +43,8 @@ nachvollzogen und – soweit behoben – mit einem automatisierten Angriffstest 
 | Tokens in URL-Pfaden (Links für Passwort, Einladung, Subunternehmer) | info – erscheinen in Server-Logs; übliches Vorgehen für Einmal-Links |
 | `/register` und Einladungen verraten, ob eine E-Mail registriert ist | info – ohne E-Mail-Versand nicht sinnvoll vermeidbar; Registrierung ist gedrosselt |
 | Admins können andere Admins herabstufen/entfernen | Designentscheidung |
+| MCP-Variante mit Schlüssel im Pfad (`/api/mcp/k/pk_…`) | niedrig – nötig für Connectoren ohne eigene Header; der Schlüssel kann in Logs von Proxys landen. Empfehlung in der App: eigenen, widerrufbaren Schlüssel nur dafür anlegen |
+| Mikrofon-Freigabe (`Permissions-Policy: microphone=(self)`) | info – nur für das Diktat; Aufnahmen werden nicht gespeichert, nur zur Umwandlung an Workers AI geschickt |
 | Keine Drosselung der API je Schlüssel | niedrig – ungültige Schlüssel werden gedrosselt; gültige nur durch Admins vergeben |
 
 ## Geprüft und in Ordnung

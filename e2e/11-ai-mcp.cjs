@@ -56,7 +56,7 @@ const call = async (key, name, args = {}, opts) => {
   check(r.status === 202, `Notification → 202 (${r.status})`);
   r = await mcp(write, 'tools/list');
   const tools = r.json.result.tools.map((t) => t.name);
-  check(tools.length >= 18 && tools.includes('create_task') && tools.includes('plan_rounds'), `Werkzeuge (${tools.length})`);
+  check(tools.length >= 21 && tools.includes('create_task') && tools.includes('plan_rounds'), `Werkzeuge (${tools.length})`);
   check(r.json.result.tools.every((t) => t.inputSchema?.type === 'object' && t.description), 'Schemas und Beschreibungen vollständig');
   check((await mcp('pk_falsch_' + 'x'.repeat(40), 'tools/list')).status === 401, 'falscher Schlüssel → 401');
   check((await fetch(BASE + '/api/mcp', { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' })).status === 401, 'ohne Schlüssel → 401');
@@ -86,6 +86,12 @@ const call = async (key, name, args = {}, opts) => {
   check(mine?.status === 'in_progress' && mine.assetId === asset.id && mine.priority === 'high', 'Aufgabe korrekt in der App');
   t = await call(write, 'structure_dictation', { text: 'Tür schließt nicht. Dichtung fehlt, gering.' });
   check(t.data?.items?.length === 2 && t.data.source === 'rules', `structure_dictation (${t.data?.source})`);
+  t = await call(write, 'report_defect', { title: 'MCP: Feuerlöscher fehlt', severity: 'high', assetCode: asset.code, measure: 'Ersetzen' });
+  check(t.data?.id && t.data.taskCreated === true, `report_defect mit Auto-Aufgabe (${t.text?.slice(0, 80)})`);
+  t = await call(write, 'get_suggestions');
+  check(Array.isArray(t.data), 'get_suggestions');
+  t = await call(read, 'report_defect', { title: 'darf nicht', severity: 'low', assetCode: asset.code });
+  check(t.isError === true, 'Leseschlüssel darf keinen Mangel melden');
   t = await call(read, 'create_task', { title: 'darf nicht' });
   check(t.isError === true && /Berechtigung/.test(t.text), `Leseschlüssel darf nicht schreiben (${t.text?.slice(0, 60)})`);
   t = await call(read, 'list_defects', {});

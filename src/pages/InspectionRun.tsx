@@ -1,4 +1,5 @@
-import { Link, useNavigate, useParams } from 'react-router-dom';
+import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom';
+import { markRoundDone } from './Round';
 import { api, type Inspection, queryClient, useInspection } from '../api';
 import { InspectionForm } from '../components/run';
 import { Button, ErrorBox, Spinner, useToast } from '../components/ui';
@@ -30,13 +31,14 @@ export function InspectionRun() {
 function Online({ insp }: { insp: Inspection }) {
   const navigate = useNavigate();
   const toast = useToast();
+  const round = useSearchParams()[0].get('rundgang');
   return (
     <InspectionForm
       subject={insp.asset}
       scheduleLabel={insp.scheduleLabel}
       checkpoints={insp.checkpoints}
       inspectorName={insp.inspectorName}
-      back={`/elemente/${insp.assetId}`}
+      back={round ? `/rundgang/${round}` : `/elemente/${insp.assetId}`}
       banner={
         insp.purpose === 'correction' ? (
           <div className="rounded-xl border border-warn/30 bg-warn-soft px-4 py-3 text-sm text-warn">
@@ -68,12 +70,15 @@ function Online({ insp }: { insp: Inspection }) {
         await api(`/inspections/${insp.id}/submit`, { body: d });
         await queryClient.invalidateQueries();
         toast('Prüfung abgeschlossen');
-        navigate(`/druck/protokoll/${insp.id}`, { replace: true });
+        if (round) {
+          markRoundDone(round, insp.assetId);
+          navigate(`/rundgang/${round}?fertig=${insp.assetId}`, { replace: true });
+        } else navigate(`/druck/protokoll/${insp.id}`, { replace: true });
       }}
       discard={async () => {
         await api(`/inspections/${insp.id}`, { method: 'DELETE' });
         await queryClient.invalidateQueries();
-        navigate(`/elemente/${insp.assetId}`, { replace: true });
+        navigate(round ? `/rundgang/${round}` : `/elemente/${insp.assetId}`, { replace: true });
       }}
     />
   );

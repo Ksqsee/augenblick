@@ -1,15 +1,17 @@
 import { getCategory } from '../categories';
 import clsx from 'clsx';
-import { ArrowLeft, Camera, Check, CheckCheck, Cloud, CloudOff, HardDrive, Loader2, Minus, Trash2, X } from 'lucide-react';
+import { ArrowLeft, Camera, Check, CheckCheck, Cloud, CloudOff, HardDrive, Loader2, Mic, Minus, Sparkles, Square, Trash2, X } from 'lucide-react';
 import { createContext, type ReactNode, useCallback, useContext, useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { type Category, type Checkpoint, type CustomKind, INSPECTION_KINDS, SEVERITIES, type Severity } from '../../shared/catalog';
 import { type Answer, computeResult, finalResult, isComplete, type Result, type ResultOverride } from '../../shared/logic';
-import { type DefectDraft, fileUrl, uploadPhoto, useMe } from '../api';
+import { api, type DefectDraft, fileUrl, uploadPhoto, useMe } from '../api';
 import { defectsLabel, RESULT_META } from '../format';
 import { CategoryIcon } from './CategoryIcon';
 import { SignaturePad } from './SignaturePad';
-import { Button, Card, Input, Textarea } from './ui';
+import { Button, Card, DictateInput, Input, Textarea } from './ui';
+import { type CaptureItem, suggestMeasure, suggestSeverity } from '../../shared/smart';
+import { fmtSeconds, useDictation } from '../dictate';
 
 // ---------- Fotos: online → R2, offline → IndexedDB ----------
 export interface PhotoStore {
@@ -61,6 +63,30 @@ export interface DefectLike {
   photoKey?: string;
 }
 
+/** Vorschläge aus dem Text: passende Maßnahme und Schweregrad mit einem Tipp übernehmen. */
+function SmartHints<T extends DefectLike>({ defect, onChange }: { defect: T; onChange: (d: T) => void }) {
+  const text = `${defect.title} ${defect.note}`.trim();
+  if (text.length < 4) return null;
+  const measure = !defect.measure?.trim() ? suggestMeasure(text) : '';
+  const sev = suggestSeverity(text);
+  const sevHint = sev !== defect.severity && (sev === 'critical' || sev === 'high') ? sev : null;
+  if (!measure && !sevHint) return null;
+  return (
+    <div className="flex flex-wrap gap-1.5">
+      {measure && (
+        <button type="button" onClick={() => onChange({ ...defect, measure })} className="inline-flex min-h-7 items-center gap-1 rounded-full bg-brand-soft px-2.5 text-left text-xs font-medium text-brand-strong">
+          <Sparkles className="size-3 shrink-0" /> Maßnahme: {measure}
+        </button>
+      )}
+      {sevHint && (
+        <button type="button" onClick={() => onChange({ ...defect, severity: sevHint })} className="inline-flex h-7 items-center gap-1 rounded-full bg-bad-soft px-2.5 text-xs font-medium text-bad">
+          <Sparkles className="size-3" /> Als „{SEVERITIES[sevHint]}“ einstufen
+        </button>
+      )}
+    </div>
+  );
+}
+
 export function DefectEditor<T extends DefectLike>({
   defect,
   onChange,
@@ -82,7 +108,7 @@ export function DefectEditor<T extends DefectLike>({
     <div className={clsx('flex flex-col gap-2.5', className)}>
       {editableTitle && (
         <div className="flex gap-2">
-          <Input placeholder="Was wurde festgestellt?" value={defect.title} onChange={(e) => onChange({ ...defect, title: e.target.value })} />
+          <DictateInput placeholder="Was wurde festgestellt?" value={defect.title} onChange={(e) => onChange({ ...defect, title: e.target.value })} />
           {onRemove && (
             <Button variant="ghost" aria-label="Entfernen" onClick={onRemove}>
               <Trash2 className="size-4" />
@@ -112,7 +138,7 @@ export function DefectEditor<T extends DefectLike>({
         ))}
       </div>
       <div className="flex gap-2">
-        <Input placeholder="Beschreibung (optional)" aria-label="Beschreibung" value={defect.note} onChange={(e) => onChange({ ...defect, note: e.target.value })} />
+        <DictateInput placeholder="Beschreibung (optional)" aria-label="Beschreibung" value={defect.note} onChange={(e) => onChange({ ...defect, note: e.target.value })} />
         <input
           ref={fileRef}
           type="file"
@@ -138,7 +164,8 @@ export function DefectEditor<T extends DefectLike>({
           {!uploading && <Camera className="size-4" />}
         </Button>
       </div>
-      <Input placeholder="Maßnahme (z. B. Schließer tauschen, Fachfirma beauftragen)" aria-label="Maßnahme" value={defect.measure ?? ''} onChange={(e) => onChange({ ...defect, measure: e.target.value })} />
+      <DictateInput placeholder="Maßnahme (z. B. Schließer tauschen, Fachfirma beauftragen)" aria-label="Maßnahme" value={defect.measure ?? ''} onChange={(e) => onChange({ ...defect, measure: e.target.value })} />
+      <SmartHints defect={defect} onChange={onChange} />
       {err && <p className="text-xs text-bad">{err}</p>}
       {defect.photoKey && (
         <div className="relative w-fit">
@@ -312,6 +339,59 @@ export interface InspectionSubject {
   propertyName: string;
 }
 
+/** Befund einsprechen: Mängel werden Prüfpunkten zugeordnet, Hinweise landen in den Bemerkungen. */
+function VoicePanel({ checkpoints, onApply }: { checkpoints: Checkpoint[]; onApply: (items: CaptureItem[]) => void }) {
+  const [text, setText] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState('');
+  const dict = useDictation((t) => setText(t));
+  if (dict.engine === null || dict.engine === 'none') return null;
+  const rec = dict.state === 'recording';
+  const apply = async () => {
+    setBusy(true);
+    setMsg('');
+    try {
+      const r = await api<{ items: CaptureItem[] }>('/ai/parse', { body: { text, checkpoints: checkpoints.map((c) => ({ id: c.id, label: c.label })) } });
+      onApply(r.items);
+      const n = r.items.filter((i) => i.kind === 'defect').length;
+      setMsg(n ? `${n} ${n === 1 ? 'Mangel' : 'Mängel'} übernommen – Rest prüfen oder „Rest i. O.“ tippen.` : 'Keine Mängel erkannt – Hinweise stehen in den Bemerkungen.');
+      setText('');
+    } catch (e) {
+      setMsg(e instanceof Error ? e.message : 'Auswerten fehlgeschlagen');
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <Card className="flex flex-col gap-3 p-4">
+      <div className="flex items-center gap-3">
+        <button
+          type="button"
+          onClick={() => (rec ? dict.stop() : dict.start())}
+          disabled={dict.state === 'transcribing'}
+          aria-label={rec ? 'Aufnahme beenden' : 'Befund einsprechen'}
+          className={clsx('grid size-12 shrink-0 place-items-center rounded-full text-white transition active:scale-95', rec ? 'bg-bad' : 'bg-brand hover:bg-brand-strong')}
+        >
+          {dict.state === 'transcribing' ? <Loader2 className="size-5 animate-spin" /> : rec ? <Square className="size-4 fill-current" /> : <Mic className="size-5" />}
+        </button>
+        <div className="min-w-0 flex-1">
+          <p className="text-sm font-medium">Befund einsprechen</p>
+          <p className="text-xs text-ink-3">{dict.error || (rec ? `Aufnahme läuft · ${fmtSeconds(dict.seconds)}` : 'Mängel nennen – sie werden den passenden Prüfpunkten zugeordnet.')}</p>
+        </div>
+      </div>
+      {(text || rec) && (
+        <>
+          <Textarea dictate={false} aria-label="Eingesprochener Befund" value={text} onChange={(e) => setText(e.target.value)} className="min-h-20" />
+          <Button size="sm" className="self-end" loading={busy} disabled={!text.trim() || rec} onClick={apply} icon={<Sparkles className="size-4" />}>
+            Übernehmen
+          </Button>
+        </>
+      )}
+      {msg && <p className="text-xs text-ink-2">{msg}</p>}
+    </Card>
+  );
+}
+
 export function InspectionForm({
   subject,
   scheduleLabel,
@@ -412,6 +492,30 @@ export function InspectionForm({
           <span className="relative h-6 w-10 rounded-full bg-line transition peer-checked:bg-ink after:absolute after:top-0.5 after:left-0.5 after:size-5 after:rounded-full after:bg-white after:shadow after:transition peer-checked:after:translate-x-4" />
         </label>
       </Card>
+
+      {!d.notInspectable && !offline && (
+        <VoicePanel
+          checkpoints={checkpoints}
+          onApply={(items) => {
+            const answers = { ...d.answers };
+            let defects = [...d.defects];
+            const notes: string[] = [];
+            for (const it of items) {
+              if (it.kind !== 'defect') {
+                notes.push(it.title + (it.note ? ` – ${it.note}` : ''));
+                continue;
+              }
+              const cp = checkpoints.find((c) => c.id === it.checkpointId);
+              const nd = { checkpointId: cp?.id, title: it.title, note: it.note, measure: it.measure, severity: it.severity };
+              if (cp) {
+                answers[cp.id] = 'defect';
+                defects = [...defects.filter((x) => x.checkpointId !== cp.id), nd];
+              } else defects = [...defects, nd];
+            }
+            update({ answers, defects, notes: notes.length ? [d.notes.trim(), ...notes].filter(Boolean).join('\n') : d.notes });
+          }}
+        />
+      )}
 
       {!d.notInspectable && (
         <section>

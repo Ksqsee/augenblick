@@ -5,4 +5,4 @@
   X-Content-Type-Options: nosniff
   Referrer-Policy: same-origin
   Strict-Transport-Security: max-age=31536000
-  Permissions-Policy: camera=(self), microphone=(), geolocation=(), payment=()
+  Permissions-Policy: camera=(self), microphone=(self), geolocation=(), payment=()

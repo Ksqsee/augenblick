@@ -12,15 +12,17 @@ import {
   useContext,
   useEffect,
   useId,
+  useRef,
   useState,
 } from 'react';
+import { FieldMic } from './Dictate';
 import type { Tone } from '../format';
 
 // ---------- Button ----------
 type Variant = 'primary' | 'secondary' | 'ghost' | 'danger';
 const variants: Record<Variant, string> = {
   primary: 'bg-ink text-white hover:bg-ink/90 shadow-sm',
-  secondary: 'bg-surface text-ink border border-line hover:bg-sunken shadow-card',
+  secondary: 'bg-surface text-ink shadow-card hover:bg-sunken',
   ghost: 'text-ink-2 hover:bg-sunken hover:text-ink',
   danger: 'bg-bad text-white hover:bg-bad/90',
 };
@@ -34,10 +36,10 @@ export const Button = forwardRef<
       ref={ref}
       disabled={disabled || loading}
       className={clsx(
-        'inline-flex items-center justify-center gap-2 rounded-lg font-medium transition-colors disabled:opacity-50 disabled:pointer-events-none whitespace-nowrap',
-        size === 'sm' && 'h-8 px-3 text-[13px]',
-        size === 'md' && 'h-10 px-4 text-sm',
-        size === 'lg' && 'h-12 px-5 text-[15px]',
+        'inline-flex items-center justify-center gap-2 font-medium transition active:scale-[0.98] disabled:opacity-50 disabled:pointer-events-none whitespace-nowrap',
+        size === 'sm' && 'h-9 rounded-lg px-3 text-[13px]',
+        size === 'md' && 'h-11 rounded-xl px-4 text-sm',
+        size === 'lg' && 'h-14 rounded-2xl px-6 text-base font-semibold',
         variants[variant],
         className,
       )}
@@ -51,7 +53,7 @@ export const Button = forwardRef<
 
 // ---------- Formularfelder ----------
 const fieldCls =
-  'w-full rounded-lg border border-line bg-surface px-3 text-sm text-ink placeholder:text-ink-3 shadow-card transition focus:border-ink-3 focus:outline-none focus:ring-4 focus:ring-ink/5';
+  'w-full rounded-xl border border-line bg-surface px-3.5 text-[15px] text-ink placeholder:text-ink-3 transition focus:border-ink-3 focus:outline-none focus:ring-4 focus:ring-ink/5 sm:text-sm';
 
 export function Field({ label, hint, error, children, className }: { label: string; hint?: string; error?: string; children: (id: string) => ReactNode; className?: string }) {
   const id = useId();
@@ -67,16 +69,51 @@ export function Field({ label, hint, error, children, className }: { label: stri
 }
 
 export const Input = forwardRef<HTMLInputElement, InputHTMLAttributes<HTMLInputElement>>(function Input({ className, ...p }, ref) {
-  return <input ref={ref} className={clsx(fieldCls, 'h-10', className)} {...p} />;
+  return <input ref={ref} className={clsx(fieldCls, 'h-11', className)} {...p} />;
 });
 
-export const Textarea = forwardRef<HTMLTextAreaElement, TextareaHTMLAttributes<HTMLTextAreaElement>>(function Textarea({ className, ...p }, ref) {
-  return <textarea ref={ref} className={clsx(fieldCls, 'min-h-24 py-2.5', className)} {...p} />;
+function useMergedRef<T>(outer: React.ForwardedRef<T>) {
+  const inner = useRef<T | null>(null);
+  const set = useCallback(
+    (el: T | null) => {
+      inner.current = el;
+      if (typeof outer === 'function') outer(el);
+      else if (outer) outer.current = el;
+    },
+    [outer],
+  );
+  return [inner, set] as const;
+}
+
+/** Mehrzeiliges Feld – mit Diktat-Knopf (abschaltbar mit dictate={false}). */
+export const Textarea = forwardRef<HTMLTextAreaElement, TextareaHTMLAttributes<HTMLTextAreaElement> & { dictate?: boolean }>(function Textarea(
+  { className, dictate = true, ...p },
+  ref,
+) {
+  const [inner, set] = useMergedRef(ref);
+  if (!dictate || p.readOnly) return <textarea ref={set} className={clsx(fieldCls, 'min-h-24 py-2.5', className)} {...p} />;
+  return (
+    <div className="relative w-full">
+      <textarea ref={set} className={clsx(fieldCls, 'min-h-24 py-2.5 pb-11', className)} {...p} />
+      <FieldMic target={inner} className="absolute right-2 bottom-2" />
+    </div>
+  );
+});
+
+/** Einzeiliges Feld mit Diktat-Knopf (für Titel o. Ä.). */
+export const DictateInput = forwardRef<HTMLInputElement, InputHTMLAttributes<HTMLInputElement>>(function DictateInput({ className, ...p }, ref) {
+  const [inner, set] = useMergedRef(ref);
+  return (
+    <div className="relative w-full">
+      <input ref={set} className={clsx(fieldCls, 'h-11 pr-12', className)} {...p} />
+      <FieldMic target={inner} className="absolute top-1.5 right-1.5" />
+    </div>
+  );
 });
 
 export function Select({ className, children, ...p }: SelectHTMLAttributes<HTMLSelectElement>) {
   return (
-    <select className={clsx(fieldCls, 'h-10 appearance-none bg-[url("data:image/svg+xml,%3Csvg xmlns=%27http://www.w3.org/2000/svg%27 width=%2716%27 height=%2716%27 fill=%27none%27 stroke=%27%2357534e%27 stroke-width=%272%27%3E%3Cpath d=%27m4 6 4 4 4-4%27/%3E%3C/svg%3E")] bg-[right_10px_center] bg-no-repeat pr-9', className)} {...p}>
+    <select className={clsx(fieldCls, 'h-11 appearance-none bg-[url("data:image/svg+xml,%3Csvg xmlns=%27http://www.w3.org/2000/svg%27 width=%2716%27 height=%2716%27 fill=%27none%27 stroke=%27%2357534e%27 stroke-width=%272%27%3E%3Cpath d=%27m4 6 4 4 4-4%27/%3E%3C/svg%3E")] bg-[right_10px_center] bg-no-repeat pr-9', className)} {...p}>
       {children}
     </select>
   );
@@ -85,7 +122,7 @@ export function Select({ className, children, ...p }: SelectHTMLAttributes<HTMLS
 // ---------- Flächen ----------
 export function Card({ className, children, ...p }: React.HTMLAttributes<HTMLDivElement>) {
   return (
-    <div className={clsx('rounded-xl border border-line bg-surface shadow-card', className)} {...p}>
+    <div className={clsx('rounded-2xl bg-surface shadow-card', className)} {...p}>
       {children}
     </div>
   );
@@ -93,9 +130,9 @@ export function Card({ className, children, ...p }: React.HTMLAttributes<HTMLDiv
 
 export function CardHeader({ title, action, subtitle }: { title: ReactNode; subtitle?: ReactNode; action?: ReactNode }) {
   return (
-    <div className="flex items-start justify-between gap-3 border-b border-line px-5 py-4">
+    <div className="flex items-start justify-between gap-3 px-5 pt-5 pb-3">
       <div>
-        <h2 className="text-[15px] font-semibold">{title}</h2>
+        <h2 className="text-base font-semibold tracking-tight">{title}</h2>
         {subtitle && <p className="mt-0.5 text-[13px] text-ink-3">{subtitle}</p>}
       </div>
       {action}
@@ -134,7 +171,7 @@ export function PageHeader({ title, subtitle, actions, back }: { title: ReactNod
     <div className="mb-6 flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
       <div className="min-w-0">
         {back}
-        <h1 className="truncate text-2xl font-semibold tracking-tight">{title}</h1>
+        <h1 className="truncate text-[26px] font-semibold tracking-tight sm:text-[28px]">{title}</h1>
         {subtitle && <p className="mt-1 text-sm text-ink-3">{subtitle}</p>}
       </div>
       {actions && <div className="flex flex-wrap gap-2">{actions}</div>}
@@ -178,7 +215,7 @@ export function Segmented<T extends string>({
   className?: string;
 }) {
   return (
-    <div className={clsx('inline-flex max-w-full overflow-x-auto rounded-lg bg-sunken p-1', className)} role="tablist">
+    <div className={clsx('inline-flex max-w-full overflow-x-auto rounded-xl bg-sunken p-1', className)} role="tablist">
       {options.map((o) => (
         <button
           key={o.value}
@@ -186,7 +223,7 @@ export function Segmented<T extends string>({
           aria-selected={value === o.value}
           onClick={() => onChange(o.value)}
           className={clsx(
-            'flex h-8 items-center gap-1.5 rounded-md px-3 text-[13px] font-medium whitespace-nowrap transition',
+            'flex h-9 items-center gap-1.5 rounded-lg px-3.5 text-[13px] font-medium whitespace-nowrap transition',
             value === o.value ? 'bg-surface text-ink shadow-card' : 'text-ink-2 hover:text-ink',
           )}
         >
@@ -207,7 +244,7 @@ export function Chip({ active, onClick, children }: { active?: boolean; onClick?
       onClick={onClick}
       aria-pressed={active}
       className={clsx(
-        'inline-flex h-8 items-center gap-1.5 rounded-full border px-3 text-[13px] font-medium transition whitespace-nowrap',
+        'inline-flex h-9 items-center gap-1.5 rounded-full border px-3.5 text-[13px] font-medium transition whitespace-nowrap',
         active ? 'border-ink bg-ink text-white' : 'border-line bg-surface text-ink-2 hover:border-line-strong hover:text-ink',
       )}
     >
@@ -238,16 +275,17 @@ export function Modal({ title, onClose, children, footer, wide }: { title: React
         role="dialog"
         aria-modal
         onMouseDown={(e) => e.stopPropagation()}
-        className={clsx('animate-in flex max-h-[92dvh] w-full flex-col rounded-t-2xl bg-surface shadow-pop sm:rounded-2xl', wide ? 'sm:max-w-2xl' : 'sm:max-w-lg')}
+        className={clsx('animate-up sm:animate-in flex max-h-[92dvh] w-full flex-col rounded-t-[28px] bg-surface pb-[env(safe-area-inset-bottom)] shadow-pop sm:rounded-3xl sm:pb-0', wide ? 'sm:max-w-2xl' : 'sm:max-w-lg')}
       >
-        <div className="flex items-center justify-between border-b border-line px-5 py-4">
-          <h2 className="text-base font-semibold">{title}</h2>
+        <div className="mx-auto mt-2 h-1 w-10 rounded-full bg-line sm:hidden" />
+        <div className="flex items-center justify-between px-5 pt-4 pb-2">
+          <h2 className="text-lg font-semibold tracking-tight">{title}</h2>
           <button onClick={onClose} className="rounded-md p-1 text-ink-3 hover:bg-sunken hover:text-ink" aria-label="Schließen">
             <X className="size-5" />
           </button>
         </div>
         <div className="overflow-y-auto px-5 py-5">{children}</div>
-        {footer && <div className="flex justify-end gap-2 border-t border-line px-5 py-4">{footer}</div>}
+        {footer && <div className="flex justify-end gap-2 px-5 pt-2 pb-5">{footer}</div>}
       </div>
     </div>
   );

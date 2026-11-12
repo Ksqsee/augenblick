@@ -60,6 +60,8 @@ export interface Tenant {
   timeZone: string;
   /** Erinnerung so viele Tage vor Fälligkeit (null = aus) */
   reminderDays: number | null;
+  /** Für schwere Mängel automatisch Aufgaben anlegen */
+  autoTasks?: boolean;
   /** eigene Prüfungsarten */
   inspectionKinds: CustomKind[];
 }

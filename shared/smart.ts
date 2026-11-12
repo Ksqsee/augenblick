@@ -50,7 +50,8 @@ const MEASURE_RULES: [RegExp, string][] = [
 const TASK_HINT = /\b(aufgabe|erledigen|bestellen|beauftragen|anrufen|termin|nachfassen|informieren|klären|erinnern)\b/i;
 const NOTE_HINT = /^(notiz|hinweis|anmerkung|info)\b[:,]?\s*/i;
 const FILLER = /^(also|äh+m?|ähm|ok(ay)?|ja|so|und|dann|außerdem|ausserdem|weiterhin|nächster punkt|punkt \d+)[,:]?\s+/i;
-const CODE = /\b([A-ZÄÖÜ]{2,4})[- ]([A-Z0-9]{3,6})\b/i;
+/** Element-Code wie „FST-7K2M“ (auch gesprochen „FST 7K2M“); der zweite Teil braucht eine Ziffer, damit normale Wörter nicht greifen. */
+const CODE = /(?<![\p{L}\d])([A-Za-z]{2,4})[- ](?=[A-Za-z]*\d)([A-Za-z0-9]{3,6})(?![\p{L}\d])/u;
 
 export function suggestSeverity(text: string): Severity {
   for (const [re, s] of SEVERITY_RULES) if (re.test(text)) return s;

@@ -243,6 +243,47 @@ export const TOOLS: Tool[] = [
     run: (a, api) => api({ method: 'GET', path: `/smart/rounds${qs(a, ['days'])}` }),
   },
   {
+    name: 'report_defect',
+    title: 'Mangel melden',
+    description: 'Meldet einen Mangel außerhalb einer Prüfung an einem Element (per Code) oder Objekt. Bei Schwere hoch/kritisch entsteht automatisch eine Aufgabe, wenn das im Workspace aktiviert ist.',
+    inputSchema: obj(
+      {
+        title: str('Kurzbeschreibung des Mangels'),
+        severity: str('Schwere', { enum: ['low', 'medium', 'high', 'critical'] }),
+        note: str('Details'),
+        measure: str('Maßnahme zur Behebung'),
+        assetCode: str('Code des betroffenen Elements'),
+        propertyId: str('ID des Objekts (wenn kein Element)'),
+      },
+      ['title', 'severity'],
+    ),
+    readOnly: false,
+    run: async (a, api) => {
+      const assetId = a.assetCode ? ((await api({ method: 'GET', path: `/assets/by-code/${enc(String(a.assetCode))}` })) as { id: string }).id : null;
+      return api({
+        method: 'POST',
+        path: '/defects',
+        body: { assetId, propertyId: a.propertyId ?? null, title: a.title, severity: a.severity, note: a.note ?? '', measure: a.measure ?? '' },
+      });
+    },
+  },
+  {
+    name: 'get_suggestions',
+    title: 'Was ist zu tun?',
+    description: 'Priorisierte Vorschläge für die nächsten Schritte: fällige Rundgänge, schwere Mängel ohne Aufgabe, fällige Begehungen, liegengebliebene Prüfungen, überfällige Aufgaben.',
+    inputSchema: obj({}),
+    readOnly: true,
+    run: (_a, api) => api({ method: 'GET', path: '/smart/suggestions' }),
+  },
+  {
+    name: 'create_tasks_from_defects',
+    title: 'Aufgaben aus Mängeln anlegen',
+    description: 'Legt für alle offenen Mängel der gewählten Schweregrade ohne Aufgabe je eine Aufgabe mit SLA-Frist an. Liefert die Anzahl.',
+    inputSchema: obj({ severities: { type: 'array', items: { type: 'string', enum: ['low', 'medium', 'high', 'critical'] }, description: 'Standard: high, critical' } }),
+    readOnly: false,
+    run: (a, api) => api({ method: 'POST', path: '/smart/tasks-from-defects', body: a.severities ? { severities: a.severities } : {} }),
+  },
+  {
     name: 'structure_dictation',
     title: 'Diktat strukturieren',
     description: 'Zerlegt diktierten Text einer Prüfung in Mängel (mit Schwere und Maßnahme), Aufgaben und Notizen.',

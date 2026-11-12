@@ -3,32 +3,34 @@
 @theme {
   --font-sans: 'Geist Variable', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif;
 
-  --color-canvas: #f7f6f3;
+  --color-canvas: #f6f5f1;
   --color-surface: #ffffff;
-  --color-sunken: #f0eee9;
-  --color-line: #e6e3dc;
-  --color-line-strong: #d6d2c8;
-  --color-ink: #1c1917;
-  --color-ink-2: #57534e;
-  --color-ink-3: #8a847b;
+  --color-sunken: #efede7;
+  --color-line: #e8e5de;
+  --color-line-strong: #d5d0c5;
+  --color-ink: #17140f;
+  --color-ink-2: #514b43;
+  --color-ink-3: #8a8378;
 
-  --color-brand: #e2551b;
+  --color-brand: #e8590c;
   --color-brand-strong: #c2410c;
-  --color-brand-soft: #fdeee6;
+  --color-brand-soft: #fff0e6;
 
-  --color-ok: #15803d;
-  --color-ok-soft: #e7f5ec;
+  --color-ok: #16803c;
+  --color-ok-soft: #e6f5eb;
   --color-warn: #b45309;
-  --color-warn-soft: #fdf3e1;
-  --color-bad: #c81e1e;
-  --color-bad-soft: #fde8e8;
-  --color-info: #1d4ed8;
-  --color-info-soft: #e8effd;
-  --color-muted-soft: #efedea;
+  --color-warn-soft: #fdf2df;
+  --color-bad: #d02020;
+  --color-bad-soft: #fdeaea;
+  --color-info: #2557d6;
+  --color-info-soft: #e9effd;
+  --color-muted-soft: #efede8;
 
-  --radius-xl: 14px;
-  --shadow-card: 0 1px 2px rgb(28 25 23 / 0.04), 0 1px 1px rgb(28 25 23 / 0.03);
-  --shadow-pop: 0 12px 32px -8px rgb(28 25 23 / 0.18), 0 2px 6px rgb(28 25 23 / 0.06);
+  --radius-xl: 16px;
+  --radius-2xl: 22px;
+  --shadow-card: 0 0 0 1px rgb(23 20 15 / 0.05), 0 1px 2px rgb(23 20 15 / 0.05);
+  --shadow-lift: 0 0 0 1px rgb(23 20 15 / 0.05), 0 6px 20px -6px rgb(23 20 15 / 0.12);
+  --shadow-pop: 0 16px 40px -10px rgb(23 20 15 / 0.22), 0 2px 8px rgb(23 20 15 / 0.06);
 }
 
 html,
@@ -84,4 +86,46 @@ body {
 }
 .animate-slide {
   animation: pk-slide 180ms ease-out;
+}
+
+/* Aufnahme: pulsierender Ring um den Mikrofon-Knopf */
+@keyframes pk-pulse {
+  0% {
+    box-shadow: 0 0 0 0 rgb(232 89 12 / 0.45);
+  }
+  100% {
+    box-shadow: 0 0 0 18px rgb(232 89 12 / 0);
+  }
+}
+.animate-rec {
+  animation: pk-pulse 1.2s ease-out infinite;
+}
+@keyframes pk-up {
+  from {
+    transform: translateY(100%);
+  }
+  to {
+    transform: none;
+  }
+}
+.animate-up {
+  animation: pk-up 220ms cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+@keyframes pk-pop {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+}
+.animate-pop {
+  animation: pk-pop 180ms ease-out both;
+}
+@media (prefers-reduced-motion: reduce) {
+  .animate-in,
+  .animate-slide,
+  .animate-up,
+  .animate-pop,
+  .animate-rec {
+    animation: none;
+  }
 }
