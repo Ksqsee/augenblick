@@ -10,7 +10,7 @@
 // DEMO_PASSWORD wird für lokale Läufe zufällig erzeugt, wenn es nicht gesetzt ist.
 import { execFileSync, spawn } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
-import { mkdirSync, readdirSync } from 'node:fs';
+import { mkdirSync, openSync, readdirSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -54,7 +54,9 @@ async function waitFor(url, ms = 120_000) {
 
 let server;
 if (serve) {
-  server = spawn('npx', ['vite', '--port', new URL(BASE).port || '5173', '--strictPort'], { cwd: root, env, stdio: 'ignore', detached: true });
+  // E2E_SERVER_LOG=datei schreibt die Ausgabe des Dev-Servers mit (Fehlersuche)
+  const log = process.env.E2E_SERVER_LOG ? openSync(process.env.E2E_SERVER_LOG, 'a') : 'ignore';
+  server = spawn('npx', ['vite', '--port', new URL(BASE).port || '5173', '--strictPort'], { cwd: root, env, stdio: ['ignore', log, log], detached: true });
 }
 
 const results = [];
@@ -66,13 +68,15 @@ try {
     sh('npx', ['vite-node', 'scripts/seed.ts', '--', join(out, 'seed')]);
   }
   await waitFor(BASE + '/api/health');
+  // Port schon belegt (anderer Dev-Server)? Dann liefen die Tests gegen den falschen Server
+  if (server && server.exitCode !== null) throw new Error(`Dev-Server beendet (Code ${server.exitCode}) – Port ${new URL(BASE).port || 5173} belegt?`);
   for (const t of tests) {
     if (!prod) {
       sh('npx', ['wrangler', 'd1', 'execute', 'DB', '--local', '--file', join(dir, 'wipe.sql')]);
       sh('npx', ['wrangler', 'd1', 'execute', 'DB', '--local', '--file', join(out, 'seed', 'seed.sql')]);
     }
     const start = Date.now();
-    process.stdout.write(`▸ ${t} `);
+    process.stdout.write(`▸ ${t} ${process.env.E2E_SERVER_LOG ? `[${new Date().toISOString()}] ` : ''}`);
     const code = await new Promise((resolve) => {
       const p = spawn(process.execPath, [join(dir, t)], { cwd: root, env, stdio: ['ignore', 'pipe', 'pipe'] });
       let log = '';

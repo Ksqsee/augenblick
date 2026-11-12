@@ -86,11 +86,25 @@ app.onError((err, c) => {
   return c.json({ error: 'Interner Fehler' }, 500);
 });
 
+/**
+ * Ungelesenen Anfragekörper zu Ende lesen (z. B. POST, der schon an Anmeldung oder Rolle scheitert).
+ * Lokal setzt workerd sonst die Keep-Alive-Verbindung zurück, und die nächste Anfrage auf ihr endet im
+ * Dev-Server mit ECONNRESET → 500 „fetch failed“ (sporadische E2E-Fehler). Nur kleine Körper mit Länge.
+ */
+async function drainUnreadBody(req: Request) {
+  if (!req.body || req.bodyUsed) return;
+  const len = Number(req.headers.get('content-length') ?? Number.NaN);
+  if (!(len <= 1_000_000)) return;
+  await req.arrayBuffer().catch(() => undefined);
+}
+
 export default {
-  fetch(req: Request, env: Env, ctx: ExecutionContext) {
+  async fetch(req: Request, env: Env, ctx: ExecutionContext) {
     // OAuth-Metadaten liegen außerhalb von /api (Standardpfade)
     if (new URL(req.url).pathname.startsWith('/.well-known/')) return wellKnown(req) ?? new Response('Not found', { status: 404 });
-    return app.fetch(req, env, ctx);
+    const res = await app.fetch(req, env, ctx);
+    await drainUnreadBody(req);
+    return res;
   },
   async scheduled(event: ScheduledController, env: Env, ctx: ExecutionContext) {
     // scheduledTime = geplanter Zeitpunkt (lokal per ?time= steuerbar, z. B. für einen Montag in den Tests)
