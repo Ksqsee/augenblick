@@ -41,6 +41,15 @@ API: [`docs/api.md`](docs/api.md)
 - Prüfungsliste mit Reitern Überfällig, Bald fällig, Nie geprüft, Nicht prüfbar, Neue Elemente, Entwürfe,
   Durchgeführt, Archiv, Berichtigt – filterbar nach Prüfart
 - **Mängel** und **Aufgaben** mit Labels, SLA-Richtlinien, Kommentaren, Statistik
+- **Aufgabentypen** Prüfauftrag (Element, „Prüfung starten“, wird mit der Prüfung erledigt), Mängelbehebung (Mangel; beim
+  Erledigen Rückfrage, ob der Mangel behoben ist) und Sonstiges; Liste gruppiert nach **Überfällig / Fällig heute / Diese Woche /
+  Später / Ohne Datum**, Schnellfilter Meine, Ohne Zuständige, Von mir erstellt, Beobachtet; **Mehrfachbearbeitung**
+  (Status, Zuständige, Priorität, Fälligkeit)
+- **Beobachter** und **@-Erwähnungen** in internen Notizen (mit Vorschlägen aus dem Team) – Benachrichtigung bei Statuswechsel
+  und Kommentaren; Notizen bleiben im Subunternehmer-Link unsichtbar
+- **Behebung dokumentieren** mit Notiz und Nachher-Foto (wer/wann), im Mangel-Detail, Mängelbericht und Prüfprotokoll;
+  **Mangel-Detail** mit Fotos vorher/nachher, Aufgaben und Verlauf; **Ausblenden** (Admins, mit Grund, zählt nicht mit)
+- **Handlungsbedarf**: schwere Mängel ohne Aufgabe, überfällige Aufgaben und Prüfungen in einer Liste nach Dringlichkeit
 - **Subunternehmer**: Aufgabe per Link teilen, Rückmeldung ohne Konto
 - **Kunden-Freigabe**: Link je Objekt für Auftraggeber – Prüfquote, Fälligkeiten, letzte Prüfungen, offene Mängel; ohne Konto, widerrufbar
 - **Papierkorb**: gelöschte Elemente 30 Tage lang mit Historie wiederherstellbar
@@ -82,7 +91,7 @@ src/          Oberfläche (pages/, components/, pdf/ für die PDF-Erzeugung, off
 worker/       API: auth (Login, Konto, API-Schlüssel, Speicher), data, inspections, walkthroughs,
               plans, categories, work (Aufgaben, Subunternehmer, Import), reports, notify, push, cron
 shared/       Code für Browser und Worker
-migrations/   D1-Schema (0001 … 0008)
+migrations/   D1-Schema (0001 … 0012)
 e2e/          Browser-Tests und Runner
 .github/      CI
 scripts/      seed.ts – Demodaten
@@ -101,7 +110,7 @@ npm run check              # Typprüfung + Unit-Tests + Build
 ## Tests
 
 - **Unit-Tests** (`npm test`, Vitest): Fachlogik, Import/Export, Übersetzungen, Ruhezeiten, Web Push.
-- **Browser-Tests** (`e2e/`, Playwright): zehn Reihen von der Registrierung über Sicherheitskorrekturen und Massenoperationen bis zu Berichtigung und Nachprüfung.
+- **Browser-Tests** (`e2e/`, Playwright): Reihen von der Registrierung über Sicherheitskorrekturen und Massenoperationen bis zu Berichtigung, Nachprüfung sowie Aufgaben und Mängeln (`14-tasks-defects`).
   Vor jeder Reihe wird die lokale D1 geleert und mit Demodaten befüllt.
 
 ```bash

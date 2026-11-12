@@ -261,7 +261,17 @@ export async function loadInspection(c: Ctx, iid: string) {
   const scheduleLabel = def ? ((def.schedules ?? []).find((s) => s.key === scheduleKey)?.label ?? 'Prüfung') : 'Prüfung';
   const kinds = parseJson<string[]>(row.kinds as string, []);
   const custom = parseJson<CustomKind[]>(row.customKinds as string, []);
+  // Behebung der hier festgestellten Mängel (für Protokoll und PDF)
+  const resolutions = (
+    await c.env.DB.prepare(
+      `SELECT d.checkpoint_id AS checkpointId, d.title, d.resolved_at AS resolvedAt, u.name AS resolvedByName, d.resolution_note AS note, d.resolution_photo_key AS photoKey
+         FROM defects d LEFT JOIN users u ON u.id = d.resolved_by WHERE d.inspection_id = ? AND d.tenant_id = ? AND d.status = 'resolved'`,
+    )
+      .bind(iid, tid(c))
+      .all<{ checkpointId: string | null; title: string; resolvedAt: number; resolvedByName: string | null; note: string; photoKey: string | null }>()
+  ).results;
   return {
+    resolutions,
     id: row.id as string,
     assetId: row.asset_id as string,
     propertyId: row.propertyId as string,
@@ -414,8 +424,9 @@ async function finalize(
     const same = "COALESCE(o.checkpoint_id, '') = COALESCE(n.checkpoint_id, '') AND o.title = n.title";
     extra.push(
       c.env.DB.prepare(
-        `UPDATE defects AS n SET status = 'resolved', resolved_at = o.resolved_at, resolved_by = o.resolved_by
-           FROM defects o WHERE n.inspection_id = ?1 AND o.inspection_id = ?2 AND o.status = 'resolved' AND ${same}`,
+        `UPDATE defects AS n SET status = o.status, resolved_at = o.resolved_at, resolved_by = o.resolved_by, resolution_note = o.resolution_note,
+                resolution_photo_key = o.resolution_photo_key, hidden_at = o.hidden_at, hidden_by = o.hidden_by, hidden_reason = o.hidden_reason
+           FROM defects o WHERE n.inspection_id = ?1 AND o.inspection_id = ?2 AND (o.status = 'resolved' OR o.hidden_at IS NOT NULL) AND ${same}`,
       ).bind(opts.iid, opts.supersedesId),
       c.env.DB.prepare(
         `UPDATE tasks SET defect_id = (SELECT n.id FROM defects n JOIN defects o ON o.id = tasks.defect_id WHERE n.inspection_id = ?1 AND ${same} LIMIT 1)
@@ -462,6 +473,21 @@ async function finalize(
   } else {
     if (schedules !== asset.schedules) await writeSchedules(c, opts.assetId, schedules, opts.iid);
     await logActivity(c, 'submit', 'inspection', opts.iid, `${opts.followUpOf ? 'Nachprüfung' : 'Prüfung'} ${opts.code} (${sched.label}) abgeschlossen`);
+  }
+  // Offene Prüfaufträge für dieses Element sind mit der Prüfung erledigt
+  const done = await c.env.DB.prepare(
+    `UPDATE tasks SET status = 'done', closed_at = ?1, updated_at = ?1, first_response_at = COALESCE(first_response_at, ?1)
+      WHERE tenant_id = ?2 AND asset_id = ?3 AND kind = 'inspection' AND status IN ('open','in_progress') RETURNING id`,
+  )
+    .bind(t, tid(c), opts.assetId)
+    .all<{ id: string }>();
+  if (done.results.length) {
+    await c.env.DB.prepare(
+      `INSERT INTO task_comments (id, tenant_id, task_id, user_id, author_name, body, created_at)
+       SELECT lower(hex(randomblob(8))), ?1, value, ?2, ?3, ?4, ?5 FROM json_each(?6)`,
+    )
+      .bind(tid(c), c.get('user').userId, c.get('user').name, `Mit der Prüfung ${opts.code} erledigt.`, t, JSON.stringify(done.results.map((r) => r.id)))
+      .run();
   }
   // Automatisierung: schwere Mängel bekommen sofort eine Aufgabe mit SLA-Frist (abschaltbar je Workspace)
   if (b.defects.some((d) => d.severity === 'high' || d.severity === 'critical')) {

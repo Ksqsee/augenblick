@@ -46,8 +46,11 @@ Für API-Schlüssel gelten diese Regeln:
 | `GET /inspections?status=submitted\|draft&archived=1` | Prüfungen (ohne berichtigte); `superseded=1` liefert die durch eine Berichtigung ersetzten |
 | `GET /inspections/:id` | Prüfung mit Prüfpunkten, Befunden, Mängeln (inkl. Maßnahme), Gesamtbewertung, Arten (`kinds`, `kindLabels`), Anlass (`purpose`: `regular`, `correction`, `follow_up`) und Verweisen (`supersedesId`, `supersededBy`, `followUpOf`) |
 | `GET /walkthroughs`, `GET /walkthroughs/:id` | Brandschutzbegehungen |
-| `GET /defects?status=open\|resolved\|all` | Mängel aus Prüfungen und Begehungen |
-| `GET /tasks`, `GET /tasks/:id/comments`, `GET /tasks/stats?days=30` | Aufgaben, Kommentare, Statistik |
+| `GET /defects?status=open\|resolved\|all&hidden=1` | Mängel aus Prüfungen und Begehungen, mit Behebung (`resolutionNote`, `resolutionPhotoKey`, `resolvedByName`). Ausgeblendete fehlen, außer mit `hidden=1` (dann nur sie) |
+| `GET /defects/:id` | Mangel-Detail: alle Angaben, Fotos vorher/nachher, verknüpfte Aufgaben (`tasks`) und Verlauf (`history`) |
+| `GET /smart/action-required` (auch `GET /defects/action-required`) | Handlungsbedarf: kritische/hohe offene Mängel ohne offene Aufgabe, überfällige Aufgaben und überfällige Elemente, nach `urgency` absteigend; je Eintrag `kind` (`defect`/`task`/`asset`), `id`, `title`, `subtitle`, `reason`, `level`, `at` |
+| `GET /tasks`, `GET /tasks/:id/comments`, `GET /tasks/stats?days=30` | Aufgaben (mit `kind`: `inspection` = Prüfauftrag, `defect` = Mängelbehebung, `other`; `createdBy`, `watchers`, `watching`, `defectStatus`), Kommentare (mit `mentions`), Statistik |
+| `GET /tasks/:id/watchers` | Beobachter einer Aufgabe |
 | `GET /categories` | Elementarten mit Prüfarten und Prüfpunkten |
 | `GET /reports`, `GET /reports/:id/file` | Archiv erstellter Berichte (PDF/ZIP) |
 | `GET /reports/annual?year=2026&propertyId=` | Daten des Jahresberichts je Objekt: Prüfungen nach Ergebnis/Art, Mängel mit Behebungsquote, Begehungen (mit Qualifikation der durchführenden Person), Brandschutzbeauftragte |
@@ -63,9 +66,12 @@ Für API-Schlüssel gelten diese Regeln:
 | `POST /assets/:id/inspections` | Prüfungsentwurf anlegen: `{ schedule? }` oder Nachprüfung `{ purpose: "follow_up", followUpOf }` |
 | `PUT /inspections/:id`, `POST /inspections/:id/submit` | Entwurf speichern bzw. abschließen; Arten als `kinds: ["periodic", …]` (eingebaute Schlüssel oder eigene `k_…`) |
 | `POST /inspections/:id/correct` | Berichtigung einer abgeschlossenen Prüfung anlegen (eigene Prüfung oder Admin); liefert den Entwurf |
-| `PATCH /defects/:id` | Mangel als behoben markieren / wieder öffnen |
-| `POST /tasks`, `PATCH /tasks/:id` | Aufgaben anlegen und ändern |
-| `POST /tasks/:id/comments` | Kommentar: `{ body }` |
+| `PATCH /defects/:id` | Mangel als behoben markieren / wieder öffnen: `{ status: "resolved"\|"open", note?, photoKey? }` – Notiz und Nachher-Foto (vorher über `POST /files`), wer/wann wird gespeichert; Wiederöffnen löscht die Behebung |
+| `POST /defects/:id/hide`, `POST /defects/:id/unhide` | Ausblenden mit `{ reason }` (Duplikat, nicht relevant …) bzw. wieder einblenden – nur Admins, daher nicht mit API-Schlüsseln |
+| `POST /tasks`, `PATCH /tasks/:id` | Aufgaben anlegen und ändern; `kind` optional (ohne Angabe: mit `defectId` Mängelbehebung, sonst Sonstiges), Prüfauftrag braucht `assetId`, Mängelbehebung `defectId`. `resolveDefect: false` lässt den Mangel beim Erledigen offen (Standard `true`). Anlegende und Zuständige beobachten automatisch; ein abgeschlossener Prüfungsabschluss erledigt offene Prüfaufträge des Elements |
+| `POST /tasks/bulk` | Mehrfachbearbeitung: `{ ids, status?, assigneeId? (null = niemand), priority?, dueAt? (null = ohne), resolveDefects? }` → `{ updated, skipped }`; nur Aufgaben im eigenen Bereich |
+| `POST /tasks/:id/watch`, `DELETE /tasks/:id/watch` | Aufgabe beobachten / nicht mehr beobachten (auch Lesezugriff) |
+| `POST /tasks/:id/comments` | Interne Notiz: `{ body, mentions? }` – `mentions` sind Nutzer-IDs von Mitgliedern, die die Aufgabe sehen dürfen (sonst 400); Erwähnte werden benachrichtigt und beobachten die Aufgabe. Notizen erscheinen nie im Link für Subunternehmer |
 | `POST /import/assets` | Massenimport (wie Import-Seite) |
 | `POST /defects` | Mangel ohne Prüfung melden: `{ assetId? , propertyId?, title, severity, note?, measure?, photoKey? }` – Element oder Objekt ist Pflicht; bei `high`/`critical` entsteht automatisch eine Aufgabe (Workspace-Einstellung), Antwort `{ id, taskCreated }` |
 | `POST /smart/tasks-from-defects` | Für offene Mängel ohne Aufgabe je eine Aufgabe mit SLA-Frist: `{ severities? }` → `{ created }` |
@@ -119,8 +125,8 @@ claude mcp add --transport http pruefkompass https://<instanz>/api/mcp --header 
 ```
 
 Werkzeuge: `dashboard`, `search`, `list_properties`, `get_property`, `list_assets`, `get_asset`, `list_inspections`,
-`get_inspection`, `list_defects`, `resolve_defect`, `report_defect`, `list_tasks`, `create_task`, `update_task_status`,
-`add_task_comment`, `list_categories`, `create_asset`, `list_walkthroughs`, `plan_rounds`, `get_suggestions`,
+`get_inspection`, `list_defects`, `get_defect`, `resolve_defect` (mit Behebungsnotiz `note`), `report_defect`, `list_action_required`,
+`list_tasks`, `create_task`, `update_task_status`, `bulk_update_tasks`, `add_task_comment` (mit `mentions`), `list_categories`, `create_asset`, `list_walkthroughs`, `plan_rounds`, `get_suggestions`,
 `create_tasks_from_defects`, `structure_dictation`.
 
 ### Beispiel: Element anlegen

@@ -32,7 +32,7 @@ walks.get('/walkthroughs', async (c) => {
   const rows = await c.env.DB.prepare(
     `SELECT w.id, w.status, w.result, w.purpose, w.follow_up_of AS followUpOf, w.building_type AS buildingType, w.inspected_at AS inspectedAt, w.created_at AS createdAt, w.next_due_at AS nextDueAt,
             p.id AS propertyId, p.name AS propertyName, b.name AS buildingName, u.name AS inspector,
-            (SELECT COUNT(*) FROM defects d WHERE d.walkthrough_id = w.id AND d.status = 'open') AS openDefects
+            (SELECT COUNT(*) FROM defects d WHERE d.walkthrough_id = w.id AND d.status = 'open' AND d.hidden_at IS NULL) AS openDefects
        FROM walkthroughs w JOIN properties p ON p.id = w.property_id LEFT JOIN buildings b ON b.id = w.building_id
        JOIN users u ON u.id = w.inspector_id
       WHERE w.tenant_id = ? AND p.deleted_at IS NULL AND ${walkScope(c)} ORDER BY COALESCE(w.inspected_at, w.created_at) DESC LIMIT 300`,

@@ -78,13 +78,13 @@ sharePublic.get('/property/:token', async (c) => {
     DB.prepare(
       `SELECT a.code, a.category, a.location, a.floor, a.next_due_at AS nextDueAt, a.last_inspected_at AS lastInspectedAt, b.name AS buildingName,
               (SELECT i.result FROM inspections i WHERE i.asset_id = a.id AND i.status = 'submitted' AND i.superseded_at IS NULL ORDER BY i.inspected_at DESC LIMIT 1) AS lastResult,
-              (SELECT COUNT(*) FROM defects d WHERE d.asset_id = a.id AND d.status = 'open') AS openDefects
+              (SELECT COUNT(*) FROM defects d WHERE d.asset_id = a.id AND d.status = 'open' AND d.hidden_at IS NULL) AS openDefects
          FROM assets a JOIN buildings b ON b.id = a.building_id
         WHERE b.property_id = ? AND a.deleted_at IS NULL AND b.deleted_at IS NULL ORDER BY b.name, a.floor, a.location, a.code`,
     ).bind(s.propertyId),
     DB.prepare(
       `SELECT d.title, d.severity, d.measure, d.created_at AS createdAt, a.code FROM defects d LEFT JOIN assets a ON a.id = d.asset_id
-        WHERE d.property_id = ? AND d.status = 'open' ORDER BY CASE d.severity WHEN 'critical' THEN 0 WHEN 'high' THEN 1 WHEN 'medium' THEN 2 ELSE 3 END, d.created_at LIMIT 200`,
+        WHERE d.property_id = ? AND d.status = 'open' AND d.hidden_at IS NULL ORDER BY CASE d.severity WHEN 'critical' THEN 0 WHEN 'high' THEN 1 WHEN 'medium' THEN 2 ELSE 3 END, d.created_at LIMIT 200`,
     ).bind(s.propertyId),
     DB.prepare(
       `SELECT a.code, a.category, i.inspected_at AS inspectedAt, i.result FROM inspections i JOIN assets a ON a.id = i.asset_id JOIN buildings b ON b.id = a.building_id

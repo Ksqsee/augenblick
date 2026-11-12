@@ -1,12 +1,13 @@
 import { Hono } from 'hono';
 import { HTTPException } from 'hono/http-exception';
 import { z } from 'zod';
-import type { Category } from '../shared/catalog';
+import type { Category, Role } from '../shared/catalog';
 import { DEFAULT_SLA, HOUR } from '../shared/sla';
 import { addMonths } from '../shared/logic';
 import { getCategoryDef, getSchedule } from './categories';
+import { defaultTaskKind, type TaskKind, taskKindError } from '../shared/tasks';
 import { assetInScope, defectInScope, randomCode, str, taskScope, tid } from './data';
-import { type AppEnv, assertInScope, type Ctx, id, logActivity, notFound, now, parseJson, requireRole, token } from './lib';
+import { type AppEnv, assertInScope, type Ctx, type Env, id, logActivity, notFound, now, parseJson, RANK, requireRole, type ScopeSetting, token } from './lib';
 import { notify, notifyTenant } from './notify';
 import { assertNotThrottled, clientIp, recordFailure } from './throttle';
 
@@ -140,38 +141,51 @@ work.put('/tasks/sla-policies', async (c) => {
 });
 
 // ---------- Aufgaben ----------
+const kindEnum = z.enum(['inspection', 'defect', 'other']);
+const statusEnum = z.enum(['open', 'in_progress', 'done', 'cancelled']);
+const priorityEnum = z.enum(['low', 'medium', 'high']);
 const taskBody = z.object({
   title: str(200).min(1, 'Titel fehlt'),
   description: str(5000).default(''),
-  status: z.enum(['open', 'in_progress', 'done', 'cancelled']).default('open'),
-  priority: z.enum(['low', 'medium', 'high']).default('medium'),
+  /** Aufgabentyp; ohne Angabe: mit Mangel → Mängelbehebung, sonst Sonstiges (bzw. bisheriger Typ) */
+  kind: kindEnum.optional(),
+  status: statusEnum.default('open'),
+  priority: priorityEnum.default('medium'),
   dueAt: z.number().int().nullable().default(null),
-  assigneeId: z.string().nullable().default(null),
-  subcontractorId: z.string().nullable().default(null),
-  assetId: z.string().nullable().default(null),
-  defectId: z.string().nullable().default(null),
-  propertyId: z.string().nullable().default(null),
+  assigneeId: z.string().max(40).nullable().default(null),
+  subcontractorId: z.string().max(40).nullable().default(null),
+  assetId: z.string().max(40).nullable().default(null),
+  defectId: z.string().max(40).nullable().default(null),
+  propertyId: z.string().max(40).nullable().default(null),
   labels: z.array(z.string().max(40)).max(10).default([]),
+  /** Beim Erledigen einer Mängelbehebung den Mangel mit schließen (Standard wie bisher: ja) */
+  resolveDefect: z.boolean().default(true),
 });
 type TaskBody = z.infer<typeof taskBody>;
+
+const STATUS_TEXT: Record<string, string> = { open: 'Offen', in_progress: 'In Arbeit', done: 'Erledigt', cancelled: 'Abgebrochen' };
 
 work.get('/tasks', async (c) => {
   const sla = await slaPolicies(c);
   const rows = (
     await c.env.DB.prepare(
-      `SELECT t.id, t.title, t.description, t.status, t.priority, t.due_at AS dueAt, t.created_at AS createdAt, t.updated_at AS updatedAt,
+      `SELECT t.id, t.title, t.description, t.kind, t.status, t.priority, t.due_at AS dueAt, t.created_at AS createdAt, t.updated_at AS updatedAt,
               t.assignee_id AS assigneeId, u.name AS assigneeName, t.subcontractor_id AS subcontractorId, s.company AS subcontractorName,
+              t.created_by AS createdBy, cu.name AS createdByName,
               t.share_token AS shareToken, t.external_note AS externalNote, t.external_done_at AS externalDoneAt, t.labels,
               t.first_response_at AS firstResponseAt, t.closed_at AS closedAt,
-              t.asset_id AS assetId, a.code AS assetCode, t.defect_id AS defectId,
+              t.asset_id AS assetId, a.code AS assetCode, a.next_due_at AS assetNextDueAt, t.defect_id AS defectId,
+              d.title AS defectTitle, d.severity AS defectSeverity, d.status AS defectStatus,
               COALESCE(t.property_id, d.property_id) AS propertyId, p.name AS propertyName,
-              (SELECT COUNT(*) FROM task_comments tc WHERE tc.task_id = t.id) AS comments
-         FROM tasks t LEFT JOIN users u ON u.id = t.assignee_id LEFT JOIN assets a ON a.id = t.asset_id
+              (SELECT COUNT(*) FROM task_comments tc WHERE tc.task_id = t.id) AS comments,
+              (SELECT COUNT(*) FROM task_watchers w WHERE w.task_id = t.id) AS watchers,
+              EXISTS (SELECT 1 FROM task_watchers w WHERE w.task_id = t.id AND w.user_id = ?2) AS watching
+         FROM tasks t LEFT JOIN users u ON u.id = t.assignee_id LEFT JOIN users cu ON cu.id = t.created_by LEFT JOIN assets a ON a.id = t.asset_id
          LEFT JOIN subcontractors s ON s.id = t.subcontractor_id LEFT JOIN defects d ON d.id = t.defect_id
          LEFT JOIN properties p ON p.id = COALESCE(t.property_id, d.property_id)
-        WHERE t.tenant_id = ? AND ${taskScope(c, 't')} ORDER BY CASE t.status WHEN 'in_progress' THEN 0 WHEN 'open' THEN 1 ELSE 2 END, COALESCE(t.due_at, 9e15), t.created_at DESC`,
+        WHERE t.tenant_id = ?1 AND ${taskScope(c, 't')} ORDER BY CASE t.status WHEN 'in_progress' THEN 0 WHEN 'open' THEN 1 ELSE 2 END, COALESCE(t.due_at, 9e15), t.created_at DESC`,
     )
-      .bind(tid(c))
+      .bind(tid(c), c.get('user').userId)
       .all<Record<string, unknown>>()
   ).results;
   const n = now();
@@ -186,6 +200,7 @@ work.get('/tasks', async (c) => {
       const closed = (r.closedAt as number | null) ?? null;
       return {
         ...r,
+        watching: !!r.watching,
         shareToken: canShare ? r.shareToken : null,
         labels: parseJson<string[]>(r.labels as string, []),
         sla: {
@@ -218,99 +233,307 @@ async function checkRefs(c: Ctx, b: TaskBody) {
   for (const l of b.labels) if (!(await one('SELECT 1 FROM task_labels WHERE tenant_id = ? AND id = ?', l))) throw new HTTPException(400, { message: 'Label nicht gefunden' });
 }
 
+/** Typ bestimmen und prüfen: ausdrücklich angegeben → muss passen; sonst bisheriger bzw. Standardtyp. */
+function resolveKind(b: TaskBody, prev?: TaskKind): TaskKind {
+  if (b.kind) {
+    const err = taskKindError(b.kind, b);
+    if (err) throw new HTTPException(400, { message: err });
+    return b.kind;
+  }
+  if (prev && !taskKindError(prev, b) && !(prev === 'other' && b.defectId)) return prev;
+  return defaultTaskKind(b);
+}
+
 const isClosed = (s: string) => s === 'done' || s === 'cancelled';
+
+/** Personen als Beobachter eintragen (nur Mitglieder des Workspaces). */
+export async function addWatchers(c: Ctx, taskIds: string[], userIds: (string | null | undefined)[]) {
+  const users = [...new Set(userIds.filter((x): x is string => !!x))];
+  if (!users.length || !taskIds.length) return;
+  await c.env.DB.prepare(
+    `INSERT OR IGNORE INTO task_watchers (task_id, user_id, tenant_id, created_at)
+     SELECT t.value, m.user_id, ?1, ?2 FROM json_each(?3) t JOIN memberships m ON m.tenant_id = ?1 AND m.user_id IN (SELECT value FROM json_each(?4))`,
+  )
+    .bind(tid(c), now(), JSON.stringify(taskIds), JSON.stringify(users))
+    .run();
+}
+
+/** Beobachter mehrerer Aufgaben (nur aktuelle Mitglieder). */
+async function watchersOf(env: Env, tenantId: string, taskIds: string[]) {
+  if (!taskIds.length) return [];
+  return (
+    await env.DB.prepare(
+      `SELECT w.task_id AS taskId, w.user_id AS userId FROM task_watchers w JOIN memberships m ON m.user_id = w.user_id AND m.tenant_id = w.tenant_id
+        WHERE w.tenant_id = ? AND w.task_id IN (SELECT value FROM json_each(?))`,
+    )
+      .bind(tenantId, JSON.stringify(taskIds))
+      .all<{ taskId: string; userId: string }>()
+  ).results;
+}
+
+/** Statuswechsel an die Beobachter melden (ohne die auslösende Person). */
+async function notifyStatus(c: Ctx, changed: { id: string; title: string }[], status: string) {
+  const w = await watchersOf(c.env, tid(c), changed.map((t) => t.id));
+  const byUser = new Map<string, string[]>();
+  for (const x of w) byUser.set(x.userId, [...(byUser.get(x.userId) ?? []), x.taskId]);
+  const by = c.get('user').name;
+  for (const [userId, ids] of byUser) {
+    const one = ids.length === 1 ? changed.find((t) => t.id === ids[0]) : null;
+    await notify(c, {
+      userIds: [userId],
+      type: 'task_watch',
+      title: one ? `„${one.title}“: ${STATUS_TEXT[status]}` : `${ids.length} beobachtete Aufgaben: ${STATUS_TEXT[status]}`,
+      body: by,
+      link: one ? `/aufgaben?id=${one.id}` : '/aufgaben',
+    });
+  }
+}
 
 work.post('/tasks', async (c) => {
   requireRole(c, 'inspector');
   const b = taskBody.parse(await c.req.json());
   await checkRefs(c, b);
+  const kind = resolveKind(b);
   const tk = id();
   const t = now();
   // Ohne Fälligkeit greift die Lösungsfrist der SLA-Richtlinie
   const due = b.dueAt ?? t + (await slaPolicies(c))[b.priority].resolutionHours * HOUR;
   await c.env.DB.prepare(
-    `INSERT INTO tasks (id, tenant_id, title, description, status, priority, due_at, assignee_id, subcontractor_id, asset_id, defect_id, property_id, labels,
+    `INSERT INTO tasks (id, tenant_id, title, description, kind, status, priority, due_at, assignee_id, subcontractor_id, asset_id, defect_id, property_id, labels,
                         first_response_at, closed_at, created_by, created_at, updated_at)
-     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
   )
-    .bind(tk, tid(c), b.title, b.description, b.status, b.priority, due, b.assigneeId, b.subcontractorId, b.assetId, b.defectId, b.propertyId, JSON.stringify(b.labels),
+    .bind(tk, tid(c), b.title, b.description, kind, b.status, b.priority, due, b.assigneeId, b.subcontractorId, b.assetId, b.defectId, b.propertyId, JSON.stringify(b.labels),
       b.status !== 'open' ? t : null, isClosed(b.status) ? t : null, c.get('user').userId, t, t)
     .run();
+  // Anlegende und zuständige Person beobachten automatisch
+  await addWatchers(c, [tk], [c.get('user').userId, b.assigneeId]);
   await logActivity(c, 'create', 'task', tk, `Aufgabe „${b.title}“ angelegt`);
   if (b.assigneeId) await notify(c, { userIds: [b.assigneeId], type: 'task_assigned', title: `Neue Aufgabe: ${b.title}`, body: c.get('user').name, link: `/aufgaben?id=${tk}` });
-  return c.json({ id: tk });
+  return c.json({ id: tk, kind });
 });
 
-async function resolveLinkedDefect(c: Ctx, defectId: string | null, by: string | null) {
-  if (!defectId) return;
-  await c.env.DB.prepare("UPDATE defects SET status='resolved', resolved_at=?, resolved_by=? WHERE id=? AND tenant_id=? AND status='open'")
-    .bind(now(), by, defectId, tid(c))
+async function resolveLinkedDefects(c: Ctx, taskIds: string[], by: string | null) {
+  if (!taskIds.length) return;
+  const r = await c.env.DB.prepare(
+    `UPDATE defects SET status='resolved', resolved_at=?1, resolved_by=?2
+      WHERE tenant_id=?3 AND status='open' AND id IN (SELECT defect_id FROM tasks WHERE tenant_id = ?3 AND defect_id IS NOT NULL AND id IN (SELECT value FROM json_each(?4)))`,
+  )
+    .bind(now(), by, tid(c), JSON.stringify(taskIds))
     .run();
+  if (r.meta.changes) await logActivity(c, 'resolve', 'defect', null, `${r.meta.changes === 1 ? 'Mangel' : `${r.meta.changes} Mängel`} mit erledigter Aufgabe behoben`);
 }
 
 work.patch('/tasks/:id', async (c) => {
   requireRole(c, 'inspector');
   const b = taskBody.parse(await c.req.json());
   await checkRefs(c, b);
-  const prev = await c.env.DB.prepare(`SELECT assignee_id, status, first_response_at FROM tasks WHERE id = ? AND tenant_id = ? AND ${taskScope(c, 'tasks')}`)
+  const prev = await c.env.DB.prepare(`SELECT assignee_id, status, kind, first_response_at FROM tasks WHERE id = ? AND tenant_id = ? AND ${taskScope(c, 'tasks')}`)
     .bind(c.req.param('id'), tid(c))
-    .first<{ assignee_id: string | null; status: string; first_response_at: number | null }>();
+    .first<{ assignee_id: string | null; status: string; kind: TaskKind; first_response_at: number | null }>();
   if (!prev) notFound('Aufgabe');
+  const kind = resolveKind(b, prev.kind);
   const t = now();
   const firstResponse = prev.first_response_at ?? (b.status !== 'open' ? t : null);
   await c.env.DB.prepare(
-    `UPDATE tasks SET title=?, description=?, status=?, priority=?, due_at=?, assignee_id=?, subcontractor_id=?, asset_id=?, defect_id=?, property_id=?, labels=?,
+    `UPDATE tasks SET title=?, description=?, kind=?, status=?, priority=?, due_at=?, assignee_id=?, subcontractor_id=?, asset_id=?, defect_id=?, property_id=?, labels=?,
             first_response_at=?, closed_at = CASE WHEN ? THEN COALESCE(closed_at, ?) ELSE NULL END, updated_at=?,
             share_token = CASE WHEN subcontractor_id IS ? THEN share_token ELSE NULL END
       WHERE id=? AND tenant_id=?`,
   )
-    .bind(b.title, b.description, b.status, b.priority, b.dueAt, b.assigneeId, b.subcontractorId, b.assetId, b.defectId, b.propertyId, JSON.stringify(b.labels),
+    .bind(b.title, b.description, kind, b.status, b.priority, b.dueAt, b.assigneeId, b.subcontractorId, b.assetId, b.defectId, b.propertyId, JSON.stringify(b.labels),
       firstResponse, isClosed(b.status) ? 1 : 0, t, t, b.subcontractorId, c.req.param('id'), tid(c))
     .run();
-  if (b.status === 'done') await resolveLinkedDefect(c, b.defectId, c.get('user').userId);
+  if (b.status === 'done' && prev.status !== 'done' && b.resolveDefect) await resolveLinkedDefects(c, [c.req.param('id')], c.get('user').userId);
   if (b.assigneeId && b.assigneeId !== prev.assignee_id) {
+    await addWatchers(c, [c.req.param('id')], [b.assigneeId]);
     await notify(c, { userIds: [b.assigneeId], type: 'task_assigned', title: `Aufgabe zugewiesen: ${b.title}`, body: c.get('user').name, link: `/aufgaben?id=${c.req.param('id')}` });
   }
-  return c.json({ ok: true });
+  if (b.status !== prev.status) await notifyStatus(c, [{ id: c.req.param('id'), title: b.title }], b.status);
+  return c.json({ ok: true, kind });
+});
+
+/** Mehrfachbearbeitung: Status, Zuständige, Priorität und/oder Fälligkeit für mehrere Aufgaben. */
+work.post('/tasks/bulk', async (c) => {
+  requireRole(c, 'inspector');
+  const b = z
+    .object({
+      ids: z.array(z.string().max(40)).min(1, 'Keine Aufgaben ausgewählt').max(200),
+      status: statusEnum.optional(),
+      assigneeId: z.string().max(40).nullable().optional(),
+      priority: priorityEnum.optional(),
+      dueAt: z.number().int().nullable().optional(),
+      resolveDefects: z.boolean().default(true),
+    })
+    .refine((x) => x.status !== undefined || x.assigneeId !== undefined || x.priority !== undefined || x.dueAt !== undefined, 'Nichts zu ändern')
+    .parse(await c.req.json());
+  if (b.assigneeId && !(await c.env.DB.prepare('SELECT 1 FROM memberships WHERE tenant_id = ? AND user_id = ?').bind(tid(c), b.assigneeId).first()))
+    throw new HTTPException(400, { message: 'Zuständige Person ist kein Mitglied' });
+  const rows = (
+    await c.env.DB.prepare(`SELECT id, title, status, assignee_id FROM tasks WHERE tenant_id = ? AND id IN (SELECT value FROM json_each(?)) AND ${taskScope(c, 'tasks')}`)
+      .bind(tid(c), JSON.stringify([...new Set(b.ids)]))
+      .all<{ id: string; title: string; status: string; assignee_id: string | null }>()
+  ).results;
+  if (!rows.length) notFound('Aufgabe');
+  const t = now();
+  const sets: string[] = ['updated_at = ?1'];
+  const args: unknown[] = [t, tid(c), JSON.stringify(rows.map((r) => r.id))];
+  const arg = (v: unknown) => {
+    args.push(v);
+    return `?${args.length}`;
+  };
+  if (b.status !== undefined) {
+    const s = arg(b.status);
+    sets.push(
+      `status = ${s}`,
+      `first_response_at = COALESCE(first_response_at, CASE WHEN ${s} != 'open' THEN ?1 END)`,
+      `closed_at = CASE WHEN ${s} IN ('done','cancelled') THEN COALESCE(closed_at, ?1) ELSE NULL END`,
+    );
+  }
+  if (b.assigneeId !== undefined) sets.push(`assignee_id = ${arg(b.assigneeId)}`);
+  if (b.priority !== undefined) sets.push(`priority = ${arg(b.priority)}`);
+  if (b.dueAt !== undefined) sets.push(`due_at = ${arg(b.dueAt)}`);
+  await c.env.DB.prepare(`UPDATE tasks SET ${sets.join(', ')} WHERE tenant_id = ?2 AND id IN (SELECT value FROM json_each(?3))`).bind(...args).run();
+  const ids = rows.map((r) => r.id);
+  if (b.status === 'done' && b.resolveDefects) await resolveLinkedDefects(c, rows.filter((r) => r.status !== 'done').map((r) => r.id), c.get('user').userId);
+  if (b.assigneeId) {
+    const newly = rows.filter((r) => r.assignee_id !== b.assigneeId);
+    await addWatchers(c, ids, [b.assigneeId]);
+    if (newly.length)
+      await notify(c, {
+        userIds: [b.assigneeId],
+        type: 'task_assigned',
+        title: newly.length === 1 ? `Aufgabe zugewiesen: ${newly[0].title}` : `${newly.length} Aufgaben zugewiesen`,
+        body: c.get('user').name,
+        link: newly.length === 1 ? `/aufgaben?id=${newly[0].id}` : '/aufgaben',
+      });
+  }
+  if (b.status !== undefined) await notifyStatus(c, rows.filter((r) => r.status !== b.status), b.status);
+  await logActivity(c, 'update', 'task', null, `${rows.length} Aufgaben gemeinsam geändert`);
+  return c.json({ updated: rows.length, skipped: b.ids.length - rows.length });
 });
 
 work.delete('/tasks/:id', async (c) => {
   requireRole(c, 'admin');
   await c.env.DB.batch([
     c.env.DB.prepare('DELETE FROM task_comments WHERE task_id = ? AND tenant_id = ?').bind(c.req.param('id'), tid(c)),
+    c.env.DB.prepare('DELETE FROM task_watchers WHERE task_id = ? AND tenant_id = ?').bind(c.req.param('id'), tid(c)),
     c.env.DB.prepare('DELETE FROM tasks WHERE id=? AND tenant_id=?').bind(c.req.param('id'), tid(c)),
   ]);
   return c.json({ ok: true });
 });
 
-// ---------- Kommentare ----------
-work.get('/tasks/:id/comments', async (c) => {
-  const rows = await c.env.DB.prepare(
-    `SELECT id, user_id AS userId, author_name AS authorName, body, created_at AS createdAt FROM task_comments
-      WHERE task_id = ? AND tenant_id = ? AND task_id IN (SELECT id FROM tasks WHERE ${taskScope(c, 'tasks')}) ORDER BY created_at`,
-  )
+interface TaskRef {
+  id: string;
+  title: string;
+  asset_id: string | null;
+  property_id: string | null;
+  assignee_id: string | null;
+  created_by: string;
+}
+async function taskInScope(c: Ctx) {
+  const task = await c.env.DB.prepare(`SELECT id, title, asset_id, property_id, assignee_id, created_by FROM tasks WHERE id = ? AND tenant_id = ? AND ${taskScope(c, 'tasks')}`)
     .bind(c.req.param('id'), tid(c))
+    .first<TaskRef>();
+  if (!task) notFound('Aufgabe');
+  return task;
+}
+
+/** Darf ein (anderes) Mitglied diese Aufgabe sehen? Gleiche Regeln wie `taskScope`, aber für eine fremde Mitgliedschaft. */
+async function memberSeesTask(c: Ctx, userId: string, task: TaskRef): Promise<boolean> {
+  const m = await c.env.DB.prepare('SELECT role, scope FROM memberships WHERE tenant_id = ? AND user_id = ?').bind(tid(c), userId).first<{ role: Role; scope: string | null }>();
+  if (!m) return false;
+  if (RANK[m.role] >= RANK.admin) return true;
+  const s = parseJson<ScopeSetting | null>(m.scope, null);
+  if (!s) return true;
+  const json = (a: string[] | undefined) => JSON.stringify(a ?? []);
+  if (task.asset_id) {
+    return !!(await c.env.DB.prepare(
+      `SELECT 1 FROM assets a JOIN buildings b ON b.id = a.building_id WHERE a.id = ? AND (b.id IN (SELECT value FROM json_each(?)) OR b.property_id IN (SELECT value FROM json_each(?)))`,
+    )
+      .bind(task.asset_id, json(s.buildingIds), json(s.propertyIds))
+      .first());
+  }
+  if (task.property_id) {
+    if ((s.propertyIds ?? []).includes(task.property_id)) return true;
+    return !!(await c.env.DB.prepare('SELECT 1 FROM buildings WHERE property_id = ? AND id IN (SELECT value FROM json_each(?)) AND deleted_at IS NULL').bind(task.property_id, json(s.buildingIds)).first());
+  }
+  return userId === task.assignee_id || userId === task.created_by;
+}
+
+// ---------- Beobachter ----------
+work.get('/tasks/:id/watchers', async (c) => {
+  const task = await taskInScope(c);
+  const rows = await c.env.DB.prepare(
+    `SELECT w.user_id AS userId, u.name FROM task_watchers w JOIN memberships m ON m.user_id = w.user_id AND m.tenant_id = w.tenant_id JOIN users u ON u.id = w.user_id
+      WHERE w.task_id = ? AND w.tenant_id = ? ORDER BY u.name`,
+  )
+    .bind(task.id, tid(c))
     .all();
   return c.json(rows.results);
 });
 
+work.post('/tasks/:id/watch', async (c) => {
+  const task = await taskInScope(c);
+  await addWatchers(c, [task.id], [c.get('user').userId]);
+  return c.json({ ok: true, watching: true });
+});
+
+work.delete('/tasks/:id/watch', async (c) => {
+  const task = await taskInScope(c);
+  await c.env.DB.prepare('DELETE FROM task_watchers WHERE task_id = ? AND user_id = ? AND tenant_id = ?').bind(task.id, c.get('user').userId, tid(c)).run();
+  return c.json({ ok: true, watching: false });
+});
+
+// ---------- Kommentare (interne Notizen, nie im Link für Subunternehmer) ----------
+work.get('/tasks/:id/comments', async (c) => {
+  const rows = (
+    await c.env.DB.prepare(
+      `SELECT id, user_id AS userId, author_name AS authorName, body, mentions, created_at AS createdAt FROM task_comments
+        WHERE task_id = ? AND tenant_id = ? AND task_id IN (SELECT id FROM tasks WHERE ${taskScope(c, 'tasks')}) ORDER BY created_at`,
+    )
+      .bind(c.req.param('id'), tid(c))
+      .all<Record<string, unknown>>()
+  ).results;
+  return c.json(rows.map((r) => ({ ...r, mentions: parseJson<string[]>(r.mentions as string, []) })));
+});
+
 work.post('/tasks/:id/comments', async (c) => {
   requireRole(c, 'inspector');
-  const { body } = z.object({ body: str(4000).min(1, 'Kommentar ist leer') }).parse(await c.req.json());
-  const task = await c.env.DB.prepare(`SELECT id, title, assignee_id, created_by, first_response_at FROM tasks WHERE id = ? AND tenant_id = ? AND ${taskScope(c, 'tasks')}`)
-    .bind(c.req.param('id'), tid(c))
-    .first<{ id: string; title: string; assignee_id: string | null; created_by: string; first_response_at: number | null }>();
-  if (!task) notFound('Aufgabe');
+  const { body, mentions } = z
+    .object({ body: str(4000).min(1, 'Kommentar ist leer'), mentions: z.array(z.string().max(40)).max(20).default([]) })
+    .parse(await c.req.json());
+  const task = await taskInScope(c);
   const u = c.get('user');
+  const mentioned = [...new Set(mentions)].filter((m) => m !== u.userId);
+  // Erwähnt werden können nur Mitglieder, die die Aufgabe auch sehen dürfen
+  for (const m of mentioned) {
+    const member = await c.env.DB.prepare('SELECT 1 FROM memberships WHERE tenant_id = ? AND user_id = ?').bind(tid(c), m).first();
+    if (!member) throw new HTTPException(400, { message: 'Erwähnte Person ist kein Mitglied dieses Workspaces' });
+    if (!(await memberSeesTask(c, m, task))) throw new HTTPException(400, { message: 'Erwähnte Person hat keinen Zugriff auf diese Aufgabe' });
+  }
   const t = now();
   await c.env.DB.batch([
-    c.env.DB.prepare('INSERT INTO task_comments (id, tenant_id, task_id, user_id, author_name, body, created_at) VALUES (?,?,?,?,?,?,?)').bind(id(), tid(c), task.id, u.userId, u.name, body, t),
+    c.env.DB.prepare('INSERT INTO task_comments (id, tenant_id, task_id, user_id, author_name, body, mentions, created_at) VALUES (?,?,?,?,?,?,?,?)').bind(
+      id(),
+      tid(c),
+      task.id,
+      u.userId,
+      u.name,
+      body,
+      JSON.stringify(mentioned),
+      t,
+    ),
     // Erste Reaktion zählt, wenn nicht die anlegende Person kommentiert
     c.env.DB.prepare('UPDATE tasks SET first_response_at = COALESCE(first_response_at, ?), updated_at = ? WHERE id = ?').bind(u.userId !== task.created_by ? t : null, t, task.id),
   ]);
-  const to = [task.assignee_id, task.created_by].filter((x): x is string => !!x);
-  if (to.length) await notify(c, { userIds: to, type: 'task_comment', title: `Kommentar zu „${task.title}“`, body: `${u.name}: ${body.slice(0, 140)}`, link: `/aufgaben?id=${task.id}` });
-  return c.json({ ok: true });
+  const watchers = (await watchersOf(c.env, tid(c), [task.id])).map((w) => w.userId);
+  // Erwähnte und Kommentierende beobachten die Aufgabe ab jetzt
+  await addWatchers(c, [task.id], [...mentioned, u.userId]);
+  if (mentioned.length) await notify(c, { userIds: mentioned, type: 'task_mention', title: `${u.name} hat dich in „${task.title}“ erwähnt`, body: body.slice(0, 160), link: `/aufgaben?id=${task.id}` });
+  const others = watchers.filter((w) => !mentioned.includes(w));
+  if (others.length) await notify(c, { userIds: others, type: 'task_comment', title: `Kommentar zu „${task.title}“`, body: `${u.name}: ${body.slice(0, 140)}`, link: `/aufgaben?id=${task.id}` });
+  return c.json({ ok: true, mentions: mentioned });
 });
 
 // ---------- Statistik ----------
@@ -557,7 +780,7 @@ publicApi.post('/tasks/:token', async (c) => {
     c.env,
     r.tenantId as string,
     {
-      userIds: [r.assigneeId, r.createdBy].filter((x): x is string => typeof x === 'string'),
+      userIds: [r.assigneeId, r.createdBy, ...(await watchersOf(c.env, r.tenantId as string, [r.id as string])).map((w) => w.userId)].filter((x): x is string => typeof x === 'string'),
       roles: ['owner', 'admin'],
       type: 'task_external',
       title: `${who}: ${b.status === 'done' ? 'erledigt' : 'in Arbeit'}`,

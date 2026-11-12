@@ -91,6 +91,17 @@ const call = async (key, name, args = {}, opts) => {
   check(t.data?.id && t.data.taskCreated === true, `report_defect mit Auto-Aufgabe (${t.text?.slice(0, 80)})`);
   t = await call(write, 'get_suggestions');
   check(Array.isArray(t.data), 'get_suggestions');
+  t = await call(read, 'list_action_required', { limit: 10 });
+  check(Array.isArray(t.data) && t.data.length > 0 && t.data.length <= 10 && t.data[0].urgency >= t.data.at(-1).urgency, `list_action_required (${t.data?.length})`);
+  const newDefect = (await call(write, 'list_defects', {})).data.find((d) => d.title === 'MCP: Feuerlöscher fehlt');
+  t = await call(write, 'resolve_defect', { defectId: newDefect.id, note: 'Neuer Löscher montiert' });
+  check(!t.isError, 'resolve_defect mit Notiz');
+  t = await call(read, 'get_defect', { defectId: newDefect.id });
+  check(t.data?.status === 'resolved' && t.data.resolutionNote === 'Neuer Löscher montiert' && Array.isArray(t.data.history), 'get_defect zeigt Behebung');
+  t = await call(read, 'resolve_defect', { defectId: newDefect.id, reopen: true });
+  check(t.isError === true, 'Leseschlüssel darf nicht beheben');
+  t = await call(write, 'bulk_update_tasks', { taskIds: [taskId], priority: 'medium' });
+  check(t.data?.updated === 1, `bulk_update_tasks (${t.text?.slice(0, 60)})`);
   t = await call(read, 'report_defect', { title: 'darf nicht', severity: 'low', assetCode: asset.code });
   check(t.isError === true, 'Leseschlüssel darf keinen Mangel melden');
   t = await call(read, 'create_task', { title: 'darf nicht' });

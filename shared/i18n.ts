@@ -335,6 +335,13 @@ const EN: Record<string, string> = {
   'Dieses Jahr': 'This year',
   'Letztes Jahr': 'Last year',
   'Eigener Zeitraum': 'Custom period',
+  // Behebung von Mängeln
+  'Behoben am': 'Resolved on',
+  von: 'by',
+  behoben: 'resolved',
+  'Foto nach Behebung': 'Photo after rectification',
+  Behebungsnotiz: 'Rectification note',
+  'Ausgeblendet': 'Hidden',
 };
 
 /** Standardtext in die Dokumentsprache übersetzen; unbekannte Texte bleiben unverändert. */
