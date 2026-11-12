@@ -197,7 +197,7 @@ export const RANK: Record<Role, number> = { viewer: 0, inspector: 1, admin: 2, o
 const SAFE_ID = /^[a-z0-9]{1,40}$/;
 
 /** Gespeicherten Bereich in erlaubte Gebäude/Objekte auflösen. Admins und Inhaber sind nie eingeschränkt. */
-async function resolveScope(c: Ctx, tenantId: string, role: Role, raw: string | null, canCreate: number): Promise<Pick<SessionUser, 'scope' | 'canCreate'>> {
+export async function resolveScope(c: Ctx, tenantId: string, role: Role, raw: string | null, canCreate: number): Promise<Pick<SessionUser, 'scope' | 'canCreate'>> {
   if (RANK[role] >= RANK.admin) return { scope: null, canCreate: true };
   const set = parseJson<ScopeSetting | null>(raw, null);
   if (!set) return { scope: null, canCreate: !!canCreate };

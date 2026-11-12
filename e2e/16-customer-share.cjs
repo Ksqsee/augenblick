@@ -1,5 +1,5 @@
 // E2E 16-customer-share: Kunden-Freigabe je Objekt – Link erstellen (UI), öffentliche Ansicht ohne Konto (1360/390 px),
-// keine internen Daten, Mängel ausblendbar, Widerruf, Rechte. Nur lokal.
+// keine internen Daten, Mängel ausblendbar, Widerruf, Rechte; Kalender-Abo (ICS). Nur lokal.
 const { chromium } = require('playwright');
 if (!process.env.DEMO_PASSWORD) throw new Error('DEMO_PASSWORD fehlt');
 const fs = require('fs');
@@ -91,6 +91,24 @@ const check = (ok, m) => {
   const r = await fetch(`${BASE}/api/properties/${prop.id}/shares`, { method: 'POST', headers: { authorization: `Bearer ${key}`, 'content-type': 'application/json' }, body: '{}' });
   check(r.status === 403, `API-Schlüssel (max. Prüfer) darf nicht freigeben (${r.status})`);
   check((await api('/properties/gibtsnicht/shares', { data: {} })).status === 404, 'fremdes Objekt → 404');
+
+  step('Kalender-Abo');
+  await p.goto(BASE + '/einstellungen?tab=notifications');
+  await p.getByRole('button', { name: 'Kalender-Abo einrichten' }).click();
+  const cal = await p.getByLabel('Kalender-Adresse').inputValue();
+  check(/\/api\/public\/calendar\/[A-Za-z0-9_-]{30,}\.ics$/.test(cal), `Kalender-Adresse (${cal})`);
+  const res = await fetch(cal);
+  const ics = await res.text();
+  check(res.status === 200 && /text\/calendar/.test(res.headers.get('content-type')), 'ICS ausgeliefert');
+  check(ics.startsWith('BEGIN:VCALENDAR\r\n') && ics.trimEnd().endsWith('END:VCALENDAR'), 'ICS-Rahmen');
+  check(/SUMMARY:Überfällig: \d+ Prüfung/.test(ics) && /DTSTART;VALUE=DATE:\d{8}/.test(ics), 'Ereignisse für fällige Prüfungen');
+  check(ics.split('\r\n').every((l) => new TextEncoder().encode(l).length <= 75), 'Zeilen gefaltet (≤ 75 Oktette)');
+  check(!/\r\n[^ A-Z]/.test(ics.replace(/\r\n /g, '')), 'nur CRLF-Zeilenenden');
+  await p.getByRole('button', { name: 'Abo beenden' }).click();
+  await p.getByText('Noch kein Abo').waitFor();
+  check((await fetch(cal)).status === 404, 'beendetes Abo → 404');
+  const keyCal = await fetch(BASE + '/api/account/calendar-feed', { method: 'POST', headers: { authorization: `Bearer ${key}`, 'content-type': 'application/json' }, body: '{}' });
+  check(keyCal.status === 403, `Abo nicht per API-Schlüssel (${keyCal.status})`);
 
   check(!errors.length, `keine Seitenfehler (${errors.join(' | ')})`);
   await b.close();

@@ -75,6 +75,11 @@ Für API-Schlüssel gelten diese Regeln:
 | `DELETE /shares/:id` | Link widerrufen |
 | `GET /public/property/:token` | Öffentliche, nur lesende Statusansicht (ohne Anmeldung); in der App unter `/kunde/:token` |
 
+## Kalender-Abo
+
+`GET/POST/DELETE /account/calendar-feed` (nur mit Sitzung) verwaltet den persönlichen Link; der Kalender ruft
+`GET /public/calendar/<token>.ics` ab (iCal: fällige Prüfungen je Gebäude und Tag, Begehungen, eigene Aufgaben; 180 Tage Vorschau).
+
 ## Smarte Funktionen und KI
 
 | Endpunkt | Beschreibung |

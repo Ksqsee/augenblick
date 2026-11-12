@@ -55,6 +55,7 @@ API: [`docs/api.md`](docs/api.md)
 
 **Team und Konto**
 - Rollen (Inhaber, Admin, Prüfer, Lesezugriff), Einladungen, Inhaberschaft übertragen, Aktivitätsprotokoll
+- **Kalender-Abo** (iCal) für Outlook, Google, Apple: fällige Prüfungen je Gebäude und Tag, Begehungen, eigene Aufgaben
 - **Benachrichtigungen** in der App und per Web Push, mit „Nicht stören“-Zeitraum; täglicher Cron für Fälligkeiten
   (einstellbare Vorab-Erinnerung), Wochenübersicht, SLA, Archiv; Hinweis bei Anmeldung von einem neuen Gerät
 - Passwort-Link durch Admin (kein E-Mail-Versand), Sitzungen verwalten, **Anmeldeverlauf**, DSGVO-Export/-Löschung, Rechtstexte mit Zustimmung

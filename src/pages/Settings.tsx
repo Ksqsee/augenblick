@@ -335,11 +335,80 @@ function Notifications() {
         </div>
       </Card>
       <QuietCard initial={q.data.quiet} />
+      <CalendarCard />
     </div>
   );
 }
 
 /** „Nicht stören“: in diesem Zeitraum kein Push, In-App-Benachrichtigungen kommen weiter an. */
+function CalendarCard() {
+  const toast = useToast();
+  const q = useQuery({ queryKey: ['calendar-feed'], queryFn: () => api<{ createdAt: number; lastFetchedAt: number | null } | null>('/account/calendar-feed') });
+  const [url, setUrl] = useState<string | null>(null);
+  const create = useAction(
+    () => api<{ token: string }>('/account/calendar-feed', { method: 'POST', body: {} }),
+    (r) => {
+      setUrl(`${location.origin}/api/public/calendar/${(r as { token: string }).token}.ics`);
+      queryClient.invalidateQueries({ queryKey: ['calendar-feed'] });
+    },
+  );
+  const off = useAction(
+    () => api('/account/calendar-feed', { method: 'DELETE' }),
+    () => {
+      setUrl(null);
+      queryClient.invalidateQueries({ queryKey: ['calendar-feed'] });
+      toast('Kalender-Abo beendet');
+    },
+  );
+  return (
+    <Card>
+      <CardHeader
+        title="Kalender-Abo"
+        subtitle="Fällige Prüfungen (je Gebäude und Tag), Begehungen und deine Aufgaben automatisch in Outlook, Google oder Apple Kalender."
+      />
+      <div className="flex flex-col gap-3 px-5 pb-5 text-sm">
+        {url ? (
+          <>
+            <p className="text-ink-2">Diese Adresse im Kalender als Abo hinzufügen („Kalender abonnieren“ / „Aus dem Internet“). Sie wird nur jetzt angezeigt.</p>
+            <div className="flex gap-2">
+              <Input readOnly aria-label="Kalender-Adresse" value={url} onFocus={(e) => e.target.select()} className="font-mono text-xs" />
+              <Button
+                variant="secondary"
+                icon={<Copy className="size-4" />}
+                onClick={async () => {
+                  await navigator.clipboard.writeText(url).catch(() => {});
+                  toast('Kopiert');
+                }}
+              >
+                Kopieren
+              </Button>
+            </div>
+            <a href={url.replace(/^https?:/, 'webcal:')} className="text-[13px] font-medium text-ink underline underline-offset-4">
+              Direkt im Kalender öffnen
+            </a>
+          </>
+        ) : q.data ? (
+          <p className="text-ink-2">
+            Aktiv seit {fmtDateTime(q.data.createdAt)} · {q.data.lastFetchedAt ? `zuletzt abgerufen ${fmtDateTime(q.data.lastFetchedAt)}` : 'noch nicht abgerufen'}
+          </p>
+        ) : (
+          <p className="text-ink-3">Noch kein Abo.</p>
+        )}
+        <div className="flex flex-wrap gap-2">
+          <Button size="sm" variant={q.data ? 'secondary' : 'primary'} loading={create.isPending} onClick={() => create.mutate(undefined)}>
+            {q.data ? 'Neue Adresse erzeugen' : 'Kalender-Abo einrichten'}
+          </Button>
+          {q.data && (
+            <Button size="sm" variant="ghost" loading={off.isPending} onClick={() => off.mutate(undefined)}>
+              Abo beenden
+            </Button>
+          )}
+        </div>
+      </div>
+    </Card>
+  );
+}
+
 function QuietCard({ initial }: { initial: QuietHours }) {
   const toast = useToast();
   const [f, setF] = useState<QuietHours>(initial);
