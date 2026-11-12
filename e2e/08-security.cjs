@@ -192,7 +192,8 @@ function client() {
   await reader.login('lesen@example.com');
   const myDefect = (await owner('/defects')).json[0];
   check((await reader(`/defects/${myDefect.id}/hide`, { body: { reason: 'x' } })).status === 403, 'Lesezugriff blendet nicht aus');
-  check((await insp(`/defects/${myDefect.id}/hide`, { body: { reason: 'x' } })).status === 403, 'Prüfer blendet nicht aus');
+  const ih = await insp(`/defects/${myDefect.id}/hide`, { body: { reason: 'x' } });
+  check(ih.status === 403, `Prüfer blendet nicht aus (${ih.status} ${ih.text.slice(0, 80)})`);
   check((await reader(`/defects/${myDefect.id}`, { method: 'PATCH', body: { status: 'resolved', note: 'x' } })).status === 403, 'Lesezugriff behebt nicht');
   check((await reader('/tasks/bulk', { body: { ids: ['x'], status: 'done' } })).status === 403, 'Lesezugriff ohne Mehrfachbearbeitung');
   // Daten im fremden Workspace (Mallory) anlegen
@@ -216,6 +217,37 @@ function client() {
   check((await owner('/tasks', { body: { title: 'x', defectId: mDefect } })).status === 400, 'Aufgabe mit fremdem Mangel abgelehnt');
   const fk = await owner(`/defects/${myDefect.id}`, { method: 'PATCH', body: { status: 'resolved', photoKey: `${'x'.repeat(8)}/fremd` } });
   check(fk.status === 400, `fremder Foto-Schlüssel bei Behebung abgelehnt (${fk.status})`);
+
+  console.log('· #27 Autopilot: Rollen, Workspace-Grenzen und Zugriffsbereich');
+  check((await reader('/automation', { method: 'PUT', body: { key: 'plan_week', mode: 'auto' } })).status === 403, 'Lesezugriff ändert keine Regel');
+  check((await insp('/automation', { method: 'PUT', body: { key: 'plan_week', mode: 'auto' } })).status === 403, 'Prüfer ändert keine Regel');
+  check((await reader('/automation/plan_week/run', { body: {} })).status === 403, 'Lesezugriff führt keine Regel aus');
+  check((await insp('/automation/monthly-report/claim', { body: {} })).status === 403, 'Prüfer reserviert keine Monatsberichte');
+  check(!('config' in (await insp('/automation')).json[0]), 'Zuweisungsregeln nur für Admins sichtbar');
+  // Rückgängig-Schlüssel kommen nicht von außen: unbekannter Schlüssel → 400
+  check((await owner('/automation', { method: 'PUT', body: { key: 'drop_tables', mode: 'auto' } })).status === 400, 'unbekannte Regel abgelehnt');
+  // Zuweisung an ein Nicht-Mitglied (fremder Workspace) abgelehnt
+  const badRule = await owner('/automation', { method: 'PUT', body: { key: 'assign_defect_tasks', config: { rules: [{ severities: ['high'], assigneeId: malloryId }] } } });
+  check(badRule.status === 400, `Zuweisungsregel an Nicht-Mitglied abgelehnt (${badRule.status})`);
+  // Je ein Protokolleintrag im Bereich (S) und außerhalb (O)
+  const inside = await owner('/defects', { body: { assetId: sAsset.id, title: 'Autopilot innen', severity: 'critical', force: true } });
+  const outside = await owner('/defects', { body: { assetId: oAsset.id, title: 'Autopilot außen', severity: 'critical', force: true } });
+  check(inside.json?.taskCreated && outside.json?.taskCreated, 'Autopilot legt Aufgaben an');
+  const ownerLog = (await owner('/automation/log')).json;
+  const logIn = ownerLog.find((e) => e.summary.includes('Autopilot innen'));
+  const logOut = ownerLog.find((e) => e.summary.includes('Autopilot außen'));
+  check(!!logIn && !!logOut, `Protokolleinträge vorhanden (${ownerLog.map((e) => e.summary)})`);
+  const inspLog = (await insp('/automation/log')).json;
+  check(inspLog.some((e) => e.id === logIn?.id) && !inspLog.some((e) => e.id === logOut?.id), 'eingeschränkt: Protokoll nur im Bereich');
+  check((await insp(`/automation/log/${logOut.id}/undo`, { body: {} })).status === 404, 'Rückgängig außerhalb des Bereichs → 404');
+  check((await insp(`/automation/log/${logIn.id}/undo`, { body: {} })).status === 403, 'Rückgängig nur für Admins oder Zuständige');
+  const ru = await reader(`/automation/log/${logIn.id}/undo`, { body: {} });
+  check(ru.status === 403, `Lesezugriff macht nichts rückgängig (${ru.status} ${ru.text.slice(0, 80)})`);
+  check((await mallory(`/automation/log/${logIn.id}/undo`, { body: {} })).status === 404, 'Rückgängig im fremden Workspace → 404');
+  check(!(await mallory('/automation/log')).json.some((e) => e.id === logIn.id), 'fremdes Protokoll unsichtbar');
+  check((await owner(`/automation/log/${logIn.id}/undo`, { body: {} })).status === 200, 'Admin macht rückgängig');
+  check((await owner(`/automation/log/${logIn.id}/undo`, { body: {} })).status === 409, 'zweites Rückgängig → 409');
+  check((await mallory('/automation/monthly-report/zzzzzzzzzzzzzzzz/complete', { body: { reportIds: [created.id] } })).status === 404, 'fremde Reservierung → 404');
 
   console.log(fail.length ? `FAILED ${fail.length}: ${fail.join('; ')}` : 'ALL CHECKS OK');
   if (fail.length) process.exitCode = 1;

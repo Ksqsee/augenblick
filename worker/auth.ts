@@ -355,6 +355,15 @@ account.patch('/company', async (c) => {
       b.archiveAfterMonths !== undefined ? 1 : 0, b.archiveAfterMonths ?? null, b.language ?? null, b.timeZone ?? null,
       b.reminderDays !== undefined ? 1 : 0, b.reminderDays ?? null, kinds ? JSON.stringify(kinds) : null, b.autoTasks === undefined ? null : b.autoTasks ? 1 : 0, t)
     .run();
+  // Schalter „Aufgaben für schwere Mängel“ = Stufe der Autopilot-Regel assign_defect_tasks (aus → vorschlagen)
+  if (b.autoTasks !== undefined) {
+    await c.env.DB.prepare(
+      `UPDATE automation_settings SET mode = CASE WHEN ?1 THEN 'auto' WHEN mode = 'auto' THEN 'suggest' ELSE mode END, updated_at = ?2, updated_by = ?3
+        WHERE tenant_id = ?4 AND key = 'assign_defect_tasks'`,
+    )
+      .bind(b.autoTasks ? 1 : 0, now(), c.get('user').userId, t)
+      .run();
+  }
   await logActivity(c, 'update', 'tenant', null, 'Firmenprofil geändert');
   return c.json({ ok: true });
 });

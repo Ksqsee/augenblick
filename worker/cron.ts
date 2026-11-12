@@ -1,7 +1,8 @@
-// Täglicher Lauf: Erinnerungen, SLA-Verletzungen, automatische Archivierung, Aufräumen.
+// Täglicher Lauf: Erinnerungen, SLA-Verletzungen, automatische Archivierung, Autopilot-Regeln, Aufräumen.
 import { zonedDay } from '../shared/i18n';
 import { DAY } from '../shared/logic';
 import { DEFAULT_SLA, HOUR } from '../shared/sla';
+import { runScheduled } from './automation';
 import type { Env } from './lib';
 import { notifyTenant } from './notify';
 
@@ -21,6 +22,12 @@ export async function runDaily(env: Env, now = Date.now()) {
       await runTenant(env, t, now);
     } catch (e) {
       console.error('cron tenant', t.id, e);
+    }
+    // Autopilot getrennt, damit ein Fehler dort Erinnerungen und Archivierung nicht verhindert
+    try {
+      await runScheduled(env, t, now);
+    } catch (e) {
+      console.error('cron automation', t.id, e);
     }
   }
 }

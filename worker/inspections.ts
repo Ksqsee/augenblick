@@ -7,7 +7,7 @@ import { getCategoryDef, getSchedule, listCategories } from './categories';
 import { assetQuery, mapAsset, severityEnum, str, tid } from './data';
 import { type AppEnv, assertInScope, type Ctx, id, logActivity, notFound, now, parseJson, requireRole, scopeSql } from './lib';
 import { notify } from './notify';
-import { tasksFromDefects } from './smart';
+import { afterTasksDone, autoDefectTasks } from './automation';
 
 export const inspections = new Hono<AppEnv>();
 
@@ -489,11 +489,10 @@ async function finalize(
       .bind(tid(c), c.get('user').userId, c.get('user').name, `Mit der Prüfung ${opts.code} erledigt.`, t, JSON.stringify(done.results.map((r) => r.id)))
       .run();
   }
-  // Automatisierung: schwere Mängel bekommen sofort eine Aufgabe mit SLA-Frist (abschaltbar je Workspace)
-  if (b.defects.some((d) => d.severity === 'high' || d.severity === 'critical')) {
-    const auto = await c.env.DB.prepare('SELECT auto_tasks FROM tenants WHERE id = ?').bind(tid(c)).first<number>('auto_tasks');
-    if (auto) await tasksFromDefects(c, { severities: ['high', 'critical'], inspectionId: opts.iid });
-  }
+  // Wiederkehrende Prüfaufträge: Folgeauftrag anlegen (Autopilot recurring_tasks)
+  if (done.results.length) await afterTasksDone(c, done.results.map((r) => r.id));
+  // Autopilot (assign_defect_tasks): schwere Mängel bekommen sofort eine Aufgabe, ggf. mit Zuweisung nach Regeln
+  if (b.defects.length) await autoDefectTasks(c, { inspectionId: opts.iid });
   if (result === 'critical') {
     await notify(c, { roles: ['owner', 'admin'], type: 'critical_defect', title: `Kritischer Mangel an ${opts.code}`, body: b.defects.find((d) => d.severity === 'critical')?.title ?? '', link: `/druck/protokoll/${opts.iid}` });
   }

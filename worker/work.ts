@@ -8,6 +8,7 @@ import { getCategoryDef, getSchedule } from './categories';
 import { defaultTaskKind, type TaskKind, taskKindError } from '../shared/tasks';
 import { assetInScope, defectInScope, randomCode, str, taskScope, tid } from './data';
 import { type AppEnv, assertInScope, type Ctx, type Env, id, logActivity, notFound, now, parseJson, RANK, requireRole, type ScopeSetting, token } from './lib';
+import { afterTasksDone, systemCtx } from './automation';
 import { notify, notifyTenant } from './notify';
 import { assertNotThrottled, clientIp, recordFailure } from './throttle';
 
@@ -160,6 +161,10 @@ const taskBody = z.object({
   labels: z.array(z.string().max(40)).max(10).default([]),
   /** Beim Erledigen einer Mängelbehebung den Mangel mit schließen (Standard wie bisher: ja) */
   resolveDefect: z.boolean().default(true),
+  /** Wiederholung (Autopilot recurring_tasks); beim Bearbeiten ohne Angabe unverändert */
+  recurrence: z.enum(['monthly', 'quarterly', 'yearly']).nullable().optional(),
+  /** Prüfauftrag für ein ganzes Gebäude (Rundgang); beim Bearbeiten ohne Angabe unverändert */
+  buildingId: z.string().max(40).nullable().optional(),
 });
 type TaskBody = z.infer<typeof taskBody>;
 
@@ -171,10 +176,11 @@ work.get('/tasks', async (c) => {
     await c.env.DB.prepare(
       `SELECT t.id, t.title, t.description, t.kind, t.status, t.priority, t.due_at AS dueAt, t.created_at AS createdAt, t.updated_at AS updatedAt,
               t.assignee_id AS assigneeId, u.name AS assigneeName, t.subcontractor_id AS subcontractorId, s.company AS subcontractorName,
-              t.created_by AS createdBy, cu.name AS createdByName,
+              t.created_by AS createdBy, CASE WHEN t.created_by = 'system' THEN 'Autopilot' ELSE cu.name END AS createdByName,
               t.share_token AS shareToken, t.external_note AS externalNote, t.external_done_at AS externalDoneAt, t.labels,
               t.first_response_at AS firstResponseAt, t.closed_at AS closedAt,
               t.asset_id AS assetId, a.code AS assetCode, a.next_due_at AS assetNextDueAt, t.defect_id AS defectId,
+              t.recurrence, t.recurs_from AS recursFrom, t.building_id AS buildingId, bl.name AS buildingName,
               d.title AS defectTitle, d.severity AS defectSeverity, d.status AS defectStatus,
               COALESCE(t.property_id, d.property_id) AS propertyId, p.name AS propertyName,
               (SELECT COUNT(*) FROM task_comments tc WHERE tc.task_id = t.id) AS comments,
@@ -182,7 +188,7 @@ work.get('/tasks', async (c) => {
               EXISTS (SELECT 1 FROM task_watchers w WHERE w.task_id = t.id AND w.user_id = ?2) AS watching
          FROM tasks t LEFT JOIN users u ON u.id = t.assignee_id LEFT JOIN users cu ON cu.id = t.created_by LEFT JOIN assets a ON a.id = t.asset_id
          LEFT JOIN subcontractors s ON s.id = t.subcontractor_id LEFT JOIN defects d ON d.id = t.defect_id
-         LEFT JOIN properties p ON p.id = COALESCE(t.property_id, d.property_id)
+         LEFT JOIN properties p ON p.id = COALESCE(t.property_id, d.property_id) LEFT JOIN buildings bl ON bl.id = t.building_id
         WHERE t.tenant_id = ?1 AND ${taskScope(c, 't')} ORDER BY CASE t.status WHEN 'in_progress' THEN 0 WHEN 'open' THEN 1 ELSE 2 END, COALESCE(t.due_at, 9e15), t.created_at DESC`,
     )
       .bind(tid(c), c.get('user').userId)
@@ -230,11 +236,15 @@ async function checkRefs(c: Ctx, b: TaskBody) {
   if (b.defectId && !(await one('SELECT 1 FROM defects WHERE tenant_id = ? AND id = ?', b.defectId))) throw new HTTPException(400, { message: 'Mangel nicht gefunden' });
   if (b.propertyId && !(await one('SELECT 1 FROM properties WHERE tenant_id = ? AND id = ?', b.propertyId)))
     throw new HTTPException(400, { message: 'Objekt nicht gefunden' });
+  if (b.buildingId) {
+    assertInScope(c, 'building', b.buildingId);
+    if (!(await one('SELECT 1 FROM buildings WHERE tenant_id = ? AND id = ? AND deleted_at IS NULL', b.buildingId))) throw new HTTPException(400, { message: 'Gebäude nicht gefunden' });
+  }
   for (const l of b.labels) if (!(await one('SELECT 1 FROM task_labels WHERE tenant_id = ? AND id = ?', l))) throw new HTTPException(400, { message: 'Label nicht gefunden' });
 }
 
 /** Typ bestimmen und prüfen: ausdrücklich angegeben → muss passen; sonst bisheriger bzw. Standardtyp. */
-function resolveKind(b: TaskBody, prev?: TaskKind): TaskKind {
+function resolveKind(b: Omit<TaskBody, 'buildingId'> & { buildingId?: string | null }, prev?: TaskKind): TaskKind {
   if (b.kind) {
     const err = taskKindError(b.kind, b);
     if (err) throw new HTTPException(400, { message: err });
@@ -299,12 +309,12 @@ work.post('/tasks', async (c) => {
   // Ohne Fälligkeit greift die Lösungsfrist der SLA-Richtlinie
   const due = b.dueAt ?? t + (await slaPolicies(c))[b.priority].resolutionHours * HOUR;
   await c.env.DB.prepare(
-    `INSERT INTO tasks (id, tenant_id, title, description, kind, status, priority, due_at, assignee_id, subcontractor_id, asset_id, defect_id, property_id, labels,
-                        first_response_at, closed_at, created_by, created_at, updated_at)
-     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+    `INSERT INTO tasks (id, tenant_id, title, description, kind, status, priority, due_at, assignee_id, subcontractor_id, asset_id, defect_id, property_id, building_id, labels,
+                        recurrence, first_response_at, closed_at, created_by, created_at, updated_at)
+     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
   )
-    .bind(tk, tid(c), b.title, b.description, kind, b.status, b.priority, due, b.assigneeId, b.subcontractorId, b.assetId, b.defectId, b.propertyId, JSON.stringify(b.labels),
-      b.status !== 'open' ? t : null, isClosed(b.status) ? t : null, c.get('user').userId, t, t)
+    .bind(tk, tid(c), b.title, b.description, kind, b.status, b.priority, due, b.assigneeId, b.subcontractorId, b.assetId, b.defectId, b.propertyId, b.buildingId ?? null,
+      JSON.stringify(b.labels), b.recurrence ?? null, b.status !== 'open' ? t : null, isClosed(b.status) ? t : null, c.get('user').userId, t, t)
     .run();
   // Anlegende und zuständige Person beobachten automatisch
   await addWatchers(c, [tk], [c.get('user').userId, b.assigneeId]);
@@ -328,21 +338,25 @@ work.patch('/tasks/:id', async (c) => {
   requireRole(c, 'inspector');
   const b = taskBody.parse(await c.req.json());
   await checkRefs(c, b);
-  const prev = await c.env.DB.prepare(`SELECT assignee_id, status, kind, first_response_at FROM tasks WHERE id = ? AND tenant_id = ? AND ${taskScope(c, 'tasks')}`)
+  const prev = await c.env.DB.prepare(
+    `SELECT assignee_id, status, kind, first_response_at, recurrence, building_id FROM tasks WHERE id = ? AND tenant_id = ? AND ${taskScope(c, 'tasks')}`,
+  )
     .bind(c.req.param('id'), tid(c))
-    .first<{ assignee_id: string | null; status: string; kind: TaskKind; first_response_at: number | null }>();
+    .first<{ assignee_id: string | null; status: string; kind: TaskKind; first_response_at: number | null; recurrence: string | null; building_id: string | null }>();
   if (!prev) notFound('Aufgabe');
-  const kind = resolveKind(b, prev.kind);
+  const recurrence = b.recurrence === undefined ? prev.recurrence : b.recurrence;
+  const buildingId = b.buildingId === undefined ? prev.building_id : b.buildingId;
+  const kind = resolveKind({ ...b, buildingId }, prev.kind);
   const t = now();
   const firstResponse = prev.first_response_at ?? (b.status !== 'open' ? t : null);
   await c.env.DB.prepare(
     `UPDATE tasks SET title=?, description=?, kind=?, status=?, priority=?, due_at=?, assignee_id=?, subcontractor_id=?, asset_id=?, defect_id=?, property_id=?, labels=?,
-            first_response_at=?, closed_at = CASE WHEN ? THEN COALESCE(closed_at, ?) ELSE NULL END, updated_at=?,
+            recurrence=?, building_id=?, first_response_at=?, closed_at = CASE WHEN ? THEN COALESCE(closed_at, ?) ELSE NULL END, updated_at=?,
             share_token = CASE WHEN subcontractor_id IS ? THEN share_token ELSE NULL END
       WHERE id=? AND tenant_id=?`,
   )
     .bind(b.title, b.description, kind, b.status, b.priority, b.dueAt, b.assigneeId, b.subcontractorId, b.assetId, b.defectId, b.propertyId, JSON.stringify(b.labels),
-      firstResponse, isClosed(b.status) ? 1 : 0, t, t, b.subcontractorId, c.req.param('id'), tid(c))
+      recurrence, buildingId, firstResponse, isClosed(b.status) ? 1 : 0, t, t, b.subcontractorId, c.req.param('id'), tid(c))
     .run();
   if (b.status === 'done' && prev.status !== 'done' && b.resolveDefect) await resolveLinkedDefects(c, [c.req.param('id')], c.get('user').userId);
   if (b.assigneeId && b.assigneeId !== prev.assignee_id) {
@@ -350,7 +364,9 @@ work.patch('/tasks/:id', async (c) => {
     await notify(c, { userIds: [b.assigneeId], type: 'task_assigned', title: `Aufgabe zugewiesen: ${b.title}`, body: c.get('user').name, link: `/aufgaben?id=${c.req.param('id')}` });
   }
   if (b.status !== prev.status) await notifyStatus(c, [{ id: c.req.param('id'), title: b.title }], b.status);
-  return c.json({ ok: true, kind });
+  // Autopilot: Folgeaufgabe für wiederkehrende Aufgaben
+  const next = b.status === 'done' && prev.status !== 'done' ? await afterTasksDone(c, [c.req.param('id')]) : 0;
+  return c.json({ ok: true, kind, ...(next ? { nextCreated: true } : {}) });
 });
 
 /** Mehrfachbearbeitung: Status, Zuständige, Priorität und/oder Fälligkeit für mehrere Aufgaben. */
@@ -409,6 +425,7 @@ work.post('/tasks/bulk', async (c) => {
       });
   }
   if (b.status !== undefined) await notifyStatus(c, rows.filter((r) => r.status !== b.status), b.status);
+  if (b.status === 'done') await afterTasksDone(c, rows.filter((r) => r.status !== 'done').map((r) => r.id));
   await logActivity(c, 'update', 'task', null, `${rows.length} Aufgaben gemeinsam geändert`);
   return c.json({ updated: rows.length, skipped: b.ids.length - rows.length });
 });
@@ -428,11 +445,12 @@ interface TaskRef {
   title: string;
   asset_id: string | null;
   property_id: string | null;
+  building_id: string | null;
   assignee_id: string | null;
   created_by: string;
 }
 async function taskInScope(c: Ctx) {
-  const task = await c.env.DB.prepare(`SELECT id, title, asset_id, property_id, assignee_id, created_by FROM tasks WHERE id = ? AND tenant_id = ? AND ${taskScope(c, 'tasks')}`)
+  const task = await c.env.DB.prepare(`SELECT id, title, asset_id, property_id, building_id, assignee_id, created_by FROM tasks WHERE id = ? AND tenant_id = ? AND ${taskScope(c, 'tasks')}`)
     .bind(c.req.param('id'), tid(c))
     .first<TaskRef>();
   if (!task) notFound('Aufgabe');
@@ -453,6 +471,10 @@ async function memberSeesTask(c: Ctx, userId: string, task: TaskRef): Promise<bo
     )
       .bind(task.asset_id, json(s.buildingIds), json(s.propertyIds))
       .first());
+  }
+  if (task.building_id) {
+    if ((s.buildingIds ?? []).includes(task.building_id)) return true;
+    return !!(await c.env.DB.prepare('SELECT 1 FROM buildings WHERE id = ? AND property_id IN (SELECT value FROM json_each(?))').bind(task.building_id, json(s.propertyIds)).first());
   }
   if (task.property_id) {
     if ((s.propertyIds ?? []).includes(task.property_id)) return true;
@@ -789,5 +811,11 @@ publicApi.post('/tasks/:token', async (c) => {
     },
     c.executionCtx,
   );
+  // Autopilot: wiederkehrende Aufgabe → Folgeaufgabe (ohne Sitzung im Namen des Systems)
+  if (b.status === 'done') {
+    const pending: Promise<unknown>[] = [];
+    await afterTasksDone(systemCtx(c.env, r.tenantId as string, pending), [r.id as string]);
+    if (pending.length) c.executionCtx.waitUntil(Promise.allSettled(pending));
+  }
   return c.json({ ok: true });
 });

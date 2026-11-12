@@ -45,6 +45,9 @@ export const MCP_TOOLS = [
   'plan_rounds',
   'get_suggestions',
   'create_tasks_from_defects',
+  'list_automations',
+  'set_automation',
+  'list_automation_log',
   'structure_dictation',
 ];
 

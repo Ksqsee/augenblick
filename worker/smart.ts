@@ -2,10 +2,10 @@
 import { Hono } from 'hono';
 import { z } from 'zod';
 import { DAY } from '../shared/logic';
-import { DEFAULT_SLA, HOUR } from '../shared/sla';
 import { sortByUrgency } from '../shared/tasks';
 import { defectScope, taskScope, tid } from './data';
-import { type AppEnv, type Ctx, id, logActivity, now, requireRole, scopeSql } from './lib';
+import { automationSuggestions, createDefectTasks } from './automation';
+import { type AppEnv, type Ctx, logActivity, now, requireRole, scopeSql } from './lib';
 
 export const smart = new Hono<AppEnv>();
 
@@ -57,7 +57,9 @@ smart.get('/smart/rounds', async (c) => {
 
 export interface Suggestion {
   id: string;
-  kind: 'round' | 'defects_without_task' | 'walkthrough_due' | 'stale_drafts' | 'overdue_tasks' | 'never_inspected';
+  kind: 'round' | 'defects_without_task' | 'walkthrough_due' | 'stale_drafts' | 'overdue_tasks' | 'never_inspected' | 'automation';
+  /** bei kind 'automation': Schlüssel der Regel (Stufe „Vorschlagen“) */
+  automation?: string;
   tone: 'bad' | 'warn' | 'info';
   title: string;
   text: string;
@@ -149,55 +151,13 @@ smart.get('/smart/suggestions', async (c) => {
   }
   const rank = { bad: 0, warn: 1, info: 2 };
   out.sort((a, b) => rank[a.tone] - rank[b.tone] || b.count - a.count);
-  return c.json(out.slice(0, 6));
+  // Autopilot-Regeln in Stufe „Vorschlagen“ kommen immer mit (sie warten auf eine Entscheidung)
+  return c.json([...out.slice(0, 6), ...(await automationSuggestions(c))]);
 });
 
-/** Für offene schwere Mängel ohne Aufgabe je eine Aufgabe anlegen (Frist nach SLA-Richtlinie). */
-export async function tasksFromDefects(c: Ctx, opts: { severities: string[]; inspectionId?: string; defectId?: string }) {
-  const t = tid(c);
-  const rows = (
-    await c.env.DB.prepare(
-      `SELECT d.id, d.title, d.measure, d.severity, d.asset_id, d.property_id, a.code
-         FROM defects d LEFT JOIN assets a ON a.id = d.asset_id
-        WHERE d.tenant_id = ?1 AND d.status = 'open' AND d.hidden_at IS NULL AND d.severity IN (SELECT value FROM json_each(?2))
-          AND (?3 IS NULL OR d.inspection_id = ?3) AND (?4 IS NULL OR d.id = ?4) AND ${defectScope(c, 'd')}
-          AND NOT EXISTS (SELECT 1 FROM tasks k WHERE k.defect_id = d.id) LIMIT 200`,
-    )
-      .bind(t, JSON.stringify(opts.severities), opts.inspectionId ?? null, opts.defectId ?? null)
-      .all<{ id: string; title: string; measure: string; severity: string; asset_id: string | null; property_id: string; code: string | null }>()
-  ).results;
-  if (!rows.length) return 0;
-  const sla = await c.env.DB.prepare('SELECT priority, resolution_hours FROM sla_policies WHERE tenant_id = ?').bind(t).all<{ priority: string; resolution_hours: number }>();
-  const hours = (p: 'high' | 'medium') => sla.results.find((s) => s.priority === p)?.resolution_hours ?? DEFAULT_SLA[p].resolutionHours;
-  const n = now();
-  const items = rows.map((d) => {
-    const priority = d.severity === 'critical' || d.severity === 'high' ? 'high' : 'medium';
-    return {
-      id: id(),
-      title: `${d.code ? `${d.code}: ` : ''}${d.measure || d.title}`.slice(0, 200),
-      description: `Automatisch aus Mangel „${d.title}“ angelegt.${d.measure ? ` Maßnahme: ${d.measure}` : ''}`,
-      priority,
-      due: n + hours(priority) * HOUR,
-      asset: d.asset_id,
-      defect: d.id,
-      property: d.property_id,
-    };
-  });
-  const j = (k: string) => `json_extract(value, '$.${k}')`;
-  await c.env.DB.prepare(
-    `INSERT INTO tasks (id, tenant_id, title, description, kind, status, priority, due_at, asset_id, defect_id, property_id, labels, created_by, created_at, updated_at)
-     SELECT ${j('id')}, ?1, ${j('title')}, ${j('description')}, 'defect', 'open', ${j('priority')}, ${j('due')}, ${j('asset')}, ${j('defect')}, ${j('property')}, '[]', ?2, ?3, ?3 FROM json_each(?4)`,
-  )
-    .bind(t, c.get('user').userId, n, JSON.stringify(items))
-    .run();
-  // Anlegende Person beobachtet die neuen Aufgaben
-  await c.env.DB.prepare(
-    `INSERT OR IGNORE INTO task_watchers (task_id, user_id, tenant_id, created_at)
-     SELECT ${j('id')}, m.user_id, ?1, ?3 FROM json_each(?4) JOIN memberships m ON m.tenant_id = ?1 AND m.user_id = ?2`,
-  )
-    .bind(t, c.get('user').userId, n, JSON.stringify(items))
-    .run();
-  return items.length;
+/** Für offene Mängel ohne Aufgabe je eine Aufgabe anlegen (Zuweisungsregeln und Protokoll: siehe automation.ts). */
+export function tasksFromDefects(c: Ctx, opts: { severities: string[]; inspectionId?: string; defectId?: string }) {
+  return createDefectTasks(c, opts);
 }
 
 /**

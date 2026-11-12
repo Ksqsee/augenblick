@@ -4,20 +4,21 @@ import { PageHeader, Tabs, useUrlTab } from '../components/ui';
 import { AccountTab } from './settings/Account';
 import { ActivityTab } from './settings/Activity';
 import { ApiTab } from './settings/Api';
+import { AutomationTab } from './settings/Automation';
 import { CompanyTab } from './settings/Company';
 import { NotificationsTab } from './settings/Notifications';
 import { TasksTab } from './settings/Tasks';
 import { TemplatesTab } from './settings/Templates';
 
 // „privacy“ (früher eigener Reiter) zeigt jetzt das Konto – alte Links bleiben gültig.
-const TABS = ['profile', 'privacy', 'notifications', 'company', 'templates', 'tasks', 'api', 'activity'] as const;
+const TABS = ['profile', 'privacy', 'notifications', 'company', 'templates', 'tasks', 'automation', 'api', 'activity'] as const;
 type Tab = (typeof TABS)[number];
 
 export function SettingsPage() {
   const { data: me } = useMe();
   const isAdmin = !!me && ['owner', 'admin'].includes(me.user.role);
   const [raw, setTab] = useUrlTab<Tab>('tab', 'profile', TABS);
-  const adminOnly: Tab[] = ['company', 'templates', 'tasks', 'api'];
+  const adminOnly: Tab[] = ['company', 'templates', 'tasks', 'automation', 'api'];
   const tab: Tab = raw === 'privacy' || (!isAdmin && me && adminOnly.includes(raw)) ? 'profile' : raw;
   const tabs: { value: Tab; label: string }[] = [
     { value: 'profile', label: 'Konto' },
@@ -27,6 +28,7 @@ export function SettingsPage() {
           { value: 'company', label: 'Unternehmen' },
           { value: 'templates', label: 'Prüfvorlagen' },
           { value: 'tasks', label: 'Aufgaben' },
+          { value: 'automation', label: 'Automatik' },
           { value: 'api', label: 'API' },
         ] as const)
       : []),
@@ -41,6 +43,7 @@ export function SettingsPage() {
       {tab === 'company' && isAdmin && <CompanyTab />}
       {tab === 'templates' && isAdmin && <TemplatesTab />}
       {tab === 'tasks' && isAdmin && <TasksTab />}
+      {tab === 'automation' && isAdmin && <AutomationTab />}
       {tab === 'api' && isAdmin && <ApiTab />}
       {tab === 'activity' && <ActivityTab />}
     </>

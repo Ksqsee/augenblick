@@ -10,8 +10,9 @@ export function defaultTaskKind(t: { defectId?: string | null }): TaskKind {
 }
 
 /** Passt der Typ zu den Verknüpfungen? Liefert eine Fehlermeldung oder null. */
-export function taskKindError(kind: TaskKind, t: { assetId?: string | null; defectId?: string | null }): string | null {
-  if (kind === 'inspection' && !t.assetId) return 'Ein Prüfauftrag braucht ein Element';
+export function taskKindError(kind: TaskKind, t: { assetId?: string | null; defectId?: string | null; buildingId?: string | null }): string | null {
+  // Prüfauftrag: ein Element oder ein ganzes Gebäude (Rundgang)
+  if (kind === 'inspection' && !t.assetId && !t.buildingId) return 'Ein Prüfauftrag braucht ein Element';
   if (kind === 'defect' && !t.defectId) return 'Eine Mängelbehebung braucht einen verknüpften Mangel';
   return null;
 }
