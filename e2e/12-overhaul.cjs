@@ -52,13 +52,13 @@ const check = (ok, m) => {
     check(r.status === 403, `Verlauf nicht per API-Schlüssel (${r.status})`);
   }
 
-  step('Heute: Lage, Aktionen, Jetzt, Rundgänge');
+  step('Heute: Lage, Aktionen, Jetzt (Rundgänge stehen unter Prüfen)');
   await p.getByRole('heading', { name: 'Jetzt' }).waitFor();
   check((await p.getByRole('list', { name: 'Jetzt' }).getByRole('listitem').count()) > 0, 'Vorschläge unter „Jetzt“');
   check(/überfällig|kritisch|geprüft|fällig/.test(await p.getByRole('heading', { level: 1 }).innerText()), 'Lage als Satz im Titel');
   check(await p.getByRole('button', { name: /Erfassen/ }).first().isVisible(), 'Erfassen-Knopf');
   check(await p.getByRole('link', { name: /Rundgang starten/ }).isVisible(), 'Rundgang starten');
-  check((await p.getByRole('heading', { name: 'Rundgänge' }).count()) === 1, 'Rundgänge-Liste');
+  check((await p.getByRole('heading', { name: 'Rundgänge' }).count()) === 0, 'Rundgänge-Liste nicht mehr auf Heute');
   check((await p.getByRole('heading', { name: 'Als Nächstes' }).count()) === 0, 'alter Abschnitt „Als Nächstes“ entfernt');
   await p.screenshot({ path: OUT + '01-heute.png', fullPage: true });
 
@@ -220,8 +220,8 @@ const check = (ok, m) => {
   check(over <= 0, `Erfassen-Sheet ohne Überlauf (${over}px)`);
   await mp.screenshot({ path: OUT + 'm2-erfassen.png' });
   await mp.keyboard.press('Escape');
-  await mp.getByRole('navigation', { name: 'Hauptnavigation' }).getByRole('button', { name: 'Mehr' }).click();
-  check(await mp.getByRole('link', { name: 'Einstellungen' }).isVisible(), 'Mehr-Menü mit Einstellungen');
+  await mp.getByRole('button', { name: 'Konto und Einstellungen' }).click();
+  check(await mp.getByRole('menuitem', { name: 'Einstellungen' }).isVisible(), 'Konto-Menü mit Einstellungen');
 
   check(!errors.length, `keine Fehler in der Konsole (${errors.slice(0, 3).join(' | ')})`);
   await b.close();

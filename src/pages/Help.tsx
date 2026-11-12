@@ -66,7 +66,7 @@ const GUIDE: Topic[] = [
       'Feststellungen werden beim Abschluss zu Mängeln und lassen sich als Aufgaben weitergeben.',
       'Die nächste Begehung wird nach 12 Monaten fällig.',
     ],
-    link: ['/begehungen', 'Zu den Begehungen'],
+    link: ['/pruefen/begehungen', 'Zu den Begehungen'],
   },
   {
     id: 'grundrisse',
@@ -87,7 +87,7 @@ const GUIDE: Topic[] = [
       'Wird eine Aufgabe erledigt, gilt der verknüpfte Mangel automatisch als behoben.',
       'Labels und SLA-Fristen je Priorität legst du unter Einstellungen → Aufgaben fest; die Übersicht zeigt Auslastung und SLA-Einhaltung.',
     ],
-    link: ['/aufgaben', 'Zu den Aufgaben'],
+    link: ['/offen?art=aufgaben', 'Zu den Aufgaben'],
   },
   {
     id: 'berichte',

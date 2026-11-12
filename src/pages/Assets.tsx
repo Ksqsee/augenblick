@@ -10,6 +10,7 @@ import { AssetDrawer } from '../components/AssetDrawer';
 import { AssetList } from '../components/AssetList';
 import { AssetForm } from '../components/forms';
 import { FilterSelect } from '../components/objects/FilterSelect';
+import { ObjectViews } from '../components/objects/Views';
 import { Button, Chip, Empty, ErrorBox, FilterBar, Menu, PageHeader, Section, SkeletonList, Surface } from '../components/ui';
 
 const DUE_FILTERS = [
@@ -80,7 +81,7 @@ export function AssetsPage() {
             <Menu
               label="Weitere Aktionen zu Elementen"
               items={[
-                ...(canCreate ? [{ label: 'Aus Excel/CSV importieren', icon: <FileUp />, to: '/import' }] : []),
+                ...(canCreate ? [{ label: 'Aus Excel/CSV importieren', icon: <FileUp />, to: '/einstellungen/import' }] : []),
                 { label: 'QR-Etiketten drucken', icon: <Printer />, to: '/druck/etiketten' },
               ]}
             />
@@ -88,6 +89,7 @@ export function AssetsPage() {
           </>
         }
       />
+      <ObjectViews current="elemente" />
       {creating && (
         <AssetForm defaultLabel={params.get('etikett') ?? undefined} onClose={(createdId) => (createdId ? navigate(`/elemente/${createdId}`) : setParam('neu'))} />
       )}

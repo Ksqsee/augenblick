@@ -87,8 +87,8 @@ export function parseQuery(text: string, ctx: QueryContext): ParsedQuery | null 
 
 /** Ziel-URL in der App für eine erkannte Anfrage. */
 export function queryUrl(q: ParsedQuery): string {
-  if (q.target === 'defects') return '/maengel';
-  if (q.target === 'tasks') return '/aufgaben';
+  if (q.target === 'defects') return '/offen?art=maengel';
+  if (q.target === 'tasks') return '/offen?art=aufgaben';
   const p = new URLSearchParams();
   if (q.due) p.set('status', q.due);
   if (q.category) p.set('kategorie', q.category);

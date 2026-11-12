@@ -188,7 +188,7 @@ export function AssetPage() {
           <IntervalSection asset={a} canEdit={isAdmin} />
           <SchedulesSection asset={a} canEdit={!!canInspect} onStart={(schedule) => start.mutate({ assetId: a.id, schedule })} />
 
-          <Section title="Offene Mängel" count={openDefects.length} flush action={openDefects.length > 0 && <SectionLink to="/maengel">Alle Mängel</SectionLink>}>
+          <Section title="Offene Mängel" count={openDefects.length} flush action={openDefects.length > 0 && <SectionLink to="/offen?art=maengel">Alle Mängel</SectionLink>}>
             {openDefects.length === 0 ? (
               <p className="px-(--row-px) pb-3 text-body text-ink-2">Keine offenen Mängel.</p>
             ) : (

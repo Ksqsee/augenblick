@@ -101,8 +101,10 @@ if (!PROD) {
   }
 
   step('Prüfungen: Auswahl als ZIP');
-  await p.goto(BASE + '/pruefungen');
-  await p.getByRole('tab', { name: 'Durchgeführt' }).or(p.getByRole('radio', { name: 'Durchgeführt' })).or(p.getByRole('button', { name: 'Durchgeführt' })).first().click();
+  // Prüfen-Überblick → „Zuletzt abgeschlossen“ → Alle (= Reiter „Durchgeführt“)
+  await p.goto(BASE + '/pruefen');
+  await p.locator('section', { has: p.getByRole('heading', { name: 'Zuletzt abgeschlossen' }) }).getByRole('link', { name: 'Alle' }).click();
+  await p.getByRole('tab', { name: 'Durchgeführt', selected: true }).waitFor();
   const boxes = p.locator('input[type=checkbox][aria-label$="auswählen"]');
   await boxes.first().waitFor();
   for (let k = 0; k < 3; k++) await boxes.nth(k).check();

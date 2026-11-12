@@ -112,10 +112,10 @@ export function ReportsPage() {
 
               <ListHeading>Weitere Nachweise</ListHeading>
               <ReportRowItem title="Prüfprotokolle" text="Einzeln bei jeder Prüfung oder gesammelt als ZIP unter Prüfungen → Durchgeführt.">
-                <LinkButton to="/pruefungen?tab=done">Zu den Prüfungen</LinkButton>
+                <LinkButton to="/pruefen?tab=done">Zu den Prüfungen</LinkButton>
               </ReportRowItem>
               <ReportRowItem title="Begehungsprotokolle" text="Brandschutzbegehungen mit Feststellungen und Rechtsgrundlagen.">
-                <LinkButton to="/begehungen">Zu den Begehungen</LinkButton>
+                <LinkButton to="/pruefen/begehungen">Zu den Begehungen</LinkButton>
               </ReportRowItem>
               <ReportRowItem title="JSON-Backup" text="Vollständige Sicherung aller Daten des Workspaces (ohne Passwörter).">
                 <a href="/api/export/backup.json" download className={FLUSH}>
@@ -125,7 +125,7 @@ export function ReportsPage() {
                 </a>
               </ReportRowItem>
               <ReportRowItem title="Import" text="Bestandslisten aus Excel oder CSV übernehmen – mit Objekten und Gebäuden.">
-                <LinkButton to="/import">Import öffnen</LinkButton>
+                <LinkButton to="/einstellungen/import">Import öffnen</LinkButton>
               </ReportRowItem>
             </ul>
         </Section>

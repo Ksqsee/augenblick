@@ -5,6 +5,7 @@ import { useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { type PropertyRow, useMe, useProperties } from '../api';
 import { PropertyForm } from '../components/forms';
+import { ObjectViews } from '../components/objects/Views';
 import { PlainTable } from '../components/objects/PlainTable';
 import { summaryWord } from '../components/objects/status';
 import { Button, Chip, type Column, Empty, ErrorBox, FilterBar, PageHeader, Section, SkeletonList, StatusText, Surface } from '../components/ui';
@@ -62,6 +63,7 @@ export function PropertiesPage() {
   return (
     <>
       <PageHeader title="Objekte" subtitle="Liegenschaften mit ihren Gebäuden und Elementen" actions={newButton('Neues Objekt')} />
+      <ObjectViews current="objekte" />
       {creating && <PropertyForm onClose={() => setParams({})} />}
 
       {all.length > 0 && (

@@ -11,7 +11,6 @@ import { AssetPage, AssetByCode } from './pages/Asset';
 import { AssetsPage } from './pages/Assets';
 import { InviteAccept, Login, Register, ResetPassword } from './pages/Auth';
 import { Dashboard } from './pages/Dashboard';
-import { DefectsPage } from './pages/Defects';
 import { FloorPlanPage } from './pages/FloorPlan';
 import { HelpPage } from './pages/Help';
 import { ImportPage } from './pages/Import';
@@ -19,7 +18,9 @@ import { OfflinePage, OfflineRun } from './pages/Offline';
 import { ExternalTaskPage, PartnerPage, SubcontractorsPage } from './pages/Subcontractors';
 import { WalkthroughProtocol, WalkthroughRun, WalkthroughsPage } from './pages/Walkthroughs';
 import { InspectionRun } from './pages/InspectionRun';
-import { InspectionsPage } from './pages/Inspections';
+import { Moved, MOVED } from './moved';
+import { OffenPage } from './pages/Offen';
+import { PruefenPage } from './pages/Pruefen';
 import { Protocol } from './pages/Protocol';
 import { PropertiesPage } from './pages/Properties';
 import { PropertyPage } from './pages/Property';
@@ -28,8 +29,7 @@ import { OAuthAuthorize } from './pages/OAuthAuthorize';
 import { CustomerView } from './pages/CustomerView';
 import { RoundPage } from './pages/Round';
 import { ScanPage } from './pages/Scan';
-import { SettingsPage } from './pages/Settings';
-import { TasksPage } from './pages/Tasks';
+import { SettingsFrame, SettingsPage } from './pages/Settings';
 import { TeamPage } from './pages/Team';
 
 function RequireAuth({ children }: { children: ReactNode }) {
@@ -150,20 +150,24 @@ export function App() {
           <Route path="elemente" element={<AssetsPage />} />
           <Route path="elemente/:id" element={<AssetPage />} />
           <Route path="e/:code" element={<AssetByCode />} />
-          <Route path="pruefungen" element={<InspectionsPage />} />
-          <Route path="maengel" element={<DefectsPage />} />
-          <Route path="begehungen" element={<WalkthroughsPage />} />
+          {/* Fünf Orte (docs/plan/v4.md 5): Heute, Objekte, Prüfen, Offen, Berichte – alles andere unter Einstellungen */}
+          <Route path="pruefen" element={<PruefenPage />} />
+          <Route path="pruefen/begehungen" element={<WalkthroughsPage />} />
+          <Route path="offen" element={<OffenPage />} />
           <Route path="grundrisse/:id" element={<FloorPlanPage />} />
           <Route path="offline" element={<OfflinePage />} />
-          <Route path="import" element={<ImportPage />} />
-          <Route path="subunternehmer" element={<SubcontractorsPage />} />
-          <Route path="aufgaben" element={<TasksPage />} />
           <Route path="berichte" element={<ReportsPage />} />
-          <Route path="team" element={<TeamPage />} />
           <Route path="einstellungen" element={<SettingsPage />} />
+          <Route path="einstellungen/team" element={<SettingsFrame current="team"><TeamPage /></SettingsFrame>} />
+          <Route path="einstellungen/subunternehmer" element={<SettingsFrame current="subunternehmer"><SubcontractorsPage /></SettingsFrame>} />
+          <Route path="einstellungen/import" element={<SettingsFrame current="import"><ImportPage /></SettingsFrame>} />
+          <Route path="einstellungen/hilfe" element={<SettingsFrame current="hilfe"><HelpPage /></SettingsFrame>} />
           <Route path="scan" element={<ScanPage />} />
           <Route path="rundgang/:id" element={<RoundPage />} />
-          <Route path="hilfe" element={<HelpPage />} />
+          {/* alte Adressen (Lesezeichen, Benachrichtigungen, Mails) – Query-Parameter bleiben erhalten */}
+          {MOVED.map((m) => (
+            <Route key={m.from} path={m.from} element={<Moved to={m.to} />} />
+          ))}
           <Route path="*" element={<Navigate to="/" replace />} />
         </Route>
       </Routes>

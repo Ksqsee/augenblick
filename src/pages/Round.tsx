@@ -133,7 +133,7 @@ export function RoundPage() {
             title={done.length ? 'Rundgang geschafft' : 'Hier ist nichts fällig'}
             text={done.length ? `${done.length} Elemente geprüft. Die Protokolle findest du unter Prüfungen.` : 'In diesem Gebäude steht in den nächsten 30 Tagen keine Prüfung an.'}
             action={
-              <ButtonLink to={done.length ? '/pruefungen?tab=done' : '/'} variant="ghost">
+              <ButtonLink to={done.length ? '/pruefen?tab=done' : '/'} variant="ghost">
                 {done.length ? 'Protokolle ansehen' : 'Zurück zu Heute'}
               </ButtonLink>
             }

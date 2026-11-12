@@ -11,8 +11,20 @@ API: [`docs/api.md`](docs/api.md)
 ## Funktionen
 
 **Einfach und smart**
-- Startseite **Heute**: eine Zeile Lage, drei Aktionen (Erfassen, Code scannen, Rundgang), Zahlen,
-  priorisierte Vorschläge mit Ein-Klick-Aktionen, Rundgänge je Gebäude
+- **Fünf Orte** statt Menü-Wust: **Heute** · **Objekte** · **Prüfen** · **Offen** · **Berichte**. Alles Weitere (Team,
+  Subunternehmer, Import, Prüfvorlagen, Automatik, API, Offline-Modus, Hilfe) liegt unter **Einstellungen** (Zahnrad bzw.
+  Konto-Menü). Handy-Leiste: Heute · Prüfen · Erfassen · Offen · Objekte; Berichte und Einstellungen im Konto-Menü oben rechts.
+  Alte Adressen leiten samt Query um (`src/moved.tsx`): `/maengel?id=…` → `/offen?art=maengel&mangel=…`,
+  `/aufgaben?id=…` → `/offen?art=aufgaben&aufgabe=…`, `/pruefungen?tab=…` → `/pruefen?tab=…`, `/begehungen` →
+  `/pruefen/begehungen`, `/team`, `/subunternehmer`, `/import`, `/hilfe` → `/einstellungen/…`; `/elemente` bleibt als Ansicht
+  „Alle Elemente“ unter Objekte, `/offline` als Unterseite von Prüfen
+- Startseite **Heute**: Datum und Lage in einem Satz, zwei Knöpfe (Rundgang starten, Scannen), Prüfstatus-Zahlen,
+  „Jetzt“ (am Handy höchstens 5 Zeilen, Aktion rechts in der Zeile) und „Erledigt für dich“
+- **Prüfen**: Überblick in einer Fläche – fällige Rundgänge je Gebäude, Fälliges (Überfällig, Bald fällig, Nie geprüft,
+  Nicht prüfbar), angefangene Prüfungen, Begehungen, zuletzt abgeschlossene Prüfungen; Scannen, Offline und Begehung im Kopf
+- **Offen**: eine Arbeitsliste aus Mängeln und Aufgaben, Umschalter **Alle · Mängel · Aufgaben**; „Alle“ zeigt zuerst
+  Dringendes (schwere Mängel ohne Aufgabe, überfällige Aufgaben), dann übrige Mängel ohne Aufgabe, dann Aufgaben nach
+  Fälligkeit – ein Mangel mit offener Aufgabe steht nur einmal da
 - **Erfassen per Sprache** (zentraler Mikrofon-Knopf): einsprechen oder tippen, Prüfkompass zerlegt den Text in
   Mängel (Schwere, Maßnahme), Aufgaben (Frist) und Notizen; Element-Codes werden erkannt, die aktuelle Seite gibt den Ort vor
 - **Diktat in jedem Textfeld** und „Befund einsprechen“ im Prüfablauf (Mängel landen beim passenden Prüfpunkt);
@@ -82,9 +94,9 @@ API: [`docs/api.md`](docs/api.md)
 **Verwalten**
 - Objekte, Gebäude, **Grundrisse** (Bild/PDF) mit Element-Markern, Brandschutzbeauftragte je Objekt
 - **Eigene Elementarten** und Varianten; Prüfvorlagen je Prüfart anpassbar
-- Prüfungsliste mit Reitern Überfällig, Bald fällig, Nie geprüft, Nicht prüfbar, Neue Elemente, Entwürfe,
+- Ausführliche Prüfungsliste (unter Prüfen) mit Reitern Überfällig, Bald fällig, Nie geprüft, Nicht prüfbar, Neue Elemente, Entwürfe,
   Durchgeführt, Archiv, Berichtigt – filterbar nach Prüfart
-- **Mängel** und **Aufgaben** mit Labels, SLA-Richtlinien, Kommentaren, Statistik
+- **Mängel** und **Aufgaben** mit Labels, SLA-Richtlinien, Kommentaren (Kennzahlen in Berichte; die frühere Aufgaben-„Übersicht“ entfällt)
 - **Aufgabentypen** Prüfauftrag (Element, „Prüfung starten“, wird mit der Prüfung erledigt), Mängelbehebung (Mangel; beim
   Erledigen Rückfrage, ob der Mangel behoben ist) und Sonstiges; Liste gruppiert nach **Überfällig / Fällig heute / Diese Woche /
   Später / Ohne Datum**, Schnellfilter Meine, Ohne Zuständige, Von mir erstellt, Beobachtet; **Mehrfachbearbeitung**
@@ -157,7 +169,7 @@ npm run check              # Typprüfung + Unit-Tests + Build
 ## Tests
 
 - **Unit-Tests** (`npm test`, Vitest): Fachlogik, Autopilot-Kreislauf, Rangfolge „Jetzt“, Import/Export, Übersetzungen, Ruhezeiten, Web Push.
-- **Browser-Tests** (`e2e/`, Playwright): Reihen von der Registrierung über Sicherheitskorrekturen und Massenoperationen bis zu Berichtigung, Nachprüfung sowie Aufgaben und Mängeln (`14-tasks-defects`), dem Autopiloten (`20-autopilot`) und den offenen Punkten aus der Analyse (`21-offene-punkte`: Offline-Fehlliste, Intervalle, Partner-Zugang), dem MCP-Server (`11-ai-mcp`) und „Sprache zuerst“ (`23-sprache`: Rundgang über Claude, Unterschrift mit einem Tipp).
+- **Browser-Tests** (`e2e/`, Playwright): Reihen von der Registrierung über Sicherheitskorrekturen und Massenoperationen bis zu Berichtigung, Nachprüfung sowie Aufgaben und Mängeln (`14-tasks-defects`), dem Autopiloten (`20-autopilot`) und den offenen Punkten aus der Analyse (`21-offene-punkte`: Offline-Fehlliste, Intervalle, Partner-Zugang), dem MCP-Server (`11-ai-mcp`) und „Sprache zuerst“ (`23-sprache`: Rundgang über Claude, Unterschrift mit einem Tipp) sowie der Navigation mit fünf Orten (`25-fuenf-orte`: Leisten, Umleitungen, Prüfen, Offen, Heute am Handy, 390 px).
   Vor jeder Reihe wird die lokale D1 geleert und mit Demodaten befüllt.
 
 ```bash
