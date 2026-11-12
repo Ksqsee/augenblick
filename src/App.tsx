@@ -24,6 +24,7 @@ import { PropertiesPage } from './pages/Properties';
 import { PropertyPage } from './pages/Property';
 import { ComplianceReport, DefectReport, LabelSheet, ReportsPage } from './pages/Reports';
 import { OAuthAuthorize } from './pages/OAuthAuthorize';
+import { CustomerView } from './pages/CustomerView';
 import { RoundPage } from './pages/Round';
 import { ScanPage } from './pages/Scan';
 import { SettingsPage } from './pages/Settings';
@@ -63,6 +64,7 @@ export function App() {
         <Route path="/extern/:token" element={<ExternalTaskPage />} />
         <Route path="/passwort/:token" element={<ResetPassword />} />
         <Route path="/oauth/authorize" element={<OAuthAuthorize />} />
+        <Route path="/kunde/:token" element={<CustomerView />} />
         <Route path="/rechtliches" element={<LegalPage />} />
         <Route path="/rechtliches/:doc" element={<LegalPage />} />
         <Route

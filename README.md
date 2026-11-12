@@ -41,6 +41,7 @@ API: [`docs/api.md`](docs/api.md)
   Durchgeführt, Archiv, Berichtigt – filterbar nach Prüfart
 - **Mängel** und **Aufgaben** mit Labels, SLA-Richtlinien, Kommentaren, Statistik
 - **Subunternehmer**: Aufgabe per Link teilen, Rückmeldung ohne Konto
+- **Kunden-Freigabe**: Link je Objekt für Auftraggeber – Prüfquote, Fälligkeiten, letzte Prüfungen, offene Mängel; ohne Konto, widerrufbar
 - **Papierkorb**: gelöschte Elemente 30 Tage lang mit Historie wiederherstellbar
 - QR-Etiketten (auch Blanko-Etiketten, die beim ersten Scan zugeordnet werden), Suche (Strg+K)
 - **Import** aus Excel/CSV mit Vorschau

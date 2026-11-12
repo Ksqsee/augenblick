@@ -5,6 +5,7 @@ import { ai } from './ai';
 import { mcpRoutes } from './mcp';
 import { cleanupOAuth, oauthPublic, oauthSession, wellKnown } from './oauth';
 import { smart } from './smart';
+import { sharePublic, shares } from './shares';
 import { account, auth } from './auth';
 import { categories } from './categories';
 import { runDaily } from './cron';
@@ -38,6 +39,7 @@ app.use('*', csrfGuard);
 app.get('/health', (c) => c.json({ ok: true }));
 app.route('/auth', auth);
 app.route('/public', publicApi);
+app.route('/public', sharePublic);
 app.route('/account', account);
 // MCP für Claude & Co.: eigene Authentifizierung per API-Schlüssel, Werkzeuge rufen intern die API auf
 // OAuth für MCP-Clients (Registrierung, Token ohne Sitzung; Freigabe mit neuem Schlüssel nur angemeldet)
@@ -58,6 +60,7 @@ secured.route('/', work);
 secured.route('/', data);
 secured.route('/', ai);
 secured.route('/', smart);
+secured.route('/', shares);
 app.route('/', secured);
 
 app.notFound((c) => c.json({ error: 'Nicht gefunden' }, 404));

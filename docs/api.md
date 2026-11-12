@@ -67,6 +67,14 @@ Für API-Schlüssel gelten diese Regeln:
 | `POST /defects` | Mangel ohne Prüfung melden: `{ assetId? , propertyId?, title, severity, note?, measure?, photoKey? }` – Element oder Objekt ist Pflicht; bei `high`/`critical` entsteht automatisch eine Aufgabe (Workspace-Einstellung), Antwort `{ id, taskCreated }` |
 | `POST /smart/tasks-from-defects` | Für offene Mängel ohne Aufgabe je eine Aufgabe mit SLA-Frist: `{ severities? }` → `{ created }` |
 
+## Kunden-Freigabe
+
+| Endpunkt | Beschreibung |
+|----------|--------------|
+| `GET/POST /properties/:id/shares` | Freigabe-Links eines Objekts auflisten bzw. erstellen (nur Admin-Sitzung): `{ label?, showDefects?, expiresInDays? }` → `{ id, token }` (Token nur einmal) |
+| `DELETE /shares/:id` | Link widerrufen |
+| `GET /public/property/:token` | Öffentliche, nur lesende Statusansicht (ohne Anmeldung); in der App unter `/kunde/:token` |
+
 ## Smarte Funktionen und KI
 
 | Endpunkt | Beschreibung |

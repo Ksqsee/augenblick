@@ -4,6 +4,7 @@ import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { BUILDING_TYPES } from '../../shared/walkthrough';
 import { api, type Asset, type FireOfficer, fileUrl, useAction, useMe, useProperty } from '../api';
 import { PropertyReportButton } from '../components/PropertyReportButton';
+import { SharePropertyButton } from '../components/ShareProperty';
 import { AssetDrawer } from '../components/AssetDrawer';
 import { AssetList } from '../components/AssetList';
 import { AssetForm, BuildingForm, PropertyForm } from '../components/forms';
@@ -79,6 +80,7 @@ export function PropertyPage() {
             )}
             {isAdmin && (
               <>
+                <SharePropertyButton propertyId={p.id} propertyName={p.name} />
                 <Button variant="secondary" icon={<Pencil className="size-4" />} onClick={() => setEdit(true)}>
                   Bearbeiten
                 </Button>
