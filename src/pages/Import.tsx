@@ -1,10 +1,12 @@
 import { allCategories, getCategory } from '../categories';
-import { AlertCircle, CheckCircle2, Download, FileSpreadsheet, Upload } from 'lucide-react';
+import clsx from 'clsx';
+import { AlertCircle, CheckCircle2, Download, FileSpreadsheet, RotateCcw, Upload, X } from 'lucide-react';
 import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { IMPORT_COLUMNS, type ImportRow, parseCsv, toImportRows } from '../../shared/importing';
 import { api, queryClient } from '../api';
-import { Badge, Button, Card, CardHeader, ErrorBox, PageHeader, useToast } from '../components/ui';
+import { Stepper } from '../components/admin';
+import { Badge, Button, Card, type Column, DataTable, ErrorBox, IconButton, Notice, PageHeader, SectionHeader, Spinner, useToast } from '../components/ui';
 import { fmtDate } from '../format';
 
 interface ImportResponse {
@@ -25,6 +27,8 @@ function downloadTemplate() {
   URL.revokeObjectURL(url);
 }
 
+const n = (v: number, one: string, many: string) => `${v} ${v === 1 ? one : many}`;
+
 export function ImportPage() {
   const toast = useToast();
   const [file, setFile] = useState<string>('');
@@ -33,7 +37,17 @@ export function ImportPage() {
   const [check, setCheck] = useState<ImportResponse | null>(null);
   const [done, setDone] = useState<ImportResponse | null>(null);
   const [busy, setBusy] = useState(false);
+  const [drag, setDrag] = useState(false);
   const [error, setError] = useState<unknown>(null);
+
+  const reset = () => {
+    setFile('');
+    setRows([]);
+    setParseErrors([]);
+    setCheck(null);
+    setDone(null);
+    setError(null);
+  };
 
   const onFile = async (f: File) => {
     setError(null);
@@ -80,112 +94,183 @@ export function ImportPage() {
   };
 
   const resultByLine = new Map(check?.results.map((r) => [r.line, r]));
+  const problems = [...parseErrors, ...(check?.results.filter((r) => r.status === 'error').map((r) => ({ line: r.line, message: r.message ?? '' })) ?? [])];
+  const step = done ? 2 : file ? 1 : 0;
+  const ready = check?.summary.created ?? 0;
+
+  const columns: Column<ImportRow>[] = [
+    {
+      key: 'element',
+      header: 'Element',
+      mobile: 'primary',
+      cell: (r) => (
+        <span>
+          {getCategory(r.category).label}
+          {(resultByLine.get(r.line)?.code ?? r.code) && <span className="ml-2 font-mono text-caption font-normal text-ink-3">{resultByLine.get(r.line)?.code ?? r.code}</span>}
+        </span>
+      ),
+    },
+    { key: 'ort', header: 'Objekt · Gebäude', cell: (r) => `${r.property} · ${r.building}` },
+    { key: 'standort', header: 'Standort', cell: (r) => r.location || '–' },
+    { key: 'hersteller', header: 'Hersteller', mobile: 'hidden', cell: (r) => r.manufacturer || '–' },
+    { key: 'letzte', header: 'Letzte Prüfung', mobile: 'hidden', cell: (r) => <span className="tabular-nums">{fmtDate(r.lastInspectedAt)}</span> },
+    {
+      key: 'status',
+      header: 'Prüfung',
+      mobile: 'trailing',
+      cell: (r) => {
+        const res = resultByLine.get(r.line);
+        return res ? (
+          <Badge tone={res.status === 'ok' ? 'ok' : 'bad'} dot>
+            {res.status === 'ok' ? 'Bereit' : 'Fehler'}
+          </Badge>
+        ) : (
+          <span className="text-ink-4">–</span>
+        );
+      },
+    },
+  ];
 
   return (
     <>
-      <PageHeader
-        title="Import"
-        subtitle="Elemente aus Excel oder CSV übernehmen. Fehlende Objekte und Gebäude werden automatisch angelegt."
-        actions={
-          <Button variant="secondary" icon={<Download className="size-4" />} onClick={downloadTemplate}>
-            Vorlage (CSV)
-          </Button>
-        }
-      />
-      <div className="flex flex-col gap-6">
-        <Card className="p-5">
-          <label className="flex cursor-pointer flex-col items-center gap-2 rounded-xl border border-dashed border-line-strong px-4 py-10 text-center hover:bg-sunken">
-            <FileSpreadsheet className="size-8 text-ink-3" />
-            <span className="text-sm font-medium">{file || 'Excel (.xlsx) oder CSV auswählen'}</span>
-            <span className="max-w-md text-xs text-ink-3">
-              Spalten: {IMPORT_COLUMNS.map((c) => c.label + (c.required ? '*' : '')).join(', ')}. Erste Zeile = Überschriften. Art z. B. „Feuerschutztür“, „BSK“, „Feuerlöscher“, „Rauchmelder“.
-            </span>
+      <PageHeader title="Import" subtitle="Elemente aus Excel oder CSV übernehmen. Fehlende Objekte und Gebäude legt Prüfkompass automatisch an." />
+      <Stepper className="mb-6" steps={['Datei wählen', 'Vorschau prüfen', 'Importiert']} current={step} />
+
+      {done ? (
+        <Card className="flex flex-col items-center px-6 py-12 text-center">
+          <span className="mb-4 grid size-12 place-items-center rounded-full bg-ok-soft text-ok">
+            <CheckCircle2 className="size-6" />
+          </span>
+          <p className="text-h3 font-semibold">{done.summary.created} Elemente importiert</p>
+          <p className="mt-1 text-body text-ink-3">
+            {n(done.summary.newProperties, 'neues Objekt', 'neue Objekte')} · {n(done.summary.newBuildings, 'neues Gebäude', 'neue Gebäude')}
+            {done.summary.failed > 0 && ` · ${n(done.summary.failed, 'Zeile', 'Zeilen')} übersprungen`}
+          </p>
+          <div className="mt-6 flex flex-col gap-2 sm:flex-row">
+            <Button variant="secondary" icon={<RotateCcw />} onClick={reset}>
+              Weitere Datei
+            </Button>
+            <Link to="/elemente">
+              <Button className="w-full">Zu den Elementen</Button>
+            </Link>
+          </div>
+        </Card>
+      ) : (
+        <div className="flex flex-col gap-8">
+          <div className="grid grid-cols-1 gap-4 lg:grid-cols-[minmax(0,1fr)_20rem]">
+            {file ? (
+              <Card className="flex items-center gap-3 self-start p-4">
+                <span className="grid size-10 shrink-0 place-items-center rounded-lg bg-sunken text-ink-2">
+                  <FileSpreadsheet className="size-5" />
+                </span>
+                <div className="min-w-0 flex-1">
+                  <p className="truncate text-body font-medium">{file}</p>
+                  <p className="text-meta text-ink-3">
+                    {busy ? 'Wird geprüft …' : error ? 'Konnte nicht gelesen werden' : `${n(rows.length, 'Zeile', 'Zeilen')} gelesen${problems.length ? ` · ${n(problems.length, 'Fehler', 'Fehler')}` : ''}`}
+                  </p>
+                </div>
+                {busy ? <Spinner className="py-0" /> : <IconButton label="Andere Datei wählen" icon={<X />} onClick={reset} />}
+              </Card>
+            ) : (
+              <label
+                htmlFor="import-file"
+                onDragOver={(e) => {
+                  e.preventDefault();
+                  setDrag(true);
+                }}
+                onDragLeave={() => setDrag(false)}
+                onDrop={(e) => {
+                  e.preventDefault();
+                  setDrag(false);
+                  const f = e.dataTransfer.files?.[0];
+                  if (f) onFile(f);
+                }}
+                className={clsx(
+                  'flex min-h-56 cursor-pointer flex-col items-center justify-center gap-3 rounded-xl border border-dashed px-6 py-10 text-center transition-colors',
+                  drag ? 'border-ink bg-surface' : 'border-line-strong bg-surface/60 hover:border-ink-3 hover:bg-surface',
+                )}
+              >
+                <span className="grid size-11 place-items-center rounded-xl border border-line bg-surface text-ink-2 shadow-card">
+                  <Upload className="size-5" />
+                </span>
+                <span>
+                  <span className="block text-title font-semibold">Datei hierher ziehen</span>
+                  <span className="mt-0.5 block text-body text-ink-3">oder hier eine Excel- (.xlsx) oder CSV-Datei auswählen</span>
+                </span>
+                <span className="text-caption text-ink-3">Bis 1000 Zeilen pro Import</span>
+              </label>
+            )}
             <input
+              id="import-file"
               type="file"
               accept=".csv,.xlsx,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
               className="hidden"
-              onChange={(e) => e.target.files?.[0] && onFile(e.target.files[0])}
+              onChange={(e) => {
+                const f = e.target.files?.[0];
+                e.target.value = '';
+                if (f) onFile(f);
+              }}
             />
-          </label>
-          {!!error && (
-            <div className="mt-4">
-              <ErrorBox error={error} />
-            </div>
-          )}
-        </Card>
-
-        {done ? (
-          <Card className="flex flex-col items-center gap-3 p-8 text-center">
-            <CheckCircle2 className="size-10 text-ok" />
-            <p className="text-lg font-semibold">{done.summary.created} Elemente importiert</p>
-            <p className="text-sm text-ink-3">
-              {done.summary.newProperties} neue Objekte · {done.summary.newBuildings} neue Gebäude
-              {done.summary.failed > 0 && ` · ${done.summary.failed} Zeilen übersprungen`}
-            </p>
-            <Link to="/elemente">
-              <Button>Zu den Elementen</Button>
-            </Link>
-          </Card>
-        ) : (
-          (rows.length > 0 || parseErrors.length > 0) && (
-            <Card>
-              <CardHeader
-                title="Vorschau"
-                subtitle={
-                  check
-                    ? `${check.summary.created} Zeilen bereit · ${check.summary.newProperties} neue Objekte · ${check.summary.newBuildings} neue Gebäude`
-                    : `${rows.length} Zeilen gelesen`
-                }
-                action={
-                  <Button icon={<Upload className="size-4" />} disabled={!check?.summary.created} loading={busy} onClick={run}>
-                    {check?.summary.created ?? 0} importieren
-                  </Button>
-                }
-              />
-              {(parseErrors.length > 0 || (check?.summary.failed ?? 0) > 0) && (
-                <ul className="border-b border-line bg-bad-soft/50 px-5 py-3 text-sm text-bad">
-                  {[...parseErrors, ...(check?.results.filter((r) => r.status === 'error').map((r) => ({ line: r.line, message: r.message ?? '' })) ?? [])].map((e, i) => (
-                    <li key={i} className="flex items-center gap-2">
-                      <AlertCircle className="size-3.5" /> Zeile {e.line}: {e.message}
-                    </li>
-                  ))}
-                </ul>
-              )}
-              <div className="overflow-x-auto">
-                <table className="w-full text-sm">
-                  <thead className="border-b border-line bg-sunken/50 text-left text-xs text-ink-3">
-                    <tr>
-                      {['Objekt', 'Gebäude', 'Art', 'Code', 'Standort', 'Hersteller', 'Letzte Prüfung', ''].map((h) => (
-                        <th key={h} className="px-3 py-2 font-medium whitespace-nowrap">
-                          {h}
-                        </th>
-                      ))}
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-line">
-                    {rows.slice(0, 200).map((r, i) => {
-                      const res = resultByLine.get(r.line);
-                      return (
-                        <tr key={i}>
-                          <td className="px-3 py-2">{r.property}</td>
-                          <td className="px-3 py-2">{r.building}</td>
-                          <td className="px-3 py-2 whitespace-nowrap">{getCategory(r.category).label}</td>
-                          <td className="px-3 py-2 font-mono text-xs">{res?.code ?? r.code ?? '–'}</td>
-                          <td className="px-3 py-2">{r.location || '–'}</td>
-                          <td className="px-3 py-2">{r.manufacturer || '–'}</td>
-                          <td className="px-3 py-2">{fmtDate(r.lastInspectedAt)}</td>
-                          <td className="px-3 py-2">{res && <Badge tone={res.status === 'ok' ? 'ok' : 'bad'}>{res.status === 'ok' ? 'OK' : 'Fehler'}</Badge>}</td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
-                {rows.length > 200 && <p className="px-5 py-3 text-xs text-ink-3">… und {rows.length - 200} weitere Zeilen</p>}
-              </div>
+            <Card className="flex flex-col gap-3 p-4 sm:p-5">
+              <p className="text-title font-semibold">So klappt der Import</p>
+              <ul className="flex flex-col gap-1.5 text-meta text-ink-2">
+                <li>Erste Zeile enthält die Spaltennamen.</li>
+                <li>
+                  Pflicht:{' '}
+                  {IMPORT_COLUMNS.filter((c) => c.required)
+                    .map((c) => c.label)
+                    .join(', ')}
+                  .
+                </li>
+                <li>Art z. B. „Feuerschutztür“, „BSK“, „Feuerlöscher“, „Rauchmelder“.</li>
+                <li>Die Excel-Elementliste aus „Berichte“ lässt sich direkt wieder einlesen.</li>
+              </ul>
+              <details className="text-meta text-ink-3">
+                <summary className="cursor-pointer text-ink-2 hover:text-ink">Alle {IMPORT_COLUMNS.length} Spalten</summary>
+                <p className="mt-1.5">{IMPORT_COLUMNS.map((c) => c.label + (c.required ? '*' : '')).join(', ')}</p>
+              </details>
+              <Button variant="secondary" icon={<Download />} onClick={downloadTemplate} className="mt-1 self-start">
+                Vorlage (CSV)
+              </Button>
             </Card>
-          )
-        )}
-      </div>
+          </div>
+
+          {!!error && <ErrorBox error={error} />}
+
+          {(rows.length > 0 || parseErrors.length > 0) && (
+            <section>
+              <div className="mb-3 flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+                <div>
+                  <SectionHeader title="Vorschau" count={rows.length} className="mb-0.5" />
+                  <p className="text-meta text-ink-3" aria-live="polite">
+                    {check
+                      ? `${ready} Zeilen bereit · ${n(check.summary.newProperties, 'neues Objekt', 'neue Objekte')} · ${n(check.summary.newBuildings, 'neues Gebäude', 'neue Gebäude')}`
+                      : busy
+                        ? 'Wird geprüft …'
+                        : `${rows.length} Zeilen gelesen`}
+                  </p>
+                </div>
+                <Button icon={<Upload />} disabled={!ready} loading={busy} onClick={run}>
+                  {ready} importieren
+                </Button>
+              </div>
+              {problems.length > 0 && (
+                <Notice tone="bad" icon={<AlertCircle />} title={`${n(problems.length, 'Zeile wird', 'Zeilen werden')} übersprungen`} className="mb-3">
+                  <ul className="mt-1 flex max-h-40 flex-col gap-0.5 overflow-y-auto text-meta">
+                    {problems.map((e, i) => (
+                      <li key={i}>
+                        Zeile {e.line}: {e.message}
+                      </li>
+                    ))}
+                  </ul>
+                </Notice>
+              )}
+              {rows.length > 0 && <DataTable columns={columns} rows={rows.slice(0, 200)} rowKey={(r) => String(r.line)} />}
+              {rows.length > 200 && <p className="mt-2 text-meta text-ink-3">… und {rows.length - 200} weitere Zeilen</p>}
+            </section>
+          )}
+        </div>
+      )}
     </>
   );
 }

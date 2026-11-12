@@ -1,6 +1,6 @@
 import { useQuery } from '@tanstack/react-query';
 import clsx from 'clsx';
-import { Building, Building2, Search as SearchIcon, SlidersHorizontal } from 'lucide-react';
+import { Building, Building2, CornerDownLeft, Loader2, Search as SearchIcon, SlidersHorizontal } from 'lucide-react';
 import { type ReactNode, useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { parseQuery, queryUrl } from '../../shared/query';
@@ -8,9 +8,11 @@ import { api, type SearchResult, useProperties } from '../api';
 import { allCategories } from '../categories';
 import { categoryLabel } from '../format';
 import { CategoryIcon } from './CategoryIcon';
+import { Kbd } from './ui';
 
 interface Hit {
   key: string;
+  group: string;
   to: string;
   icon: ReactNode;
   title: string;
@@ -34,11 +36,14 @@ export function SearchButton({ onClick, className }: { onClick: () => void; clas
   return (
     <button
       onClick={onClick}
-      className={clsx('flex h-10 w-full items-center gap-2 rounded-lg border border-line bg-surface px-3 text-sm text-ink-3 shadow-card hover:border-line-strong', className)}
+      type="button"
+      className={clsx('flex h-10 w-full items-center gap-2 rounded-lg bg-surface px-3 text-body text-ink-3 shadow-card hover:text-ink-2', className)}
     >
       <SearchIcon className="size-4" />
       <span className="flex-1 text-left">Suchen …</span>
-      <kbd className="hidden rounded border border-line px-1.5 text-[11px] sm:inline">Strg K</kbd>
+      <span className="max-sm:hidden">
+        <Kbd>Strg K</Kbd>
+      </span>
     </button>
   );
 }
@@ -73,9 +78,10 @@ export function SearchPalette({ onClose }: { onClose: () => void }) {
       ? [
           {
             key: 'smart',
+            group: 'Gefilterte Liste',
             to: queryUrl(smart),
             icon: (
-              <span className="grid size-8 place-items-center rounded-lg bg-brand-soft text-brand-strong">
+              <span className="grid size-8 place-items-center rounded-lg bg-ink text-white">
                 <SlidersHorizontal className="size-4" />
               </span>
             ),
@@ -89,6 +95,7 @@ export function SearchPalette({ onClose }: { onClose: () => void }) {
       ...first,
       ...data.assets.map((a) => ({
         key: `a${a.id}`,
+        group: 'Elemente',
         to: `/elemente/${a.id}`,
         icon: <CategoryIcon category={a.category} size="sm" />,
         title: `${a.code} · ${categoryLabel(a.category)}`,
@@ -96,6 +103,7 @@ export function SearchPalette({ onClose }: { onClose: () => void }) {
       })),
       ...data.properties.map((p) => ({
         key: `p${p.id}`,
+        group: 'Objekte',
         to: `/objekte/${p.id}`,
         icon: (
           <span className="grid size-8 place-items-center rounded-lg bg-sunken text-ink-2">
@@ -107,6 +115,7 @@ export function SearchPalette({ onClose }: { onClose: () => void }) {
       })),
       ...data.buildings.map((b) => ({
         key: `b${b.id}`,
+        group: 'Gebäude',
         to: `/objekte/${b.propertyId}`,
         icon: (
           <span className="grid size-8 place-items-center rounded-lg bg-sunken text-ink-2">
@@ -124,13 +133,14 @@ export function SearchPalette({ onClose }: { onClose: () => void }) {
     onClose();
   };
   return (
-    <div className="fixed inset-0 z-[70] flex items-start justify-center bg-ink/30 p-4 pt-[12vh] backdrop-blur-[2px]" onMouseDown={onClose}>
-      <div className="animate-in w-full max-w-xl overflow-hidden rounded-2xl bg-surface shadow-pop" onMouseDown={(e) => e.stopPropagation()} role="dialog" aria-label="Suche">
+    <div className="animate-fade fixed inset-0 z-[70] flex items-start justify-center bg-ink/35 p-3 pt-[10vh] sm:p-4 sm:pt-[12vh]" onMouseDown={onClose}>
+      <div className="animate-in flex max-h-[80dvh] w-full max-w-xl flex-col overflow-hidden rounded-2xl bg-surface shadow-pop" onMouseDown={(e) => e.stopPropagation()} role="dialog" aria-modal aria-label="Suche">
         <div className="flex items-center gap-3 border-b border-line px-4">
-          <SearchIcon className="size-5 text-ink-3" />
+          <SearchIcon className="size-5 shrink-0 text-ink-3" />
           <input
             autoFocus
             value={q}
+            aria-label="Suchbegriff"
             onChange={(e) => setQ(e.target.value)}
             onKeyDown={(e) => {
               if (e.key === 'ArrowDown') {
@@ -142,33 +152,50 @@ export function SearchPalette({ onClose }: { onClose: () => void }) {
               } else if (e.key === 'Enter' && hits[idx]) go(hits[idx]);
             }}
             placeholder="Code, Ort – oder z. B. „überfällige Feuerlöscher Grundschule“"
-            className="h-14 flex-1 bg-transparent text-[15px] outline-none placeholder:text-ink-3"
+            className="h-14 min-w-0 flex-1 bg-transparent text-[16px] outline-none focus-visible:shadow-none placeholder:text-ink-4 sm:text-[15px]"
           />
-          {isFetching && <span className="text-xs text-ink-3">…</span>}
+          {isFetching && <Loader2 className="size-4 shrink-0 animate-spin text-ink-3" aria-label="Sucht" />}
         </div>
-        <ul className="max-h-[50vh] overflow-y-auto p-1.5">
+        <ul className="scroll-thin min-h-0 flex-1 overflow-y-auto p-1.5">
           {debounced.length < 2 ? (
-            <li className="px-3 py-6 text-center text-sm text-ink-3">Mindestens 2 Zeichen eingeben</li>
+            <li className="px-3 py-8 text-center text-body text-ink-3">
+              <p className="font-medium text-ink-2">Element, Objekt oder Gebäude finden</p>
+              <p className="mt-1 text-meta">Tipp: „Brandschutztüren mit Mängeln“ öffnet direkt die gefilterte Liste.</p>
+            </li>
           ) : hits.length === 0 && !isFetching ? (
-            <li className="px-3 py-6 text-center text-sm text-ink-3">Keine Treffer</li>
+            <li className="px-3 py-8 text-center text-body text-ink-3">Keine Treffer für „{debounced}“</li>
           ) : (
             hits.map((h, i) => (
               <li key={h.key}>
+                {(i === 0 || hits[i - 1].group !== h.group) && <p className="px-3 pt-2.5 pb-1 text-caption font-medium text-ink-3">{h.group}</p>}
                 <button
                   onMouseEnter={() => setIdx(i)}
                   onClick={() => go(h)}
-                  className={clsx('flex w-full items-center gap-3 rounded-lg px-3 py-2 text-left', i === idx && 'bg-sunken')}
+                  className={clsx('flex min-h-12 w-full items-center gap-3 rounded-lg px-3 py-2 text-left', i === idx && 'bg-sunken')}
                 >
                   {h.icon}
                   <span className="min-w-0 flex-1">
-                    <span className="block truncate text-sm font-medium">{h.title}</span>
-                    <span className="block truncate text-xs text-ink-3">{h.sub || '–'}</span>
+                    <span className="block truncate text-body font-medium">{h.title}</span>
+                    <span className="block truncate text-meta text-ink-3">{h.sub || '–'}</span>
                   </span>
+                  {i === idx && <CornerDownLeft className="size-4 shrink-0 text-ink-3 max-sm:hidden" />}
                 </button>
               </li>
             ))
           )}
         </ul>
+        <div className="flex items-center gap-4 border-t border-line px-4 py-2 text-caption text-ink-3 max-sm:hidden">
+          <span className="flex items-center gap-1.5">
+            <Kbd>↑</Kbd>
+            <Kbd>↓</Kbd> auswählen
+          </span>
+          <span className="flex items-center gap-1.5">
+            <Kbd>↵</Kbd> öffnen
+          </span>
+          <span className="flex items-center gap-1.5">
+            <Kbd>Esc</Kbd> schließen
+          </span>
+        </div>
       </div>
     </div>
   );

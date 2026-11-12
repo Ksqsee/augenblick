@@ -1,12 +1,12 @@
 // Freigabeseite für OAuth (MCP-Clients wie Claude): Verbindung mit neuem oder vorhandenem API-Schlüssel erlauben.
 import { useQuery } from '@tanstack/react-query';
 import clsx from 'clsx';
-import { Check, KeyRound, Lock, ShieldCheck } from 'lucide-react';
+import { ArrowLeftRight, Check, KeyRound, Lock, ShieldCheck } from 'lucide-react';
 import { type FormEvent, useState } from 'react';
 import { Link, useLocation, useSearchParams } from 'react-router-dom';
 import { api, useMe } from '../api';
 import { Logo } from '../components/Logo';
-import { Button, ErrorBox, Field, Input, Spinner } from '../components/ui';
+import { Avatar, Button, ErrorBox, Field, Input, Spinner } from '../components/ui';
 
 const READ = ['Objekte, Gebäude und Elemente ansehen', 'Prüfungen, Mängel, Aufgaben und Begehungen ansehen', 'Fälligkeiten und Rundgänge planen'];
 const WRITE = ['Aufgaben anlegen, kommentieren und Status ändern', 'Mängel melden und als behoben markieren', 'Elemente anlegen'];
@@ -78,96 +78,107 @@ export function OAuthAuthorize() {
 
   return (
     <Frame>
-      <div className="flex items-center justify-center gap-3">
+      <div className="flex items-center justify-center gap-3" aria-hidden>
         <span className="grid size-14 place-items-center rounded-2xl bg-surface text-xl font-semibold shadow-card">{name.slice(0, 1).toUpperCase()}</span>
-        <span className="flex items-center gap-1 text-ink-3" aria-hidden>
-          <span className="h-px w-5 border-t border-dashed border-line-strong" />
-          <span className="grid size-6 place-items-center rounded-full bg-ok text-white">
-            <Check className="size-3.5" />
-          </span>
-          <span className="h-px w-5 border-t border-dashed border-line-strong" />
-        </span>
+        <ArrowLeftRight className="size-5 text-ink-4" />
         <span className="grid size-14 place-items-center rounded-2xl bg-surface shadow-card">
           <Logo className="[&>span]:hidden" />
         </span>
       </div>
-      <h1 className="mt-5 text-center text-xl leading-snug font-semibold tracking-tight">
-        <span className="text-brand-strong">{name}</span> möchte sich mit Prüfkompass verbinden
-      </h1>
-      {loggedIn && <p className="mt-1 text-center text-sm text-ink-3">Workspace {me.data!.tenant.name}</p>}
+      <h1 className="mt-6 text-center text-h3 font-semibold tracking-tight text-balance sm:text-h2">{name} möchte sich mit Prüfkompass verbinden</h1>
+      <p className="mt-1.5 text-center text-meta text-ink-3">
+        Danach geht es zurück zu <span className="font-medium text-ink-2">{client.data!.redirectHost}</span>
+      </p>
 
-      <form onSubmit={go} className="mt-6 flex flex-col gap-4 rounded-2xl bg-surface p-5 shadow-card">
-        {!!error && <ErrorBox error={error} />}
-        {isAdmin && (
-          <div role="radiogroup" aria-label="Verbindungsart" className="grid grid-cols-2 gap-1 rounded-xl bg-sunken p-1 text-sm font-medium">
-            {(['session', 'key'] as const).map((m) => (
-              <button
-                key={m}
-                type="button"
-                role="radio"
-                aria-checked={mode === m}
-                onClick={() => setMode(m)}
-                className={clsx('h-9 rounded-lg transition', mode === m ? 'bg-surface shadow-card' : 'text-ink-3 hover:text-ink')}
-              >
-                {m === 'session' ? 'Neue Verbindung' : 'Vorhandener Schlüssel'}
-              </button>
-            ))}
+      <form onSubmit={go} className="mt-6 overflow-hidden rounded-2xl bg-surface shadow-card">
+        {loggedIn && (
+          <div className="flex items-center gap-3 border-b border-line px-5 py-3">
+            <Avatar name={me.data!.user.name} size="md" />
+            <div className="min-w-0 flex-1">
+              <p className="truncate text-body font-medium">{me.data!.user.name}</p>
+              <p className="truncate text-meta text-ink-3">Workspace {me.data!.tenant.name}</p>
+            </div>
           </div>
         )}
+        <div className="flex flex-col gap-5 p-5">
+          {!!error && <ErrorBox error={error} />}
+          {isAdmin && (
+            <div role="radiogroup" aria-label="Verbindungsart" className="grid grid-cols-2 gap-0.5 rounded-lg bg-sunken p-0.5 text-meta font-medium">
+              {(['session', 'key'] as const).map((m) => (
+                <button
+                  key={m}
+                  type="button"
+                  role="radio"
+                  aria-checked={mode === m}
+                  onClick={() => setMode(m)}
+                  className={clsx('h-9 rounded-md transition', mode === m ? 'bg-surface text-ink shadow-card' : 'text-ink-2 hover:text-ink')}
+                >
+                  {m === 'session' ? 'Neue Verbindung' : 'Vorhandener Schlüssel'}
+                </button>
+              ))}
+            </div>
+          )}
 
-        {useSession ? (
-          <div className="grid grid-cols-2 gap-2" role="radiogroup" aria-label="Rechte">
-            {(['read', 'write'] as const).map((s) => (
-              <button
-                key={s}
-                type="button"
-                role="radio"
-                aria-checked={scope === s}
-                onClick={() => setScope(s)}
-                className={clsx('rounded-xl border p-3 text-left transition', scope === s ? 'border-ink bg-ink/[0.03]' : 'border-line hover:border-line-strong')}
-              >
-                <span className="block text-sm font-semibold">{s === 'read' ? 'Nur lesen' : 'Lesen und schreiben'}</span>
-                <span className="block text-xs text-ink-3">{s === 'read' ? 'Auswerten, planen, fragen' : 'Auch Aufgaben und Mängel anlegen'}</span>
-              </button>
-            ))}
-          </div>
-        ) : (
-          <Field label="API-Schlüssel" hint="Erstellen unter Einstellungen → API. Die Verbindung hat dieselben Rechte wie der Schlüssel.">
-            {(id) => <Input id={id} required autoComplete="off" spellCheck={false} placeholder="pk_…" className="font-mono text-sm" value={key} onChange={(e) => setKey(e.target.value)} />}
-          </Field>
-        )}
+          {useSession ? (
+            <fieldset>
+              <legend className="mb-2 text-meta font-medium text-ink-2">Rechte</legend>
+              <div className="grid grid-cols-1 gap-2 sm:grid-cols-2" role="radiogroup" aria-label="Rechte">
+                {(['read', 'write'] as const).map((s) => (
+                  <button
+                    key={s}
+                    type="button"
+                    role="radio"
+                    aria-checked={scope === s}
+                    onClick={() => setScope(s)}
+                    className={clsx('flex items-start gap-2.5 rounded-xl border p-3 text-left transition', scope === s ? 'border-ink bg-canvas' : 'border-line hover:border-line-strong')}
+                  >
+                    <span className={clsx('mt-0.5 grid size-4 shrink-0 place-items-center rounded-full border', scope === s ? 'border-ink bg-ink' : 'border-line-strong')}>
+                      {scope === s && <span className="size-1.5 rounded-full bg-white" />}
+                    </span>
+                    <span>
+                      <span className="block text-body font-medium">{s === 'read' ? 'Nur lesen' : 'Lesen und schreiben'}</span>
+                      <span className="block text-meta text-ink-3">{s === 'read' ? 'Auswerten, planen, fragen' : 'Auch Aufgaben und Mängel anlegen'}</span>
+                    </span>
+                  </button>
+                ))}
+              </div>
+            </fieldset>
+          ) : (
+            <Field label="API-Schlüssel" hint="Erstellen unter Einstellungen → API. Die Verbindung hat dieselben Rechte wie der Schlüssel.">
+              {(id) => <Input id={id} required autoComplete="off" spellCheck={false} placeholder="pk_…" className="font-mono" value={key} onChange={(e) => setKey(e.target.value)} />}
+            </Field>
+          )}
 
-        <div>
-          <p className="mb-2 text-xs font-semibold tracking-wide text-ink-3 uppercase">{name} darf danach</p>
-          <ul className="flex flex-col gap-1.5 text-sm">
-            {perms.map((t) => (
-              <li key={t} className="flex gap-2">
-                <Check className="mt-0.5 size-4 shrink-0 text-ok" />
-                {t}
+          <div className="rounded-xl border border-line">
+            <p className="border-b border-line px-4 py-2.5 text-meta font-medium text-ink-2">{name} darf danach</p>
+            <ul className="flex flex-col gap-2 px-4 py-3 text-body">
+              {perms.map((t) => (
+                <li key={t} className="flex gap-2.5">
+                  <Check className="mt-0.5 size-4 shrink-0 text-ok" />
+                  {t}
+                </li>
+              ))}
+              <li className="flex gap-2.5 text-ink-3">
+                <Lock className="mt-0.5 size-4 shrink-0" />
+                Kein Zugriff auf Konto, Team, Passwörter und Einstellungen
               </li>
-            ))}
-            <li className="flex gap-2 text-ink-3">
-              <Lock className="mt-0.5 size-4 shrink-0" />
-              Kein Zugriff auf Konto, Team, Passwörter und Einstellungen
-            </li>
-          </ul>
+            </ul>
+          </div>
         </div>
 
-        <div className="flex flex-col-reverse gap-2 sm:flex-row">
-          <Button type="button" variant="secondary" className="sm:flex-1" onClick={cancel}>
+        <div className="flex flex-col-reverse gap-2 border-t border-line bg-canvas/60 px-5 py-4 sm:flex-row sm:justify-end">
+          <Button type="button" variant="secondary" onClick={cancel}>
             Abbrechen
           </Button>
-          <Button className="sm:flex-1" loading={busy} disabled={!useSession && !key.trim()} icon={<ShieldCheck className="size-4" />}>
+          <Button loading={busy} disabled={!useSession && !key.trim()} icon={<ShieldCheck />}>
             Verbinden
           </Button>
         </div>
-        <p className="text-center text-xs text-ink-3">
-          Danach geht es zurück zu <b className="font-medium text-ink-2">{client.data!.redirectHost}</b>. Trennen jederzeit unter Einstellungen → API.
-        </p>
       </form>
+      <p className="mt-4 text-center text-meta text-ink-3">Trennen jederzeit unter Einstellungen → API.</p>
 
       {!loggedIn && (
-        <p className="mt-4 flex items-center justify-center gap-1.5 text-sm text-ink-3">
+        <p className="mt-3 flex items-center justify-center gap-1.5 text-meta text-ink-3">
           <KeyRound className="size-4" />
           Lieber ohne Schlüssel?{' '}
           <Link to={`/login?next=${encodeURIComponent(loc.pathname + loc.search)}`} className="font-medium text-ink underline underline-offset-4">
@@ -175,7 +186,7 @@ export function OAuthAuthorize() {
           </Link>
         </p>
       )}
-      {loggedIn && !isAdmin && <p className="mt-4 text-center text-sm text-ink-3">Neue Verbindungen ohne Schlüssel können nur Admins freigeben.</p>}
+      {loggedIn && !isAdmin && <p className="mt-3 text-center text-meta text-ink-3">Neue Verbindungen ohne Schlüssel können nur Admins freigeben.</p>}
     </Frame>
   );
 }
