@@ -48,12 +48,17 @@ API: [`docs/api.md`](docs/api.md)
 **Berichte und Daten**
 - PDF im Browser: Prüfprotokoll, Begehung, Mängelbericht, Compliance-Übersicht, **Objektbericht** –
   mit Firmenlogo und einstellbarem Dateinamensschema; mehrere Protokolle als ZIP
+- **Berichtsgenerator**: Prüfungen nach Zeitraum, Objekt/Gebäude, Elementart, Ergebnis, Prüfer und Art filtern –
+  als Prüfbericht (PDF) oder alle Protokolle (ZIP); **Jahresbericht** je Objekt mit Behebungsquote und Begehungen
 - **Berichtsarchiv**: jeder erzeugte Bericht wird gespeichert und bleibt abrufbar
 - Elementliste als **Excel** (wieder importierbar) oder CSV; vollständiges JSON-Backup
 - **Sprache der Dokumente** (Deutsch/Englisch) und **Zeitzone** je Workspace; die Oberfläche ist deutsch
 
 **Team und Konto**
 - Rollen (Inhaber, Admin, Prüfer, Lesezugriff), Einladungen, Inhaberschaft übertragen, Aktivitätsprotokoll
+- **Zugriff je Mitglied**: Prüfer/Lesezugriff auf ausgewählte Objekte oder Gebäude beschränken, Recht zum Anlegen
+  neuer Elemente; **Brandschutzbeauftragte/r** (DGUV 205-003) mit Qualifikation und fälschungssicherem Verlauf –
+  der Status wird bei jeder Begehung festgehalten
 - **Benachrichtigungen** in der App und per Web Push, mit „Nicht stören“-Zeitraum; täglicher Cron für Fälligkeiten
   (einstellbare Vorab-Erinnerung), Wochenübersicht, SLA, Archiv; Hinweis bei Anmeldung von einem neuen Gerät
 - Passwort-Link durch Admin (kein E-Mail-Versand), Sitzungen verwalten, DSGVO-Export/-Löschung, Rechtstexte mit Zustimmung

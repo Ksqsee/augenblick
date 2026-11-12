@@ -465,6 +465,20 @@ export interface Member {
   fireOfficerQualification: string;
 }
 
+export interface BuildingRow {
+  id: string;
+  name: string;
+  propertyId: string;
+}
+
+export interface FlagHistory {
+  /** Hash-Kette unversehrt */
+  chainValid: boolean;
+  /** aktueller Status entspricht dem letzten Eintrag */
+  currentMatches: boolean;
+  entries: { value: boolean; qualification: string; changedAt: number; changedBy: string }[];
+}
+
 export interface EffectiveSchedule {
   key: string;
   label: string;
@@ -553,6 +567,9 @@ export const useMembers = () =>
     queryKey: ['members'],
     queryFn: () => api<{ members: Member[]; invites: { id: string; email: string; role: Role; token: string; createdAt: number }[] }>('/account/members'),
   });
+export const useBuildings = (enabled = true) => useQuery({ queryKey: ['buildings'], queryFn: () => api<BuildingRow[]>('/buildings'), enabled });
+export const useFlagHistory = (userId: string) =>
+  useQuery({ queryKey: ['flag-history', userId], queryFn: () => api<FlagHistory>(`/account/members/${userId}/fire-officer-history`) });
 export const useCategories = () => useQuery({ queryKey: ['categories'], queryFn: () => api<CategoryInfo[]>('/categories'), staleTime: 5 * 60_000 });
 export const useNotifications = () =>
   useQuery({ queryKey: ['notifications'], queryFn: () => api<{ items: Notification[]; unread: number }>('/notifications'), refetchInterval: 60_000 });

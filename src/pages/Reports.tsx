@@ -32,7 +32,6 @@ export function ReportsPage() {
       <PageHeader title="Berichte" subtitle="Nachweise für Betreiber, Behörden und Versicherer" />
       <ReportBuilder />
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">
-        <AnnualReportCard />
         <ReportCard
           icon={<ShieldCheck />}
           title="Compliance-Übersicht"
@@ -76,6 +75,7 @@ export function ReportsPage() {
             </div>
           }
         />
+        <AnnualReportCard />
         <ReportCard
           icon={<FileText />}
           title="Prüfprotokolle"

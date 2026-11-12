@@ -413,7 +413,8 @@ export async function selectionPdf(rows: SelectionRow[], filters: [string, strin
   useBrand(brand);
   const doc = await Doc.create(brand, T('Prüfbericht'));
   doc.title(T('Prüfbericht'), `${rows.length} ${T('Prüfungen')} · ${T('Stand')} ${dt(Date.now())}`);
-  if (filters.length) doc.facts(filters.map(([k, v]) => [T(k), v]));
+  // Werte wie Zeitraum, Ergebnis oder Elementart sind Standardtexte; Namen bleiben unverändert
+  if (filters.length) doc.facts(filters.map(([k, v]) => [T(k), T(v)]));
   const count = (r: string) => rows.filter((x) => x.result === r).length;
   doc.facts([
     [T('Ohne Mängel'), String(count('ok'))],

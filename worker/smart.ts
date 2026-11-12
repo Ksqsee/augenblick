@@ -3,7 +3,7 @@ import { Hono } from 'hono';
 import { z } from 'zod';
 import { DAY } from '../shared/logic';
 import { DEFAULT_SLA, HOUR } from '../shared/sla';
-import { defectScope, tid } from './data';
+import { defectScope, taskScope, tid } from './data';
 import { type AppEnv, type Ctx, id, logActivity, now, requireRole, scopeSql } from './lib';
 
 export const smart = new Hono<AppEnv>();
@@ -81,14 +81,16 @@ smart.get('/smart/suggestions', async (c) => {
       .all<{ id: string; severity: string }>(),
     c.env.DB.prepare(
       `SELECT p.id, p.name, (SELECT MAX(w.next_due_at) FROM walkthroughs w WHERE w.property_id = p.id AND w.status = 'submitted') AS due
-         FROM properties p WHERE p.tenant_id = ?1 AND p.deleted_at IS NULL AND ${scopeSql(c, 'p.id', 'property')}`,
+         FROM properties p WHERE p.tenant_id = ?1 AND p.deleted_at IS NULL AND ${scopeSql(c, 'p.id', 'fullProperty')}`,
     )
       .bind(t)
       .all<{ id: string; name: string; due: number | null }>(),
     c.env.DB.prepare("SELECT id, asset_id FROM inspections WHERE tenant_id = ? AND status = 'draft' AND inspector_id = ? AND updated_at < ? ORDER BY updated_at LIMIT 20")
       .bind(t, u.userId, n - 2 * DAY)
       .all<{ id: string; asset_id: string }>(),
-    c.env.DB.prepare("SELECT COUNT(*) AS n FROM tasks WHERE tenant_id = ? AND status IN ('open','in_progress') AND due_at < ? AND (assignee_id = ? OR assignee_id IS NULL)")
+    c.env.DB.prepare(
+      `SELECT COUNT(*) AS n FROM tasks WHERE tenant_id = ? AND status IN ('open','in_progress') AND due_at < ? AND (assignee_id = ? OR assignee_id IS NULL) AND ${taskScope(c, 'tasks')}`,
+    )
       .bind(t, n, u.userId)
       .first<number>('n'),
   ]);

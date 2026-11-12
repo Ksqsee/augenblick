@@ -5,7 +5,7 @@ import type { Category } from '../shared/catalog';
 import { DEFAULT_SLA, HOUR } from '../shared/sla';
 import { addMonths } from '../shared/logic';
 import { getCategoryDef, getSchedule } from './categories';
-import { assetInScope, randomCode, str, taskScope, tid } from './data';
+import { assetInScope, defectInScope, randomCode, str, taskScope, tid } from './data';
 import { type AppEnv, assertInScope, type Ctx, id, logActivity, notFound, now, parseJson, requireRole, token } from './lib';
 import { notify, notifyTenant } from './notify';
 import { assertNotThrottled, clientIp, recordFailure } from './throttle';
@@ -205,9 +205,13 @@ async function checkRefs(c: Ctx, b: TaskBody) {
     throw new HTTPException(400, { message: 'Zuständige Person ist kein Mitglied' });
   if (b.subcontractorId && !(await one('SELECT 1 FROM subcontractors WHERE tenant_id = ? AND id = ? AND deleted_at IS NULL', b.subcontractorId)))
     throw new HTTPException(400, { message: 'Subunternehmer nicht gefunden' });
-  if (b.assetId && !(await one('SELECT 1 FROM assets WHERE tenant_id = ? AND id = ?', b.assetId))) throw new HTTPException(400, { message: 'Element nicht gefunden' });
-  if (b.assetId && c.get('user').scope) await assetInScope(c, b.assetId);
+  // Eingeschränkte Mitglieder: Bezüge außerhalb des Bereichs wie nicht vorhanden behandeln (404, keine Existenz-Auskunft)
+  if (c.get('user').scope) {
+    if (b.assetId) await assetInScope(c, b.assetId);
+    if (b.defectId) await defectInScope(c, b.defectId);
+  }
   if (b.propertyId) assertInScope(c, 'property', b.propertyId);
+  if (b.assetId && !(await one('SELECT 1 FROM assets WHERE tenant_id = ? AND id = ?', b.assetId))) throw new HTTPException(400, { message: 'Element nicht gefunden' });
   if (b.defectId && !(await one('SELECT 1 FROM defects WHERE tenant_id = ? AND id = ?', b.defectId))) throw new HTTPException(400, { message: 'Mangel nicht gefunden' });
   if (b.propertyId && !(await one('SELECT 1 FROM properties WHERE tenant_id = ? AND id = ?', b.propertyId)))
     throw new HTTPException(400, { message: 'Objekt nicht gefunden' });

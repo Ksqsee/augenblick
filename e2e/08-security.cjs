@@ -134,6 +134,60 @@ function client() {
   const k2 = (await insp('/account/api-keys', { body: { name: 'x', scope: 'read' } })).status;
   check(k2 === 403, `Prüfer darf keine Schlüssel anlegen (${k2})`);
 
+  console.log('· #21 Zugriffsbereich lässt sich nicht umgehen');
+  const S = props[0];
+  const oDefect = (await owner('/defects')).json.find((d) => d.propertyId !== S.id);
+  const O = props.find((p) => p.id === oDefect.propertyId);
+  const pid2 = (await owner('/account/members')).json.members.find((m) => m.email === 'pruefer2@example.com').id;
+  check((await owner(`/account/members/${pid2}/access`, { method: 'PUT', body: { scope: { propertyIds: [S.id], buildingIds: [] }, canCreate: true } })).status === 200, 'Prüfer eingeschränkt');
+  const allA = (await owner('/assets')).json;
+  const oAsset = allA.find((x) => x.propertyId === O.id);
+  const sAsset = allA.find((x) => x.propertyId === S.id);
+  // Mangel außerhalb des Bereichs über eine Aufgabe „erledigen“ (früher möglich: Aufgabe verknüpfen, dann auf erledigt setzen)
+  let res = await insp('/tasks', { body: { title: 'Umgehung', defectId: oDefect.id, status: 'done' } });
+  check(res.status === 404, `Aufgabe mit fremdem Mangel abgelehnt (${res.status})`);
+  check((await owner('/defects')).json.some((d) => d.id === oDefect.id), 'fremder Mangel bleibt offen');
+  const ownTask = await insp('/tasks', { body: { title: 'Eigene Aufgabe', propertyId: S.id } });
+  res = await insp(`/tasks/${ownTask.json.id}`, { method: 'PATCH', body: { title: 'Eigene Aufgabe', propertyId: S.id, defectId: oDefect.id, status: 'done' } });
+  check(res.status === 404, `fremden Mangel nachträglich verknüpfen abgelehnt (${res.status})`);
+  // Existenz nicht erkennbar: unbekannt und außerhalb des Bereichs liefern dieselbe Antwort
+  const ghost = await insp('/tasks', { body: { title: 'x', defectId: 'zzzzzzzzzzzzzzzz' } });
+  const foreign = await insp('/tasks', { body: { title: 'x', assetId: oAsset.id } });
+  check(ghost.status === 404 && foreign.status === 404 && ghost.json.error === (await insp('/tasks', { body: { title: 'x', defectId: oDefect.id } })).json.error, 'kein Existenz-Orakel über Aufgaben');
+  // Offline-Abgleich mit fremdem Element
+  res = await insp('/inspections/offline', {
+    body: { clientId: `sec-${Date.now()}`, assetId: oAsset.id, schedule: 'main', inspectedAt: Date.now(), checkpoints: [{ id: 'a', label: 'A' }], kinds: ['periodic'], answers: { a: 'ok' }, signature: 'data:image/png;base64,AAAA', signerName: 'x' },
+  });
+  check(res.status === 404, `Offline-Prüfung an fremdem Element abgelehnt (${res.status})`);
+  // Etikett-Konflikt verrät nicht den Code eines fremden Elements
+  await owner(`/assets/${oAsset.id}/label`, { method: 'PUT', body: { labelCode: 'SEC-LABEL-21' } });
+  res = await insp(`/assets/${sAsset.id}/label`, { method: 'PUT', body: { labelCode: 'SEC-LABEL-21' } });
+  check(res.status === 409 && !res.text.includes(oAsset.code), `Etikett-Konflikt ohne fremden Code (${res.status} ${res.text})`);
+  // Berichtsarchiv: workspace-weite und fremde Objektberichte nicht abrufbar
+  const ownerCookie = await (async () => {
+    const lr = await fetch(BASE + '/api/auth/login', { method: 'POST', headers: { 'x-pk': '1', 'content-type': 'application/json' }, body: JSON.stringify({ email: 'demo@example.com', password: PW }) });
+    return lr.headers.get('set-cookie').split(';')[0];
+  })();
+  const oReport = await fetch(`${BASE}/api/reports?kind=property&title=Fremd&fileName=f.pdf&propertyId=${O.id}`, {
+    method: 'POST',
+    headers: { 'x-pk': '1', 'content-type': 'application/pdf', cookie: ownerCookie },
+    body: '%PDF-1.4 fremd',
+  }).then((r) => r.json());
+  const list = (await insp('/reports')).json;
+  check(!list.some((x) => x.id === oReport.id || x.id === created.id), 'Archiv zeigt keine fremden bzw. workspace-weiten Berichte');
+  check((await insp(`/reports/${oReport.id}/file`)).status === 404 && (await insp(`/reports/${created.id}/file`)).status === 404, 'fremde Berichte nicht herunterladbar');
+  res = await fetch(`${BASE}/api/reports?kind=compliance&title=x&fileName=x.pdf`, { method: 'POST', headers: { 'x-pk': '1', 'content-type': 'application/pdf', cookie: await (async () => {
+    const lr = await fetch(BASE + '/api/auth/login', { method: 'POST', headers: { 'x-pk': '1', 'content-type': 'application/json' }, body: JSON.stringify({ email: 'pruefer2@example.com', password: PW }) });
+    return lr.headers.get('set-cookie').split(';')[0];
+  })() }, body: '%PDF-1.4 x' });
+  check(res.status === 404, `eingeschränkt: kein workspace-weiter Bericht (${res.status})`);
+  // Aktivitätsprotokoll und Mitgliederliste geben keine fremden Bereiche preis
+  const acts = (await insp('/account/activity')).json;
+  check(acts.every((x) => x.userName === 'Aylin Demir'), 'Aktivitätsprotokoll nur eigene Einträge');
+  check((await insp('/account/members')).json.members.every((m) => m.email === 'pruefer2@example.com' || m.scope === null), 'Bereiche anderer nicht sichtbar');
+  // Rolle/Bereich selbst ändern geht nicht
+  check((await insp(`/account/members/${pid2}/access`, { method: 'PUT', body: { scope: null, canCreate: true } })).status === 403, 'eigenen Bereich nicht selbst aufheben');
+
   console.log(fail.length ? `FAILED ${fail.length}: ${fail.join('; ')}` : 'ALL CHECKS OK');
   if (fail.length) process.exitCode = 1;
 })().catch((e) => {

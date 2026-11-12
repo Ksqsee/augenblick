@@ -6,7 +6,7 @@ import { type Answer, addMonths, computeResult, isComplete } from '../shared/log
 import { BUILDING_TYPES, type BuildingType, questionsFor, WALK_INTERVAL_MONTHS, type WalkQuestion } from '../shared/walkthrough';
 import { severityEnum, str, tid } from './data';
 import { notify } from './notify';
-import { type AppEnv, assertInScope, type Ctx, id, logActivity, notFound, now, parseJson, requireRole, scopeSql } from './lib';
+import { type AppEnv, assertInScope, type Ctx, id, logActivity, notFound, now, parseJson, requireRole, walkScope } from './lib';
 
 export const walks = new Hono<AppEnv>();
 
@@ -27,12 +27,6 @@ const body = z.object({
   signerName: str(160).default(''),
 });
 type Body = z.infer<typeof body>;
-
-/** Begehungen im Zugriffsbereich: Objekt erlaubt und (falls auf ein Gebäude bezogen) Gebäude erlaubt. */
-function walkScope(c: Ctx) {
-  if (!c.get('user').scope) return '1=1';
-  return `(${scopeSql(c, 'w.property_id', 'property')} AND (w.building_id IS NULL OR ${scopeSql(c, 'w.building_id', 'building')}))`;
-}
 
 walks.get('/walkthroughs', async (c) => {
   const rows = await c.env.DB.prepare(
@@ -67,7 +61,7 @@ walks.post('/properties/:id/walkthroughs', async (c) => {
   const origin =
     b.purpose === 'follow_up'
       ? await c.env.DB.prepare(
-          "SELECT id, building_id, building_type, questions, answers FROM walkthroughs WHERE id = ? AND property_id = ? AND tenant_id = ? AND status = 'submitted'",
+          `SELECT w.id, w.building_id, w.building_type, w.questions, w.answers FROM walkthroughs w WHERE w.id = ? AND w.property_id = ? AND w.tenant_id = ? AND w.status = 'submitted' AND ${walkScope(c)}`,
         )
           .bind(b.followUpOf ?? '', p.id, tid(c))
           .first<{ id: string; building_id: string | null; building_type: BuildingType; questions: string; answers: string }>()
@@ -231,7 +225,7 @@ walks.delete('/walkthroughs/:id', async (c) => {
   requireRole(c, 'inspector');
   const u = c.get('user');
   const isAdmin = ['admin', 'owner'].includes(u.role);
-  const r = await c.env.DB.prepare("DELETE FROM walkthroughs WHERE id = ? AND tenant_id = ? AND status = 'draft' AND (inspector_id = ? OR ?)")
+  const r = await c.env.DB.prepare(`DELETE FROM walkthroughs AS w WHERE w.id = ? AND w.tenant_id = ? AND w.status = 'draft' AND (w.inspector_id = ? OR ?) AND ${walkScope(c)}`)
     .bind(c.req.param('id'), tid(c), u.userId, isAdmin ? 1 : 0)
     .run();
   if (!r.meta.changes) throw new HTTPException(409, { message: 'Nur eigene Entwürfe können verworfen werden' });
