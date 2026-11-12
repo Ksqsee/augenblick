@@ -249,7 +249,7 @@ export function FloorPlanPage() {
         </AssetDrawer>
       )}
 
-      <div className="grid grid-cols-1 gap-8 lg:grid-cols-[minmax(0,1fr)_280px] lg:gap-10">
+      <div className="grid grid-cols-1 items-start gap-8 lg:grid-cols-[minmax(0,1fr)_280px] lg:gap-10">
         <Surface className="min-w-0 overflow-hidden">
           <div className="relative">
             {placing && (

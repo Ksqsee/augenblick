@@ -294,7 +294,7 @@ export function Dashboard() {
   ];
 
   return (
-    <div className="grid grid-cols-1 gap-10 lg:grid-cols-[minmax(0,1fr)_280px] lg:gap-10">
+    <div className="grid grid-cols-1 items-start gap-10 lg:grid-cols-[minmax(0,1fr)_280px] lg:gap-10">
       <Surface>
         <header className="flex flex-col gap-5 px-(--row-px) pt-5 pb-6 sm:pt-7 sm:pb-8">
           {/* Zeile 1: Datum + Aktionen; Zeile 2: die Lage als Satz (h1), darf unter die Aktionen laufen */}

@@ -55,6 +55,20 @@ const check = (ok, m) => {
   await p.waitForURL(/\/elemente\//);
   await p.getByText(/seit \d+ (Tag|Tagen|Monat|Monaten|Jahr|Jahren)/).first().waitFor();
   check(await p.getByRole('button', { name: /^(Prüfung starten|Entwurf fortsetzen)$/ }).isVisible(), 'eine Hauptaktion am Element');
+  // Detailseiten mit Seitenspalte: die weiße Fläche endet mit ihrem Inhalt, nicht mit der Seitenspalte
+  const surfaceGap = () =>
+    p.locator('[data-detail-surface]').evaluate((el) => {
+      const kids = [...el.children].map((k) => k.getBoundingClientRect().bottom);
+      return Math.round(el.getBoundingClientRect().bottom - Math.max(...kids));
+    });
+  let gap = await surfaceGap();
+  check(gap >= 0 && gap <= 48, `Element: Fläche endet mit dem Inhalt (${gap}px Rest)`);
+  await p.goto(`${BASE}/objekte/${prop.id}?tab=begehungen`);
+  await p.locator('[data-detail-surface]').waitFor();
+  gap = await surfaceGap();
+  check(gap >= 0 && gap <= 48, `Objekt: Fläche endet mit dem Inhalt (${gap}px Rest)`);
+  await p.goBack();
+  await p.waitForURL(/\/elemente\//);
 
   step('Element: Als Nächstes im selben Gebäude');
   const here = await api(`/assets/${new URL(p.url()).pathname.split('/').pop()}`);

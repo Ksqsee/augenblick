@@ -47,8 +47,10 @@ function ReportRowItem({ title, text, children }: { icon?: ReactNode; title: str
   );
 }
 
+// Text-Knopf vorn in einer Berichtszeile: auf dem Handy (Aktionen unter dem Text) bündig mit der Textkante
+const FLUSH = 'max-md:-ml-4';
 const LinkButton = ({ to, children, icon }: { to: string; children: ReactNode; icon?: ReactNode }) => (
-  <ButtonLink to={to} variant="ghost" icon={icon}>
+  <ButtonLink to={to} variant="ghost" icon={icon} className={FLUSH}>
     {children}
   </ButtonLink>
 );
@@ -116,7 +118,7 @@ export function ReportsPage() {
                 <LinkButton to="/begehungen">Zu den Begehungen</LinkButton>
               </ReportRowItem>
               <ReportRowItem title="JSON-Backup" text="Vollständige Sicherung aller Daten des Workspaces (ohne Passwörter).">
-                <a href="/api/export/backup.json" download>
+                <a href="/api/export/backup.json" download className={FLUSH}>
                   <Button variant="ghost" icon={<Download />} tabIndex={-1}>
                     Herunterladen
                   </Button>

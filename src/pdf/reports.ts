@@ -6,7 +6,7 @@ import { BUILDING_TYPES, WALK_SECTIONS, type WalkSection } from '../../shared/wa
 import { api, type Asset, type Defect, fileUrl, type Inspection, type Me, type PropertyDetail, type PropertyRow, type Walkthrough } from '../api';
 import { getCategory } from '../categories';
 import { RESULT_META } from '../format';
-import { AMBER, type Brand, dataUrlBytes, Doc, GREEN, MUTED, RED } from './layout';
+import { type Brand, dataUrlBytes, Doc, GREEN, MUTED, RED, WARN } from './layout';
 
 // Sprache und Zeitzone des aktuellen Dokuments (wird je Dokument über die Marke gesetzt)
 let lang: DocLanguage = 'de';
@@ -23,7 +23,7 @@ const d = (t: number | null | undefined) => (t ? dateFmt.format(t) : '–');
 const dt = (t: number | null | undefined) => (t ? dtFmt.format(t) : '–');
 const iso = (t: number | null | undefined) => (t ? new Date(t).toISOString().slice(0, 10) : '');
 const ANSWER = { ok: 'i. O.', defect: 'Mangel', na: 'n. z.' } as const;
-const resultColor = (r: string | null) => (r === 'ok' ? GREEN : r === 'critical' ? RED : r === 'defects' ? AMBER : MUTED);
+const resultColor = (r: string | null) => (r === 'ok' ? GREEN : r === 'critical' ? RED : r === 'defects' ? WARN : MUTED);
 
 async function fetchBytes(key: string | null | undefined): Promise<{ bytes: Uint8Array; type: string } | null> {
   if (!key) return null;
@@ -171,7 +171,7 @@ export async function walkthroughPdf(w: Walkthrough, brand: Brand): Promise<Uint
   ]);
   if (w.followUpOf) doc.text(`${T('Nachbegehung zur Begehung vom')} ${d(w.followUpDate)}`, { bold: true });
   if (w.inspectorFireOfficer === false)
-    doc.text(T('Hinweis: Die durchführende Person war zum Zeitpunkt der Begehung im Workspace nicht als Brandschutzbeauftragte/r hinterlegt.'), { color: AMBER });
+    doc.text(T('Hinweis: Die durchführende Person war zum Zeitpunkt der Begehung im Workspace nicht als Brandschutzbeauftragte/r hinterlegt.'), { color: WARN });
   else if (w.inspectorFireOfficer && w.inspectorQualification) doc.text(`${T('Qualifikation')}: ${w.inspectorQualification}`, { color: MUTED });
   if (w.findings.length) {
     doc.heading(T('Feststellungen'));
@@ -551,7 +551,7 @@ export async function annualPdf(data: AnnualData, brand: Brand): Promise<Uint8Ar
             String(w.findings),
             w.result ? T(RESULT_META[w.result as keyof typeof RESULT_META].label) : '–',
           ],
-          color: [undefined, undefined, w.fireOfficer === false ? AMBER : undefined, undefined, resultColor(w.result)],
+          color: [undefined, undefined, w.fireOfficer === false ? WARN : undefined, undefined, resultColor(w.result)],
         })),
       );
     if (p.fireOfficers.length) {

@@ -68,7 +68,7 @@ export function OfflinePage() {
         meta={<StatusText tone={online ? 'ok' : 'warn'}>{online ? 'Verbunden' : 'Kein Netz'}</StatusText>}
       />
 
-      <div className="grid grid-cols-1 gap-10 lg:grid-cols-[minmax(0,1fr)_280px]">
+      <div className="grid grid-cols-1 items-start gap-10 lg:grid-cols-[minmax(0,1fr)_280px]">
         <div className="flex min-w-0 flex-col gap-6">
           {!online && (
             <Notice tone="warn" icon={<CloudOff />} title="Kein Netz">

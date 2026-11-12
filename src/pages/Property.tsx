@@ -163,7 +163,7 @@ export function PropertyPage() {
       {upload && <FloorPlanUpload buildings={p.buildings} onClose={() => setUpload(false)} />}
       {walk && <StartWalkthrough propertyId={p.id} onClose={() => setWalk(false)} />}
 
-      <div className="grid grid-cols-1 gap-8 lg:grid-cols-[minmax(0,1fr)_280px] lg:grid-rows-[auto_1fr] lg:gap-x-10 lg:gap-y-8">
+      <div className="grid grid-cols-1 items-start gap-8 lg:grid-cols-[minmax(0,1fr)_280px] lg:grid-rows-[auto_1fr] lg:gap-x-10 lg:gap-y-8">
         {/* Handy: Prüfstatus direkt unter dem Kopf, der Rest der Seitenspalte nach dem Inhalt */}
         <div className="min-w-0 lg:col-start-2 lg:row-start-1">
           <StatusAside p={p} />
@@ -180,7 +180,7 @@ export function PropertyPage() {
             ]}
           />
 
-          <Surface>
+          <Surface data-detail-surface>
             {tab === 'elemente' &&
               (p.buildings.length === 0 ? (
                 <Section>

@@ -8,8 +8,8 @@ export const MUTED = rgb(0.45, 0.43, 0.4);
 export const LINE = rgb(0.86, 0.84, 0.8);
 export const RED = rgb(0.78, 0.12, 0.12);
 export const GREEN = rgb(0.08, 0.5, 0.24);
-export const AMBER = rgb(0.7, 0.33, 0.04);
-export const BRAND = rgb(0.89, 0.33, 0.11);
+// Ocker wie --color-warn (#8a6a1f); kein Orange mehr
+export const WARN = rgb(0.54, 0.416, 0.12);
 
 export interface Brand {
   company: string;

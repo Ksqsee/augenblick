@@ -135,7 +135,7 @@ export function AssetPage() {
       {edit && <AssetForm initial={a} onClose={() => setEdit(false)} />}
       {start.error && <ErrorBox error={start.error} className="mb-4" />}
 
-      <div className="grid grid-cols-1 gap-8 lg:grid-cols-[minmax(0,1fr)_280px] lg:grid-rows-[auto_1fr] lg:gap-x-10 lg:gap-y-8">
+      <div className="grid grid-cols-1 items-start gap-8 lg:grid-cols-[minmax(0,1fr)_280px] lg:grid-rows-[auto_1fr] lg:gap-x-10 lg:gap-y-8">
         {/* Handy: Eigenschaften direkt unter dem Kopf, der Rest der Seitenspalte nach dem Inhalt */}
         <div className="min-w-0 lg:col-start-2 lg:row-start-1">
           <AsideSection title="Eigenschaften">
@@ -184,7 +184,7 @@ export function AssetPage() {
           </AsideSection>
         </div>
 
-        <Surface className="lg:col-start-1 lg:row-span-2 lg:row-start-1">
+        <Surface data-detail-surface className="lg:col-start-1 lg:row-span-2 lg:row-start-1">
           <IntervalSection asset={a} canEdit={isAdmin} />
           <SchedulesSection asset={a} canEdit={!!canInspect} onStart={(schedule) => start.mutate({ assetId: a.id, schedule })} />
 

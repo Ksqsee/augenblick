@@ -119,6 +119,15 @@ const check = (ok, m) => {
     const over = await mp.evaluate(() => document.documentElement.scrollWidth - innerWidth);
     check(over <= 0, `kein Überlauf ${path} (${over}px)`);
   }
+  // Berichte: Text-Knöpfe (ghost) beginnen bündig mit der Textkante der Zeile
+  await mp.goto(BASE + '/berichte');
+  const row = mp.locator('li', { has: mp.getByText('Compliance-Übersicht', { exact: true }) });
+  const titleX = (await row.getByText('Compliance-Übersicht', { exact: true }).boundingBox()).x;
+  const iconX = (await row.getByRole('link', { name: 'Ansehen' }).locator('svg').boundingBox()).x;
+  check(Math.abs(iconX - titleX) <= 1, `Berichte: „Ansehen“ bündig mit dem Text (${iconX} / ${titleX})`);
+  const backupRow = mp.locator('li', { has: mp.getByText('JSON-Backup', { exact: true }) });
+  const bx = (await backupRow.getByRole('button', { name: 'Herunterladen' }).locator('svg').boundingBox()).x;
+  check(Math.abs(bx - (await backupRow.getByText('JSON-Backup', { exact: true }).boundingBox()).x) <= 1, `Berichte: „Herunterladen“ bündig (${bx})`);
   await mp.goto(BASE + '/');
   await mp.getByRole('button', { name: /^Benachrichtigungen/ }).first().click();
   const box = await mp.getByRole('dialog', { name: 'Benachrichtigungen' }).boundingBox();
