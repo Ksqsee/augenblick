@@ -1,23 +1,23 @@
-import { CheckCheck, ClipboardCheck, EyeOff, SearchX, ShieldCheck, Siren, Wrench } from 'lucide-react';
-import { useState } from 'react';
+import { ClipboardCheck, Siren, Wrench } from 'lucide-react';
+import { Fragment, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { SEVERITIES, type Severity } from '../../shared/catalog';
 import { api, type ActionItem, type Defect, useAction, useActionRequired, useDefects, useMe } from '../api';
 import { useStartInspection } from '../components/AssetDrawer';
 import { ResolveDefectDialog } from '../components/DefectResolve';
-import { Badge, Button, Card, Empty, ErrorBox, FilterBar, Kbd, PageHeader, RowIcon, Segmented, SkeletonList, StatusDot, Tabs, useToast, useUrlTab } from '../components/ui';
+import { Button, Empty, ErrorBox, FilterBar, Kbd, PageHeader, Segmented, SkeletonList, Surface, Tabs, useToast, useUrlTab } from '../components/ui';
 import { DefectPanel } from '../components/work/DefectPanel';
 import { DefectRow } from '../components/work/DefectRow';
 import { taskFromDefect } from '../components/work/model';
-import { listKeys, WorkGroup } from '../components/work/rows';
+import { listKeys, TextAction, WorkGroup } from '../components/work/rows';
 import { TaskForm } from '../components/work/TaskCreate';
-import { fmtDate, type Tone } from '../format';
+import { MetaLine } from '../components/work/TaskRow';
+import { fmtDate } from '../format';
 
 type Tab = 'action' | 'open' | 'resolved' | 'hidden';
 type Source = '' | 'asset' | 'walkthrough';
 
 const SEV_ORDER: Severity[] = ['critical', 'high', 'medium', 'low'];
-const SEV_GROUP_TONE: Record<Severity, Tone | undefined> = { critical: 'bad', high: 'bad', medium: 'warn', low: undefined };
 
 export function DefectsPage() {
   const [params, setParams] = useSearchParams();
@@ -116,40 +116,39 @@ function DefectList({
   );
   if (!rows.length)
     return (
-      <Card>
+      <Surface>
         {needle || source ? (
-          <Empty icon={<SearchX />} title="Keine Treffer" text="Kein Mangel passt zu Suche und Filter." action={<Button variant="secondary" onClick={onReset}>Filter zurücksetzen</Button>} />
+          <Empty title="Kein Mangel passt zu Suche und Filter." action={<TextAction onClick={onReset}>Filter zurücksetzen</TextAction>} />
         ) : tab === 'open' ? (
-          <Empty icon={<ShieldCheck />} title="Keine offenen Mängel" text="Alles in Ordnung. Neue Mängel kommen aus Prüfungen, Begehungen oder über Erfassen." />
+          <Empty title="Keine offenen Mängel." text="Neue Mängel kommen aus Prüfungen, Begehungen oder über Erfassen." />
         ) : tab === 'hidden' ? (
-          <Empty icon={<EyeOff />} title="Nichts ausgeblendet" text="Doppelt oder irrtümlich erfasste Mängel kannst du im Detail ausblenden." />
+          <Empty title="Nichts ausgeblendet." text="Doppelt oder irrtümlich erfasste Mängel kannst du im Detail ausblenden." />
         ) : (
-          <Empty icon={<CheckCheck />} title="Noch nichts behoben" text="Behobene Mängel erscheinen hier – mit Notiz und Foto." />
+          <Empty title="Noch nichts behoben." text="Behobene Mängel erscheinen hier – mit Notiz und Foto." />
         )}
-      </Card>
+      </Surface>
     );
   const groups =
     tab === 'open'
-      ? SEV_ORDER.map((s) => ({ key: s, label: SEVERITIES[s], tone: SEV_GROUP_TONE[s], items: rows.filter((d) => d.severity === s) })).filter((g) => g.items.length)
+      ? SEV_ORDER.map((s) => ({ key: s, label: SEVERITIES[s], items: rows.filter((d) => d.severity === s) })).filter((g) => g.items.length)
       : [
           {
             key: tab,
             label: tab === 'hidden' ? 'Ausgeblendet' : 'Behoben',
-            tone: undefined,
             items: tab === 'resolved' ? [...rows].sort((a, b) => (b.resolvedAt ?? 0) - (a.resolvedAt ?? 0)) : rows,
           },
         ];
   return (
     <>
-      <Card className="overflow-hidden" onKeyDown={listKeys()}>
+      <Surface onKeyDown={listKeys()}>
         {groups.map((g) => (
-          <WorkGroup key={g.key} label={g.label} count={g.items.length} tone={g.tone}>
+          <WorkGroup key={g.key} label={g.label} count={g.items.length}>
             {g.items.map((d) => (
               <DefectRow key={d.id} d={d} canEdit={canEdit} onOpen={() => onOpen(d.id)} onResolve={() => onResolve(d.id)} onReopen={() => reopen.mutate(d.id)} />
             ))}
           </WorkGroup>
         ))}
-      </Card>
+      </Surface>
       <p className="mt-3 hidden items-center gap-1.5 text-caption text-ink-3 lg:flex">
         <Kbd>↑</Kbd>
         <Kbd>↓</Kbd> bewegen · <Kbd>Enter</Kbd> öffnen
@@ -175,59 +174,53 @@ function ActionRequired({ onDefect }: { onDefect: (id: string) => void }) {
   if (error) return <ErrorBox error={error} onRetry={() => refetch()} />;
   if (!data?.length)
     return (
-      <Card>
-        <Empty icon={<ShieldCheck />} title="Alles im Griff" text="Keine schweren Mängel ohne Aufgabe, keine überfälligen Aufgaben oder Prüfungen." />
-      </Card>
+      <Surface>
+        <Empty title="Alles im Griff." text="Keine schweren Mängel ohne Aufgabe, keine überfälligen Aufgaben oder Prüfungen." />
+      </Surface>
     );
   const counts = { defect: 0, task: 0, asset: 0 };
   for (const x of data) counts[x.kind]++;
-  const toneOf = (x: ActionItem): Tone => (x.kind === 'defect' ? (x.level === 'critical' ? 'bad' : 'warn') : x.kind === 'task' && x.level === 'high' ? 'bad' : 'warn');
+  const lage = [
+    counts.defect && `${counts.defect} schwere ${counts.defect === 1 ? 'Mangel' : 'Mängel'} ohne Aufgabe`,
+    counts.task && `${counts.task} überfällige ${counts.task === 1 ? 'Aufgabe' : 'Aufgaben'}`,
+    counts.asset && `${counts.asset} überfällige ${counts.asset === 1 ? 'Prüfung' : 'Prüfungen'}`,
+  ].filter((x): x is string => !!x);
+  const critical = (x: ActionItem) => x.kind === 'defect' && x.level === 'critical';
   return (
-    <>
-      <p className="mb-3 flex flex-wrap items-center gap-x-4 gap-y-1 text-meta text-ink-2">
-        <span className="flex items-center gap-1.5">
-          <StatusDot tone="bad" />
-          <b className="font-semibold tabular-nums">{counts.defect}</b> schwere {counts.defect === 1 ? 'Mangel' : 'Mängel'} ohne Aufgabe
-        </span>
-        <span className="flex items-center gap-1.5">
-          <StatusDot tone="warn" />
-          <b className="font-semibold tabular-nums">{counts.task}</b> überfällige {counts.task === 1 ? 'Aufgabe' : 'Aufgaben'}
-        </span>
-        <span className="flex items-center gap-1.5">
-          <StatusDot tone="warn" />
-          <b className="font-semibold tabular-nums">{counts.asset}</b> überfällige {counts.asset === 1 ? 'Prüfung' : 'Prüfungen'}
-        </span>
-      </p>
-      <Card className="overflow-hidden">
-        <ul className="divide-y divide-line" aria-label="Nach Dringlichkeit sortiert" onKeyDown={listKeys()}>
+    <Surface>
+      <section aria-label="Nach Dringlichkeit sortiert" className="pb-2">
+        <p className="px-(--row-px) pt-5 pb-3 text-body text-ink-2 sm:pt-6">
+          {lage.map((l, i) => (
+            <Fragment key={l}>
+              {i > 0 && (i === lage.length - 1 ? ' und ' : ', ')}
+              <span className="text-ink">{l}</span>
+            </Fragment>
+          ))}
+          . Nach Dringlichkeit sortiert.
+        </p>
+        <ul className="pk-list [--row-inset:28px]" onKeyDown={listKeys()}>
           {data.map((x) => {
             const M = KIND_META[x.kind];
-            const tone = toneOf(x);
             const open = () => (x.kind === 'defect' ? onDefect(x.id) : x.kind === 'task' ? navigate(`/aufgaben?id=${x.id}`) : navigate(`/elemente/${x.id}`));
             return (
-              <li key={`${x.kind}-${x.id}`} className="flex items-center transition-colors hover:bg-hover focus-within:shadow-[inset_2px_0_0_var(--color-brand)]" data-action={x.kind}>
-                <button type="button" data-row-main onClick={open} className="flex min-h-14 min-w-0 flex-1 items-center gap-3 px-4 py-2 text-left outline-none sm:min-h-12">
-                  <RowIcon tone={tone}>
-                    <M.icon />
-                  </RowIcon>
+              <li key={`${x.kind}-${x.id}`} className="group relative flex items-center transition-colors hover:bg-hover has-[[data-row-main]:focus-visible]:bg-hover" data-action={x.kind}>
+                <button type="button" data-row-main onClick={open} className="flex min-h-[52px] min-w-0 flex-1 items-center gap-3 px-(--row-px) py-2 text-left outline-none sm:min-h-12">
+                  <M.icon className="size-4 shrink-0 text-ink-3" aria-label={M.label} />
                   <span className="min-w-0 flex-1">
-                    <span className="block truncate text-body font-medium">{x.title}</span>
-                    <span className="mt-0.5 block truncate text-meta text-ink-3">
-                      <span className={tone === 'bad' ? 'font-medium text-bad' : 'font-medium text-ink-2'}>
-                        {x.kind === 'defect' ? `${SEVERITIES[x.level as Severity] ?? ''} ${x.reason}` : `${x.reason} seit ${fmtDate(x.at)}`}
-                      </span>
-                      {' · '}
-                      {x.subtitle}
-                    </span>
+                    <span className="block truncate text-body text-ink">{x.title}</span>
+                    <MetaLine
+                      parts={[
+                        <span className={critical(x) ? 'text-shu' : 'text-ink-2'}>{x.kind === 'defect' ? `${SEVERITIES[x.level as Severity] ?? ''} ${x.reason}`.trim() : x.reason}</span>,
+                        x.subtitle,
+                      ]}
+                    />
                   </span>
-                  <span className="hidden shrink-0 sm:block">
-                    <Badge tone={tone} variant="outline">
-                      {M.label}
-                    </Badge>
+                  <span className="shrink-0 text-meta text-ink-3 tabular-nums">
+                    {x.kind === 'defect' ? fmtDate(x.at) : `seit ${fmtDate(x.at)}`}
                   </span>
                 </button>
                 {x.kind === 'asset' && canEdit && (
-                  <span className="mr-4 hidden sm:block">
+                  <span className="pointer-events-none absolute inset-y-0 right-0 hidden items-center bg-hover pr-(--row-px) pl-3 opacity-0 transition-opacity group-hover:pointer-events-auto group-hover:opacity-100 focus-within:pointer-events-auto focus-within:opacity-100 sm:flex">
                     <Button size="sm" variant="secondary" loading={start.isPending && start.variables === x.id} onClick={() => start.mutate(x.id)}>
                       Prüfen
                     </Button>
@@ -237,7 +230,7 @@ function ActionRequired({ onDefect }: { onDefect: (id: string) => void }) {
             );
           })}
         </ul>
-      </Card>
-    </>
+      </section>
+    </Surface>
   );
 }

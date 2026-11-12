@@ -81,7 +81,7 @@ require('fs').mkdirSync(OUT, { recursive: true });
   await p.goto(BASE + '/maengel');
   await p.getByText('Dichtungen (Rauch-').first().waitFor();
   // schwerer Mangel (Hoch) → Aufgabe wurde automatisch angelegt
-  await p.getByText('Aufgabe', { exact: true }).first().waitFor();
+  await p.getByText('mit Aufgabe', { exact: true }).first().waitFor();
   await shot('08-defects');
   await p.goto(BASE + '/elemente'); await p.waitForTimeout(800); await shot('09-assets');
   await p.goto(BASE + '/pruefungen?tab=never'); await p.waitForTimeout(800); await shot('10-inspections');

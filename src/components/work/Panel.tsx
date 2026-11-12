@@ -4,8 +4,9 @@ import { type ReactNode, useEffect, useId, useRef } from 'react';
 import { IconButton } from '../ui';
 
 /**
- * Detailpanel für Aufgaben und Mängel (Linear/Things-Stil): rechts einfahrend, breit genug für
- * Inhalt + Eigenschaften-Spalte. Auf dem Handy ein Vollbild-Sheet von unten, Eigenschaften oben.
+ * Detailpanel für Aufgaben und Mängel (v3): rechts einfahrend, eine weiße Fläche. Links der Inhalt in
+ * Abschnitten mit Haarlinien, rechts die Eigenschaften als schlichter Text (Bezeichnung grau, Wert in Tinte),
+ * getrennt durch eine senkrechte Haarlinie. Auf dem Handy ein Vollbild-Sheet von unten, Eigenschaften oben.
  * Escape schließt nur, wenn kein anderer Dialog darüber liegt.
  */
 export function WorkPanel({
@@ -69,12 +70,12 @@ export function WorkPanel({
           <div id={titleId} className="mt-1 min-w-0 text-h2 font-semibold tracking-[-0.01em] break-words [contain:inline-size]">
             {title}
           </div>
-          {meta && <div className="mt-2.5 flex flex-wrap items-center gap-1.5">{meta}</div>}
+          {meta && <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-meta text-ink-3">{meta}</div>}
         </header>
         <div className="scroll-thin min-h-0 flex-1 overflow-y-auto overscroll-contain">
           <div className={clsx('grid min-h-full grid-cols-1', side && 'md:grid-cols-[minmax(0,1fr)_19.5rem]')}>
             <div className="min-w-0 px-4 py-5 sm:px-6 sm:py-6">{children}</div>
-            {side && <div className="order-first min-w-0 border-b border-line bg-canvas/60 px-4 py-4 sm:px-6 md:order-none md:border-b-0 md:border-l md:px-5 md:py-6">{side}</div>}
+            {side && <div className="order-first min-w-0 border-b border-line px-4 py-4 sm:px-6 md:order-none md:border-b-0 md:border-l md:px-5 md:py-6">{side}</div>}
           </div>
         </div>
         {footer && (
@@ -87,12 +88,12 @@ export function WorkPanel({
   );
 }
 
-/** Abschnitt im Panel: kleine Überschrift + Inhalt. */
+/** Abschnitt im Panel: kleiner grauer Titel (13 px) + Inhalt, Haarlinie darüber (nicht beim ersten). */
 export function PanelSection({ title, action, children, className }: { title: ReactNode; action?: ReactNode; children: ReactNode; className?: string }) {
   return (
-    <section className={clsx('mt-7 first:mt-0', className)}>
-      <div className="mb-2.5 flex min-h-7 items-center justify-between gap-3">
-        <h3 className="text-meta font-semibold text-ink-2">{title}</h3>
+    <section className={clsx('mt-6 border-t border-line pt-5 first:mt-0 first:border-t-0 first:pt-0', className)}>
+      <div className="mb-2 flex min-h-6 items-center justify-between gap-3">
+        <h3 className="text-meta font-medium text-ink-3">{title}</h3>
         {action}
       </div>
       {children}
@@ -103,7 +104,7 @@ export function PanelSection({ title, action, children, className }: { title: Re
 /** Eigenschaft in der Seitenspalte: Bezeichnung über dem Wert (gestapelt, ruhig). */
 export function Prop({ label, children, htmlFor }: { label: string; children: ReactNode; htmlFor?: string }) {
   return (
-    <div className="flex min-w-0 flex-col gap-0.5 py-1.5 md:grid md:grid-cols-[6.25rem_minmax(0,1fr)] md:items-start md:gap-2 md:py-0">
+    <div className="flex min-w-0 flex-col gap-0.5 py-1.5 md:grid md:grid-cols-[7.5rem_minmax(0,1fr)] md:items-start md:gap-2 md:py-0">
       {htmlFor ? (
         <label htmlFor={htmlFor} className="text-caption font-medium text-ink-3 md:py-2.5 md:text-meta md:font-normal">
           {label}
@@ -118,4 +119,4 @@ export function Prop({ label, children, htmlFor }: { label: string; children: Re
 
 /** Schlichtes Auswahlfeld für Eigenschaften – sieht aus wie Text, wird beim Hover zum Feld. */
 export const propSelectCls =
-  'h-9 w-full min-w-0 cursor-pointer appearance-none truncate rounded-lg border border-transparent bg-transparent pr-7 pl-2 -ml-2 text-body text-ink transition-colors hover:border-line hover:bg-surface focus:border-ink-3 focus:bg-surface focus:outline-none focus:ring-[3px] focus:ring-ink/8 disabled:cursor-default disabled:hover:border-transparent disabled:hover:bg-transparent bg-[url("data:image/svg+xml,%3Csvg xmlns=%27http://www.w3.org/2000/svg%27 width=%2716%27 height=%2716%27 fill=%27none%27 stroke=%27%23b7b1a7%27 stroke-width=%271.75%27%3E%3Cpath d=%27m4 6 4 4 4-4%27/%3E%3C/svg%3E")] bg-[right_6px_center] bg-no-repeat disabled:bg-none';
+  'h-9 w-full min-w-0 cursor-pointer appearance-none truncate rounded-md border border-transparent bg-transparent pr-7 pl-2 -ml-2 text-body text-ink transition-colors hover:border-line hover:bg-surface focus:border-ink-3 focus:bg-surface focus:outline-none focus:ring-[3px] focus:ring-ink/8 disabled:cursor-default disabled:hover:border-transparent disabled:hover:bg-transparent bg-[url("data:image/svg+xml,%3Csvg xmlns=%27http://www.w3.org/2000/svg%27 width=%2716%27 height=%2716%27 fill=%27none%27 stroke=%27%23b7b1a7%27 stroke-width=%271.75%27%3E%3Cpath d=%27m4 6 4 4 4-4%27/%3E%3C/svg%3E")] bg-[right_6px_center] bg-no-repeat disabled:bg-none';

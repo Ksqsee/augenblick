@@ -17,11 +17,11 @@ function Photo({ k, label, tone }: { k?: string | null; label: string; tone?: 'o
   if (!k) return <Placeholder text="Kein Foto" />;
   return (
     <figure className="min-w-0">
-      <a href={fileUrl(k)} target="_blank" rel="noreferrer" className="block overflow-hidden rounded-xl bg-sunken">
-        <img src={fileUrl(k)} alt={label} className="aspect-[4/3] w-full object-cover transition-transform duration-200 hover:scale-[1.02]" />
+      <a href={fileUrl(k)} target="_blank" rel="noreferrer" className="block overflow-hidden rounded-lg bg-sunken transition-opacity hover:opacity-90">
+        <img src={fileUrl(k)} alt={label} className="aspect-[4/3] w-full object-cover" />
       </a>
-      <figcaption className="mt-1.5 flex items-center gap-1.5 text-caption font-medium text-ink-2">
-        <span className={clsx('size-1.5 rounded-full', tone === 'ok' ? 'bg-ok' : 'bg-ink-3')} />
+      <figcaption className="mt-1.5 flex items-center gap-1.5 text-meta text-ink-3">
+        <span className={clsx('size-1.5 rounded-full', tone === 'ok' ? 'bg-ok' : 'bg-ink-4')} />
         {label}
       </figcaption>
     </figure>
@@ -31,13 +31,13 @@ function Photo({ k, label, tone }: { k?: string | null; label: string; tone?: 'o
 function Placeholder({ text }: { text: string }) {
   return (
     <div className="min-w-0">
-      <div className="grid aspect-[4/3] w-full place-items-center rounded-xl border border-dashed border-line-strong text-center text-caption text-ink-3">
+      <div className="grid aspect-[4/3] w-full place-items-center rounded-lg border border-dashed border-line text-center text-caption text-ink-3">
         <span className="flex flex-col items-center gap-1.5 px-2">
           <ImageOff className="size-4 text-ink-4" />
           {text}
         </span>
       </div>
-      <p className="mt-1.5 text-caption text-transparent select-none" aria-hidden>
+      <p className="mt-1.5 text-meta text-transparent select-none" aria-hidden>
         –
       </p>
     </div>
@@ -49,19 +49,19 @@ export function PhotoPicker({ photo, onPick, onClear, label }: { photo: { url: s
   if (photo)
     return (
       <div className="relative w-36 shrink-0">
-        <img src={photo.url} alt={label} className="aspect-[4/3] w-full rounded-xl object-cover shadow-card" />
+        <img src={photo.url} alt={label} className="aspect-[4/3] w-full rounded-lg object-cover shadow-card" />
         <button
           type="button"
           aria-label="Foto entfernen"
           onClick={onClear}
-          className="absolute -top-2 -right-2 grid size-8 place-items-center rounded-full bg-ink text-white shadow-pop ring-2 ring-surface transition active:scale-95"
+          className="absolute -top-2 -right-2 grid size-8 place-items-center rounded-full bg-ink text-white shadow-pop ring-2 ring-surface transition-opacity active:opacity-85"
         >
           <X className="size-4" />
         </button>
       </div>
     );
   return (
-    <label className="flex aspect-[4/3] w-36 shrink-0 cursor-pointer flex-col items-center justify-center gap-1.5 rounded-xl border border-dashed border-line-strong bg-canvas text-meta font-medium text-ink-2 transition-colors hover:border-ink-3 hover:bg-hover focus-within:ring-[3px] focus-within:ring-ink/10">
+    <label className="flex aspect-[4/3] w-36 shrink-0 cursor-pointer flex-col items-center justify-center gap-1.5 rounded-lg border border-dashed border-line-strong text-meta text-ink-2 transition-colors hover:border-ink-3 hover:bg-hover focus-within:ring-2 focus-within:ring-ink focus-within:ring-offset-2">
       <Camera className="size-5 text-ink-3" />
       Foto
       <input

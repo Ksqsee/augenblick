@@ -16,7 +16,7 @@ function CommentBody({ c, names }: { c: TaskComment; names: Map<string, string> 
     <p className="break-words whitespace-pre-line text-ink">
       {c.body.split(re).map((part, i) =>
         mentioned.some((n) => part === `@${n}`) ? (
-          <span key={i} className="rounded-[5px] bg-info-soft px-1 py-px font-medium text-info">
+          <span key={i} className="font-medium text-ink">
             {part}
           </span>
         ) : (
@@ -123,7 +123,7 @@ function Composer({ taskId }: { taskId: string }) {
           aria-label="Kommentar"
           value={body}
           onKeyDown={onKey}
-          className="rounded-full pr-12 pl-4"
+          className="pr-12"
           onChange={(e) => {
             setBody(e.target.value);
             setCaret(e.target.selectionStart ?? e.target.value.length);
@@ -135,15 +135,15 @@ function Composer({ taskId }: { taskId: string }) {
           aria-label="Senden"
           disabled={add.isPending}
           className={clsx(
-            'absolute top-1/2 right-1.5 grid size-8 -translate-y-1/2 place-items-center rounded-full transition-colors',
-            body.trim() ? 'bg-ink text-white hover:bg-ink/88' : 'bg-sunken text-ink-3',
+            'absolute top-1/2 right-1.5 grid size-8 -translate-y-1/2 place-items-center rounded-md transition-colors sm:size-7',
+            body.trim() ? 'bg-ink text-white hover:bg-ink/88' : 'text-ink-4',
           )}
         >
           <ArrowUp className="size-4" strokeWidth={2.25} />
         </button>
       </div>
       {suggestions.length > 0 && (
-        <ul role="listbox" aria-label="Teammitglied erwähnen" className="animate-menu absolute bottom-full left-0 z-10 mb-1.5 w-72 max-w-full overflow-hidden rounded-xl bg-surface p-1 shadow-pop sm:left-9">
+        <ul role="listbox" aria-label="Teammitglied erwähnen" className="animate-menu absolute bottom-full left-0 z-10 mb-1.5 w-72 max-w-full overflow-hidden rounded-lg bg-surface p-1 shadow-pop sm:left-9">
           {suggestions.map((m, i) => (
             <li key={m.id}>
               <button
@@ -154,7 +154,7 @@ function Composer({ taskId }: { taskId: string }) {
                   e.preventDefault();
                   choose(m);
                 }}
-                className={clsx('flex h-10 w-full items-center gap-2.5 rounded-md px-2 text-left text-body sm:h-9', i === active ? 'bg-sunken' : 'hover:bg-hover')}
+                className={clsx('flex h-10 w-full items-center gap-2.5 rounded-md px-2 text-left text-body sm:h-9', i === active ? 'bg-selected' : 'hover:bg-hover')}
               >
                 <Avatar name={m.name} size="xs" />
                 <span className="truncate font-medium">{m.name}</span>

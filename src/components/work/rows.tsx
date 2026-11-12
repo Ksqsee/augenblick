@@ -1,13 +1,11 @@
 import clsx from 'clsx';
 import { Check, RotateCcw } from 'lucide-react';
 import { type KeyboardEvent, type ReactNode, useRef, useState } from 'react';
-import type { Tone } from '../../format';
-import { StatusDot } from '../ui';
 import { typing } from './model';
 
 /**
- * Runder Erledigt-Schalter (Things-Stil). done = grün gefüllt mit Haken.
- * Großes Trefferfeld (40 px), sichtbarer Kreis 20 px.
+ * Abhak-Kreis (Apple-Erinnerungen): leer = dünner Ring in ink-4, erledigt = Tinte mit Haken.
+ * „In Arbeit“ = halb gefüllt. Großes Trefferfeld (40 px), sichtbarer Kreis 20 px.
  */
 export function StatusToggle({
   done,
@@ -15,7 +13,6 @@ export function StatusToggle({
   onToggle,
   label,
   disabled,
-  tone,
 }: {
   done: boolean;
   /** halb gefüllt = „In Arbeit“ */
@@ -23,23 +20,20 @@ export function StatusToggle({
   onToggle?: () => void;
   label: string;
   disabled?: boolean;
-  /** Farbe des leeren Kreises (z. B. bad bei kritisch) */
-  tone?: Tone;
 }) {
-  const ring = tone === 'bad' ? 'border-bad/60' : tone === 'warn' ? 'border-warn/60' : 'border-line-strong';
   const circle = (
     <span
       className={clsx(
-        'relative grid size-5 place-items-center rounded-full border-[1.5px] transition-[background-color,border-color,transform] duration-150',
-        done ? 'border-ok bg-ok text-white' : [ring, !disabled && 'group-hover/t:border-ok group-hover/t:bg-ok-soft group-active/t:scale-90'],
+        'relative grid size-5 place-items-center overflow-hidden rounded-full border-[1.5px] transition-colors duration-150',
+        done ? 'border-ink bg-ink text-white' : ['border-ink-4', !disabled && 'group-hover/t:border-ink-3'],
       )}
     >
       {done ? (
         <Check className="size-3" strokeWidth={3} />
       ) : (
         <>
-          {progress && <span className="absolute inset-[3px] rounded-full bg-[conic-gradient(var(--color-info)_0_50%,transparent_50%_100%)]" />}
-          {!disabled && <Check className="size-3 text-ok opacity-0 transition-opacity group-hover/t:opacity-100" strokeWidth={3} />}
+          {progress && <span className="absolute inset-y-0 left-0 w-1/2 bg-ink-4" />}
+          {!disabled && <Check className="relative size-3 text-ink-3 opacity-0 transition-opacity group-hover/t:opacity-100" strokeWidth={3} />}
         </>
       )}
     </span>
@@ -51,70 +45,71 @@ export function StatusToggle({
       </span>
     );
   return (
-    <button type="button" onClick={onToggle} aria-label={label} title={label} className="group/t grid size-10 shrink-0 place-items-center rounded-full focus-visible:bg-sunken">
+    <button type="button" onClick={onToggle} aria-label={label} title={label} className="group/t grid size-10 shrink-0 place-items-center rounded-full focus-visible:bg-hover">
       {circle}
     </button>
   );
 }
 
-/** Auswahlkästchen am Zeilenanfang: Desktop erst beim Überfahren, Handy nur im Auswahlmodus. */
+/**
+ * Auswahlkästchen einer Zeile. Desktop: im linken Rand der Fläche, erst beim Überfahren sichtbar.
+ * Handy: nur im Auswahlmodus, dann anstelle des Abhak-Kreises.
+ */
 export function RowCheck({ checked, onChange, label, visible }: { checked: boolean; onChange: () => void; label: string; visible: boolean }) {
   return (
     <label
       className={clsx(
-        'h-full shrink-0 cursor-pointer items-center self-stretch pr-1 pl-4 sm:pr-0 sm:pl-2',
+        'shrink-0 cursor-pointer items-center self-stretch pr-1 pl-(--row-px) sm:absolute sm:inset-y-0 sm:left-0 sm:z-[1] sm:w-[calc(var(--row-px)-2px)] sm:justify-center sm:p-0',
         visible || checked ? 'flex' : 'hidden sm:flex sm:opacity-0 sm:group-hover:opacity-100 sm:focus-within:opacity-100',
       )}
     >
-      <input type="checkbox" className="size-[18px] rounded accent-ink sm:size-4" aria-label={label} checked={checked} onChange={onChange} />
+      <input type="checkbox" className="size-[18px] rounded accent-ink sm:size-3.5" aria-label={label} checked={checked} onChange={onChange} />
     </label>
   );
 }
 
-/** Gruppe in einer Arbeitsliste: eigener Abschnitt mit Überschrift (Linear-Stil). */
+/** Zeilen einer Arbeitsliste: Haarlinien ab dem Textanfang (nach dem Abhak-Kreis), wie bei Erinnerungen. */
+export function WorkList({ children, className, ...p }: { children: ReactNode; className?: string } & React.HTMLAttributes<HTMLUListElement>) {
+  return (
+    <ul className={clsx('pk-list [--row-inset:32px]', className)} {...p}>
+      {children}
+    </ul>
+  );
+}
+
+/** Abstand vor dem Abhak-Kreis: der Kreis (nicht sein Trefferfeld) steht bündig mit den Abschnittstiteln. */
+export const rowLeadCls = 'shrink-0 pl-[calc(var(--row-px)-10px)]';
+
+/** Gruppe in einer Arbeitsliste: kleiner grauer Titel (h2) mit Zahl, Haarlinie darüber – kein Balken. */
 export function WorkGroup({
   label,
   count,
-  tone,
   select,
   children,
 }: {
   label: string;
   count: number;
-  tone?: Tone;
   select?: { checked: boolean; onChange: (v: boolean) => void; visible: boolean };
   children: ReactNode;
 }) {
   return (
-    <section aria-label={label} className="border-b border-line last:border-b-0">
-      <div className="group flex h-9 items-center gap-2 border-b border-line bg-canvas/70 pr-4 pl-4 sm:pl-2">
+    <section aria-label={label} className="border-t border-line pb-2 first:border-t-0">
+      <div className="group relative flex min-h-6 items-center gap-2 px-(--row-px) pt-5 pb-1.5 sm:pt-6">
         {select && (
-          <label className={clsx('cursor-pointer items-center', select.visible || select.checked ? 'flex' : 'hidden sm:flex sm:opacity-0 sm:group-hover:opacity-100 sm:focus-within:opacity-100')}>
-            <input type="checkbox" className="size-4 rounded accent-ink" aria-label={`Alle in „${label}“ auswählen`} checked={select.checked} onChange={(e) => select.onChange(e.target.checked)} />
+          <label
+            className={clsx(
+              'cursor-pointer items-center sm:absolute sm:bottom-1.5 sm:left-0 sm:h-6 sm:w-[calc(var(--row-px)-2px)] sm:justify-center',
+              select.visible || select.checked ? 'flex' : 'hidden sm:flex sm:opacity-0 sm:group-hover:opacity-100 sm:focus-within:opacity-100',
+            )}
+          >
+            <input type="checkbox" className="size-[18px] rounded accent-ink sm:size-3.5" aria-label={`Alle in „${label}“ auswählen`} checked={select.checked} onChange={(e) => select.onChange(e.target.checked)} />
           </label>
         )}
-        {tone && <StatusDot tone={tone} className={select ? 'sm:ml-1' : undefined} />}
-        <h2 className={clsx('text-meta font-semibold', tone === 'bad' ? 'text-bad' : 'text-ink-2')}>{label}</h2>
+        <h2 className="text-meta font-medium text-ink-3">{label}</h2>
         <span className="text-meta text-ink-3 tabular-nums">{count}</span>
       </div>
-      <ul className="divide-y divide-line">{children}</ul>
+      <WorkList>{children}</WorkList>
     </section>
-  );
-}
-
-/** Priorität als drei Balken (lesbar ohne Farbe) + Text für Screenreader. */
-export function PriorityGlyph({ level, tone, label, className, kind = 'Priorität' }: { level: number; tone: Tone; label: string; className?: string; kind?: string }) {
-  return (
-    <span className={clsx('inline-flex shrink-0 items-center', tone === 'bad' ? 'text-bad' : 'text-ink-3', className)} title={`${kind}: ${label}`}>
-      <svg viewBox="0 0 12 12" className="size-3.5" aria-hidden>
-        {[0, 1, 2].map((i) => (
-          <rect key={i} x={1 + i * 4} y={8 - i * 3} width="2.5" height={3 + i * 3} rx="0.75" fill="currentColor" opacity={i < level ? 1 : 0.22} />
-        ))}
-      </svg>
-      <span className="sr-only">
-        {kind} {label}
-      </span>
-    </span>
   );
 }
 
@@ -171,7 +166,7 @@ export function useSwipe(onSwipe: (() => void) | undefined, label: string, done 
   const armed = dx >= LIMIT * 0.75;
   const underlay =
     dx > 0 ? (
-      <span aria-hidden className={clsx('absolute inset-y-0 left-0 flex items-center gap-2 pl-5 text-meta font-semibold text-white transition-colors', armed ? 'bg-ok' : 'bg-ok/70')} style={{ width: dx + 16 }}>
+      <span aria-hidden className={clsx('absolute inset-y-0 left-0 flex items-center gap-2 pl-5 text-meta font-medium text-white transition-colors', armed ? 'bg-ink' : 'bg-ink-3')} style={{ width: dx + 16 }}>
         {done ? <RotateCcw className="size-4" /> : <Check className="size-4" strokeWidth={3} />}
         {dx > 64 && label}
       </span>
@@ -200,4 +195,13 @@ export function listKeys(onSelect?: (id: string) => void) {
       if (id) onSelect(id);
     }
   };
+}
+
+/** Aktion als Textlink (für Leerzustände): Tinte, feine Unterstreichung. */
+export function TextAction({ onClick, children }: { onClick: () => void; children: ReactNode }) {
+  return (
+    <button type="button" onClick={onClick} className="text-body font-medium text-ink underline decoration-line-strong underline-offset-4 transition-colors hover:decoration-ink">
+      {children}
+    </button>
+  );
 }

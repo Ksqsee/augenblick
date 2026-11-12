@@ -2,7 +2,8 @@ import { ArrowRight, Check } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { api, fileUrl, uploadPhoto, useAction, useDefect } from '../api';
 import { PhotoPicker } from './work/Photos';
-import { Button, ErrorBox, Field, Modal, SeverityBadge, Textarea, useToast } from './ui';
+import { SeverityText } from './work/fields';
+import { Button, ErrorBox, Field, Modal, Textarea, useToast } from './ui';
 
 /**
  * Behebung dokumentieren: optionale Behebungsnotiz und Nachher-Foto (neben dem Vorher-Foto).
@@ -67,12 +68,12 @@ export function ResolveDefectDialog({
       <div className="flex flex-col gap-5">
         {intro && <p className="text-body text-ink-2">{intro}</p>}
         {d && (
-          <div className="flex items-center gap-3 rounded-xl bg-canvas px-3.5 py-3">
+          <div className="flex items-center gap-3 border-l-2 border-line pl-3">
             <div className="min-w-0 flex-1">
-              <p className="truncate text-body font-medium">{d.title}</p>
+              <p className="truncate text-body text-ink">{d.title}</p>
               <p className="truncate text-meta text-ink-3">{[d.code ?? 'Begehung', d.location, d.propertyName].filter(Boolean).join(' · ')}</p>
             </div>
-            <SeverityBadge severity={d.severity} />
+            <SeverityText severity={d.severity} />
           </div>
         )}
         {save.error && <ErrorBox error={save.error} />}
@@ -80,14 +81,14 @@ export function ResolveDefectDialog({
           {(id) => <Textarea id={id} value={note} maxLength={2000} onChange={(e) => setNote(e.target.value)} placeholder="z. B. Obentürschließer getauscht, Funktion geprüft" />}
         </Field>
         <div>
-          <p className="mb-2 flex items-baseline justify-between text-meta font-medium text-ink-2">
+          <p className="mb-2 flex items-baseline justify-between text-meta font-medium text-ink-3">
             Foto nach der Behebung <span className="text-caption font-normal text-ink-3">optional</span>
           </p>
           <div className="flex items-center gap-3">
             {d?.photoKey && (
               <>
                 <figure className="w-24 shrink-0">
-                  <img src={fileUrl(d.photoKey)} alt="Vorher-Foto" className="aspect-[4/3] w-full rounded-xl object-cover opacity-90" />
+                  <img src={fileUrl(d.photoKey)} alt="Vorher-Foto" className="aspect-[4/3] w-full rounded-lg object-cover" />
                   <figcaption className="mt-1 text-caption text-ink-3">Vorher</figcaption>
                 </figure>
                 <ArrowRight className="mb-5 size-4 shrink-0 text-ink-4" />

@@ -1,15 +1,32 @@
 import clsx from 'clsx';
-import { AlarmClock, ClipboardCheck, HardHat, MessageSquare } from 'lucide-react';
+import { AlarmClock, ClipboardCheck, MessageSquare } from 'lucide-react';
+import { Fragment, type ReactNode } from 'react';
 import { TASK_KINDS } from '../../../shared/tasks';
 import type { Task } from '../../api';
-import { Avatar, Button, toneText } from '../ui';
-import { LabelChip } from './fields';
-import { dueText, isOpenTask, KIND_ICON, TASK_PRIO } from './model';
-import { PriorityGlyph, RowCheck, StatusToggle, useSwipe } from './rows';
+import { Avatar, Button } from '../ui';
+import { LabelText } from './fields';
+import { dueText, isOpenTask } from './model';
+import { RowCheck, rowLeadCls, StatusToggle, useSwipe } from './rows';
+
+/** Teile einer Meta-Zeile mit „ · “ verbinden (leere fallen weg). */
+export function MetaLine({ parts, className }: { parts: ReactNode[]; className?: string }) {
+  const items = parts.filter((x) => x != null && x !== false && x !== '');
+  return (
+    <span className={clsx('mt-0.5 block truncate text-meta text-ink-3', className)}>
+      {items.map((x, i) => (
+        <Fragment key={i}>
+          {i > 0 && <span className="text-ink-4"> · </span>}
+          {typeof x === 'string' ? <span>{x}</span> : x}
+        </Fragment>
+      ))}
+    </span>
+  );
+}
 
 /**
- * Aufgabenzeile: Auswahl · Erledigt-Kreis · Titel mit Typ-Symbol und Kontext · rechts Fälligkeit,
- * Zuständige und Priorität. Auf dem Handy: zwei Zeilen, Wischen nach rechts erledigt.
+ * Aufgabenzeile (v3, wie Apple-Erinnerungen): Abhak-Kreis · Titel und eine graue Meta-Zeile
+ * (Kontext · Typ · „Hoch“ · Labels) · rechts das Datum (Zinnober nur bei überfällig) und die Zuständige.
+ * Auf dem Handy erledigt Wischen nach rechts.
  */
 export function TaskRow({
   t,
@@ -36,100 +53,65 @@ export function TaskRow({
   const closed = !isOpenTask(t);
   const due = closed ? { text: '' } : dueText(t.dueAt);
   const breached = !closed && t.sla?.resolveBreached;
-  const KindIcon = KIND_ICON[t.kind ?? 'other'];
   const swipe = useSwipe(canEdit && !selectMode ? onToggleDone : undefined, done ? 'Wieder öffnen' : 'Erledigt', done);
   const who = t.assigneeName ?? t.subcontractorName;
+  const context = [t.assetCode, t.propertyName].filter(Boolean).join(' · ');
   return (
-    <li data-task={t.id} data-row-id={t.id} className={clsx('group relative overflow-hidden', selected ? 'bg-brand-soft/50' : 'bg-surface')}>
+    <li data-task={t.id} data-row-id={t.id} className={clsx('group relative overflow-hidden before:z-[2]', selected ? 'bg-selected' : 'bg-surface')}>
       {swipe.underlay}
       <div
         {...swipe.handlers}
         style={swipe.style}
         className={clsx(
-          'relative flex touch-pan-y items-center transition-colors focus-within:shadow-[inset_2px_0_0_var(--color-brand)]',
-          selected ? 'bg-brand-soft/50' : 'bg-surface hover:bg-hover',
+          'relative flex touch-pan-y items-center transition-colors has-[[data-row-main]:focus-visible]:bg-hover has-[[data-row-main]:focus-visible]:shadow-[inset_2px_0_0_var(--color-ink)]',
+          selected ? 'bg-selected' : 'bg-surface hover:bg-hover',
           !swipe.moving && 'transition-transform duration-200',
         )}
       >
         {canEdit && <RowCheck checked={selected} onChange={onSelect} label={`„${t.title}“ auswählen`} visible={selectMode} />}
-        <span className={clsx('shrink-0', canEdit ? 'pl-1.5 sm:pl-0' : 'pl-2', selectMode && 'max-sm:hidden')}>
+        <span className={clsx(rowLeadCls, selectMode && canEdit && 'max-sm:hidden')}>
           <StatusToggle done={done} progress={t.status === 'in_progress'} disabled={!canEdit} label={done ? 'Wieder öffnen' : 'Erledigen'} onToggle={onToggleDone} />
         </span>
-        <button type="button" data-row-main onClick={onOpen} className="flex min-h-14 min-w-0 flex-1 items-center gap-3 py-2 pr-4 text-left outline-none sm:min-h-12">
+        <button
+          type="button"
+          data-row-main
+          onClick={onOpen}
+          className="flex min-h-[52px] min-w-0 flex-1 items-center gap-3 py-2 pr-(--row-px) pl-0.5 text-left outline-none sm:min-h-12"
+        >
           <span className="min-w-0 flex-1">
-            <span className="flex min-w-0 items-center gap-1.5">
-              <KindIcon className="size-3.5 shrink-0 text-ink-3" aria-label={TASK_KINDS[t.kind ?? 'other']} />
-              <span className={clsx('truncate text-body font-medium', closed ? 'text-ink-3 line-through decoration-ink-4' : 'text-ink')}>{t.title}</span>
-              {!!t.labels?.length && (
-                <span className="hidden shrink-0 items-center gap-1 md:flex">
-                  {t.labels.map((l) => (
-                    <LabelChip key={l} id={l} />
-                  ))}
-                </span>
-              )}
-            </span>
-            <span className="mt-0.5 flex min-w-0 items-center gap-x-1.5 text-meta text-ink-3">
-              {due.text && <span className={clsx('shrink-0 font-medium sm:hidden', due.tone ? toneText[due.tone] : 'text-ink-2')}>{due.text}</span>}
-              {due.text && <Dot className="sm:hidden" />}
-              {t.status === 'in_progress' && (
-                <>
-                  <span className="shrink-0 font-medium text-info">In Arbeit</span>
-                  <Dot />
-                </>
-              )}
-              {t.externalDoneAt && !closed && (
-                <>
-                  <span className="shrink-0 font-medium text-ok">extern erledigt</span>
-                  <Dot />
-                </>
-              )}
-              <span className="truncate">
-                {[t.assetCode, t.propertyName].filter(Boolean).join(' · ') || TASK_KINDS[t.kind ?? 'other']}
-              </span>
-              {who ? (
-                <span className="flex shrink-0 items-center gap-1 sm:hidden">
-                  <Dot />
-                  {t.subcontractorName && !t.assigneeName && <HardHat className="size-3" />}
-                  {who.split(' ')[0]}
-                </span>
-              ) : (
-                !closed && (
-                  <span className="shrink-0 sm:hidden">
-                    <Dot /> <span className="italic">ohne Zuständige</span>
-                  </span>
-                )
-              )}
-            </span>
+            <span className={clsx('block truncate text-body', closed ? 'text-ink-3 line-through decoration-ink-4' : 'text-ink')}>{t.title}</span>
+            <MetaLine
+              parts={[
+                t.status === 'in_progress' && <span className="text-ink-2">In Arbeit</span>,
+                t.externalDoneAt && !closed && <span className="text-ink-2">extern erledigt</span>,
+                context,
+                TASK_KINDS[t.kind ?? 'other'],
+                t.priority === 'high' && !closed && <span className="text-ink-2">Hoch</span>,
+                ...(t.labels ?? []).map((l) => <LabelText key={l} id={l} />),
+              ]}
+            />
           </span>
-          <span className="hidden shrink-0 items-center gap-3 text-meta text-ink-3 sm:flex">
+          <span className="flex shrink-0 items-center gap-3 text-meta">
             {t.comments > 0 && (
-              <span className="inline-flex items-center gap-1 tabular-nums" title={`${t.comments} Kommentare`}>
-                <MessageSquare className="size-3.5" />
+              <span className="hidden items-center gap-1 text-ink-4 tabular-nums sm:inline-flex" title={`${t.comments} Kommentare`}>
+                <MessageSquare className="size-3.5" aria-hidden />
                 {t.comments}
+                <span className="sr-only">Kommentare</span>
               </span>
             )}
-            {breached && (
-              <span title="SLA-Lösungsfrist überschritten" className="inline-flex text-bad">
-                <AlarmClock className="size-3.5" aria-label="SLA-Lösungsfrist überschritten" />
+            {(due.text || breached) && (
+              <span className="inline-flex items-center justify-end gap-1.5 tabular-nums sm:min-w-20">
+                {breached && <AlarmClock className="hidden size-3.5 text-ink-4 sm:block" aria-label="SLA-Lösungsfrist überschritten" />}
+                <span className={due.tone === 'bad' ? 'text-shu' : due.tone === 'warn' ? 'text-ink' : 'text-ink-3'}>{due.text}</span>
               </span>
             )}
-            <span className={clsx('w-24 truncate text-right tabular-nums', due.tone ? [toneText[due.tone], 'font-medium'] : 'text-ink-2')}>{closed ? '' : due.text}</span>
-            <span className="grid w-6 place-items-center" title={who ?? 'Ohne Zuständige'}>
-              {t.assigneeName ? (
-                <Avatar name={t.assigneeName} size="sm" />
-              ) : t.subcontractorName ? (
-                <span className="grid size-6 place-items-center rounded-full bg-sunken text-ink-2">
-                  <HardHat className="size-3.5" />
-                </span>
-              ) : (
-                <span className="size-6 rounded-full border border-dashed border-line-strong" aria-label="Ohne Zuständige" />
-              )}
+            <span className="hidden w-6 place-items-center sm:grid" title={who ?? 'Ohne Zuständige'}>
+              {who ? <Avatar name={who} size="sm" /> : <span className="sr-only">Ohne Zuständige</span>}
             </span>
-            <PriorityGlyph level={TASK_PRIO[t.priority].level} tone={TASK_PRIO[t.priority].tone} label={TASK_PRIO[t.priority].label} />
           </span>
         </button>
         {onStart && (
-          <span className="mr-3 hidden sm:block">
+          <span className="absolute inset-y-0 right-0 hidden items-center bg-hover pr-(--row-px) pl-3 opacity-0 transition-opacity pointer-events-none group-hover:pointer-events-auto group-hover:opacity-100 focus-within:pointer-events-auto focus-within:opacity-100 sm:flex">
             <Button size="sm" variant="secondary" icon={<ClipboardCheck />} loading={starting} onClick={onStart}>
               Prüfen
             </Button>
@@ -137,13 +119,5 @@ export function TaskRow({
         )}
       </div>
     </li>
-  );
-}
-
-function Dot({ className }: { className?: string }) {
-  return (
-    <span aria-hidden className={clsx('shrink-0 text-ink-4', className)}>
-      ·
-    </span>
   );
 }

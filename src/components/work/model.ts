@@ -1,12 +1,8 @@
-import { ClipboardCheck, ListTodo, Wrench } from 'lucide-react';
 // Gemeinsame Fachhelfer für Aufgaben und Mängel (Oberfläche). Spezifikation: docs/design/aufgaben-maengel.md
 import type { Defect, Task } from '../../api';
 import { api } from '../../api';
 import { DAY } from '../../../shared/logic';
 import type { Tone } from '../../format';
-import type { TaskKind } from '../../../shared/tasks';
-
-export const KIND_ICON: Record<TaskKind, typeof Wrench> = { inspection: ClipboardCheck, defect: Wrench, other: ListTodo };
 
 export const TASK_STATUS: Record<Task['status'], string> = { open: 'Offen', in_progress: 'In Arbeit', done: 'Erledigt', cancelled: 'Abgebrochen' };
 export const TASK_PRIO: Record<Task['priority'], { label: string; tone: Tone; level: number }> = {
