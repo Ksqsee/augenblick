@@ -1,36 +1,90 @@
 @import 'tailwindcss';
 
+/*
+ * Prüfkompass – Design-Tokens v2 (Spezifikation: docs/design.md)
+ * Warmes Papier, tiefe Tinte, ein Signalorange. Status-Farben nur für Status.
+ * Bestehende Namen (canvas, surface, ink-*, ok/warn/bad/info/brand …) bleiben gültig.
+ */
 @theme {
   --font-sans: 'Geist Variable', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --font-mono: ui-monospace, 'SF Mono', 'Cascadia Mono', 'Roboto Mono', Menlo, monospace;
 
-  --color-canvas: #f6f5f1;
+  /* Flächen */
+  --color-canvas: #f7f6f3;
   --color-surface: #ffffff;
-  --color-sunken: #efede7;
-  --color-line: #e8e5de;
-  --color-line-strong: #d5d0c5;
-  --color-ink: #17140f;
-  --color-ink-2: #514b43;
-  --color-ink-3: #8a8378;
+  --color-sunken: #f0eee9;
+  --color-hover: #f4f2ee;
+  --color-selected: #ebe8e1;
+  --color-line: #e7e4dd;
+  --color-line-strong: #d6d1c7;
 
+  /* Text */
+  --color-ink: #1a1714;
+  --color-ink-2: #57514a;
+  --color-ink-3: #8c857b;
+  --color-ink-4: #b7b1a7;
+
+  /* Marke: Signalorange – sparsam (Erfassen, aktive Markierung, Fokus) */
   --color-brand: #e8590c;
   --color-brand-strong: #c2410c;
-  --color-brand-soft: #fff0e6;
+  --color-brand-soft: #fff1e8;
 
-  --color-ok: #16803c;
-  --color-ok-soft: #e6f5eb;
-  --color-warn: #b45309;
-  --color-warn-soft: #fdf2df;
-  --color-bad: #d02020;
-  --color-bad-soft: #fdeaea;
-  --color-info: #2557d6;
-  --color-info-soft: #e9effd;
-  --color-muted-soft: #efede8;
+  /* Status (Prüfstatus, Ergebnis) – Text, Fläche, Kontur */
+  --color-ok: #17793d;
+  --color-ok-soft: #e8f4ec;
+  --color-ok-line: #bfe0cb;
+  --color-warn: #b25407;
+  --color-warn-soft: #fcf1e1;
+  --color-warn-line: #f0d2a6;
+  --color-bad: #cf2a1f;
+  --color-bad-soft: #fcebe9;
+  --color-bad-line: #f3c4bf;
+  --color-info: #2b58c9;
+  --color-info-soft: #ebf0fc;
+  --color-info-line: #c6d4f4;
+  --color-muted-soft: #f0eee9;
 
-  --radius-xl: 16px;
-  --radius-2xl: 22px;
-  --shadow-card: 0 0 0 1px rgb(23 20 15 / 0.05), 0 1px 2px rgb(23 20 15 / 0.05);
-  --shadow-lift: 0 0 0 1px rgb(23 20 15 / 0.05), 0 6px 20px -6px rgb(23 20 15 / 0.12);
-  --shadow-pop: 0 16px 40px -10px rgb(23 20 15 / 0.22), 0 2px 8px rgb(23 20 15 / 0.06);
+  /* Schweregrad (Mängel) */
+  --color-sev-low: #8c857b;
+  --color-sev-medium: #b25407;
+  --color-sev-high: #cf2a1f;
+  --color-sev-critical: #9f1c13;
+
+  /* Typografie: Größe / Zeilenhöhe */
+  --text-caption: 0.75rem;
+  --text-caption--line-height: 1rem;
+  --text-meta: 0.8125rem;
+  --text-meta--line-height: 1.125rem;
+  --text-body: 0.875rem;
+  --text-body--line-height: 1.25rem;
+  --text-title: 0.9375rem;
+  --text-title--line-height: 1.375rem;
+  --text-h3: 1.0625rem;
+  --text-h3--line-height: 1.5rem;
+  --text-h2: 1.25rem;
+  --text-h2--line-height: 1.75rem;
+  --text-h1: 1.625rem;
+  --text-h1--line-height: 2rem;
+  --text-display: 2rem;
+  --text-display--line-height: 2.375rem;
+
+  /* Radien: ruhig, nicht verspielt */
+  --radius-sm: 6px;
+  --radius-md: 8px;
+  --radius-lg: 10px;
+  --radius-xl: 12px;
+  --radius-2xl: 16px;
+  --radius-3xl: 20px;
+
+  /* Schatten: Karten liegen flach (Haarlinie), nur Schwebendes wirft Schatten */
+  --shadow-card: 0 0 0 1px rgb(26 23 20 / 0.06), 0 1px 2px rgb(26 23 20 / 0.04);
+  --shadow-lift: 0 0 0 1px rgb(26 23 20 / 0.07), 0 4px 14px -4px rgb(26 23 20 / 0.12);
+  --shadow-pop: 0 0 0 1px rgb(26 23 20 / 0.06), 0 18px 44px -12px rgb(26 23 20 / 0.24), 0 3px 8px rgb(26 23 20 / 0.05);
+  --shadow-inset: inset 0 1px 2px rgb(26 23 20 / 0.06);
+
+  /* Bewegung */
+  --ease-out-soft: cubic-bezier(0.2, 0.8, 0.2, 1);
+  --ease-in-out-soft: cubic-bezier(0.4, 0, 0.2, 1);
 }
 
 html,
@@ -38,12 +92,37 @@ body {
   background: var(--color-canvas);
   color: var(--color-ink);
   -webkit-font-smoothing: antialiased;
-  font-feature-settings: 'ss01', 'tnum';
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+  font-feature-settings: 'ss01';
+  -webkit-tap-highlight-color: transparent;
+}
+
+::selection {
+  background: rgb(232 89 12 / 0.18);
 }
 
 :focus-visible {
   outline: 2px solid var(--color-brand);
   outline-offset: 2px;
+}
+/* Textfelder zeigen den Fokus über Rahmen + weichen Ring statt Umrisslinie */
+:where(input:not([type='checkbox'], [type='radio'], [type='range'], [type='file']), textarea, select):focus-visible {
+  outline: none;
+  border-color: var(--color-ink-3);
+  box-shadow: 0 0 0 3px rgb(26 23 20 / 0.08);
+}
+
+/* Feine Scrollbalken in Seitenleisten und Listen */
+.scroll-thin {
+  scrollbar-width: thin;
+  scrollbar-color: var(--color-line-strong) transparent;
+}
+.no-scrollbar {
+  scrollbar-width: none;
+}
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
 }
 
 @media print {
@@ -61,10 +140,11 @@ body {
   }
 }
 
+/* ---------- Bewegung (≤ 240 ms, nur Deckkraft/Versatz) ---------- */
 @keyframes pk-in {
   from {
     opacity: 0;
-    transform: translateY(6px);
+    transform: translateY(4px);
   }
   to {
     opacity: 1;
@@ -72,7 +152,7 @@ body {
   }
 }
 .animate-in {
-  animation: pk-in 160ms ease-out;
+  animation: pk-in 160ms var(--ease-out-soft);
 }
 @keyframes pk-slide {
   from {
@@ -85,7 +165,26 @@ body {
   }
 }
 .animate-slide {
-  animation: pk-slide 180ms ease-out;
+  animation: pk-slide 200ms var(--ease-out-soft);
+}
+@keyframes pk-slide-left {
+  from {
+    transform: translateX(-100%);
+  }
+  to {
+    transform: none;
+  }
+}
+.animate-slide-left {
+  animation: pk-slide-left 220ms var(--ease-out-soft);
+}
+@keyframes pk-fade {
+  from {
+    opacity: 0;
+  }
+}
+.animate-fade {
+  animation: pk-fade 160ms ease-out;
 }
 
 /* Aufnahme: pulsierender Ring um den Mikrofon-Knopf */
@@ -109,23 +208,53 @@ body {
   }
 }
 .animate-up {
-  animation: pk-up 220ms cubic-bezier(0.2, 0.8, 0.2, 1);
+  animation: pk-up 240ms var(--ease-out-soft);
 }
 @keyframes pk-pop {
   from {
     opacity: 0;
-    transform: translateY(6px);
+    transform: translateY(4px);
   }
 }
 .animate-pop {
   animation: pk-pop 180ms ease-out both;
 }
+@keyframes pk-menu {
+  from {
+    opacity: 0;
+    transform: translateY(-4px) scale(0.98);
+  }
+}
+.animate-menu {
+  animation: pk-menu 140ms var(--ease-out-soft);
+  transform-origin: top;
+}
+
+/* Lade-Platzhalter */
+@keyframes pk-shimmer {
+  from {
+    background-position: 100% 0;
+  }
+  to {
+    background-position: -100% 0;
+  }
+}
+.skeleton {
+  background: linear-gradient(90deg, var(--color-sunken) 0%, var(--color-hover) 50%, var(--color-sunken) 100%);
+  background-size: 200% 100%;
+  animation: pk-shimmer 1.4s ease-in-out infinite;
+}
+
 @media (prefers-reduced-motion: reduce) {
   .animate-in,
   .animate-slide,
+  .animate-slide-left,
+  .animate-fade,
   .animate-up,
   .animate-pop,
-  .animate-rec {
+  .animate-menu,
+  .animate-rec,
+  .skeleton {
     animation: none;
   }
 }
