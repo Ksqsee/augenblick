@@ -1,15 +1,16 @@
 import clsx from 'clsx';
-import { Archive, CloudDownload, Download, Footprints, ScanLine, SlidersHorizontal, Trash2 } from 'lucide-react';
+import { Archive, CloudDownload, Download, Footprints, PenLine, ScanLine, SlidersHorizontal, Trash2 } from 'lucide-react';
 import { useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { api, archiveReport, type Asset, useAction, useAssets, useDashboard, useInspections, useMe } from '../api';
 import { allCategories, scheduleLabel, schedulesFor } from '../categories';
 import { AssetDrawer } from '../components/AssetDrawer';
 import { CategoryGlyph } from '../components/inspect/Glyph';
-import { Button, ButtonLink, Chip, Empty, ErrorBox, List, ListRow, Menu, PageHeader, ResultBadge, Section, SkeletonList, StatusText, Surface, Tabs, useConfirm, useToast } from '../components/ui';
+import { Button, ButtonLink, Chip, Empty, ErrorBox, List, ListRow, Menu, Notice, PageHeader, ResultBadge, Section, SkeletonList, StatusText, Surface, Tabs, useConfirm, useToast } from '../components/ui';
 import { INSPECTION_PURPOSES } from '../../shared/catalog';
 import { summarizeSchedules } from '../../shared/logic';
 import { EMPTY_FILTER, filterParams, type InspectionFilter, InspectionFilters } from '../components/InspectionFilters';
+import { readyText } from './Sign';
 import { assetDue, categoryLabel, defectsLabel, DUE_META, fmtDate, fmtRelative } from '../format';
 
 type Tab = 'overdue' | 'soon' | 'never' | 'not_inspectable' | 'new' | 'drafts' | 'done' | 'archive' | 'corrected';
@@ -49,6 +50,7 @@ export function InspectionsPage() {
           </>
         }
       />
+      <ReadyBanner />
       <Tabs
         className="mb-5"
         value={tab}
@@ -71,6 +73,27 @@ export function InspectionsPage() {
         <DueList key={tab} due={tab} schedule={tab === 'new' ? '' : schedule} onSchedule={(v) => setParams(v ? { tab, pruefart: v } : { tab }, { replace: true })} />
       )}
     </>
+  );
+}
+
+/** Hinweis, solange eigene Prüfungen bereit zur Unterschrift liegen (z. B. von Claude ausgefüllt). */
+function ReadyBanner() {
+  const { data } = useInspections({ status: 'ready' });
+  const n = data?.length ?? 0;
+  if (!n) return null;
+  return (
+    <Notice
+      tone="info"
+      icon={<PenLine />}
+      className="mb-5"
+      action={
+        <ButtonLink to="/unterschreiben" size="sm" variant="secondary">
+          Unterschreiben
+        </ButtonLink>
+      }
+    >
+      <span className="text-ink">{readyText(n)}</span>
+    </Notice>
   );
 }
 

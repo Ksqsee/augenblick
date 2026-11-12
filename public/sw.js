@@ -1,13 +1,32 @@
 // Service Worker: App-Shell offline verfügbar machen. API-Aufrufe werden nie gecacht.
-const CACHE = 'pk-shell-v4';
+// Beim Installieren werden die Startseite und alle von ihr geladenen Bausteine (Skripte, Stile, Schriften)
+// vorab gespeichert – auch der Regel-Parser für „Befund einsprechen“ und „Erfassen“ steckt im Haupt-Skript.
+// So läuft die App ohne Netz schon nach dem ersten Aufruf, nicht erst nach dem zweiten.
+const CACHE = 'pk-shell-v5';
+
+/** Startseite + die darin und in den Stilen verlinkten /assets/-Dateien. */
+async function precache() {
+  const c = await caches.open(CACHE);
+  const res = await fetch('/', { cache: 'no-cache' });
+  if (!res.ok) throw new Error('Startseite nicht erreichbar');
+  const html = await res.clone().text();
+  await c.put('/', res);
+  const urls = new Set(['/icon.svg', '/manifest.webmanifest']);
+  for (const m of html.matchAll(/(?:src|href)="(\/assets\/[^"]+)"/g)) urls.add(m[1]);
+  // Schriften aus den Stylesheets
+  for (const css of [...urls].filter((u) => u.endsWith('.css'))) {
+    try {
+      const text = await (await fetch(css)).text();
+      for (const m of text.matchAll(/url\((?:"|')?(\/assets\/[^"')]+)/g)) urls.add(m[1]);
+    } catch {
+      /* Schrift fehlt offline – Systemschrift springt ein */
+    }
+  }
+  await c.addAll([...urls]);
+}
 
 self.addEventListener('install', (event) => {
-  event.waitUntil(
-    caches
-      .open(CACHE)
-      .then((c) => c.addAll(['/', '/icon.svg', '/manifest.webmanifest']))
-      .then(() => self.skipWaiting()),
-  );
+  event.waitUntil(precache().then(() => self.skipWaiting()));
 });
 
 self.addEventListener('activate', (event) => {

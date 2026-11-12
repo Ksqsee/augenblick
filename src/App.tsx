@@ -29,6 +29,7 @@ import { CustomerView } from './pages/CustomerView';
 import { RoundPage } from './pages/Round';
 import { ScanPage } from './pages/Scan';
 import { SettingsPage } from './pages/Settings';
+import { SignPage } from './pages/Sign';
 import { TasksPage } from './pages/Tasks';
 import { TeamPage } from './pages/Team';
 
@@ -151,6 +152,7 @@ export function App() {
           <Route path="elemente/:id" element={<AssetPage />} />
           <Route path="e/:code" element={<AssetByCode />} />
           <Route path="pruefungen" element={<InspectionsPage />} />
+          <Route path="unterschreiben" element={<SignPage />} />
           <Route path="maengel" element={<DefectsPage />} />
           <Route path="begehungen" element={<WalkthroughsPage />} />
           <Route path="grundrisse/:id" element={<FloorPlanPage />} />

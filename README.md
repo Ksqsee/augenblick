@@ -52,7 +52,11 @@ API: [`docs/api.md`](docs/api.md)
   nach Absicht (`briefing`, `tour`, `inspect`, `capture`, `get_photo` …) und sieben fertige Befehle – Claude ist die Oberfläche
   für Sprache: Rundgang führen, Befund eintragen, Typenschilder lesen, Plan einrichten – siehe `docs/api.md`
 - **Bereit zur Unterschrift**: von Claude ausgefüllte Prüfungen warten als Entwurf; die prüfende Person unterschreibt alle
-  mit einer Unterschrift (`POST /api/inspections/sign`, nur mit Browser-Sitzung) – Claude schließt nie selbst ab
+  mit einer Unterschrift (`POST /api/inspections/sign`, nur mit Browser-Sitzung) – Claude schließt nie selbst ab.
+  Seite **Unterschreiben** (`/unterschreiben`, Hinweis auf „Prüfungen“): Liste mit Ergebnis und Mängeln (aufklappbar,
+  *Bearbeiten* öffnet die Prüfung, *Zurückstellen* nimmt sie aus der Liste), unten „Alle n unterschreiben“ mit der
+  gemerkten Unterschrift – beim ersten Mal einmal zeichnen (merken vorgewählt); nicht mehr bereite Prüfungen werden je
+  Element mit Grund und Link gemeldet
 
 **Prüfen**
 - Prüfung je Element mit Prüfpunkten (i. O. / Mangel / n. z.), Wartungsarbeiten, Fotos, Bemerkungen und Unterschrift
@@ -72,7 +76,14 @@ API: [`docs/api.md`](docs/api.md)
 - Prüfung wieder öffnen, archivieren (auch automatisch), mehrere löschen
 - **Offline-Modus** (PWA): Gebäude vorab laden, ohne Netz prüfen, automatische Synchronisation; vom Server abgelehnte
   Übertragungen bleiben dort unter **„Übertragungen prüfen“** (Grund, Person, Element; *Erneut versuchen* – auch an einem
-  anderen Element derselben Art – oder *Löschen*), mit Benachrichtigung an die prüfende Person und Admins
+  anderen Element derselben Art – oder *Löschen*), mit Benachrichtigung an die prüfende Person und Admins.
+  **Sprache ohne Netz**: „Befund einsprechen“ (auch in der Offline-Prüfung) und „Erfassen“ zeigen immer ein Textfeld für
+  das Diktat der Handy-Tastatur und werten ohne Netz (oder bei Netzfehler) lokal mit `shared/smart.ts` aus. Erfasstes
+  (Mängel, Aufgaben, Elemente) liegt in einer eigenen Warteschlange (`src/offline.ts`, IndexedDB) und geht bei Verbindung an
+  die bestehenden Endpunkte; als ähnlich gemeldete Mängel (409) bleiben auf der Offline-Seite zur Entscheidung.
+  **Rundgang offline**: je geladenem Gebäude „Rundgang starten“ – fällige Elemente nach Etage, Standort, Code (wie `tour`),
+  nach dem lokalen Abschluss automatisch weiter. Der Service Worker (`public/sw.js`) legt beim Installieren Startseite,
+  Haupt-Skript (mit Regel-Parser), Stile und Schriften ab, damit die App schon nach dem ersten Aufruf ohne Netz startet
 - **Selbstanpassende Prüfintervalle**: nach zwei Prüfungen in Folge mit Mängeln halbiertes Intervall (mind. 1 Monat), nach
   vier mängelfreien zurück zum Standard, nie länger; Stufe je Workspace *Aus / Vorschlagen / Automatisch*
   (Einstellungen → Unternehmen), Anzeige und *Zurücksetzen* auf der Elementseite
@@ -157,7 +168,7 @@ npm run check              # Typprüfung + Unit-Tests + Build
 ## Tests
 
 - **Unit-Tests** (`npm test`, Vitest): Fachlogik, Autopilot-Kreislauf, Rangfolge „Jetzt“, Import/Export, Übersetzungen, Ruhezeiten, Web Push.
-- **Browser-Tests** (`e2e/`, Playwright): Reihen von der Registrierung über Sicherheitskorrekturen und Massenoperationen bis zu Berichtigung, Nachprüfung sowie Aufgaben und Mängeln (`14-tasks-defects`), dem Autopiloten (`20-autopilot`) und den offenen Punkten aus der Analyse (`21-offene-punkte`: Offline-Fehlliste, Intervalle, Partner-Zugang), dem MCP-Server (`11-ai-mcp`) und „Sprache zuerst“ (`23-sprache`: Rundgang über Claude, Unterschrift mit einem Tipp).
+- **Browser-Tests** (`e2e/`, Playwright): Reihen von der Registrierung über Sicherheitskorrekturen und Massenoperationen bis zu Berichtigung, Nachprüfung sowie Aufgaben und Mängeln (`14-tasks-defects`), dem Autopiloten (`20-autopilot`) und den offenen Punkten aus der Analyse (`21-offene-punkte`: Offline-Fehlliste, Intervalle, Partner-Zugang), dem MCP-Server (`11-ai-mcp`) und „Sprache zuerst“ (`23-sprache`: Rundgang über Claude, Unterschrift mit einem Tipp; `24-unterschreiben-offline`: Seite „Unterschreiben“, Befund einsprechen, Erfassen und Rundgang ohne Netz).
   Vor jeder Reihe wird die lokale D1 geleert und mit Demodaten befüllt.
 
 ```bash

@@ -34,14 +34,17 @@ export function InspectionRun() {
 function Online({ insp }: { insp: Inspection }) {
   const navigate = useNavigate();
   const toast = useToast();
-  const round = useSearchParams()[0].get('rundgang');
+  const [params] = useSearchParams();
+  const round = params.get('rundgang');
+  // aus „Unterschreiben“ geöffnet: zurück dorthin
+  const fromSign = params.get('von') === 'unterschreiben';
   return (
     <InspectionForm
       subject={insp.asset}
       scheduleLabel={insp.scheduleLabel}
       checkpoints={insp.checkpoints}
       inspectorName={insp.inspectorName}
-      back={round ? `/rundgang/${round}` : `/elemente/${insp.assetId}`}
+      back={round ? `/rundgang/${round}` : fromSign ? '/unterschreiben' : `/elemente/${insp.assetId}`}
       banner={
         insp.purpose === 'correction' ? (
           <Notice tone="warn" title={`Berichtigung der Prüfung vom ${insp.supersedesDate ? fmtDate(insp.supersedesDate) : '–'}`}>
@@ -81,7 +84,7 @@ function Online({ insp }: { insp: Inspection }) {
       discard={async () => {
         await api(`/inspections/${insp.id}`, { method: 'DELETE' });
         await queryClient.invalidateQueries();
-        navigate(round ? `/rundgang/${round}` : `/elemente/${insp.assetId}`, { replace: true });
+        navigate(round ? `/rundgang/${round}` : fromSign ? '/unterschreiben' : `/elemente/${insp.assetId}`, { replace: true });
       }}
     />
   );
