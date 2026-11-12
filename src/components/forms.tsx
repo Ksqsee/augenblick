@@ -1,13 +1,24 @@
 import { getCategory, allCategories } from '../categories';
 import { useQuery } from '@tanstack/react-query';
-import { Camera } from 'lucide-react';
-import { type FormEvent, useRef, useState } from 'react';
+import { ArrowLeft, Camera, ChevronRight } from 'lucide-react';
+import { type FormEvent, type ReactNode, useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { type Category } from '../../shared/catalog';
 import { BUILDING_TYPES, type BuildingType } from '../../shared/walkthrough';
 import { api, type Asset, type PropertyDetail, uploadPhoto, useAction, useProperties, useProperty } from '../api';
 import { CategoryIcon } from './CategoryIcon';
+import { lastFloor, readLastPlace, rememberPlace } from './objects/memory';
 import { Button, ErrorBox, Field, Input, Modal, Select, Textarea, useToast } from './ui';
+
+/** Abschnittstitel innerhalb eines Formulars (docs/design.md 5.3). */
+function FormSection({ title, children, className }: { title: string; children: ReactNode; className?: string }) {
+  return (
+    <fieldset className={className}>
+      <legend className="mb-3 text-meta font-semibold text-ink-2">{title}</legend>
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">{children}</div>
+    </fieldset>
+  );
+}
 
 export function PropertyForm({ initial, onClose }: { initial?: PropertyDetail; onClose: () => void }) {
   const toast = useToast();
@@ -38,10 +49,11 @@ export function PropertyForm({ initial, onClose }: { initial?: PropertyDetail; o
   return (
     <Modal
       title={initial ? 'Objekt bearbeiten' : 'Neues Objekt'}
+      description={initial ? undefined : 'Danach legst du Gebäude und Elemente an.'}
       onClose={onClose}
       footer={
         <>
-          <Button variant="ghost" onClick={onClose}>
+          <Button variant="secondary" onClick={onClose}>
             Abbrechen
           </Button>
           <Button form="property-form" loading={save.isPending}>
@@ -50,35 +62,41 @@ export function PropertyForm({ initial, onClose }: { initial?: PropertyDetail; o
         </>
       }
     >
-      <form id="property-form" onSubmit={submit} className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+      <form id="property-form" onSubmit={submit} className="flex flex-col gap-6">
         {save.error && <ErrorBox error={save.error} />}
-        <Field label="Name" className="sm:col-span-2">
-          {(id) => <Input id={id} required autoFocus value={f.name} onChange={set('name')} placeholder="z. B. Grundschule Am Park" />}
-        </Field>
-        <Field label="Adresse" className="sm:col-span-2">
-          {(id) => <Textarea id={id} className="min-h-16" value={f.address} onChange={set('address')} placeholder={'Straße Nr.\nPLZ Ort'} />}
-        </Field>
-        <Field label="Nutzung" hint="Steuert die Fragen der Brandschutzbegehung" className="sm:col-span-2">
-          {(id) => (
-            <Select id={id} value={f.buildingType} onChange={(e) => setF({ ...f, buildingType: e.target.value as BuildingType })}>
-              {Object.entries(BUILDING_TYPES).map(([k, v]) => (
-                <option key={k} value={k}>
-                  {v}
-                </option>
-              ))}
-            </Select>
-          )}
-        </Field>
-        <Field label="Ansprechperson">{(id) => <Input id={id} value={f.contactName} onChange={set('contactName')} />}</Field>
-        <Field label="Telefon">{(id) => <Input id={id} type="tel" value={f.contactPhone} onChange={set('contactPhone')} />}</Field>
-        <Field label="E-Mail" className="sm:col-span-2">
-          {(id) => <Input id={id} type="email" value={f.contactEmail} onChange={set('contactEmail')} />}
-        </Field>
-        <Field label="Notizen" className="sm:col-span-2">
-          {(id) => <Textarea id={id} value={f.description} onChange={set('description')} placeholder="Zugang, Schlüssel, Besonderheiten …" />}
-        </Field>
+        <div className="flex flex-col gap-4">
+          <Field label="Name">{(id) => <Input id={id} required autoFocus value={f.name} onChange={set('name')} placeholder="z. B. Grundschule Am Park" />}</Field>
+          <Field label="Adresse" optional>
+            {(id) => <Textarea id={id} dictate={false} className="min-h-16" value={f.address} onChange={set('address')} placeholder={'Straße Nr.\nPLZ Ort'} />}
+          </Field>
+          <Field label="Nutzung" hint="Bestimmt die Fragen der Brandschutzbegehung.">
+            {(id) => (
+              <Select id={id} value={f.buildingType} onChange={(e) => setF({ ...f, buildingType: e.target.value as BuildingType })}>
+                {Object.entries(BUILDING_TYPES).map(([k, v]) => (
+                  <option key={k} value={k}>
+                    {v}
+                  </option>
+                ))}
+              </Select>
+            )}
+          </Field>
+        </div>
+        <FormSection title="Vor Ort">
+          <Field label="Ansprechperson" optional>
+            {(id) => <Input id={id} value={f.contactName} onChange={set('contactName')} />}
+          </Field>
+          <Field label="Telefon" optional>
+            {(id) => <Input id={id} type="tel" value={f.contactPhone} onChange={set('contactPhone')} />}
+          </Field>
+          <Field label="E-Mail" optional className="sm:col-span-2">
+            {(id) => <Input id={id} type="email" value={f.contactEmail} onChange={set('contactEmail')} />}
+          </Field>
+          <Field label="Notizen" optional className="sm:col-span-2">
+            {(id) => <Textarea id={id} value={f.description} onChange={set('description')} placeholder="Zugang, Schlüssel, Besonderheiten …" />}
+          </Field>
+        </FormSection>
         {initial && (
-          <Field label="PDF-Dateinamen (nur dieses Objekt)" hint="Leer = Vorgabe des Unternehmens. Platzhalter: {datum} {code} {art} {pruefart} {objekt} {gebaeude} {standort} {ergebnis}" className="sm:col-span-2">
+          <Field label="PDF-Dateinamen (nur dieses Objekt)" optional hint="Leer = Vorgabe des Unternehmens. Platzhalter: {datum} {code} {art} {pruefart} {objekt} {gebaeude} {standort} {ergebnis}">
             {(id) => <Input id={id} value={f.pdfPattern} onChange={set('pdfPattern')} className="font-mono" placeholder="{objekt}_{datum}_{code}" />}
           </Field>
         )}
@@ -100,10 +118,11 @@ export function BuildingForm({ propertyId, initial, onClose }: { propertyId: str
   return (
     <Modal
       title={initial ? 'Gebäude bearbeiten' : 'Neues Gebäude'}
+      size="sm"
       onClose={onClose}
       footer={
         <>
-          <Button variant="ghost" onClick={onClose}>
+          <Button variant="secondary" onClick={onClose}>
             Abbrechen
           </Button>
           <Button form="building-form" loading={save.isPending}>
@@ -122,18 +141,29 @@ export function BuildingForm({ propertyId, initial, onClose }: { propertyId: str
       >
         {save.error && <ErrorBox error={save.error} />}
         <Field label="Name">{(id) => <Input id={id} required autoFocus value={f.name} onChange={(e) => setF({ ...f, name: e.target.value })} placeholder="z. B. Haus A" />}</Field>
-        <Field label="Adresse" hint="Optional, falls abweichend vom Objekt">
-          {(id) => <Textarea id={id} className="min-h-16" value={f.address} onChange={(e) => setF({ ...f, address: e.target.value })} />}
+        <Field label="Adresse" optional hint="Nur, wenn sie von der Adresse des Objekts abweicht.">
+          {(id) => <Textarea id={id} dictate={false} className="min-h-16" value={f.address} onChange={(e) => setF({ ...f, address: e.target.value })} />}
         </Field>
       </form>
     </Modal>
   );
 }
 
+/** Objekt → Gebäude. Startet mit dem zuletzt benutzten Objekt, solange es noch existiert. */
 function BuildingPicker({ value, onChange }: { value: string; onChange: (v: string) => void }) {
   const props = useProperties();
-  const [propertyId, setPropertyId] = useState('');
+  const [propertyId, setPropertyId] = useState(() => readLastPlace().propertyId ?? '');
   const detail = useProperty(propertyId);
+  // Gemerktes Objekt/Gebäude verwerfen, wenn es nicht mehr da ist (gelöscht oder kein Zugriff)
+  useEffect(() => {
+    if (propertyId && props.data && !props.data.some((p) => p.id === propertyId)) {
+      setPropertyId('');
+      onChange('');
+    }
+  }, [props.data, propertyId, onChange]);
+  useEffect(() => {
+    if (value && detail.data && !detail.data.buildings.some((b) => b.id === value)) onChange('');
+  }, [detail.data, value, onChange]);
   return (
     <>
       <Field label="Objekt">
@@ -188,7 +218,7 @@ function TypePlateButton({ onRead }: { onRead: (r: PlateResult) => void }) {
   const [msg, setMsg] = useState('');
   if (!status.data?.vision) return null;
   return (
-    <div className="flex flex-wrap items-center gap-3 rounded-xl bg-brand-soft p-3 sm:col-span-2">
+    <div className="flex flex-wrap items-center gap-3 rounded-lg bg-sunken px-3 py-2.5 sm:col-span-2">
       <input
         ref={ref}
         type="file"
@@ -216,171 +246,190 @@ function TypePlateButton({ onRead }: { onRead: (r: PlateResult) => void }) {
       <Button type="button" size="sm" variant="secondary" loading={busy} icon={<Camera className="size-4" />} onClick={() => ref.current?.click()}>
         Typenschild fotografieren
       </Button>
-      <span className="min-w-0 flex-1 text-xs text-brand-strong">{msg || 'Füllt Hersteller, Modell und Seriennummer automatisch aus.'}</span>
+      <span className="min-w-0 flex-1 text-caption text-ink-3">{msg || 'Füllt Hersteller, Modell und Seriennummer aus.'}</span>
     </div>
+  );
+}
+
+/** Schritt 1 beim Anlegen: Art wählen (Liste mit Norm und Intervall). */
+function CategoryPicker({ onPick, onClose }: { onPick: (c: Category) => void; onClose: () => void }) {
+  return (
+    <Modal title="Neues Element" description="Welche Art möchtest du anlegen?" onClose={onClose}>
+      <ul className="-mx-2 flex flex-col">
+        {allCategories().map((c) => (
+          <li key={c.key}>
+            <button type="button" onClick={() => onPick(c.key)} className="group flex min-h-14 w-full items-center gap-3 rounded-lg px-2 py-2 text-left transition-colors hover:bg-hover">
+              <CategoryIcon category={c.key} />
+              <span className="min-w-0 flex-1">
+                <span className="block text-body font-medium">{c.label}</span>
+                <span className="block truncate text-meta text-ink-3">{[c.norm, `alle ${c.intervalMonths} Monate`].filter(Boolean).join(' · ')}</span>
+              </span>
+              <ChevronRight className="size-4 shrink-0 text-ink-4 transition-transform group-hover:translate-x-0.5" />
+            </button>
+          </li>
+        ))}
+      </ul>
+    </Modal>
   );
 }
 
 export function AssetForm({
   initial,
   buildings,
+  propertyId,
   defaultBuildingId,
   defaultLabel,
   onClose,
 }: {
   initial?: Asset;
   buildings?: { id: string; name: string }[];
+  /** Objekt, zu dem `buildings` gehören (für das Gedächtnis „zuletzt hier angelegt“) */
+  propertyId?: string;
   defaultBuildingId?: string;
   defaultLabel?: string;
   onClose: (createdId?: string) => void;
 }) {
   const toast = useToast();
   const [category, setCategory] = useState<Category | null>(initial?.category ?? null);
-  const [f, setF] = useState({
-    buildingId: initial?.buildingId ?? defaultBuildingId ?? buildings?.[0]?.id ?? '',
-    location: initial?.location ?? '',
-    floor: initial?.floor ?? '',
-    manufacturer: initial?.manufacturer ?? '',
-    model: initial?.model ?? '',
-    code: '',
-    labelCode: initial?.labelCode ?? defaultLabel ?? '',
+  const [f, setF] = useState(() => {
+    const last = readLastPlace();
+    const buildingId =
+      initial?.buildingId ??
+      defaultBuildingId ??
+      (buildings ? (buildings.find((b) => b.id === last.buildingId)?.id ?? buildings[0]?.id) : last.buildingId) ??
+      '';
+    return {
+      buildingId,
+      location: initial?.location ?? '',
+      floor: initial?.floor ?? (buildingId ? lastFloor(buildingId) : ''),
+      manufacturer: initial?.manufacturer ?? '',
+      model: initial?.model ?? '',
+      code: '',
+      labelCode: initial?.labelCode ?? defaultLabel ?? '',
+    };
   });
   const [warnDays, setWarnDays] = useState<number | ''>(initial?.warnDays ?? '');
   const [attrs, setAttrs] = useState<Record<string, string | number | boolean | null>>(initial?.attributes ?? {});
+  const [created, setCreated] = useState<string[]>([]);
+  const [round, setRound] = useState(0);
   const set = (k: keyof typeof f) => (e: React.ChangeEvent<HTMLInputElement>) => setF({ ...f, [k]: e.target.value });
+  const setBuilding = (buildingId: string) => setF((x) => ({ ...x, buildingId, floor: (buildingId && lastFloor(buildingId)) || x.floor }));
   const save = useAction(
-    () =>
+    (_again: boolean) =>
       initial
         ? api(`/assets/${initial.id}`, { method: 'PATCH', body: { ...f, labelCode: f.labelCode || undefined, attributes: attrs, warnDays: warnDays === '' ? null : warnDays } })
         : api<{ id: string; code: string }>('/assets', { body: { ...f, code: f.code || undefined, labelCode: f.labelCode || undefined, category, attributes: attrs, warnDays: warnDays === '' ? null : warnDays } }),
-    (r) => {
-      const created = !initial && r && typeof r === 'object' ? (r as { id: string; code: string }) : undefined;
-      toast(created ? `${created.code} angelegt` : 'Element gespeichert');
-      onClose(created?.id);
+    (r, again) => {
+      const made = !initial && r && typeof r === 'object' ? (r as { id: string; code: string }) : undefined;
+      if (made) rememberPlace({ propertyId: initial ? undefined : propertyId, buildingId: f.buildingId, floor: f.floor });
+      toast(made ? `${made.code} angelegt` : 'Element gespeichert');
+      if (made && again) {
+        // gleiche Art, gleiches Gebäude, gleiche Etage – nur Standort und Kennungen leeren
+        setCreated((c) => [...c, made.code]);
+        setF((x) => ({ ...x, location: '', code: '', labelCode: '' }));
+        setRound((n) => n + 1);
+        return;
+      }
+      onClose(made?.id);
     },
   );
 
-  if (!category) {
-    return (
-      <Modal title="Neues Element" onClose={() => onClose()}>
-        <p className="mb-4 text-sm text-ink-3">Welche Art von Element möchtest du anlegen?</p>
-        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-          {allCategories().map((c) => (
-            <button
-              key={c.key}
-              onClick={() => setCategory(c.key)}
-              className="flex items-center gap-3 rounded-xl border border-line bg-surface p-4 text-left shadow-card transition hover:border-ink-3"
-            >
-              <CategoryIcon category={c.key} />
-              <span>
-                <span className="block text-sm font-semibold">{c.label}</span>
-                <span className="block text-xs text-ink-3">
-                  {c.norm} · alle {c.intervalMonths} Monate
-                </span>
-              </span>
-            </button>
-          ))}
-        </div>
-      </Modal>
-    );
-  }
+  if (!category) return <CategoryPicker onPick={setCategory} onClose={() => onClose()} />;
 
   const def = getCategory(category);
+  const buildingName = buildings?.find((b) => b.id === f.buildingId)?.name;
   return (
     <Modal
       wide
       title={
         <span className="flex items-center gap-3">
           <CategoryIcon category={category} size="sm" />
-          {initial ? `${initial.code} bearbeiten` : `Neue ${def.label}`}
+          {initial ? `${initial.code} bearbeiten` : `${def.label} anlegen`}
         </span>
+      }
+      description={
+        created.length ? `Schon angelegt: ${created.join(', ')}` : initial ? undefined : [def.norm, `alle ${def.intervalMonths} Monate`].filter(Boolean).join(' · ')
       }
       onClose={() => onClose()}
       footer={
-        <>
-          {!initial && (
-            <Button variant="ghost" onClick={() => setCategory(null)} className="mr-auto">
-              Zurück
+        initial ? (
+          <>
+            <Button variant="secondary" onClick={() => onClose()}>
+              Abbrechen
             </Button>
-          )}
-          <Button variant="ghost" onClick={() => onClose()}>
-            Abbrechen
-          </Button>
-          <Button form="asset-form" loading={save.isPending}>
-            Speichern
-          </Button>
-        </>
+            <Button form="asset-form" loading={save.isPending}>
+              Speichern
+            </Button>
+          </>
+        ) : (
+          <>
+            <Button variant="ghost" onClick={() => setCategory(null)} className="max-sm:!flex-none sm:mr-auto" icon={<ArrowLeft className="size-4" />} aria-label="Zurück zur Auswahl der Art">
+              <span className="max-sm:hidden">Zurück</span>
+            </Button>
+            <Button id="asset-again" form="asset-form" variant="secondary" disabled={save.isPending}>
+              Speichern & neu
+            </Button>
+            <Button form="asset-form" loading={save.isPending}>
+              Speichern
+            </Button>
+          </>
+        )
       }
     >
       <form
         id="asset-form"
         onSubmit={(e) => {
           e.preventDefault();
-          save.mutate(undefined);
+          const submitter = (e.nativeEvent as SubmitEvent).submitter;
+          save.mutate(submitter?.id === 'asset-again');
         }}
-        className="grid grid-cols-1 gap-4 sm:grid-cols-2"
+        className="flex flex-col gap-6"
       >
-        {save.error && (
-          <div className="sm:col-span-2">
-            <ErrorBox error={save.error} />
-          </div>
-        )}
-        {buildings ? (
-          <Field label="Gebäude" className="sm:col-span-2">
-            {(id) => (
-              <Select id={id} required value={f.buildingId} onChange={(e) => setF({ ...f, buildingId: e.target.value })}>
-                {buildings.map((b) => (
-                  <option key={b.id} value={b.id}>
-                    {b.name}
-                  </option>
-                ))}
-              </Select>
-            )}
-          </Field>
-        ) : (
-          <BuildingPicker value={f.buildingId} onChange={(v) => setF({ ...f, buildingId: v })} />
-        )}
-        <Field label="Standort" hint="z. B. Treppenhaus Nord, Raum 1.04">
-          {(id) => <Input id={id} value={f.location} onChange={set('location')} />}
-        </Field>
-        <Field label="Etage">{(id) => <Input id={id} value={f.floor} onChange={set('floor')} placeholder="EG, 1. OG …" />}</Field>
-        <TypePlateButton
-          onRead={(r) =>
-            setF((x) => ({ ...x, manufacturer: r.manufacturer ?? x.manufacturer, model: [r.model, r.serial && `SN ${r.serial}`].filter(Boolean).join(' · ') || x.model }))
-          }
-        />
-        <Field label="Hersteller">{(id) => <Input id={id} value={f.manufacturer} onChange={set('manufacturer')} />}</Field>
-        <Field label="Typ / Modell">{(id) => <Input id={id} value={f.model} onChange={set('model')} />}</Field>
-        <Field label="Vorwarnung (Tage vor Fälligkeit)" hint="Leer = Vorgabe des Workspaces">
-          {(id) => (
-            <Input
-              id={id}
-              type="number"
-              min={1}
-              max={365}
-              inputMode="numeric"
-              value={warnDays}
-              onChange={(e) => setWarnDays(e.target.value === '' ? '' : Math.max(1, Math.min(365, Math.round(Number(e.target.value)))))}
-            />
+        {save.error && <ErrorBox error={save.error} />}
+        <FormSection title="Ort">
+          {buildings ? (
+            <Field label="Gebäude" className="sm:col-span-2">
+              {(id) => (
+                <Select id={id} required value={f.buildingId} onChange={(e) => setBuilding(e.target.value)}>
+                  {buildings.map((b) => (
+                    <option key={b.id} value={b.id}>
+                      {b.name}
+                    </option>
+                  ))}
+                </Select>
+              )}
+            </Field>
+          ) : (
+            <BuildingPicker value={f.buildingId} onChange={setBuilding} />
           )}
-        </Field>
-        {!initial && (
-          <Field label="Code" hint={`Leer lassen für automatischen Code (${def.prefix}-XXXX)`} className="sm:col-span-2">
-            {(id) => <Input id={id} value={f.code} onChange={set('code')} placeholder={`${def.prefix}-…`} className="uppercase" />}
+          <Field label="Standort" hint="z. B. Treppenhaus Nord, Raum 1.04">
+            {(id) => <Input key={round} id={id} autoFocus={round > 0} value={f.location} onChange={set('location')} />}
           </Field>
-        )}
-        <Field label="QR-Etikett" hint="Optional: Code eines vorgedruckten Etiketts" className={initial ? 'sm:col-span-2' : 'sm:col-span-2'}>
-          {(id) => <Input id={id} value={f.labelCode} onChange={set('labelCode')} placeholder="z. B. PK-7Q2M9X" className="uppercase" />}
-        </Field>
-        <div className="sm:col-span-2">
-          <p className="mb-3 border-t border-line pt-4 text-[13px] font-semibold text-ink-2">Stammdaten</p>
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+          <Field label="Etage" optional hint={!initial && f.floor && buildingName ? `Zuletzt in ${buildingName} benutzt` : undefined}>
+            {(id) => <Input id={id} value={f.floor} onChange={set('floor')} placeholder="EG, 1. OG …" />}
+          </Field>
+        </FormSection>
+        <FormSection title="Gerät">
+          <TypePlateButton
+            onRead={(r) =>
+              setF((x) => ({ ...x, manufacturer: r.manufacturer ?? x.manufacturer, model: [r.model, r.serial && `SN ${r.serial}`].filter(Boolean).join(' · ') || x.model }))
+            }
+          />
+          <Field label="Hersteller" optional>
+            {(id) => <Input id={id} value={f.manufacturer} onChange={set('manufacturer')} />}
+          </Field>
+          <Field label="Typ / Modell" optional>
+            {(id) => <Input id={id} value={f.model} onChange={set('model')} />}
+          </Field>
+        </FormSection>
+        {def.attributes.length > 0 && (
+          <FormSection title="Stammdaten">
             {def.attributes.map((a) => {
               const v = attrs[a.key];
               if (a.type === 'boolean')
                 return (
-                  <label key={a.key} className="flex h-10 items-center gap-3 self-end text-sm">
-                    <input type="checkbox" className="size-4 accent-[var(--color-brand)]" checked={!!v} onChange={(e) => setAttrs({ ...attrs, [a.key]: e.target.checked })} />
+                  <label key={a.key} className="flex min-h-10 items-center gap-3 self-end text-body">
+                    <input type="checkbox" className="size-4 accent-ink" checked={!!v} onChange={(e) => setAttrs({ ...attrs, [a.key]: e.target.checked })} />
                     {a.label}
                   </label>
                 );
@@ -406,8 +455,32 @@ export function AssetForm({
                 </Field>
               );
             })}
-          </div>
-        </div>
+          </FormSection>
+        )}
+        <FormSection title="Kennung und Erinnerung">
+          {!initial && (
+            <Field label="Code" optional hint={`Leer lassen für ${def.prefix}-0001 usw.`}>
+              {(id) => <Input id={id} value={f.code} onChange={set('code')} placeholder={`${def.prefix}-…`} className="uppercase" />}
+            </Field>
+          )}
+          <Field label="QR-Etikett" optional hint="Code eines vorgedruckten Etiketts" className={initial ? 'sm:col-span-2' : undefined}>
+            {(id) => <Input id={id} value={f.labelCode} onChange={set('labelCode')} placeholder="z. B. PK-7Q2M9X" className="uppercase" />}
+          </Field>
+          <Field label="Vorwarnung (Tage vor Fälligkeit)" optional hint="Leer = Vorgabe des Workspaces" className="sm:col-span-2">
+            {(id) => (
+              <Input
+                id={id}
+                type="number"
+                min={1}
+                max={365}
+                inputMode="numeric"
+                className="sm:max-w-40"
+                value={warnDays}
+                onChange={(e) => setWarnDays(e.target.value === '' ? '' : Math.max(1, Math.min(365, Math.round(Number(e.target.value)))))}
+              />
+            )}
+          </Field>
+        </FormSection>
       </form>
     </Modal>
   );
