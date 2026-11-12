@@ -313,7 +313,7 @@ const check = (ok, m) => {
   const txt = execFileSync('pdftotext', [OUT + 'mangel.pdf', '-']).toString();
   check(/Behoben am/.test(txt) && /Über Detail behoben/.test(txt) && /Foto nach Behebung/.test(txt), `PDF enthält die Behebung (${txt.slice(0, 120).replace(/\s+/g, ' ')})`);
   await drawer.getByRole('button', { name: 'Ausblenden' }).click();
-  const hd = p.getByRole('dialog');
+  const hd = p.getByRole('dialog').last();
   await hd.getByRole('button', { name: 'Doppelt erfasst' }).click();
   await hd.getByRole('button', { name: 'Ausblenden' }).click();
   await p.getByText('Mangel ausgeblendet', { exact: true }).first().waitFor();

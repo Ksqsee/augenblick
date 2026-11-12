@@ -209,8 +209,8 @@ function client() {
   check((await owner(`/tasks/${mTask}/comments`, { body: { body: 'x' } })).status === 404, 'fremde Aufgabe kommentieren → 404');
   check((await owner('/tasks/bulk', { body: { ids: [mTask], status: 'done' } })).status === 404, 'fremde Aufgabe in Mehrfachbearbeitung → 404');
   check((await mallory('/tasks')).json.find((t) => t.id === mTask)?.status === 'open', 'fremde Aufgabe unverändert');
-  const ownTask = (await owner('/tasks', { body: { title: 'Sicherheitstest Erwähnung' } })).json.id;
-  const men = await owner(`/tasks/${ownTask}/comments`, { body: { body: '@Mallory', mentions: [malloryId] } });
+  const mentionTask = (await owner('/tasks', { body: { title: 'Sicherheitstest Erwähnung' } })).json.id;
+  const men = await owner(`/tasks/${mentionTask}/comments`, { body: { body: '@Mallory', mentions: [malloryId] } });
   check(men.status === 400, `Erwähnung eines Nicht-Mitglieds abgelehnt (${men.status})`);
   check(!(await mallory('/notifications')).json.items.some((x) => /Sicherheitstest/.test(x.title)), 'keine Meldung an Nicht-Mitglied');
   check((await owner('/tasks', { body: { title: 'x', defectId: mDefect } })).status === 400, 'Aufgabe mit fremdem Mangel abgelehnt');
