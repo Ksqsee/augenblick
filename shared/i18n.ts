@@ -235,6 +235,7 @@ const EN: Record<string, string> = {
   Elemente: 'Items',
   Ergebnis: 'Result',
   'Festgestellte Mängel': 'Defects found',
+  'bekannt seit': 'known since',
   Feststellungen: 'Findings',
   Fotos: 'Photos',
   Frage: 'Question',

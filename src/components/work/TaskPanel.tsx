@@ -196,8 +196,19 @@ export function TaskPanel({ task, onClose }: { task: Task; onClose: () => void }
               <p className="text-body font-medium">Prüfauftrag für {t.assetCode}</p>
               <p className="text-meta text-ink-3">Mit dem Abschluss der Prüfung wird dieser Auftrag automatisch erledigt.</p>
             </div>
-            <Button icon={<ClipboardCheck />} loading={start.isPending} onClick={() => start.mutate(t.assetId!)}>
+            <Button icon={<ClipboardCheck />} loading={start.isPending} onClick={() => start.mutate({ assetId: t.assetId!, taskId: t.id })}>
               Prüfung starten
+            </Button>
+          </div>
+        )}
+        {t.kind === 'defect' && t.assetId && t.defectStatus === 'open' && isOpenTask(t) && canEdit && (
+          <div className="mb-6 flex flex-col gap-3 rounded-xl bg-canvas p-4 sm:flex-row sm:items-center">
+            <div className="min-w-0 flex-1">
+              <p className="text-body font-medium">Behebung vor Ort prüfen</p>
+              <p className="text-meta text-ink-3">Startet die Nachprüfung zu {t.assetCode}; ist der Punkt in Ordnung, gilt der Mangel als behoben.</p>
+            </div>
+            <Button variant="secondary" icon={<ClipboardCheck />} loading={start.isPending} onClick={() => start.mutate({ assetId: t.assetId!, taskId: t.id })}>
+              Nachprüfung starten
             </Button>
           </div>
         )}

@@ -1,8 +1,8 @@
 // Regelbasierte Auswertung von Diktaten und Vorschläge – läuft ohne KI (Fallback und Offline),
 // die KI-Variante im Worker liefert dasselbe Format.
-import type { Severity } from './catalog';
+import { CATEGORIES, type Severity } from './catalog';
 
-export type CaptureKind = 'defect' | 'task' | 'note';
+export type CaptureKind = 'defect' | 'task' | 'note' | 'asset';
 
 export interface CaptureItem {
   kind: CaptureKind;
@@ -19,10 +19,100 @@ export interface CaptureItem {
   checkpointId: string | null;
   /** Frist in Tagen ab heute (nur Aufgaben) */
   dueInDays: number | null;
+  /** Sammelanlage (nur kind 'asset'): Anzahl, Art (Schlüssel), Etage, Standort */
+  count?: number;
+  category?: string | null;
+  floor?: string;
+  location?: string;
+}
+
+/** Elementart für die Sammelanlage (eingebaut oder eigene des Workspaces). */
+export interface CaptureCategory {
+  key: string;
+  label: string;
+  plural?: string;
 }
 
 export interface CaptureContext {
   checkpoints?: { id: string; label: string }[];
+  /** Arten für „fünf Feuerlöscher im EG Flur“; Standard: eingebaute Arten */
+  categories?: CaptureCategory[];
+}
+
+/** Höchstzahl je Sammelanlage (Diktat). */
+export const MAX_BULK_ASSETS = 50;
+
+const NUMBER_WORDS: Record<string, number> = {
+  ein: 1, eine: 1, einen: 1, eins: 1, zwei: 2, zwo: 2, drei: 3, vier: 4, 'fünf': 5, fuenf: 5, sechs: 6, sieben: 7, acht: 8, neun: 9, zehn: 10,
+  elf: 11, 'zwölf': 12, zwoelf: 12, dreizehn: 13, vierzehn: 14, 'fünfzehn': 15, fuenfzehn: 15, sechzehn: 16, siebzehn: 17, achtzehn: 18, neunzehn: 19, zwanzig: 20,
+};
+
+/** Zahl am Anfang: Ziffern oder Zahlwort eins–zwanzig. */
+export function parseCount(word: string): number | null {
+  const w = word.toLowerCase();
+  if (/^\d{1,3}$/.test(w)) return Number(w);
+  return NUMBER_WORDS[w] ?? null;
+}
+
+const ORDINALS: Record<string, number> = { erste: 1, ersten: 1, zweite: 2, zweiten: 2, dritte: 3, dritten: 3, vierte: 4, vierten: 4, 'fünfte': 5, 'fünften': 5, sechste: 6, sechsten: 6 };
+
+/** Etage aus dem Text lösen: „im Erdgeschoss“, „EG“, „2. OG“, „zweiten Obergeschoss“, „Keller“ … */
+export function extractFloor(text: string): { floor: string; rest: string } {
+  const rules: [RegExp, (m: RegExpMatchArray) => string][] = [
+    [/\b(?:im |in der |auf der |auf dem )?(erdgeschoss|eg)\b/i, () => 'EG'],
+    [/\b(?:im |in der |auf der |auf dem )?(\d{1,2})\.? ?(?:og|obergeschoss|etage|stock)\b/i, (m) => `${m[1]}. OG`],
+    [/\b(?:im |in der |auf der |auf dem )?(erste[n]?|zweite[n]?|dritte[n]?|vierte[n]?|fünfte[n]?|sechste[n]?) ?(?:og|obergeschoss|etage|stock)\b/i, (m) => `${ORDINALS[m[1]!.toLowerCase()]}. OG`],
+    [/\b(?:im |in der |auf der |auf dem )?(obergeschoss|og)\b/i, () => 'OG'],
+    [/\b(?:im |in der |auf dem )?(untergeschoss|ug|kellergeschoss|kg|keller)\b/i, () => 'UG'],
+    [/\b(?:im |in der |auf dem )?(dachgeschoss|dg|dachboden)\b/i, () => 'DG'],
+    [/\b(?:in der |auf der |im )?(tiefgarage)\b/i, () => 'TG'],
+  ];
+  for (const [re, f] of rules) {
+    const m = text.match(re);
+    if (m) return { floor: f(m), rest: `${text.slice(0, m.index)} ${text.slice((m.index ?? 0) + m[0].length)}`.replace(/\s+/g, ' ').trim() };
+  }
+  return { floor: '', rest: text.trim() };
+}
+
+const fold = (s: string) => s.toLowerCase().replace(/ä/g, 'ae').replace(/ö/g, 'oe').replace(/ü/g, 'ue').replace(/ß/g, 'ss');
+
+/** Art am Anfang des Textes erkennen (Einzahl, Mehrzahl, übliche Endungen). Liefert Art und Länge des Treffers. */
+export function matchCategory(text: string, categories: CaptureCategory[]): { key: string; length: number } | null {
+  const t = fold(text);
+  const forms = categories
+    .flatMap((c) => [c.label, c.plural ?? ''].filter(Boolean).map((f) => ({ key: c.key, form: fold(f) })))
+    .sort((a, b) => b.form.length - a.form.length);
+  for (const { key, form } of forms) {
+    if (!t.startsWith(form)) continue;
+    const tail = t.slice(form.length).match(/^(en|n|e|s|er|ern)?(?![a-z0-9])/);
+    if (tail) return { key, length: form.length + (tail[1]?.length ?? 0) };
+  }
+  return null;
+}
+
+const ASSET_FILLER = /^(?:neue[nrs]?|weitere[n]?|zusätzliche[n]?|noch)\s+/i;
+const ASSET_VERB = /\s*\b(?:anlegen|erfassen|aufnehmen|hinzufügen|eintragen|neu anlegen)\b\s*/gi;
+/** Feststellungen, die auf einen Mangel statt eine Anlage hinweisen */
+const DEFECT_HINT = /\b(nicht|fehlt|fehlen|kein(e|en)?|defekt|kaputt|beschädigt|abgelaufen|blockiert|verstellt|zugestellt|undicht|verschmutzt)\b/i;
+
+/** „fünf Feuerlöscher im Erdgeschoss Flur“ → Sammelanlage; sonst null. */
+export function parseAssetBatch(text: string, categories: CaptureCategory[]): Pick<CaptureItem, 'count' | 'category' | 'floor' | 'location'> | null {
+  if (DEFECT_HINT.test(text)) return null;
+  const m = text.match(/^(\S+)\s+(.*)$/);
+  if (!m) return null;
+  const count = parseCount(m[1]!);
+  if (count == null || count < 1) return null;
+  const body = m[2]!.replace(ASSET_FILLER, '');
+  const cat = matchCategory(body, categories);
+  if (!cat) return null;
+  const after = body.slice(cat.length).replace(ASSET_VERB, ' ');
+  const { floor, rest } = extractFloor(after);
+  const location = rest
+    .replace(/^(?:[,–-]\s*)?(?:im|in der|in den|in|am|an der|auf der|auf dem|beim|bei|vor dem|vor der|neben dem|neben der)\s+/i, '')
+    .replace(/^[,–-]\s*/, '')
+    .replace(/[,.;]+$/, '')
+    .trim();
+  return { count: Math.min(count, MAX_BULK_ASSETS), category: cat.key, floor, location: location ? location[0]!.toUpperCase() + location.slice(1) : '' };
 }
 
 const SEVERITY_RULES: [RegExp, Severity][] = [
@@ -99,16 +189,24 @@ export function similarity(a: string, b: string): number {
 
 const cap = (s: string) => (s ? s[0].toUpperCase() + s.slice(1) : s);
 
-/** Diktat in einzelne Feststellungen, Aufgaben und Notizen zerlegen. */
+/** Satzgrenzen (nicht nach „1.“ wie in „1. OG“), Bindewörter und „und“ vor einer Anzahl („… und drei Rauchwarnmelder …“). */
+const SPLIT = new RegExp(
+  `(?<=[!?;]|(?<!\\d)\\.)\\s+|\\s+(?:und dann|außerdem|ausserdem|nächster punkt|weiterhin)\\s+|\\s+und\\s+(?=(?:\\d{1,3}|${Object.keys(NUMBER_WORDS).join('|')})\\s)|\\n+`,
+  'i',
+);
+
+/** Diktat in einzelne Feststellungen, Aufgaben, Notizen und Sammelanlagen zerlegen. */
 export function parseCapture(text: string, ctx: CaptureContext = {}): CaptureItem[] {
   const segments = text
     .replace(/\s+/g, ' ')
-    .split(/(?<=[.!?;])\s+|\s+(?:und dann|außerdem|ausserdem|nächster punkt|weiterhin)\s+|\n+/i)
+    .split(SPLIT)
     .map((s) => s.trim().replace(/[.;]+$/, ''))
     .filter((s) => s.replace(FILLER, '').length >= 3);
   return segments.map((raw) => {
     let s = raw;
     while (FILLER.test(s)) s = s.replace(FILLER, '');
+    const batch = parseAssetBatch(s, ctx.categories ?? Object.values(CATEGORIES));
+    if (batch) return { kind: 'asset' as const, title: cap(s), note: '', severity: 'low' as const, measure: '', assetCode: null, checkpointId: null, dueInDays: null, ...batch };
     const isNote = NOTE_HINT.test(s);
     s = s.replace(NOTE_HINT, '');
     const code = s.match(CODE);

@@ -22,7 +22,7 @@ export function VoicePanel({ checkpoints, onApply }: { checkpoints: Pick<Checkpo
     setBusy(true);
     setMsg(null);
     try {
-      const r = await api<{ items: CaptureItem[] }>('/ai/parse', { body: { text, checkpoints: checkpoints.map((c) => ({ id: c.id, label: c.label })) } });
+      const r = await api<{ items: CaptureItem[] }>('/ai/parse', { body: { text, checkpoints: checkpoints.map((c) => ({ id: c.id, label: c.label })), categories: [] } });
       onApply(r.items);
       const n = r.items.filter((i) => i.kind === 'defect').length;
       setMsg({

@@ -115,7 +115,7 @@ export async function inspectionPdf(i: Inspection, brand: Brand): Promise<Uint8A
   if (i.defects.length) {
     doc.heading(T('Festgestellte Mängel'));
     for (const [n, df] of i.defects.entries()) {
-      doc.text(`${n + 1}. ${T(df.title)} – ${T(SEVERITIES[df.severity])}`, { bold: true });
+      doc.text(`${n + 1}. ${T(df.title)} – ${T(SEVERITIES[df.severity])}${df.since ? ` · ${T('bekannt seit')} ${d(df.since)}` : ''}`, { bold: true });
       if (df.note) doc.text(df.note, { color: MUTED, x: 58, width: doc.width - 12 });
       if (df.measure) doc.text(`${T('Maßnahme')}: ${df.measure}`, { x: 58, width: doc.width - 12 });
       const img = await fetchBytes(df.photoKey);

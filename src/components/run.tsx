@@ -5,7 +5,8 @@ import { createContext, type ReactNode, useCallback, useContext, useEffect, useR
 import { type Category, type Checkpoint, type CustomKind, INSPECTION_KINDS, SEVERITIES, type Severity } from '../../shared/catalog';
 import { type Answer, computeResult, finalResult, isComplete, type ResultOverride } from '../../shared/logic';
 import { type DefectDraft, fileUrl, uploadPhoto, useMe } from '../api';
-import { defectsLabel, RESULT_META } from '../format';
+import { defectsLabel, fmtDate, RESULT_META } from '../format';
+import { decideKnown, groupKnownDefects, type KnownDecision, knownDecision, type KnownDefect } from '../../shared/carry';
 import { CategoryIcon } from './CategoryIcon';
 import { Button, Card, DictateInput, Notice, SectionHeader, Switch, Textarea, toneDot, SEVERITY_TONE, useConfirm } from './ui';
 import { type CaptureItem, suggestMeasure, suggestSeverity } from '../../shared/smart';
@@ -209,6 +210,8 @@ export interface InspectionDraft {
   signerName: string;
   resultOverride?: ResultOverride | null;
   resultReason?: string;
+  /** bekannte Mängel, die als behoben gemeldet wurden (IDs) */
+  resolvedDefects?: string[];
 }
 
 export interface InspectionSubject {
@@ -231,6 +234,7 @@ export function InspectionForm({
   discard,
   offline,
   banner,
+  knownDefects = [],
 }: {
   subject: InspectionSubject;
   scheduleLabel?: string;
@@ -244,6 +248,8 @@ export function InspectionForm({
   submit: (d: InspectionDraft) => Promise<void>;
   discard: () => Promise<void>;
   offline?: boolean;
+  /** offene Mängel des Elements aus früheren Prüfungen */
+  knownDefects?: KnownDefect[];
 }) {
   const def = getCategory(subject.category);
   const [d, setD] = useState<InspectionDraft>(initial);
@@ -263,12 +269,23 @@ export function InspectionForm({
   const firstOpen = checkpoints.find((c) => !d.answers[c.id]);
   const untitled = d.defects.some((x) => !x.title.trim());
 
+  const known = groupKnownDefects(knownDefects, ids);
+  const decide = (k: KnownDefect, decision: KnownDecision) => setD((s) => decideKnown(s, k, decision, ids));
+
   const setAnswer = (cp: Checkpoint, a: Answer) => {
+    const here = known.byCheckpoint.get(cp.id) ?? [];
+    // Antwort ≠ i. O. nimmt „Behoben“ bei bekannten Mängeln dieses Punktes zurück
+    const resolvedDefects = a === 'ok' ? d.resolvedDefects : d.resolvedDefects?.filter((x) => !here.some((k) => k.id === x));
+    if (a === 'defect' && here.length && !d.defects.some((x) => x.checkpointId === cp.id)) {
+      // Mangel an einem Punkt mit bekanntem Mangel: den bekannten weiterführen statt einen neuen anzulegen
+      setD((s) => decideKnown({ ...s, resolvedDefects }, here[0]!, 'present', ids));
+      return;
+    }
     const answers = { ...d.answers, [cp.id]: a };
     let defects = d.defects;
     if (a === 'defect' && !defects.some((x) => x.checkpointId === cp.id)) defects = [...defects, { checkpointId: cp.id, title: cp.label, note: '', severity: 'medium' }];
     if (a !== 'defect') defects = defects.filter((x) => x.checkpointId !== cp.id);
-    update({ answers, defects });
+    update({ answers, defects, resolvedDefects });
     // bei i. O./n. z. weiter zum nächsten offenen Punkt; bei Mangel bleibt der Blick hier
     if (a !== 'defect') revealNextOpen(listRef.current, cp.id);
   };
@@ -282,12 +299,15 @@ export function InspectionForm({
     if (ok) update({ answers: Object.fromEntries(ids.map((i) => [i, d.answers[i] ?? 'ok'])) });
   };
 
-  const onSubmit = async () => {
+  const onSubmit = () => finish(d);
+  const finish = async (draft: InspectionDraft) => {
     setError('');
     setSubmitting(true);
     try {
-      await submit(d);
+      await submit(draft);
     } catch (e) {
+      // gemerkte Unterschrift bleibt im Entwurf, damit ein erneuter Versuch reicht
+      if (draft !== d) setD(draft);
       setError(e instanceof Error ? e.message : 'Abschließen fehlgeschlagen');
     } finally {
       setSubmitting(false);
@@ -368,6 +388,7 @@ export function InspectionForm({
             let defects = [...d.defects];
             const notes: string[] = [];
             for (const it of items) {
+              if (it.kind === 'asset') continue; // Sammelanlagen gibt es nur unter „Erfassen“
               if (it.kind !== 'defect') {
                 notes.push(it.title + (it.note ? ` – ${it.note}` : ''));
                 continue;
@@ -402,7 +423,8 @@ export function InspectionForm({
           <Card className="overflow-hidden">
             <div ref={listRef} className="divide-y divide-line">
               {checkpoints.map((cp, idx) => {
-                const defect = d.defects.find((x) => x.checkpointId === cp.id);
+                const defect = d.defects.find((x) => x.checkpointId === cp.id && !x.knownId);
+                const here = known.byCheckpoint.get(cp.id) ?? [];
                 return (
                   <CheckpointRow
                     key={cp.id}
@@ -414,10 +436,17 @@ export function InspectionForm({
                     current={firstOpen?.id === cp.id && answered > 0}
                     onAnswer={(v) => setAnswer(cp, v)}
                   >
-                    {defect && (
-                      <DefectPanel>
-                        <DefectEditor defect={defect} onChange={(nd) => update({ defects: d.defects.map((x) => (x === defect ? nd : x)) })} />
-                      </DefectPanel>
+                    {(here.length > 0 || defect) && (
+                      <div className="flex flex-col gap-3">
+                        {here.map((k) => (
+                          <KnownDefectCard key={k.id} k={k} decision={knownDecision(d, k.id)} onDecide={(x) => decide(k, x)} />
+                        ))}
+                        {defect && (
+                          <DefectPanel>
+                            <DefectEditor defect={defect} onChange={(nd) => update({ defects: d.defects.map((x) => (x === defect ? nd : x)) })} />
+                          </DefectPanel>
+                        )}
+                      </div>
                     )}
                   </CheckpointRow>
                 );
@@ -427,12 +456,23 @@ export function InspectionForm({
         </section>
       )}
 
+      {!d.notInspectable && known.loose.length > 0 && (
+        <section id="bekannte-maengel" className="scroll-mt-24">
+          <SectionHeader title="Bekannte Mängel" meta="ohne passenden Prüfpunkt" />
+          <Card className="flex flex-col gap-3 p-3 sm:p-4">
+            {known.loose.map((k) => (
+              <KnownDefectCard key={k.id} k={k} decision={knownDecision(d, k.id)} onDecide={(x) => decide(k, x)} />
+            ))}
+          </Card>
+        </section>
+      )}
+
       {!d.notInspectable && (
         <section id="weitere-maengel" className="scroll-mt-24">
           <SectionHeader title="Weitere Mängel" meta="ohne Prüfpunkt" />
           <div className="flex flex-col gap-3">
             {d.defects
-              .filter((x) => !x.checkpointId)
+              .filter((x) => !x.checkpointId && !x.knownId)
               .map((x, i) => (
                 <Card key={i} className="animate-pop p-4">
                   <DefectEditor
@@ -489,10 +529,40 @@ export function InspectionForm({
         signature={d.signature}
         onName={(signerName) => update({ signerName })}
         onSignature={(signature) => update({ signature })}
+        onQuickFinish={steps.every((x) => x.done || x.key === 'sign') ? (signature) => void finish({ ...d, signature }) : undefined}
       />
 
       <DiscardButton onDiscard={discard} />
     </RunFrame>
+  );
+}
+
+/** Offener Mangel aus einer früheren Prüfung: weiterhin vorhanden oder behoben? */
+function KnownDefectCard({ k, decision, onDecide }: { k: KnownDefect; decision: KnownDecision; onDecide: (d: KnownDecision) => void }) {
+  return (
+    <div className="flex flex-col gap-2.5 rounded-lg border-l-2 border-warn bg-canvas py-3 pr-3 pl-3.5" data-known={k.id}>
+      <p className="text-body">
+        <span className="text-ink-3">Bekannter Mangel vom {fmtDate(k.createdAt)}:</span> <span className="font-medium">{k.title}</span>
+        <span className="ml-2 inline-flex items-center gap-1.5 align-middle text-meta text-ink-3">
+          <span className={clsx('size-2 rounded-full', k.severity === 'low' ? 'bg-ink-4' : toneDot[SEVERITY_TONE[k.severity]])} />
+          {SEVERITIES[k.severity]}
+        </span>
+      </p>
+      {k.note && <p className="-mt-1.5 text-meta text-ink-3">{k.note}</p>}
+      <div className="flex flex-wrap gap-2" role="group" aria-label={`Bekannter Mangel: ${k.title}`}>
+        <ToggleChip active={decision === 'present'} onClick={() => onDecide(decision === 'present' ? 'open' : 'present')}>
+          Weiterhin vorhanden
+        </ToggleChip>
+        <ToggleChip active={decision === 'resolved'} onClick={() => onDecide(decision === 'resolved' ? 'open' : 'resolved')}>
+          Behoben
+        </ToggleChip>
+      </div>
+      {decision !== 'open' && (
+        <p className="text-caption text-ink-3">
+          {decision === 'present' ? 'Bleibt als offener Mangel bestehen – es wird kein neuer angelegt.' : 'Wird mit dem Abschluss als behoben vermerkt.'}
+        </p>
+      )}
+    </div>
   );
 }
 

@@ -4,7 +4,8 @@ import { Hono } from 'hono';
 import { HTTPException } from 'hono/http-exception';
 import { z } from 'zod';
 import { SEVERITIES } from '../shared/catalog';
-import { type CaptureItem, parseCapture } from '../shared/smart';
+import { type CaptureCategory, type CaptureItem, MAX_BULK_ASSETS, parseCapture } from '../shared/smart';
+import { listCategories } from './categories';
 import { tid } from './data';
 import { type AppEnv, type Ctx, requireRole } from './lib';
 import { assertNotThrottled, recordFailure } from './throttle';
@@ -59,7 +60,7 @@ ai.post('/ai/transcribe', async (c) => {
 });
 
 const itemSchema = z.object({
-  kind: z.enum(['defect', 'task', 'note']),
+  kind: z.enum(['defect', 'task', 'note', 'asset']),
   title: z.string().min(1).max(300),
   note: z.string().max(2000).default(''),
   severity: z.enum(Object.keys(SEVERITIES) as ['low', 'medium', 'high', 'critical']).default('medium'),
@@ -67,6 +68,11 @@ const itemSchema = z.object({
   assetCode: z.string().max(40).nullable().default(null),
   checkpointId: z.string().max(40).nullable().default(null),
   dueInDays: z.number().int().min(0).max(365).nullable().default(null),
+  // Sammelanlage (kind "asset")
+  count: z.number().int().min(1).max(500).optional().catch(undefined),
+  category: z.string().max(60).nullable().optional().catch(null),
+  floor: z.string().max(60).optional().catch(undefined),
+  location: z.string().max(200).optional().catch(undefined),
 });
 
 const JSON_SCHEMA = {
@@ -77,7 +83,7 @@ const JSON_SCHEMA = {
       items: {
         type: 'object',
         properties: {
-          kind: { type: 'string', enum: ['defect', 'task', 'note'] },
+          kind: { type: 'string', enum: ['defect', 'task', 'note', 'asset'] },
           title: { type: 'string' },
           note: { type: 'string' },
           severity: { type: 'string', enum: ['low', 'medium', 'high', 'critical'] },
@@ -85,6 +91,10 @@ const JSON_SCHEMA = {
           assetCode: { type: ['string', 'null'] },
           checkpointId: { type: ['string', 'null'] },
           dueInDays: { type: ['integer', 'null'] },
+          count: { type: 'integer' },
+          category: { type: ['string', 'null'] },
+          floor: { type: 'string' },
+          location: { type: 'string' },
         },
         required: ['kind', 'title', 'severity'],
       },
@@ -94,11 +104,14 @@ const JSON_SCHEMA = {
 };
 
 /** Strukturierung per KI; liefert null, wenn nicht verfügbar oder unbrauchbar. */
-export async function structureWithAi(c: Ctx, text: string, checkpoints: { id: string; label: string }[]): Promise<CaptureItem[] | null> {
+export async function structureWithAi(c: Ctx, text: string, checkpoints: { id: string; label: string }[], categories: CaptureCategory[] = []): Promise<CaptureItem[] | null> {
   if (!hasAi(c)) return null;
   const system = [
     'Du strukturierst diktierte Notizen einer Brandschutzprüfung auf Deutsch.',
-    'Zerlege den Text in einzelne Einträge: kind "defect" = festgestellter Mangel, "task" = zu erledigende Aufgabe, "note" = sonstiger Hinweis.',
+    'Zerlege den Text in einzelne Einträge: kind "defect" = festgestellter Mangel, "task" = zu erledigende Aufgabe, "note" = sonstiger Hinweis, "asset" = neu anzulegende Elemente (z. B. "fünf Feuerlöscher im EG Flur").',
+    categories.length
+      ? `Bei "asset": count = Anzahl, category = Schlüssel aus dieser Liste (Schlüssel=Bezeichnung): ${categories.map((x) => `${x.key}=${x.label}`).join('; ')}; floor = Etage kurz (EG, 1. OG, UG, DG), location = Standort ohne Etage. title = der diktierte Satz.`
+      : '',
     'title: kurzer, sachlicher Satz (max. 12 Wörter), ohne Füllwörter. note: weitere Details aus dem Text, sonst leer.',
     'severity: low (optisch), medium (Funktion eingeschränkt), high (Schutzfunktion gefährdet), critical (Gefahr im Verzug, Funktion fehlt).',
     'measure: konkrete, fachlich übliche Maßnahme zur Behebung (bei defect), sonst leer.',
@@ -123,7 +136,12 @@ export async function structureWithAi(c: Ctx, text: string, checkpoints: { id: s
     const raw = typeof out.response === 'string' ? JSON.parse(out.response) : out.response;
     const parsed = z.object({ items: z.array(itemSchema).max(50) }).parse(raw);
     const ids = new Set(checkpoints.map((p) => p.id));
-    return parsed.items.map((i) => ({ ...i, checkpointId: i.checkpointId && ids.has(i.checkpointId) ? i.checkpointId : null }));
+    const keys = new Set(categories.map((x) => x.key));
+    return parsed.items.map((i) => {
+      const item: CaptureItem = { ...i, checkpointId: i.checkpointId && ids.has(i.checkpointId) ? i.checkpointId : null };
+      if (i.kind !== 'asset') return { ...item, count: undefined, category: undefined, floor: undefined, location: undefined };
+      return { ...item, count: Math.min(Math.max(i.count ?? 1, 1), MAX_BULK_ASSETS), category: i.category && keys.has(i.category) ? i.category : null, floor: i.floor ?? '', location: i.location ?? '' };
+    });
   } catch (e) {
     console.error('ai structure', e);
     return null;
@@ -134,11 +152,17 @@ export async function structureWithAi(c: Ctx, text: string, checkpoints: { id: s
 ai.post('/ai/parse', async (c) => {
   requireRole(c, 'inspector');
   const b = z
-    .object({ text: z.string().trim().min(1).max(8000), checkpoints: z.array(z.object({ id: z.string().max(40), label: z.string().max(300) })).max(120).default([]) })
+    .object({
+      text: z.string().trim().min(1).max(8000),
+      checkpoints: z.array(z.object({ id: z.string().max(40), label: z.string().max(300) })).max(120).default([]),
+      /** Elementarten für Sammelanlagen; ohne Angabe die des Workspaces */
+      categories: z.array(z.object({ key: z.string().max(60), label: z.string().max(120), plural: z.string().max(120).optional() })).max(200).optional(),
+    })
     .parse(await c.req.json());
   if (hasAi(c)) await meter(c);
-  const items = await structureWithAi(c, b.text, b.checkpoints);
-  return c.json(items ? { items, source: 'ai' } : { items: parseCapture(b.text, { checkpoints: b.checkpoints }), source: 'rules' });
+  const categories = b.categories ?? (await listCategories(c)).map((x) => ({ key: x.key, label: x.label, plural: x.plural }));
+  const items = await structureWithAi(c, b.text, b.checkpoints, categories);
+  return c.json(items ? { items, source: 'ai' } : { items: parseCapture(b.text, { checkpoints: b.checkpoints, categories }), source: 'rules' });
 });
 
 /** Typenschild-Foto auslesen (Hersteller, Modell, Baujahr, Seriennummer, Zulassung). */
@@ -172,5 +196,53 @@ ai.post('/ai/typeplate', async (c) => {
     return c.json(r);
   } catch {
     throw new HTTPException(422, { message: 'Typenschild nicht lesbar' });
+  }
+});
+
+/** JSON aus einer Modellantwort lösen (auch wenn Text drumherum steht). */
+function looseJson(v: unknown): unknown {
+  if (typeof v !== 'string') return v;
+  return JSON.parse(v.replace(/^[^{]*/, '').replace(/[^}]*$/, ''));
+}
+
+/** Foto zuerst beim Anlegen: Art des Elements erkennen und Typenschild-Daten auslesen. */
+ai.post('/ai/identify', async (c) => {
+  requireRole(c, 'inspector');
+  if (!hasAi(c)) throw new HTTPException(503, { message: 'Bilderkennung ist in dieser Umgebung nicht verfügbar' });
+  const { key } = z.object({ key: z.string().max(200) }).parse(await c.req.json());
+  if (!key.startsWith(`${tid(c)}/`)) throw new HTTPException(400, { message: 'Ungültige Datei' });
+  const obj = await c.env.FILES.get(key);
+  if (!obj) throw new HTTPException(404, { message: 'Foto nicht gefunden' });
+  await meter(c);
+  const cats = (await listCategories(c)).map((x) => ({ key: x.key, label: x.label }));
+  const type = obj.httpMetadata?.contentType ?? 'image/jpeg';
+  const image = `data:${type};base64,${b64(await obj.arrayBuffer())}`;
+  const prompt = [
+    'Auf dem Foto ist ein Bauteil des Brandschutzes (z. B. Feuerlöscher, Feuerschutztür, Rauchwarnmelder).',
+    `Ordne es genau einer dieser Arten zu (Schlüssel=Bezeichnung): ${cats.map((x) => `${x.key}=${x.label}`).join('; ')}.`,
+    'Lies außerdem ein sichtbares Typenschild. Antworte nur mit JSON:',
+    '{"category":string|null,"manufacturer":string|null,"model":string|null,"year":number|null,"serial":string|null,"confidence":number}',
+    'category ist der Schlüssel oder null, wenn unklar; confidence zwischen 0 und 1. Erfinde nichts, was nicht zu sehen ist.',
+  ].join('\n');
+  try {
+    const out = (await c.env.AI!.run(VISION_MODEL, {
+      messages: [{ role: 'user', content: [{ type: 'text', text: prompt }, { type: 'image_url', image_url: { url: image } }] }],
+      max_tokens: 300,
+    } as never)) as { response?: unknown };
+    const r = z
+      .object({
+        category: z.string().max(60).nullable().catch(null),
+        manufacturer: z.string().max(120).nullable().catch(null),
+        model: z.string().max(120).nullable().catch(null),
+        year: z.coerce.number().int().min(1900).max(2100).nullable().catch(null),
+        serial: z.string().max(80).nullable().catch(null),
+        confidence: z.coerce.number().min(0).max(1).catch(0),
+      })
+      .parse(looseJson(out.response));
+    const known = cats.some((x) => x.key === r.category);
+    return c.json({ ...r, category: known ? r.category : null, confidence: known ? r.confidence : 0 });
+  } catch (e) {
+    console.error('ai identify', e);
+    throw new HTTPException(503, { message: 'Bilderkennung gerade nicht möglich' });
   }
 });

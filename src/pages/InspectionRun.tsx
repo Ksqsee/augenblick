@@ -69,7 +69,9 @@ function Online({ insp }: { insp: Inspection }) {
         signerName: insp.signerName || '',
         resultOverride: insp.resultOverride ?? null,
         resultReason: insp.resultReason ?? '',
+        resolvedDefects: insp.resolvedDefects ?? [],
       }}
+      knownDefects={insp.knownDefects}
       persist={(d) => api(`/inspections/${insp.id}`, { method: 'PUT', body: d })}
       submit={async (d) => {
         await api(`/inspections/${insp.id}/submit`, { body: d });

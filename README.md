@@ -20,12 +20,23 @@ API: [`docs/api.md`](docs/api.md)
 - **Suche in normaler Sprache** (Strg+K): „überfällige Feuerlöscher Grundschule“ öffnet die passend gefilterte Liste
 - **Rundgang**: fällige Elemente eines Gebäudes in Laufreihenfolge, nach jeder Prüfung direkt weiter zum nächsten
 - **Automatische Aufgaben** für schwere Mängel (SLA-Frist), abschaltbar; **Typenschild-Foto** füllt Hersteller/Modell
+- **Foto zuerst beim Anlegen**: „Foto aufnehmen“ erkennt Art, Hersteller, Modell und Baujahr (Workers AI) und schlägt sie vor;
+  ohne KI bleibt es bei der Auswahl, das Foto wird am Element gespeichert
+- **Sammelanlage per Diktat** unter „Erfassen“: „fünf Feuerlöscher im Erdgeschoss Flur“ → Anzahl, Art, Etage, Standort prüfen,
+  Gebäude wählen, anlegen (Zahlwörter eins–zwanzig und Ziffern; Regel-Parser als Rückfall)
 - **MCP-Server** im Worker (`/api/mcp`) mit **OAuth-Anmeldung** (Freigabe mit API-Schlüssel oder neuer Verbindung): Prüfkompass als Werkzeugkasten für Claude – siehe `docs/api.md`
 
 **Prüfen**
 - Prüfung je Element mit Prüfpunkten (i. O. / Mangel / n. z.), Wartungsarbeiten, Fotos, Bemerkungen und Unterschrift
 - **Prüfarten** mit eigenen Fristen je Element (z. B. Feuerlöscher: Instandhaltung, innere Prüfung, Festigkeitsprüfung)
 - Mängel mit Schweregrad, Beschreibung, **Maßnahme** und Foto
+- **Bekannte Mängel im Prüfablauf**: offene Mängel des Elements stehen beim passenden Prüfpunkt („Bekannter Mangel vom …“)
+  mit *Weiterhin vorhanden* (Punkt = Mangel, kein Doppel) oder *Behoben* (Punkt = i. O., Mangel wird beim Abschluss
+  geschlossen); gleich benannte Mängel werden auch offline nicht doppelt angelegt
+- **Art der Prüfung vorbelegt**: Erstprüfung bei nie geprüften Elementen, sonst wiederkehrend; aus einer Mängelbehebung
+  gestartet wird es eine Nachprüfung
+- **Unterschrift merken** (freiwillig, nur auf dem Gerät): „Mit gemerkter Unterschrift abschließen“ mit einem Tipp,
+  vergessen unter Einstellungen → Konto
 - **Gesamtbewertung** automatisch oder vom Prüfer festgelegt (mit Pflicht-Begründung im Protokoll)
 - **Mehrere Arten der Prüfung** je Prüfung, auch eigene Arten des Workspaces
 - **Berichtigung** abgeschlossener Prüfungen: neue Fassung ersetzt die alte, die als Nachweis erhalten bleibt
