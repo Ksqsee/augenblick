@@ -1,5 +1,6 @@
 import { Link2 } from 'lucide-react';
 import { useState } from 'react';
+import { type Recurrence, RECURRENCES } from '../../../shared/automation';
 import { TASK_KINDS, type TaskKind } from '../../../shared/tasks';
 import { api, type Task, useAction, useMembers, useSubcontractors } from '../../api';
 import { Button, DictateInput, ErrorBox, Field, Input, Modal, Select, Textarea, useToast } from '../ui';
@@ -24,6 +25,7 @@ export function TaskForm({ initial, onClose, onCreated }: { initial?: Partial<Ta
     assigneeId: initial?.assigneeId ?? '',
     subcontractorId: initial?.subcontractorId ?? '',
     labels: initial?.labels ?? [],
+    recurrence: initial?.recurrence ?? '',
   });
   const save = useAction(
     async () => {
@@ -44,6 +46,7 @@ export function TaskForm({ initial, onClose, onCreated }: { initial?: Partial<Ta
           defectId: initial?.defectId ?? null,
           propertyId: initial?.propertyId ?? null,
           labels: f.labels,
+          recurrence: f.recurrence || null,
         },
       });
     },
@@ -130,6 +133,18 @@ export function TaskForm({ initial, onClose, onCreated }: { initial?: Partial<Ta
               {Object.entries(TASK_PRIO).map(([k, v]) => (
                 <option key={k} value={k}>
                   {v.label}
+                </option>
+              ))}
+            </Select>
+          )}
+        </Field>
+        <Field label="Wiederholen" hint="Beim Erledigen entsteht die nächste Aufgabe (Autopilot)">
+          {(id) => (
+            <Select id={id} value={f.recurrence} onChange={(e) => setF({ ...f, recurrence: e.target.value as Recurrence | '' })}>
+              <option value="">Nie</option>
+              {Object.entries(RECURRENCES).map(([k, v]) => (
+                <option key={k} value={k}>
+                  {v}
                 </option>
               ))}
             </Select>

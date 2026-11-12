@@ -334,6 +334,41 @@ export const TOOLS: Tool[] = [
     run: (a, api) => api({ method: 'POST', path: '/smart/tasks-from-defects', body: a.severities ? { severities: a.severities } : {} }),
   },
   {
+    name: 'list_automations',
+    title: 'Autopilot-Regeln',
+    description:
+      'Regeln des Autopiloten mit Stufe (off = aus, suggest = vorschlagen, auto = automatisch) und letzter Ausführung: plan_week, assign_defect_tasks, escalate_sla, recurring_tasks, close_stale, monthly_report.',
+    inputSchema: obj({}),
+    readOnly: true,
+    run: (_a, api) => api({ method: 'GET', path: '/automation' }),
+  },
+  {
+    name: 'set_automation',
+    title: 'Autopilot-Regel einstellen',
+    description:
+      'Stufe einer Autopilot-Regel ändern. Nur für Admins – API-Schlüssel handeln höchstens als Prüfer und bekommen daher „Keine Berechtigung“; die Einstellung erfolgt dann in der App unter Einstellungen → Automatik.',
+    inputSchema: obj(
+      {
+        key: str('Regel', { enum: ['plan_week', 'assign_defect_tasks', 'escalate_sla', 'recurring_tasks', 'close_stale', 'monthly_report'] }),
+        mode: str('Stufe', { enum: ['off', 'suggest', 'auto'] }),
+      },
+      ['key', 'mode'],
+    ),
+    readOnly: false,
+    run: (a, api) => api({ method: 'PUT', path: '/automation', body: { key: a.key, mode: a.mode } }),
+  },
+  {
+    name: 'list_automation_log',
+    title: 'Autopilot-Protokoll',
+    description: 'Was der Autopilot erledigt hat (neueste zuerst): Zeit, Regel, Zusammenfassung, Link und ob es sich noch rückgängig machen lässt.',
+    inputSchema: obj({
+      key: str('nur diese Regel', { enum: ['plan_week', 'assign_defect_tasks', 'escalate_sla', 'recurring_tasks', 'close_stale', 'monthly_report'] }),
+      limit: { type: 'number', description: 'Anzahl (1–200, Standard 50)' },
+    }),
+    readOnly: true,
+    run: (a, api) => api({ method: 'GET', path: `/automation/log${qs(a, ['key', 'limit'])}` }),
+  },
+  {
     name: 'structure_dictation',
     title: 'Diktat strukturieren',
     description: 'Zerlegt diktierten Text einer Prüfung in Mängel (mit Schwere und Maßnahme), Aufgaben und Notizen.',

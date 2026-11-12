@@ -1,4 +1,5 @@
 import { keepPreviousData, QueryClient, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import type { AssignRule, AutomationKey, AutomationMode, Recurrence } from '../shared/automation';
 import type { AttributeField, Category, CategoryDef, Checkpoint, CustomKind, InspectionKind, InspectionPurpose, Role, Severity, WalkPurpose } from '../shared/catalog';
 import type { Answer, Result, ResultOverride, Schedules } from '../shared/logic';
 import type { TaskKind } from '../shared/tasks';
@@ -474,6 +475,12 @@ export interface Task {
   defectSeverity: Severity | null;
   defectStatus: 'open' | 'resolved' | null;
   assetNextDueAt: number | null;
+  /** Wiederholung (Autopilot recurring_tasks) */
+  recurrence?: Recurrence | null;
+  recursFrom?: string | null;
+  /** Prüfauftrag für ein ganzes Gebäude (Rundgang) */
+  buildingId?: string | null;
+  buildingName?: string | null;
 }
 
 export interface TaskLabel {
@@ -714,3 +721,29 @@ export async function archiveReport(me: Me, bytes: Uint8Array, meta: { kind: Rep
   queryClient.invalidateQueries({ queryKey: ['reports'] });
   return true;
 }
+
+// ---------- Autopilot ----------
+export interface AutomationRule {
+  key: AutomationKey;
+  title: string;
+  description: string;
+  mode: AutomationMode;
+  defaultMode: AutomationMode;
+  adminOnly: boolean;
+  lastRunAt: number | null;
+  /** nur für Admins */
+  config?: { rules?: AssignRule[] };
+}
+export interface AutomationLogEntry {
+  id: string;
+  key: AutomationKey;
+  title: string;
+  at: number;
+  summary: string;
+  link?: string;
+  actorName: string;
+  undoable: boolean;
+  undoneAt: number | null;
+}
+export const useAutomations = () => useQuery({ queryKey: ['automation'], queryFn: () => api<AutomationRule[]>('/automation') });
+export const useAutomationLog = (limit = 50) => useQuery({ queryKey: ['automation', 'log', limit], queryFn: () => api<AutomationLogEntry[]>(`/automation/log?limit=${limit}`) });

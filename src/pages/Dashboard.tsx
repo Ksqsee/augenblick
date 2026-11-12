@@ -6,7 +6,7 @@ import clsx from 'clsx';
 import { Plus, ScanLine } from 'lucide-react';
 import { type ReactNode, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { api, useDashboard, useMe } from '../api';
+import { api, useAutomationLog, useDashboard, useMe } from '../api';
 import { Button, ButtonLink, Empty, ErrorBox, List, ListRow, PageSkeleton, Section, SectionLink, StatTile, StatusDot, StatusText, Surface, useToast } from '../components/ui';
 import { defectsLabel, fmtDate, fmtRelative, type Tone } from '../format';
 
@@ -49,18 +49,6 @@ export const useRounds = (days = 30) =>
     queryKey: ['smart', 'rounds', days],
     queryFn: () => api<Round[]>(`/smart/rounds?days=${days}`),
   });
-
-/** Eintrag im Autopilot-Protokoll (Paket B). Felder defensiv, camelCase oder snake_case. */
-interface AutomationEntry {
-  id: string;
-  at?: number;
-  summary: string;
-  undo?: unknown;
-  undoable?: boolean;
-  canUndo?: boolean;
-  undoneAt?: number | null;
-  undone_at?: number | null;
-}
 
 const dayFmt = new Intl.DateTimeFormat('de-DE', {
   weekday: 'long',
@@ -181,29 +169,21 @@ function roundStatus(r: Round): { tone: Tone; text: string } {
   return { tone: 'info', text: 'nie geprüft' };
 }
 
-/** „Erledigt für dich“: letzte Einträge des Autopilot-Protokolls. Ohne Endpunkt (404) oder ohne Einträge unsichtbar. */
-function DoneForYou() {
+/** „Erledigt für dich“: letzte Einträge des Autopilot-Protokolls (GET /automation/log). Ohne Einträge unsichtbar. */
+function DoneForYou({ isAdmin }: { isAdmin: boolean }) {
   const qc = useQueryClient();
   const toast = useToast();
   const [busy, setBusy] = useState<string | null>(null);
-  const log = useQuery({
-    queryKey: ['automation', 'log', 5],
-    queryFn: async () => {
-      const r = await api<AutomationEntry[] | { items?: AutomationEntry[]; log?: AutomationEntry[] }>('/automation/log?limit=5');
-      return Array.isArray(r) ? r : (r.items ?? r.log ?? []);
-    },
-    retry: false,
-    staleTime: 60_000,
-  });
-  const items = (log.data ?? []).slice(0, 5);
+  const log = useAutomationLog(5);
+  const items = log.data ?? [];
   if (!items.length) return null;
   const today = new Date().toDateString();
   const undo = async (id: string) => {
     setBusy(id);
     try {
-      await api(`/automation/log/${id}/undo`, { method: 'POST' });
-      toast('Rückgängig gemacht');
-      for (const k of ['automation', 'smart', 'tasks', 'dashboard']) qc.invalidateQueries({ queryKey: [k] });
+      const r = await api<{ reverted: number; kept: number }>(`/automation/log/${id}/undo`, { body: {} });
+      toast(r.kept ? `Rückgängig gemacht (${r.kept} schon bearbeitet, bleibt)` : 'Rückgängig gemacht');
+      for (const k of ['automation', 'smart', 'tasks', 'dashboard', 'assets', 'asset']) qc.invalidateQueries({ queryKey: [k] });
     } catch (e) {
       toast(e instanceof Error ? e.message : 'Fehlgeschlagen', 'bad');
     } finally {
@@ -211,17 +191,25 @@ function DoneForYou() {
     }
   };
   return (
-    <Section title="Erledigt für dich" action={<SectionLink to="/einstellungen?tab=automation">Alle</SectionLink>} flush>
+    // Das ganze Protokoll steht unter Einstellungen → Automatik (nur Admins)
+    <Section id="erledigt" title="Erledigt für dich" action={isAdmin ? <SectionLink to="/einstellungen?tab=automation">Alle</SectionLink> : undefined} flush>
       <ul className="pk-list" aria-label="Erledigt für dich">
         {items.map((e) => {
-          const undone = e.undoneAt ?? e.undone_at;
-          const canUndo = !undone && (e.undoable ?? e.canUndo ?? (e.undo != null && e.undo !== ''));
-          const at = e.at ? (new Date(e.at).toDateString() === today ? timeFmt.format(e.at) : shortFmt.format(e.at)) : '';
+          const undone = e.undoneAt != null;
+          const at = new Date(e.at).toDateString() === today ? timeFmt.format(e.at) : shortFmt.format(e.at);
           return (
-            <li key={e.id} className="flex min-h-11 items-center gap-3 px-(--row-px) py-2.5 text-body">
+            <li key={e.id} data-log={e.id} className="flex min-h-11 items-center gap-3 px-(--row-px) py-2.5 text-body">
               <span className="w-11 shrink-0 text-meta text-ink-3 tabular-nums">{at}</span>
-              <span className={clsx('min-w-0 flex-1', undone ? 'text-ink-3 line-through decoration-ink-4' : 'text-ink')}>{e.summary}</span>
-              {canUndo && (
+              <span className={clsx('min-w-0 flex-1', undone ? 'text-ink-3 line-through decoration-ink-4' : 'text-ink')}>
+                {e.link ? (
+                  <Link to={e.link} className="hover:underline">
+                    {e.summary}
+                  </Link>
+                ) : (
+                  e.summary
+                )}
+              </span>
+              {!undone && e.undoable && (
                 <button
                   type="button"
                   disabled={busy === e.id}
@@ -400,7 +388,7 @@ export function Dashboard() {
           </Section>
         )}
 
-        <DoneForYou />
+        <DoneForYou isAdmin={me?.user.role === 'owner' || me?.user.role === 'admin'} />
       </Surface>
 
       <aside className="flex min-w-0 flex-col gap-8 lg:pt-2" aria-label="Überblick">

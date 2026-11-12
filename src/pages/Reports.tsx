@@ -2,6 +2,7 @@ import clsx from 'clsx';
 import {
   AlertTriangle,
   Building2,
+  CalendarClock,
   CalendarRange,
   ClipboardList,
   DatabaseBackup,
@@ -15,12 +16,14 @@ import {
   ShieldCheck,
   Trash2,
 } from 'lucide-react';
-import { type ReactNode, useMemo, useState } from 'react';
+import { useQuery } from '@tanstack/react-query';
+import { type ReactNode, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { kindLabel, SEVERITIES } from '../../shared/catalog';
 import type { Result } from '../../shared/logic';
 import { api, archiveReport, type Asset, type Defect, type PropertyRow, type ReportRow, useAction, useAssets, useDefects, useInspections, useMe, useMembers, useProperties, useReports } from '../api';
 import { describeFilter, EMPTY_FILTER, filterParams, type InspectionFilter, InspectionFilters } from '../components/InspectionFilters';
+import { type MonthlyStatus, runMonthlyReports } from '../automation';
 import { DueBadge } from '../components/AssetList';
 import { APP_NAME } from '../components/Logo';
 import { PropertyReportButton } from '../components/PropertyReportButton';
@@ -110,6 +113,7 @@ export function ReportsPage() {
                 <PropertyReportButton propertyId={pid} variant="secondary" label="PDF" />
               </ReportRowItem>
               <AnnualReportRow />
+              <MonthlyReportsRow />
 
               <ListGroup title="Listen und Etiketten" />
               <ReportRowItem icon={<ClipboardList />} title="Elementliste" text="Alle Elemente mit Status und Terminen – bearbeitbar und über Import wieder einlesbar.">
@@ -252,6 +256,62 @@ function ReportBuilder() {
         </div>
       </Card>
     </section>
+  );
+}
+
+/**
+ * Monatsberichte (Autopilot monthly_report): je Objekt den Objektbericht erzeugen und archivieren – nur Admins ohne Einschränkung.
+ * Der Vorschlag „Monatsberichte bereit“ verlinkt auf /berichte?monatsbericht=1; dann startet die Erzeugung sofort.
+ */
+function MonthlyReportsRow() {
+  const { data: me } = useMe();
+  const toast = useToast();
+  const [params, setParams] = useSearchParams();
+  const admin = !!me && ['owner', 'admin'].includes(me.user.role) && !me.user.scoped;
+  const status = useQuery({ queryKey: ['automation', 'monthly'], queryFn: () => api<MonthlyStatus>('/automation/monthly-report'), enabled: admin });
+  const [progress, setProgress] = useState<[number, number] | null>(null);
+  const autoStart = params.get('monatsbericht') === '1';
+  const started = useRef(false);
+  const run = async () => {
+    if (!me || started.current) return;
+    started.current = true;
+    setProgress([0, 0]);
+    try {
+      const r = await runMonthlyReports(me, (d, t) => setProgress([d, t]));
+      toast(`${r.archived} Monatsberichte ${r.label} im Archiv`);
+    } catch (e) {
+      toast(e instanceof Error ? e.message : 'Monatsberichte fehlgeschlagen', 'bad');
+    } finally {
+      started.current = false;
+      setProgress(null);
+      status.refetch();
+    }
+  };
+  useEffect(() => {
+    if (!autoStart || !status.data) return;
+    setParams((p) => {
+      p.delete('monatsbericht');
+      return p;
+    }, { replace: true });
+    if (status.data.due) void run();
+  }, [autoStart, status.data]);
+  if (!admin || !status.data || status.data.mode === 'off') return null;
+  const s = status.data;
+  return (
+    <ReportRowItem
+      icon={<CalendarClock />}
+      title="Monatsberichte"
+      text={s.due ? `Objektberichte für ${s.label} – je Objekt ein PDF im Archiv.` : `Für ${s.label} bereits im Archiv. Der nächste Monat folgt zum Monatsanfang.`}
+    >
+      {progress && progress[1] > 0 && (
+        <span className="text-meta text-ink-3 tabular-nums" aria-live="polite">
+          {progress[0]} / {progress[1]}
+        </span>
+      )}
+      <Button variant="secondary" icon={<FileArchive />} loading={!!progress} disabled={!s.due} onClick={() => void run()}>
+        Monatsberichte erzeugen
+      </Button>
+    </ReportRowItem>
   );
 }
 

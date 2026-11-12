@@ -8,7 +8,8 @@ import { type DocLanguage, tr } from '../shared/i18n';
 import { buildXlsx } from '../shared/xlsx';
 import { getCategoryDef, listCategories } from './categories';
 import { similarity } from '../shared/smart';
-import { actionRequired, tasksFromDefects } from './smart';
+import { autoDefectTasks } from './automation';
+import { actionRequired } from './smart';
 import { type AppEnv, assertInScope, type Ctx, id, logActivity, notFound, now, parseJson, requireCreate, requireRole, scopeSql, walkScope } from './lib';
 
 export const data = new Hono<AppEnv>();
@@ -29,13 +30,14 @@ export function defectScope(c: Ctx, d: string) {
                ELSE ${scopeSql(c, `${d}.property_id`, 'property')} END)`;
 }
 
-/** Aufgaben im Zugriffsbereich: über Element, Mangel bzw. Objekt; ohne Bezug nur eigene oder zugewiesene. */
+/** Aufgaben im Zugriffsbereich: über Element, Mangel, Gebäude (Rundgang) bzw. Objekt; ohne Bezug nur eigene oder zugewiesene. */
 export function taskScope(c: Ctx, t: string) {
   const u = c.get('user');
   if (!u.scope) return '1=1';
   const me = /^[a-z0-9]{1,40}$/.test(u.userId) ? `'${u.userId}'` : "''";
   return `(CASE WHEN ${t}.asset_id IS NOT NULL THEN ${t}.asset_id IN (SELECT id FROM assets WHERE ${scopeSql(c, 'building_id', 'building')})
                WHEN ${t}.defect_id IS NOT NULL THEN ${t}.defect_id IN (SELECT dd.id FROM defects dd WHERE ${defectScope(c, 'dd')})
+               WHEN ${t}.building_id IS NOT NULL THEN ${scopeSql(c, `${t}.building_id`, 'building')}
                WHEN ${t}.property_id IS NOT NULL THEN ${scopeSql(c, `${t}.property_id`, 'property')}
                ELSE ${t}.assignee_id = ${me} OR ${t}.created_by = ${me} END)`;
 }
@@ -745,11 +747,8 @@ data.post('/defects', async (c) => {
     .bind(did, tid(c), propertyId, b.assetId, b.title, b.note, b.measure, b.severity, b.photoKey, now())
     .run();
   await logActivity(c, 'create', 'defect', did, `Mangel ${code ? `an ${code} ` : ''}gemeldet: ${b.title}`);
-  let taskCreated = false;
-  if (b.severity === 'high' || b.severity === 'critical') {
-    const auto = await c.env.DB.prepare('SELECT auto_tasks FROM tenants WHERE id = ?').bind(tid(c)).first<number>('auto_tasks');
-    if (auto) taskCreated = (await tasksFromDefects(c, { severities: [b.severity], defectId: did })) > 0;
-  }
+  // Autopilot (assign_defect_tasks): Aufgabe sofort anlegen und nach den Zuweisungsregeln vergeben
+  const taskCreated = (await autoDefectTasks(c, { defectId: did })) > 0;
   return c.json({ id: did, taskCreated });
 });
 
@@ -908,7 +907,7 @@ data.get('/export/backup.json', async (c) => {
     ['defects', 'SELECT * FROM defects WHERE tenant_id = ?'],
     ['reports', 'SELECT id, kind, title, file_name, size, property_id, created_by, created_at FROM reports WHERE tenant_id = ?'],
     ['attachments', 'SELECT * FROM attachments WHERE tenant_id = ?'],
-    ['tasks', 'SELECT id, title, description, status, priority, due_at, assignee_id, subcontractor_id, asset_id, defect_id, property_id, labels, external_note, external_done_at, first_response_at, closed_at, created_by, created_at, updated_at FROM tasks WHERE tenant_id = ?'],
+    ['tasks', 'SELECT id, title, description, status, priority, due_at, assignee_id, subcontractor_id, asset_id, defect_id, property_id, building_id, labels, recurrence, recurs_from, external_note, external_done_at, first_response_at, closed_at, created_by, created_at, updated_at FROM tasks WHERE tenant_id = ?'],
     ['taskComments', 'SELECT * FROM task_comments WHERE tenant_id = ?'],
     ['taskWatchers', 'SELECT task_id, user_id, created_at FROM task_watchers WHERE tenant_id = ?'],
     ['taskLabels', 'SELECT * FROM task_labels WHERE tenant_id = ?'],
@@ -916,6 +915,8 @@ data.get('/export/backup.json', async (c) => {
     ['subcontractors', 'SELECT * FROM subcontractors WHERE tenant_id = ?'],
     ['fireOfficers', 'SELECT * FROM fire_officers WHERE tenant_id = ?'],
     ['activity', 'SELECT * FROM activity WHERE tenant_id = ?'],
+    ['automationSettings', 'SELECT key, mode, config, updated_at, updated_by FROM automation_settings WHERE tenant_id = ?'],
+    ['automationLog', 'SELECT id, key, at, summary, entity_type, entity_id, building_id, property_id, assignee_id, link, undone_at, undone_by, actor FROM automation_log WHERE tenant_id = ?'],
   ];
   const res = await c.env.DB.batch(tables.map(([, sql]) => c.env.DB.prepare(sql).bind(t)));
   const out: Record<string, unknown> = { format: 'pruefkompass-backup', version: 1, exportedAt: new Date().toISOString() };

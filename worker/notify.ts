@@ -18,6 +18,7 @@ export const NOTIFY_TYPES = {
   sla_breach: 'SLA-Frist überschritten',
   member_joined: 'Neues Teammitglied',
   account_security: 'Anmeldung von neuem Gerät',
+  automation: 'Erinnerungen des Autopiloten',
 } as const;
 export type NotifyType = keyof typeof NOTIFY_TYPES;
 type Prefs = Partial<Record<NotifyType, { inApp?: boolean; push?: boolean }>> & { quiet?: QuietHours };

@@ -2,12 +2,14 @@
 // Stufe je Workspace in `tenants.adapt_intervals_mode`: off | suggest | auto.
 // - suggest: Vorschläge in GET /smart/suggestions (Aktion POST /smart/intervals/apply) und auf der Elementseite
 // - auto: wird beim Abschluss einer Prüfung angewendet (worker/inspections.ts → finalize) und protokolliert
-// Eigenständig gehalten, damit die Regel später im Autopilot-Kern (worker/automation.ts) registriert werden kann.
+// Im Autopilot als Regel `adapt_intervals` registriert (worker/automation.ts liest/schreibt dieselbe Spalte);
+// übernommene und automatisch angewendete Intervalle stehen im Autopilot-Protokoll, „Rückgängig“ = revertIntervals.
 import { Hono } from 'hono';
 import { HTTPException } from 'hono/http-exception';
 import { z } from 'zod';
 import { type AdaptMode, applyInterval, describeProposal, effectiveInterval, type HistoryEntry, type IntervalProposal, proposeInterval } from '../shared/intervals';
 import { type Result, type Schedules, summarizeSchedules } from '../shared/logic';
+import { logAutomation } from './automation';
 import { listCategories } from './categories';
 import { tid } from './data';
 import { type AppEnv, type Ctx, logActivity, notFound, now, parseJson, requireRole, scopeSql } from './lib';
@@ -120,11 +122,11 @@ export async function intervalSuggestions(c: Ctx, assetId?: string): Promise<Int
 /** Element im Zugriffsbereich mit Standardintervall der Prüfart laden. */
 async function loadTarget(c: Ctx, assetId: string, schedule: string) {
   const a = await c.env.DB.prepare(
-    `SELECT a.id, a.code, a.category, a.schedules FROM assets a JOIN buildings b ON b.id = a.building_id
+    `SELECT a.id, a.code, a.category, a.schedules, b.id AS buildingId, b.property_id AS propertyId FROM assets a JOIN buildings b ON b.id = a.building_id
       WHERE a.id = ? AND a.tenant_id = ? AND a.deleted_at IS NULL AND ${scopeSql(c, 'a.building_id', 'building')}`,
   )
     .bind(assetId, tid(c))
-    .first<{ id: string; code: string; category: string; schedules: string }>();
+    .first<{ id: string; code: string; category: string; schedules: string; buildingId: string; propertyId: string }>();
   if (!a) notFound('Element');
   const s = (await standards(c)).get(`${a.category}|${schedule}`);
   const schedules = parseJson<Schedules>(a.schedules, {});
@@ -155,7 +157,9 @@ intervals.post('/smart/intervals/apply', async (c) => {
   const history = (await intervalHistory(c, [t.id])).get(`${t.id}|${b.schedule}`) ?? [];
   const p = proposeInterval(t.standard, t.schedules[b.schedule], history);
   if (!p || p.to !== b.months) throw new HTTPException(409, { message: 'Der Vorschlag ist nicht mehr aktuell' });
+  const from = t.schedules[b.schedule].intervalMonths ?? null;
   const st = await changeInterval(c, t, b.schedule, p.to, describeProposal(p));
+  await logIntervalChange(c, { assetId: t.id, code: t.code, buildingId: t.buildingId, propertyId: t.propertyId, schedule: b.schedule, label: t.label, from, to: st.intervalMonths ?? null, text: describeProposal(p) });
   return c.json({ ok: true, intervalMonths: effectiveInterval(t.standard, st), nextDueAt: st.nextDueAt ?? null });
 });
 
@@ -168,3 +172,60 @@ intervals.post('/smart/intervals/reset', async (c) => {
   const st = await changeInterval(c, t, b.schedule, t.standard, `Intervall auf ${t.standard} Monate (Standard) zurückgesetzt`);
   return c.json({ ok: true, intervalMonths: t.standard, nextDueAt: st.nextDueAt ?? null });
 });
+
+// ---------- Autopilot-Protokoll und Rückgängig ----------
+/** Was „Rückgängig“ braucht: Intervall vorher (`from`) und nachher (`to`), jeweils null = Standard. */
+export interface IntervalUndo {
+  assetId: string;
+  schedule: string;
+  from: number | null;
+  to: number | null;
+}
+
+/** Angewendetes Intervall ins Autopilot-Protokoll schreiben (Regel `adapt_intervals`, rückgängig zu machen). */
+export function logIntervalChange(
+  c: Ctx,
+  e: { assetId: string; code: string; buildingId: string; propertyId: string; schedule: string; label: string; from: number | null; to: number | null; text: string; auto?: boolean },
+) {
+  return logAutomation(
+    c,
+    {
+      key: 'adapt_intervals',
+      summary: `${e.code} (${e.label}): ${e.text}${e.auto ? ' – automatisch' : ''}`,
+      entityType: 'asset',
+      entityId: e.assetId,
+      buildingId: e.buildingId,
+      propertyId: e.propertyId,
+      link: `/elemente/${e.assetId}`,
+      undo: { intervals: [{ assetId: e.assetId, schedule: e.schedule, from: e.from, to: e.to }] },
+    },
+    // automatisch beim Prüfungsabschluss angewendet: Akteur ist der Autopilot
+    { system: e.auto },
+  );
+}
+
+/**
+ * Rückgängig: Intervall auf den vorherigen Wert (null = Standard) setzen – nur, wenn noch das angewendete gilt
+ * (sonst hat jemand es inzwischen geändert und es bleibt). Element im Workspace und Bereich, sonst bleibt es.
+ */
+export async function revertIntervals(c: Ctx, list: IntervalUndo[]) {
+  let reverted = 0;
+  let kept = 0;
+  for (const u of list) {
+    let t: Awaited<ReturnType<typeof loadTarget>>;
+    try {
+      t = await loadTarget(c, u.assetId, u.schedule);
+    } catch {
+      kept++;
+      continue;
+    }
+    if ((t.schedules[u.schedule].intervalMonths ?? null) !== u.to) {
+      kept++;
+      continue;
+    }
+    const months = u.from ?? t.standard;
+    await changeInterval(c, t, u.schedule, months, `Intervall auf ${months} Monate zurückgesetzt (Autopilot rückgängig)`);
+    reverted++;
+  }
+  return { reverted, kept };
+}

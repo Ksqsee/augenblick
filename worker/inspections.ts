@@ -8,9 +8,9 @@ import { describeProposal, effectiveInterval, type IntervalProposal, proposeInte
 import { getCategoryDef, getSchedule, listCategories } from './categories';
 import { assetQuery, mapAsset, severityEnum, str, tid } from './data';
 import { type AppEnv, assertInScope, type Ctx, id, logActivity, notFound, now, parseJson, requireRole, scopeSql } from './lib';
-import { adaptMode, intervalHistory, writeSchedules } from './intervals';
+import { adaptMode, intervalHistory, logIntervalChange, writeSchedules } from './intervals';
 import { notify } from './notify';
-import { tasksFromDefects } from './smart';
+import { afterTasksDone, autoDefectTasks } from './automation';
 
 export const inspections = new Hono<AppEnv>();
 
@@ -121,11 +121,11 @@ inspections.get('/inspections', async (c) => {
 
 export async function loadAsset(c: Ctx, assetId: string) {
   const a = await c.env.DB.prepare(
-    `SELECT a.id, a.code, a.category, a.schedules, b.property_id AS propertyId FROM assets a JOIN buildings b ON b.id = a.building_id
+    `SELECT a.id, a.code, a.category, a.schedules, b.id AS buildingId, b.property_id AS propertyId FROM assets a JOIN buildings b ON b.id = a.building_id
       WHERE a.id = ? AND a.tenant_id = ? AND a.deleted_at IS NULL AND ${scopeSql(c, 'a.building_id', 'building')}`,
   )
     .bind(assetId, tid(c))
-    .first<{ id: string; code: string; category: Category; schedules: string; propertyId: string }>();
+    .first<{ id: string; code: string; category: Category; schedules: string; buildingId: string; propertyId: string }>();
   if (!a) notFound('Element');
   return { ...a, schedules: parseJson<Schedules>(a.schedules, {}) };
 }
@@ -556,7 +556,21 @@ async function finalize(
   } else {
     if (schedules !== asset.schedules) await writeSchedules(c, opts.assetId, schedules, opts.iid);
     await logActivity(c, 'submit', 'inspection', opts.iid, `${opts.followUpOf ? 'Nachprüfung' : 'Prüfung'} ${opts.code} (${sched.label}) abgeschlossen`);
-    if (adapted) await logActivity(c, 'adapt_interval', 'asset', opts.assetId, `${opts.code} (${sched.label}): ${describeProposal(adapted)} – automatisch`);
+    if (adapted) {
+      await logActivity(c, 'adapt_interval', 'asset', opts.assetId, `${opts.code} (${sched.label}): ${describeProposal(adapted)} – automatisch`);
+      await logIntervalChange(c, {
+        assetId: opts.assetId,
+        code: opts.code,
+        buildingId: asset.buildingId,
+        propertyId: asset.propertyId,
+        schedule: opts.schedule,
+        label: sched.label,
+        from: state?.intervalMonths ?? null,
+        to: schedules[opts.schedule]?.intervalMonths ?? null,
+        text: describeProposal(adapted),
+        auto: true,
+      });
+    }
   }
   // Offene Prüfaufträge für dieses Element sind mit der Prüfung erledigt
   const done = await c.env.DB.prepare(
@@ -573,11 +587,10 @@ async function finalize(
       .bind(tid(c), c.get('user').userId, c.get('user').name, `Mit der Prüfung ${opts.code} erledigt.`, t, JSON.stringify(done.results.map((r) => r.id)))
       .run();
   }
-  // Automatisierung: schwere Mängel bekommen sofort eine Aufgabe mit SLA-Frist (abschaltbar je Workspace)
-  if (b.defects.some((d) => d.severity === 'high' || d.severity === 'critical')) {
-    const auto = await c.env.DB.prepare('SELECT auto_tasks FROM tenants WHERE id = ?').bind(tid(c)).first<number>('auto_tasks');
-    if (auto) await tasksFromDefects(c, { severities: ['high', 'critical'], inspectionId: opts.iid });
-  }
+  // Wiederkehrende Prüfaufträge: Folgeauftrag anlegen (Autopilot recurring_tasks)
+  if (done.results.length) await afterTasksDone(c, done.results.map((r) => r.id));
+  // Autopilot (assign_defect_tasks): schwere Mängel bekommen sofort eine Aufgabe, ggf. mit Zuweisung nach Regeln
+  if (b.defects.length) await autoDefectTasks(c, { inspectionId: opts.iid });
   if (result === 'critical') {
     await notify(c, { roles: ['owner', 'admin'], type: 'critical_defect', title: `Kritischer Mangel an ${opts.code}`, body: b.defects.find((d) => d.severity === 'critical')?.title ?? '', link: `/druck/protokoll/${opts.iid}` });
   }

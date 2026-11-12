@@ -2,6 +2,7 @@ import { Hono } from 'hono';
 import { HTTPException } from 'hono/http-exception';
 import { ZodError } from 'zod';
 import { ai } from './ai';
+import { automation } from './automation';
 import { mcpRoutes } from './mcp';
 import { cleanupOAuth, oauthPublic, oauthSession, wellKnown } from './oauth';
 import { smart } from './smart';
@@ -71,6 +72,7 @@ secured.route('/', data);
 secured.route('/', ai);
 secured.route('/', smart);
 secured.route('/', shares);
+secured.route('/', automation);
 app.route('/', secured);
 
 app.notFound((c) => c.json({ error: 'Nicht gefunden' }, 404));
@@ -90,8 +92,9 @@ export default {
     if (new URL(req.url).pathname.startsWith('/.well-known/')) return wellKnown(req) ?? new Response('Not found', { status: 404 });
     return app.fetch(req, env, ctx);
   },
-  async scheduled(_event: ScheduledController, env: Env, ctx: ExecutionContext) {
-    ctx.waitUntil(runDaily(env));
+  async scheduled(event: ScheduledController, env: Env, ctx: ExecutionContext) {
+    // scheduledTime = geplanter Zeitpunkt (lokal per ?time= steuerbar, z. B. für einen Montag in den Tests)
+    ctx.waitUntil(runDaily(env, event.scheduledTime || Date.now()));
     ctx.waitUntil(cleanupOAuth(env.DB));
   },
 } satisfies ExportedHandler<Env>;

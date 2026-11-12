@@ -19,7 +19,15 @@ API: [`docs/api.md`](docs/api.md)
   Vorschläge für Maßnahme und Schweregrad; Workers AI (Whisper/Llama), ohne KI Spracherkennung des Browsers und Regeln
 - **Suche in normaler Sprache** (Strg+K): „überfällige Feuerlöscher Grundschule“ öffnet die passend gefilterte Liste
 - **Rundgang**: fällige Elemente eines Gebäudes in Laufreihenfolge, nach jeder Prüfung direkt weiter zum nächsten
-- **Automatische Aufgaben** für schwere Mängel (SLA-Frist), abschaltbar; **Typenschild-Foto** füllt Hersteller/Modell
+- **Autopilot** (Einstellungen → Automatik): Regeln je Workspace mit drei Stufen *Aus* · *Vorschlagen* (Vorschlag mit Knopf auf
+  „Heute“) · *Automatisch* (ausgeführt und protokolliert, sieben Tage rückgängig zu machen):
+  **Woche planen** (montags je Gebäude mit Fälligkeiten in 14 Tagen ein Prüfauftrag „Rundgang“, zuständig ist, wer dort
+  zuletzt geprüft hat), **Mängel zuweisen** (Aufgabe für schwere Mängel, Zuweisungsregeln Elementart + Schwere → Person
+  oder Subunternehmer mit Link, Frist in Tagen), **Fristen eskalieren**, **wiederkehrende Aufgaben** (monatlich,
+  vierteljährlich, jährlich), **offene Mängel nachhalten** (Erinnerung 14 Tage nach erledigter Behebung),
+  **Monatsberichte** (Objektberichte des Vormonats im Archiv, erzeugt im Browser einer Admin-Person),
+  **Prüfintervalle anpassen** (selbstanpassende Intervalle, siehe „Prüfen“);
+  Protokoll mit „Rückgängig“ im Zugriffsbereich; **Typenschild-Foto** füllt Hersteller/Modell
 - **Foto zuerst beim Anlegen**: „Foto aufnehmen“ erkennt Art, Hersteller, Modell und Baujahr (Workers AI) und schlägt sie vor;
   ohne KI bleibt es bei der Auswahl, das Foto wird am Element gespeichert
 - **Sammelanlage per Diktat** unter „Erfassen“: „fünf Feuerlöscher im Erdgeschoss Flur“ → Anzahl, Art, Etage, Standort prüfen,
@@ -128,8 +136,8 @@ npm run check              # Typprüfung + Unit-Tests + Build
 
 ## Tests
 
-- **Unit-Tests** (`npm test`, Vitest): Fachlogik, Import/Export, Übersetzungen, Ruhezeiten, Web Push.
-- **Browser-Tests** (`e2e/`, Playwright): Reihen von der Registrierung über Sicherheitskorrekturen und Massenoperationen bis zu Berichtigung, Nachprüfung sowie Aufgaben und Mängeln (`14-tasks-defects`) und den offenen Punkten aus der Analyse (`21-offene-punkte`: Offline-Fehlliste, Intervalle, Partner-Zugang).
+- **Unit-Tests** (`npm test`, Vitest): Fachlogik, Autopilot-Regeln, Import/Export, Übersetzungen, Ruhezeiten, Web Push.
+- **Browser-Tests** (`e2e/`, Playwright): Reihen von der Registrierung über Sicherheitskorrekturen und Massenoperationen bis zu Berichtigung, Nachprüfung sowie Aufgaben und Mängeln (`14-tasks-defects`), dem Autopiloten (`20-autopilot`) und den offenen Punkten aus der Analyse (`21-offene-punkte`: Offline-Fehlliste, Intervalle, Partner-Zugang).
   Vor jeder Reihe wird die lokale D1 geleert und mit Demodaten befüllt.
 
 ```bash

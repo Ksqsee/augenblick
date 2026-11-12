@@ -1,6 +1,7 @@
 import { AlertTriangle, CheckCheck, ClipboardCheck, Copy, Eye, EyeOff, HardHat, Link2, Plus, Trash2 } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
+import { RECURRENCES } from '../../../shared/automation';
 import { TASK_KINDS, type TaskKind } from '../../../shared/tasks';
 import { api, type Task, useAction, useMe, useMembers, useSubcontractors, useTaskWatchers } from '../../api';
 import { fmtDate, fmtDateTime } from '../../format';
@@ -312,7 +313,7 @@ function Properties({
   subs: { id: string; company: string; trade?: string | null }[];
   error: unknown;
 }) {
-  const ids = { status: 'tp-status', prio: 'tp-prio', due: 'tp-due', who: 'tp-who', sub: 'tp-sub', kind: 'tp-kind', code: 'tp-code' };
+  const ids = { status: 'tp-status', prio: 'tp-prio', due: 'tp-due', who: 'tp-who', sub: 'tp-sub', kind: 'tp-kind', code: 'tp-code', rec: 'tp-rec' };
   return (
     <div className="flex flex-col">
       {!!error && <ErrorBox error={error} className="mb-3" />}
@@ -396,6 +397,17 @@ function Properties({
             </Link>
           ) : null}
         </Prop>
+        <Prop label="Wiederholen" htmlFor={ids.rec}>
+          <select id={ids.rec} disabled={!canEdit} className={propSelectCls} value={t.recurrence ?? ''} onChange={(e) => set({ recurrence: (e.target.value || null) as Task['recurrence'] })}>
+            <option value="">Nie</option>
+            {Object.entries(RECURRENCES).map(([k, v]) => (
+              <option key={k} value={k}>
+                {v}
+              </option>
+            ))}
+          </select>
+        </Prop>
+        {t.buildingName && <Prop label="Gebäude">{t.buildingName}</Prop>}
         <Prop label="Objekt">{t.propertyName}</Prop>
       </div>
       {t.assetId && canEdit && (
