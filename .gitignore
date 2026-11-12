@@ -6,3 +6,4 @@ dist
 .env*
 seed-out
 e2e/.out
+.claude/worktrees/
