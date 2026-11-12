@@ -52,11 +52,14 @@ const check = (ok, m) => {
     check(r.status === 403, `Verlauf nicht per API-Schlüssel (${r.status})`);
   }
 
-  step('Heute: Aktionen, Vorschläge, Rundgänge');
-  await p.getByRole('heading', { name: 'Als Nächstes' }).waitFor();
-  check(await p.getByRole('button', { name: /Erfassen/ }).first().isVisible(), 'Erfassen-Kachel');
-  check(await p.getByRole('link', { name: /Rundgang starten/ }).isVisible(), 'Rundgang-Kachel');
+  step('Heute: Lage, Aktionen, Jetzt, Rundgänge');
+  await p.getByRole('heading', { name: 'Jetzt' }).waitFor();
+  check((await p.getByRole('list', { name: 'Jetzt' }).getByRole('listitem').count()) > 0, 'Vorschläge unter „Jetzt“');
+  check(/überfällig|kritisch|geprüft|fällig/.test(await p.getByRole('heading', { level: 1 }).innerText()), 'Lage als Satz im Titel');
+  check(await p.getByRole('button', { name: /Erfassen/ }).first().isVisible(), 'Erfassen-Knopf');
+  check(await p.getByRole('link', { name: /Rundgang starten/ }).isVisible(), 'Rundgang starten');
   check((await p.getByRole('heading', { name: 'Rundgänge' }).count()) === 1, 'Rundgänge-Liste');
+  check((await p.getByRole('heading', { name: 'Als Nächstes' }).count()) === 0, 'alter Abschnitt „Als Nächstes“ entfernt');
   await p.screenshot({ path: OUT + '01-heute.png', fullPage: true });
 
   step('Suche in normaler Sprache');

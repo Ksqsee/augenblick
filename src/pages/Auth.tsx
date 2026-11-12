@@ -4,91 +4,42 @@ import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { ROLES, type Role } from '../../shared/catalog';
 import { api, queryClient } from '../api';
 import { Logo } from '../components/Logo';
-import { Badge, Button, ErrorBox, Field, Input, Spinner, StatusDot } from '../components/ui';
-import type { Tone } from '../format';
+import { Button, ErrorBox, Field, Input, Spinner, Surface } from '../components/ui';
 
-const PREVIEW: { code: string; name: string; place: string; tone: Tone; label: string }[] = [
-  { code: 'FST-0142', name: 'Feuerschutztür', place: 'Treppenhaus Nord', tone: 'ok', label: 'Aktuell' },
-  { code: 'FL-0031', name: 'Feuerlöscher', place: 'Flur West', tone: 'warn', label: 'Bald fällig' },
-  { code: 'BSK-0007', name: 'Brandschutzklappe', place: 'Technikraum', tone: 'bad', label: 'Überfällig' },
-  { code: 'RWM-0210', name: 'Rauchwarnmelder', place: 'Büro 3.12', tone: 'info', label: 'Nie geprüft' },
-];
-
-/** Rechte Seite der Anmeldung: ruhige Produktvorschau statt Werbebild. */
-function AuthAside() {
-  return (
-    <div className="relative hidden overflow-hidden border-l border-line bg-sunken lg:flex lg:flex-col lg:justify-center" aria-hidden>
-      <svg className="absolute inset-0 size-full text-line-strong/40" aria-hidden>
-        <defs>
-          <pattern id="pk-grid" width="32" height="32" patternUnits="userSpaceOnUse">
-            <path d="M32 0H0v32" fill="none" stroke="currentColor" strokeWidth="1" />
-          </pattern>
-        </defs>
-        <rect width="100%" height="100%" fill="url(#pk-grid)" />
-      </svg>
-      <div className="relative mx-auto w-full max-w-md px-10 py-16">
-        <p className="text-[30px] leading-[1.15] font-semibold tracking-[-0.025em] text-ink">
-          Jede Tür, jede Klappe, jeder Löscher – <span className="text-ink-3">geprüft und belegt.</span>
-        </p>
-        <p className="mt-4 text-title text-ink-2">Fristen im Blick, Prüfung vor Ort mit Unterschrift, Mängel bis zur Behebung.</p>
-        <div className="mt-10 rounded-2xl bg-surface shadow-pop">
-          <div className="flex items-center justify-between border-b border-line px-4 py-3">
-            <div>
-              <p className="text-body font-semibold">Haupthaus · 3. OG</p>
-              <p className="text-caption text-ink-3">Rundgang · 4 Elemente</p>
-            </div>
-            <Badge tone="muted">heute</Badge>
-          </div>
-          <ul className="divide-y divide-line">
-            {PREVIEW.map((r) => (
-              <li key={r.code} className="flex items-center gap-3 px-4 py-2.5">
-                <StatusDot tone={r.tone} />
-                <span className="min-w-0 flex-1">
-                  <span className="block truncate text-body font-medium">
-                    {r.code} <span className="font-normal text-ink-3">{r.name}</span>
-                  </span>
-                  <span className="block truncate text-caption text-ink-3">{r.place}</span>
-                </span>
-                <Badge tone={r.tone}>{r.label}</Badge>
-              </li>
-            ))}
-          </ul>
-          <div className="flex items-center gap-3 border-t border-line px-4 py-3">
-            <span className="h-1.5 flex-1 overflow-hidden rounded-full bg-sunken">
-              <span className="block h-full w-1/4 rounded-full bg-ink" />
-            </span>
-            <span className="text-caption text-ink-3 tabular-nums">1 von 4</span>
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-}
-
+/**
+ * Anmelden, Registrieren, Einladung, Passwort: Beton-Grund, eine weiße Fläche mit dem Formular (links im Raster,
+ * nicht zentriert), daneben Leere und ein ruhiger Satz. Auf dem Handy randlos.
+ */
 function AuthLayout({ title, subtitle, children, footer }: { title: string; subtitle?: string; children: ReactNode; footer?: ReactNode }) {
   return (
-    <div className="grid min-h-dvh bg-canvas lg:grid-cols-[minmax(0,1fr)_minmax(0,1.05fr)]">
-      <div className="flex flex-col px-5 pt-6 pb-8 sm:px-12 sm:pt-10">
-        <Link to="/login" className="self-start" aria-label="Prüfkompass">
-          <Logo />
-        </Link>
-        <main className="animate-in mx-auto flex w-full max-w-[22rem] flex-1 flex-col justify-center py-10">
-          <h1 className="text-h1 font-semibold tracking-[-0.02em]">{title}</h1>
-          {subtitle && <p className="mt-1.5 text-body text-ink-3">{subtitle}</p>}
-          <div className="mt-8">{children}</div>
-          {footer && <div className="mt-8 border-t border-line pt-5 text-body text-ink-3">{footer}</div>}
-        </main>
-        <p className="text-caption text-ink-3">
-          <Link to="/rechtliches/privacy" className="hover:text-ink">
-            Datenschutz
-          </Link>
-          {' · '}
-          <Link to="/rechtliches/terms" className="hover:text-ink">
-            Nutzungsbedingungen
-          </Link>
-        </p>
+    <div className="flex min-h-dvh flex-col bg-canvas px-4 pt-5 pb-6 sm:px-10 sm:pt-8 lg:px-[8vw]">
+      <Link to="/login" className="self-start" aria-label="Prüfkompass">
+        <Logo />
+      </Link>
+      <div className="flex flex-1 flex-col justify-center py-8 lg:py-16">
+        <div className="flex flex-col gap-12 lg:flex-row lg:items-end lg:justify-between">
+          <main className="animate-in w-full sm:max-w-[400px]">
+            <Surface className="px-5 py-7 sm:px-8 sm:py-9">
+              <h1 className="text-h1 font-semibold tracking-[-0.02em]">{title}</h1>
+              {subtitle && <p className="mt-1.5 text-body text-ink-2">{subtitle}</p>}
+              <div className="mt-7">{children}</div>
+            </Surface>
+            {footer && <div className="mt-5 px-1 text-body text-ink-2">{footer}</div>}
+          </main>
+          <p className="hidden max-w-[22rem] border-l border-line-strong pl-5 text-h2 font-medium tracking-[-0.01em] text-ink lg:block" aria-hidden>
+            Jede Tür, jede Klappe, jeder Löscher. <span className="text-ink-3">Geprüft, belegt, nachvollziehbar.</span>
+          </p>
+        </div>
       </div>
-      <AuthAside />
+      <p className="px-1 text-caption text-ink-3">
+        <Link to="/rechtliches/privacy" className="hover:text-ink">
+          Datenschutz
+        </Link>
+        {' · '}
+        <Link to="/rechtliches/terms" className="hover:text-ink">
+          Nutzungsbedingungen
+        </Link>
+      </p>
     </div>
   );
 }
@@ -125,8 +76,8 @@ export function Login() {
   );
   return (
     <AuthLayout
-      title="Willkommen zurück"
-      subtitle="Melde dich mit deinem Konto an."
+      title="Anmelden"
+      subtitle="Mit dem Konto deines Workspaces."
       footer={
         <>
           Noch kein Konto?{' '}
@@ -146,8 +97,8 @@ export function Login() {
           Anmelden
         </Button>
         <details className="group text-meta text-ink-3">
-          <summary className="cursor-pointer list-none font-medium text-ink-2 hover:text-ink [&::-webkit-details-marker]:hidden">Passwort vergessen?</summary>
-          <p className="mt-2 rounded-lg bg-sunken px-3 py-2.5 leading-relaxed">
+          <summary className="cursor-pointer list-none text-ink-2 underline decoration-line-strong underline-offset-4 hover:text-ink [&::-webkit-details-marker]:hidden">Passwort vergessen?</summary>
+          <p className="mt-2 border-l-2 border-line pl-3 leading-relaxed text-ink-2">
             Bitte eine Administratorin oder einen Administrator deines Workspaces, unter <b>Team</b> einen Link zum Zurücksetzen zu erzeugen. Der Link ist 24 Stunden gültig.
           </p>
         </details>

@@ -11,7 +11,8 @@ require('fs').mkdirSync(OUT, { recursive: true });
   const p = await ctx.newPage();
   const errors = [];
   p.on('pageerror', e => errors.push('pageerror ' + e.message));
-  p.on('console', m => m.type() === 'error' && errors.push('console ' + m.text()));  const shot = n => p.screenshot({ path: OUT + n + '.png', fullPage: true });
+  // /api/automation/log (Autopilot, Paket B) darf fehlen – „Heute“ blendet den Abschnitt dann aus
+  p.on('console', m => m.type() === 'error' && !(m.location()?.url ?? '').includes('/api/automation/log') && errors.push('console ' + m.text()));  const shot = n => p.screenshot({ path: OUT + n + '.png', fullPage: true });
   const email = `test${Date.now()}@example.com`;
 
   await p.goto(BASE + '/registrieren');
