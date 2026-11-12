@@ -1,5 +1,5 @@
-// Regelbasierte Auswertung von Diktaten und Vorschläge – läuft ohne KI (Fallback und Offline),
-// die KI-Variante im Worker liefert dasselbe Format.
+// Regelbasierte Auswertung von Diktaten und Vorschläge – läuft ohne KI im Browser und im Worker (/ai/parse);
+// freie Sprache und Bilder versteht Claude über den MCP-Server.
 import { CATEGORIES, type Severity } from './catalog';
 
 export type CaptureKind = 'defect' | 'task' | 'note' | 'asset';

@@ -67,12 +67,14 @@ export function Wave({ level, active, bars: count = 28, className }: { level: nu
 export function BigMic({ dictation: d, label = 'Tippen und sprechen', hint }: { dictation: ReturnType<typeof useDictation>; label?: string; hint?: string }) {
   const rec = d.state === 'recording';
   const busy = d.state === 'transcribing';
+  // Ohne Spracherkennung im Browser kein Mikrofon – Tippen geht immer
+  if (d.engine === null || d.engine === 'none') return hint ? <p className="max-w-xs self-center text-center text-meta text-ink-3">{hint}</p> : null;
   return (
     <div className="flex flex-col items-center gap-3 pt-1">
       <button
         type="button"
         aria-label={rec ? 'Aufnahme beenden' : 'Aufnahme starten'}
-        disabled={busy || d.engine === 'none'}
+        disabled={busy}
         onClick={() => (rec ? d.stop() : d.start())}
         className={clsx(
           'relative grid size-16 shrink-0 place-items-center rounded-full text-white transition-colors active:opacity-85 disabled:opacity-50',
@@ -83,7 +85,7 @@ export function BigMic({ dictation: d, label = 'Tippen und sprechen', hint }: { 
       </button>
       <div className="flex h-10 items-center">{rec ? <Wave level={d.level} active bars={32} /> : <Wave level={0} active={false} bars={32} />}</div>
       <p className={clsx('-mt-1 text-center text-body', d.error ? 'text-shu' : 'text-ink', rec && 'tabular-nums')}>
-        {d.error || (rec ? `Ich höre zu · ${fmtSeconds(d.seconds)}` : busy ? 'Wandle Sprache in Text um …' : d.engine === 'none' ? 'Diktat hier nicht verfügbar – einfach tippen' : label)}
+        {d.error || (rec ? `Ich höre zu · ${fmtSeconds(d.seconds)}` : busy ? 'Wandle Sprache in Text um …' : label)}
       </p>
       {hint && !rec && !busy && <p className="-mt-2 max-w-xs text-center text-meta text-ink-3">{hint}</p>}
     </div>

@@ -11,7 +11,6 @@ export const LIMITS = {
   'password-user': { max: 8, windowMs: 15 * MIN }, // aktuelles Passwort bei Änderung/Löschung/Einladung
   'token-ip': { max: 30, windowMs: 15 * MIN }, // ungültige Links und API-Schlüssel
   'register-ip': { max: 10, windowMs: 60 * MIN }, // neue Registrierungen
-  'ai-user': { max: 150, windowMs: 60 * MIN }, // KI-Aufrufe (Diktat, Strukturierung) je Person – Kostenbremse
 } as const;
 export type ThrottleScope = keyof typeof LIMITS;
 

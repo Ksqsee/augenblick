@@ -43,7 +43,7 @@ Für API-Schlüssel gelten diese Regeln:
 | `GET /assets` | Elemente. Filter: `due=overdue\|soon\|never\|not_inspectable\|new\|defects`, `schedule=<Prüfart>`, `propertyId`, `buildingId`, `category`, `q` |
 | `GET /assets/:id` | Element mit Prüfarten, Historie, offenen Mängeln, Anhängen |
 | `GET /assets/by-code/:code` | Element über Code oder QR-Etikett |
-| `GET /inspections?status=submitted\|draft&archived=1` | Prüfungen (ohne berichtigte); `superseded=1` liefert die durch eine Berichtigung ersetzten |
+| `GET /inspections?status=submitted\|draft\|ready&archived=1` | Prüfungen (ohne berichtigte); `superseded=1` liefert die durch eine Berichtigung ersetzten; `status=ready` = eigene Entwürfe, die zur Unterschrift bereitliegen (`readyAt`) |
 | `GET /inspections/:id` | Prüfung mit Prüfpunkten, Befunden, Mängeln (inkl. Maßnahme), Gesamtbewertung, Arten (`kinds`, `kindLabels`), Anlass (`purpose`: `regular`, `correction`, `follow_up`) und Verweisen (`supersedesId`, `supersededBy`, `followUpOf`) |
 | `GET /walkthroughs`, `GET /walkthroughs/:id` | Brandschutzbegehungen |
 | `GET /defects?status=open\|resolved\|all&hidden=1` | Mängel aus Prüfungen und Begehungen, mit Behebung (`resolutionNote`, `resolutionPhotoKey`, `resolvedByName`). Ausgeblendete fehlen, außer mit `hidden=1` (dann nur sie) |
@@ -64,7 +64,8 @@ Für API-Schlüssel gelten diese Regeln:
 | `PATCH /assets/:id` | Element ändern |
 | `PUT /assets/:id/schedules` | Prüfart aktivieren/deaktivieren: `{ key, enabled, nextDueAt? }` |
 | `POST /assets/:id/inspections` | Prüfungsentwurf anlegen: `{ schedule? }` oder Nachprüfung `{ purpose: "follow_up", followUpOf }`; `{ taskId }` = aus einer Aufgabe gestartet (Mängelbehebung → Nachprüfung der Ausgangsprüfung). Art vorbelegt: `initial` bei nie geprüften Elementen, sonst `periodic` |
-| `PUT /inspections/:id`, `POST /inspections/:id/submit` | Entwurf speichern bzw. abschließen; Arten als `kinds: ["periodic", …]` (eingebaute Schlüssel oder eigene `k_…`). Bekannte Mängel: `GET /inspections/:id` liefert im Entwurf `knownDefects` (offene Mängel des Elements); ein Mangel mit `knownId` wird verknüpft statt neu angelegt (ebenso ein gleich benannter offener Mangel), `resolvedDefects: [id, …]` schließt bekannte Mängel beim Abschluss („Bei Prüfung vom … behoben“). Gilt auch für `POST /inspections/offline` |
+| `PUT /inspections/:id`, `POST /inspections/:id/submit` | Entwurf speichern bzw. abschließen. `PUT` mit `ready: true` legt einen vollständigen Entwurf **zur Unterschrift bereit** (Antwort `{ ok, ready, missing }` – `missing` nennt, was fehlt); unvollständig gespeichert oder `ready: false` nimmt das zurück; Arten als `kinds: ["periodic", …]` (eingebaute Schlüssel oder eigene `k_…`). Bekannte Mängel: `GET /inspections/:id` liefert im Entwurf `knownDefects` (offene Mängel des Elements); ein Mangel mit `knownId` wird verknüpft statt neu angelegt (ebenso ein gleich benannter offener Mangel), `resolvedDefects: [id, …]` schließt bekannte Mängel beim Abschluss („Bei Prüfung vom … behoben“). Gilt auch für `POST /inspections/offline` |
+| `POST /inspections/sign` | **Nur mit Browser-Sitzung** (API-Schlüssel/OAuth → `403`): mehrere eigene, bereite Entwürfe mit einer Unterschrift abschließen `{ ids: [...], signature: "data:image/png;base64,…", signerName? }` → `{ signed: [{ id, code, result, nextDueAt }], failed: [{ id, error }] }`; jede Prüfung wird wie beim normalen Abschluss geprüft, fremde, nicht bereite oder abgeschlossene IDs landen in `failed` |
 | `POST /inspections/:id/correct` | Berichtigung einer abgeschlossenen Prüfung anlegen (eigene Prüfung oder Admin); liefert den Entwurf |
 | `PATCH /defects/:id` | Mangel als behoben markieren / wieder öffnen: `{ status: "resolved"\|"open", note?, photoKey? }` – Notiz und Nachher-Foto (vorher über `POST /files`), wer/wann wird gespeichert; Wiederöffnen löscht die Behebung |
 | `POST /defects/:id/hide`, `POST /defects/:id/unhide` | Ausblenden mit `{ reason }` (Duplikat, nicht relevant …) bzw. wieder einblenden – nur Admins, daher nicht mit API-Schlüsseln |
@@ -129,7 +130,7 @@ Ungültige oder widerrufene Codes liefern `404` und werden je IP gedrosselt (`to
 `GET/POST/DELETE /account/calendar-feed` (nur mit Sitzung) verwaltet den persönlichen Link; der Kalender ruft
 `GET /public/calendar/<token>.ics` ab (iCal: fällige Prüfungen je Gebäude und Tag, Begehungen, eigene Aufgaben; 180 Tage Vorschau).
 
-## Smarte Funktionen und KI
+## Smarte Funktionen
 
 | Endpunkt | Beschreibung |
 |----------|--------------|
@@ -138,13 +139,12 @@ Ungültige oder widerrufene Codes liefern `404` und werden je IP gedrosselt (`to
 | `POST /smart/intervals/apply` | Vorschlag übernehmen (Admin): `{ assetId, schedule, months }` – `months` muss dem aktuellen Vorschlag entsprechen (sonst 409); der nächste Termin wird ab der letzten Prüfung neu berechnet; Eintrag im Autopilot-Protokoll (`adapt_intervals`, rückgängig zu machen) |
 | `POST /smart/intervals/reset` | Angepasstes Intervall auf den Standard zurücksetzen (Admin): `{ assetId, schedule }` |
 | `GET /smart/rounds?days=30` | Fällige Elemente je Gebäude in Laufreihenfolge (Etage, Standort) |
-| `GET /ai/status` | Welche KI-Funktionen verfügbar sind: `{ transcribe, structure: "ai"|"rules", vision }` |
-| `POST /ai/parse` | Text (z. B. Diktat) in Mängel/Aufgaben/Notizen/Sammelanlagen zerlegen: `{ text, checkpoints?, categories? }` → `{ items, source }`; ohne KI regelbasiert. Sammelanlage: `kind: "asset"` mit `count` (max. 50), `category` (Schlüssel oder null), `floor`, `location`; `categories: []` schaltet sie ab, ohne Angabe gelten die Arten des Workspaces |
-| `POST /ai/identify` | Foto beim Anlegen erkennen: `{ key }` (über `POST /files`) → `{ category, manufacturer, model, year, serial, confidence }`; ohne KI oder bei Fehler `503` |
-| `POST /ai/transcribe` | Sprachaufnahme (`audio/webm`, `ogg`, `mp4`, `wav` …, max. 8 MB, Rohdaten im Body) → `{ text }` |
-| `POST /ai/typeplate` | Typenschild-Foto auslesen: `{ key }` (vorher über `POST /files` hochgeladen) → Hersteller, Modell, Baujahr, Seriennummer, Zulassung |
+| `GET /ai/status` | Fester Stand `{ transcribe: false, structure: "rules", vision: false }` – der Worker ruft keine KI auf |
+| `POST /ai/parse` | Text (z. B. Diktat) regelbasiert (`shared/smart.ts`) in Mängel/Aufgaben/Notizen/Sammelanlagen zerlegen: `{ text, checkpoints?, categories? }` → `{ items, source: "rules" }`. Sammelanlage: `kind: "asset"` mit `count` (max. 50), `category` (Schlüssel oder null), `floor`, `location`; `categories: []` schaltet sie ab, ohne Angabe gelten die Arten des Workspaces |
 
-KI-Aufrufe laufen über Cloudflare Workers AI (keine Daten an weitere Anbieter) und sind auf 150 je Person und Stunde begrenzt.
+Keine KI im Worker (seit v4): Sprache erkennt der Browser, Texte zerlegt der Regel-Parser. Server-Transkription
+(`/ai/transcribe`), Typenschild- und Bilderkennung (`/ai/typeplate`, `/ai/identify`) gibt es nicht mehr (`404`) –
+Fotos liest Claude über den MCP-Server (`get_photo`). Damit entstehen keine KI-Kosten bei Cloudflare.
 
 ## MCP-Server (Claude und andere KI-Assistenten)
 
@@ -159,19 +159,40 @@ Prüfkompass spricht das Model Context Protocol (Streamable HTTP, zustandslos, J
   erstellt als Admin mit Anmeldung **eine neue Verbindung** (nur lesen / lesen und schreiben). Tokens: Access `pko_…`
   (1 Stunde), Refresh `pkr_…` (90 Tage, wird bei jeder Nutzung erneuert). Rechte = Rechte des zugehörigen Schlüssels;
   Schlüssel widerrufen trennt die Verbindung sofort. `POST /api/oauth/token`, `POST /api/oauth/revoke`.
-- **Mit Schlüssel:** Header `Authorization: Bearer pk_…`
-- **Ohne eigene Header** (z. B. Connector in Claude Desktop/claude.ai): `https://<instanz>/api/mcp/k/pk_…` – die Adresse wie ein Passwort behandeln.
-- Rechte wie der Schlüssel: Lese-Schlüssel sehen nur lesende Werkzeuge erfolgreich, schreibende liefern `isError`.
+- **Mit Schlüssel:** Header `Authorization: Bearer pk_…`. Die frühere Adresse mit Schlüssel im Pfad (`/api/mcp/k/…`)
+  gibt es nicht mehr (`404`).
+- Rechte wie der Schlüssel (höchstens Prüfer, Zugriffsbereich und „darf anlegen“ der Person): mit Lese-Schlüssel liefern
+  schreibende Werkzeuge `isError`. **Claude unterschreibt nie** – `inspect` legt Prüfungen nur zur Unterschrift bereit.
 
 ```bash
 claude mcp add --transport http pruefkompass https://<instanz>/api/mcp          # OAuth im Browser
 claude mcp add --transport http pruefkompass https://<instanz>/api/mcp --header "Authorization: Bearer pk_…"
 ```
 
-Werkzeuge: `dashboard`, `search`, `list_properties`, `get_property`, `list_assets`, `get_asset`, `list_inspections`,
-`get_inspection`, `list_defects`, `get_defect`, `resolve_defect` (mit Behebungsnotiz `note`), `report_defect`, `list_action_required`,
-`list_tasks`, `create_task`, `update_task_status`, `bulk_update_tasks`, `add_task_comment` (mit `mentions`), `list_categories`, `create_asset`, `list_walkthroughs`, `plan_rounds`, `get_suggestions`,
-`create_tasks_from_defects`, `list_automations`, `set_automation` (nur Admins – mit API-Schlüssel daher „Keine Berechtigung“), `list_automation_log`, `structure_dictation`.
+**Werkzeuge** (nach Absicht; Antworten knapp, mit Element-Codes und Namen statt interner IDs – IDs nur, wo ein
+Folgeaufruf sie braucht; Fehler als `isError` mit Hinweis, was stattdessen geht):
+
+| Werkzeug | Zweck |
+|---|---|
+| `briefing` | Lage in einem Aufruf: Kennzahlen, „Jetzt“-Liste (max. 12), wartende Unterschriften, Autopilot-Protokoll seit `since` |
+| `search` | Suche über Elemente, Objekte, Gebäude, Mängel, Aufgaben; `type: "properties"`/`"categories"` als Übersicht |
+| `list` | Listen mit Filtern: `what: assets\|defects\|tasks\|inspections\|walkthroughs` |
+| `get` | Ein Ding vollständig (`kind` + `ref`: Code, Name oder ID) mit Verlauf und Foto-/Grundriss-Verweisen (`foto:…`, `plan:…`) |
+| `get_photo` | Foto oder Grundriss als MCP-Bildinhalt (JPEG/PNG/WebP bis 4 MB; SVG-Grundrisse als Text) |
+| `capture` | Mehrere Mängel, Aufgaben, Notizen, Elemente auf einmal; ähnliche offene Mängel → `skipped`, mit `force` trotzdem |
+| `update_asset` | Stammdaten nachtragen (Hersteller, Modell, Baujahr, Seriennummer, Zulassung, Standort, Etage, Etikett, weitere Felder) |
+| `update_tasks` | Status, Zuständige, Frist, Priorität, Kommentar – für eine oder mehrere Aufgaben |
+| `update_defect` | Mangel beheben (mit Notiz) oder wieder öffnen |
+| `plan` | Rundgänge ansehen, Wochenplanung auslösen, Aufgaben aus Mängeln |
+| `tour` | Rundgang führen: `start` (Gebäude) → nächstes fälliges Element mit Standort, Prüfpunkten und bekannten Mängeln; `next`; `status` |
+| `inspect` | Prüfung aus dem Gesagten ausfüllen (`allOk`, Mängel mit Prüfpunkt-Zuordnung, bekannte Mängel `still`/`fixed`, Arbeiten, Bemerkung, nicht prüfbar) und **zur Unterschrift bereitlegen** – nie abschließen |
+| `setup` | Objekt, Gebäude, Elemente (Etage, Standort, Art, Marker auf dem Grundriss) in einem Rutsch; zuerst `preview: true`. Neue Objekte/Gebäude nur mit Admin-Rechten, also nicht per Schlüssel |
+| `autopilot` | Schritte und Protokoll ansehen, Schritt einmal ausführen, Eintrag rückgängig machen; Stufen ändern nur Admins in der App |
+| `report` | Kennzahlen für Zeitraum (`month`, `year`, `from`/`to`) und Objekt als Text |
+
+**Prompts** (`prompts/list`, `prompts/get`, erscheinen in Claude als fertige Befehle): Tagesbriefing (`seit`),
+Diktat erfassen (`text`, `element`), Woche planen (`tage`), Typenschilder nachtragen (`objekt`), Monatsbericht schreiben
+(`objekt`, `monat`), Rundgang führen (`gebaeude`), Plan einrichten (`objekt`).
 
 ### Beispiel: Element anlegen
 

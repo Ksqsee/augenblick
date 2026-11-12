@@ -306,7 +306,8 @@ function client() {
     check((await mallory(`/defects/${mDefect}`)).json?.status === 'open', 'Mangel eines anderen Workspaces bleibt offen');
     const mine = (await owner(`/assets/${target.id}`)).json.defects.filter((d) => d.title === 'Sicherheitstest fremde Verknüpfung');
     check(mine.length === 1, 'fremde Verknüpfung ignoriert → eigener neuer Mangel');
-    check((await reader('/ai/identify', { body: { key: 'x/y' } })).status === 403, 'Bilderkennung nicht mit Lesezugriff');
+    // Bilderkennung im Worker gibt es nicht mehr (keine KI-Kosten); Fotos sieht nur Claude über get_photo
+    check((await reader('/ai/identify', { body: { key: 'x/y' } })).status === 404, 'Bilderkennung entfernt');
   }
 
   console.log('· #29 Autopilot: Rollen, Workspace-Grenzen und Zugriffsbereich');
@@ -341,6 +342,79 @@ function client() {
   check((await owner(`/automation/log/${logIn.id}/undo`, { body: {} })).status === 200, 'Admin macht rückgängig');
   check((await owner(`/automation/log/${logIn.id}/undo`, { body: {} })).status === 409, 'zweites Rückgängig → 409');
   check((await mallory('/automation/monthly-report/zzzzzzzzzzzzzzzz/complete', { body: { reportIds: [created.id] } })).status === 404, 'fremde Reservierung → 404');
+
+  console.log('· #30 MCP: get_photo, capture, update_asset, inspect – Rechte und Workspace-Grenzen; Unterschrift nur in der App');
+  {
+    const SIG = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==';
+    const png = Buffer.from(SIG.split(',')[1], 'base64');
+    const ownerWrite = (await owner('/account/api-keys', { body: { name: 'sec-mcp', scope: 'write', expiresInDays: 1 } })).json.key;
+    const ownerRead = key; // Leseschlüssel aus #8
+    const malloryKey = (await mallory('/account/api-keys', { body: { name: 'mallory-mcp', scope: 'write', expiresInDays: 1 } })).json.key;
+    const tool = async (k, name, args) => {
+      const r = await fetch(BASE + '/api/mcp', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', authorization: `Bearer ${k}` },
+        body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name, arguments: args } }),
+      }).then((x) => x.json());
+      return { isError: r.result?.isError, content: r.result?.content ?? [], text: r.result?.content?.[0]?.text ?? '' };
+    };
+    // Fotos beider Workspaces
+    const putFile = async (cookieClient) => {
+      const r = await fetch(BASE + '/api/files', { method: 'POST', headers: { 'x-pk': '1', 'content-type': 'image/png', cookie: cookieClient }, body: png });
+      return (await r.json()).key;
+    };
+    const malloryCookie = await (async () => {
+      const me = (await mallory('/account/me')).json.user.email;
+      const lr = await fetch(BASE + '/api/auth/login', { method: 'POST', headers: { 'x-pk': '1', 'content-type': 'application/json' }, body: JSON.stringify({ email: me, password: 'mallory-passwort-1' }) });
+      return lr.headers.get('set-cookie').split(';')[0];
+    })();
+    const ownKey = await putFile(ownerCookie);
+    const mKey = await putFile(malloryCookie);
+    let t = await tool(malloryKey, 'get_photo', { ref: `foto:${ownKey}` });
+    check(t.isError === true && !t.content.some((x) => x.type === 'image'), 'get_photo: fremdes Foto nicht lesbar');
+    t = await tool(ownerWrite, 'get_photo', { ref: `foto:${mKey}` });
+    check(t.isError === true && !t.content.some((x) => x.type === 'image'), 'get_photo: Foto aus fremdem Workspace nicht lesbar');
+    for (const ref of ['foto:../secret', `foto:${ownKey}/../x`, 'plan:../../x', `plan:${'z'.repeat(16)}`]) {
+      t = await tool(ownerWrite, 'get_photo', { ref });
+      check(t.isError === true, `get_photo lehnt „${ref}“ ab`);
+    }
+    t = await tool(ownerWrite, 'get_photo', { ref: `foto:${ownKey}` });
+    check(t.content.some((x) => x.type === 'image'), 'get_photo: eigenes Foto lesbar');
+    // capture / update_asset / inspect über Workspace-Grenzen und mit Leseschlüssel
+    t = await tool(malloryKey, 'capture', { asset: sAsset.code, items: [{ kind: 'defect', title: 'Fremd eingeschleust', severity: 'critical' }] });
+    check(t.isError === true && !(await owner('/defects')).json.some((d) => d.title === 'Fremd eingeschleust'), 'capture: kein Mangel an fremdem Element');
+    t = await tool(malloryKey, 'capture', { property: S.name, items: [{ kind: 'task', title: 'Fremde Aufgabe per MCP' }] });
+    check(t.isError === true && !(await owner('/tasks')).json.some((x) => x.title === 'Fremde Aufgabe per MCP'), 'capture: keine Aufgabe in fremdem Objekt');
+    t = await tool(ownerRead, 'capture', { asset: sAsset.code, items: [{ kind: 'defect', title: 'Lesend eingeschleust', severity: 'low' }, { kind: 'asset', category: 'smoke_alarm', building: 'x' }] });
+    check(t.isError === true && !(await owner('/defects')).json.some((d) => d.title === 'Lesend eingeschleust'), 'capture: Leseschlüssel legt nichts an');
+    const before = (await owner(`/assets/${sAsset.id}`)).json;
+    t = await tool(malloryKey, 'update_asset', { asset: sAsset.code, manufacturer: 'Mallory' });
+    check(t.isError === true, 'update_asset: fremdes Element nicht änderbar');
+    t = await tool(ownerRead, 'update_asset', { asset: sAsset.code, manufacturer: 'Lesend' });
+    check(t.isError === true, 'update_asset: nicht mit Leseschlüssel');
+    t = await tool(ownerWrite, 'update_asset', { asset: sAsset.code, fields: { __proto__: 1, constructor: 'x' } });
+    const after = (await owner(`/assets/${sAsset.id}`)).json;
+    check(after.manufacturer === before.manufacturer && JSON.stringify(after.attributes) === JSON.stringify(before.attributes), 'Stammdaten unverändert (auch keine Fremdfelder)');
+    t = await tool(malloryKey, 'inspect', { asset: sAsset.code, allOk: true });
+    check(t.isError === true, 'inspect: fremdes Element nicht prüfbar');
+    t = await tool(malloryKey, 'setup', { preview: false, property: { name: S.name }, buildings: [{ name: 'Mallory Anbau', elements: [{ category: 'smoke_alarm' }] }] });
+    check(!(await owner('/assets')).json.some((a) => a.buildingName === 'Mallory Anbau'), 'setup: nichts im fremden Workspace');
+    // Unterschrift: nie per Schlüssel, nur eigene, bereite Entwürfe
+    t = await tool(ownerWrite, 'inspect', { asset: sAsset.code, allOk: true });
+    const readyId = JSON.parse(t.text || '{}').inspectionId;
+    check(!!readyId, `inspect legt bereit (${t.text.slice(0, 80)})`);
+    const viaKey = await fetch(BASE + '/api/inspections/sign', { method: 'POST', headers: { authorization: `Bearer ${ownerWrite}`, 'content-type': 'application/json' }, body: JSON.stringify({ ids: [readyId], signature: SIG }) });
+    check(viaKey.status === 403, `Sammel-Unterschrift mit API-Schlüssel → 403 (${viaKey.status})`);
+    const viaMallory = await mallory('/inspections/sign', { body: { ids: [readyId], signature: SIG } });
+    check(viaMallory.status === 200 && viaMallory.json.signed.length === 0 && viaMallory.json.failed[0]?.id === readyId, 'fremder Workspace unterschreibt nicht');
+    const viaInsp = await insp('/inspections/sign', { body: { ids: [readyId], signature: SIG } });
+    check(viaInsp.json?.signed?.length === 0, 'andere Person im Workspace unterschreibt nicht');
+    check((await reader('/inspections/sign', { body: { ids: [readyId], signature: SIG } })).status === 403, 'Lesezugriff unterschreibt nicht');
+    check((await owner('/inspections/sign', { body: { ids: [readyId], signature: 'https://tracker.example/x.png' } })).status === 400, 'Unterschrift nur als Bild');
+    check((await owner(`/inspections/${readyId}`)).json.status === 'draft', 'Entwurf bleibt unverändert');
+    check(!(await mallory('/inspections?status=ready')).json.some((i) => i.id === readyId), 'fremde bereite Prüfungen unsichtbar');
+    await owner(`/inspections/${readyId}`, { method: 'DELETE' });
+  }
 
   console.log(fail.length ? `FAILED ${fail.length}: ${fail.join('; ')}` : 'ALL CHECKS OK');
   if (fail.length) process.exitCode = 1;

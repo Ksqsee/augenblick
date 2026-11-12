@@ -74,6 +74,11 @@ inspections.get('/inspections', async (c) => {
     args.push(q.status);
     where.push(`i.status = ?${args.length}`);
   }
+  // Bereit zur Unterschrift: nur eigene Entwürfe (unterschreiben kann nur die prüfende Person)
+  if (q.status === 'ready') {
+    args.push(c.get('user').userId);
+    where.push("i.status = 'draft'", 'i.ready_at IS NOT NULL', `i.inspector_id = ?${args.length}`);
+  }
   // Filter für Liste und Berichtsgenerator
   const eq: [string, string | undefined][] = [
     ['p.id', q.propertyId],
@@ -108,7 +113,7 @@ inspections.get('/inspections', async (c) => {
   }
   const rows = await c.env.DB.prepare(
     `SELECT i.id, i.kind, i.kinds, i.purpose, i.schedule, i.status, i.result, i.inspected_at AS inspectedAt, i.created_at AS createdAt, i.next_due_at AS nextDueAt,
-            i.archived_at AS archivedAt, i.superseded_at AS supersededAt, i.superseded_by AS supersededBy, i.supersedes_id AS supersedesId, a.id AS assetId, a.code, a.category, a.location, b.name AS buildingName, p.id AS propertyId, p.name AS propertyName,
+            i.archived_at AS archivedAt, i.ready_at AS readyAt, i.superseded_at AS supersededAt, i.superseded_by AS supersededBy, i.supersedes_id AS supersedesId, a.id AS assetId, a.code, a.category, a.location, b.name AS buildingName, p.id AS propertyId, p.name AS propertyName,
             u.name AS inspector, i.inspector_id AS inspectorId, b.id AS buildingId
        FROM inspections i JOIN assets a ON a.id = i.asset_id JOIN buildings b ON b.id = a.building_id
        JOIN properties p ON p.id = b.property_id JOIN users u ON u.id = i.inspector_id
@@ -351,6 +356,8 @@ export async function loadInspection(c: Ctx, iid: string) {
     inspectorName: row.inspectorName as string,
     inspectedAt: row.inspected_at as number | null,
     nextDueAt: row.next_due_at as number | null,
+    /** Entwurf vollständig, wartet auf die Unterschrift */
+    readyAt: (row.ready_at as number | null) ?? null,
     archivedAt: row.archived_at as number | null,
     createdAt: row.created_at as number,
     asset: {
@@ -599,21 +606,43 @@ async function finalize(
   return { result, nextDueAt: nextDue };
 }
 
+/** Was einem Entwurf zum Abschluss noch fehlt (ohne Unterschrift) – leer = bereit zur Unterschrift. */
+export function draftMissing(checkpoints: Checkpoint[], b: Pick<InspectionBody, 'answers' | 'notInspectable' | 'defects' | 'resultOverride' | 'resultReason'>, kinds: string[]) {
+  const missing: string[] = [];
+  if (!kinds.length) missing.push('Art der Prüfung');
+  if (!isComplete(checkpoints.map((p) => p.id), b.answers, b.notInspectable)) {
+    const open = checkpoints.filter((p) => !b.answers[p.id]);
+    missing.push(`${open.length} ${open.length === 1 ? 'Prüfpunkt' : 'Prüfpunkte'} ohne Bewertung: ${open.map((p) => p.label).join('; ')}`);
+  }
+  if (b.resultOverride && !b.notInspectable) {
+    const computed = computeResult({ notInspectable: b.notInspectable, answers: b.answers, defects: b.defects });
+    if (b.resultOverride === 'ok' && b.defects.length) missing.push('„Ohne Mängel“ passt nicht zu erfassten Mängeln');
+    else if (b.resultOverride !== computed && b.resultReason.trim().length < 3) missing.push('Begründung für die abweichende Gesamtbewertung');
+  }
+  return missing;
+}
+
 inspections.put('/inspections/:id', async (c) => {
   requireRole(c, 'inspector');
-  await saveDraft(c, c.req.param('id'), inspectionBody.parse(await c.req.json()));
-  return c.json({ ok: true });
+  const raw = (await c.req.json()) as Record<string, unknown>;
+  const b = inspectionBody.parse(raw);
+  const ready = z.boolean().optional().parse(raw?.ready);
+  const insp = await saveDraft(c, c.req.param('id'), b);
+  // „Bereit zur Unterschrift“: mit ready=true setzen, sobald vollständig; unvollständig gespeichert → zurücknehmen
+  const missing = draftMissing(insp.checkpoints, b, insp.kinds);
+  if (missing.length) await c.env.DB.prepare('UPDATE inspections SET ready_at = NULL WHERE id = ?').bind(insp.id).run();
+  else if (ready === true) await c.env.DB.prepare('UPDATE inspections SET ready_at = COALESCE(ready_at, ?) WHERE id = ?').bind(now(), insp.id).run();
+  else if (ready === false) await c.env.DB.prepare('UPDATE inspections SET ready_at = NULL WHERE id = ?').bind(insp.id).run();
+  const isReady = !missing.length && (ready === true || (ready === undefined && insp.readyAt != null));
+  return c.json({ ok: true, ready: isReady, missing });
 });
 
-inspections.post('/inspections/:id/submit', async (c) => {
-  requireRole(c, 'inspector');
-  const b = inspectionBody.parse(await c.req.json());
-  const iid = c.req.param('id');
-  const insp = await saveDraft(c, iid, b);
+/** Gespeicherten Entwurf mit dem übergebenen Inhalt abschließen (Abschluss in der App und Sammel-Unterschrift). */
+async function finalizeDraft(c: Ctx, insp: LoadedInspection, b: InspectionBody) {
   // Berichtigung behält das Prüfdatum der ersetzten Prüfung
   const inspectedAt = insp.purpose === 'correction' && insp.supersedesDate ? insp.supersedesDate : now();
-  const r = await finalize(c, {
-    iid,
+  return finalize(c, {
+    iid: insp.id,
     assetId: insp.assetId,
     propertyId: insp.propertyId,
     category: insp.asset.category,
@@ -626,7 +655,63 @@ inspections.post('/inspections/:id/submit', async (c) => {
     supersedesId: insp.purpose === 'correction' ? insp.supersedesId : null,
     followUpOf: insp.followUpOf,
   });
+}
+
+inspections.post('/inspections/:id/submit', async (c) => {
+  requireRole(c, 'inspector');
+  const b = inspectionBody.parse(await c.req.json());
+  const insp = await saveDraft(c, c.req.param('id'), b);
+  const r = await finalizeDraft(c, insp, b);
   return c.json({ ok: true, ...r });
+});
+
+/**
+ * Mehrere bereitstehende Entwürfe der angemeldeten Person mit einer Unterschrift abschließen.
+ * Nur mit Browser-Sitzung: API-Schlüssel und OAuth-Token (Claude) unterschreiben nie.
+ * Jede Prüfung wird einzeln wie beim normalen Abschluss geprüft; Fehler werden je ID gemeldet.
+ */
+inspections.post('/inspections/sign', async (c) => {
+  requireRole(c, 'inspector');
+  const u = c.get('user');
+  if (u.apiKeyId) throw new HTTPException(403, { message: 'Unterschreiben geht nur in der App – nicht mit API-Schlüssel oder über Claude' });
+  const b = z
+    .object({
+      ids: z.array(z.string().max(40)).min(1, 'Keine Prüfungen ausgewählt').max(100),
+      signature: inspectionBody.shape.signature.removeDefault().unwrap(),
+      signerName: str(160).optional(),
+    })
+    .parse(await c.req.json());
+  const signed: { id: string; code: string; result: string; nextDueAt: number | null }[] = [];
+  const failed: { id: string; error: string }[] = [];
+  for (const iid of [...new Set(b.ids)]) {
+    try {
+      const insp = await loadInspection(c, iid);
+      // Fremde, nicht bereite oder schon abgeschlossene Prüfungen: einheitlich „nicht gefunden“ (keine Auskunft über fremde Entwürfe)
+      if (insp.inspectorId !== u.userId || insp.status !== 'draft' || insp.readyAt == null) notFound('Bereite Prüfung');
+      const body = inspectionBody.parse({
+        kinds: insp.kinds,
+        notInspectable: insp.notInspectable,
+        answers: insp.answers,
+        maintenance: insp.maintenance,
+        defects: insp.defects,
+        photos: insp.photos,
+        notes: insp.notes ?? '',
+        signature: b.signature,
+        signerName: b.signerName || insp.signerName || u.name,
+        resultOverride: insp.resultOverride,
+        resultReason: insp.resultReason,
+        resolvedDefects: insp.resolvedDefects,
+      });
+      await storeDraft(c, iid, body, insp.kinds).run();
+      const r = await finalizeDraft(c, insp, body);
+      signed.push({ id: iid, code: insp.asset.code, result: r.result, nextDueAt: r.nextDueAt });
+    } catch (e) {
+      failed.push({ id: iid, error: e instanceof HTTPException ? e.message : e instanceof z.ZodError ? (e.issues[0]?.message ?? 'Ungültige Daten') : 'Interner Fehler' });
+      if (!(e instanceof HTTPException) && !(e instanceof z.ZodError)) console.error('sign', e);
+    }
+  }
+  if (signed.length) await logActivity(c, 'submit', 'inspection', null, `${signed.length} ${signed.length === 1 ? 'Prüfung' : 'Prüfungen'} gemeinsam unterschrieben`);
+  return c.json({ signed, failed });
 });
 
 /** Body einer offline erfassten Prüfung. */

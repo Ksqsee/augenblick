@@ -1,6 +1,5 @@
 import { getCategory, allCategories } from '../categories';
-import { useQuery } from '@tanstack/react-query';
-import { ArrowLeft, Camera, ChevronRight, Loader2, Sparkles } from 'lucide-react';
+import { ArrowLeft, Camera, ChevronRight, Loader2 } from 'lucide-react';
 import { type FormEvent, type ReactNode, useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { type Category } from '../../shared/catalog';
@@ -202,70 +201,10 @@ export function BuildingPicker({ value, onChange, initialPropertyId }: { value: 
   );
 }
 
-interface PlateResult {
-  manufacturer: string | null;
-  model: string | null;
-  year: number | null;
-  serial: string | null;
-  approval: string | null;
-}
-
-/** Typenschild fotografieren → Hersteller, Modell, Seriennummer ausfüllen (nur mit Workers AI). */
-function TypePlateButton({ onRead }: { onRead: (r: PlateResult) => void }) {
-  const status = useQuery({ queryKey: ['ai-status'], queryFn: () => api<{ vision: boolean }>('/ai/status'), staleTime: 600_000 });
-  const ref = useRef<HTMLInputElement>(null);
-  const [busy, setBusy] = useState(false);
-  const [msg, setMsg] = useState('');
-  if (!status.data?.vision) return null;
-  return (
-    <div className="flex flex-wrap items-center gap-3 rounded-md bg-sunken px-3 py-2.5 sm:col-span-2">
-      <input
-        ref={ref}
-        type="file"
-        accept="image/*"
-        capture="environment"
-        className="hidden"
-        onChange={async (e) => {
-          const file = e.target.files?.[0];
-          e.target.value = '';
-          if (!file) return;
-          setBusy(true);
-          setMsg('');
-          try {
-            const key = await uploadPhoto(file);
-            const r = await api<PlateResult>('/ai/typeplate', { body: { key } });
-            onRead(r);
-            setMsg([r.manufacturer, r.model, r.year && `Baujahr ${r.year}`, r.approval && `Zulassung ${r.approval}`].filter(Boolean).join(' · ') || 'Nichts lesbar');
-          } catch (x) {
-            setMsg(x instanceof Error ? x.message : 'Nicht lesbar');
-          } finally {
-            setBusy(false);
-          }
-        }}
-      />
-      <Button type="button" size="sm" variant="secondary" loading={busy} icon={<Camera className="size-4" />} onClick={() => ref.current?.click()}>
-        Typenschild fotografieren
-      </Button>
-      <span className="min-w-0 flex-1 text-caption text-ink-3">{msg || 'Füllt Hersteller, Modell und Seriennummer aus.'}</span>
-    </div>
-  );
-}
-
-/** Ergebnis der Bilderkennung (POST /ai/identify). */
-export interface IdentifyResult {
-  category: string | null;
-  manufacturer: string | null;
-  model: string | null;
-  year: number | null;
-  serial: string | null;
-  confidence: number;
-}
-
-/** Foto beim Anlegen: hochladen, Art und Typenschild erkennen lassen. Ohne KI (503) bleibt es beim Foto. */
+/** Optionales Foto beim Anlegen: wird nach dem Speichern als Anhang am Element abgelegt (keine Erkennung). */
 export interface FirstPhoto {
   key: string;
   preview: string;
-  result: IdentifyResult | null;
 }
 
 function PhotoFirst({ onDone, photo }: { onDone: (p: FirstPhoto) => void; photo: FirstPhoto | null }) {
@@ -289,9 +228,7 @@ function PhotoFirst({ onDone, photo }: { onDone: (p: FirstPhoto) => void; photo:
           setErr('');
           try {
             const key = await uploadPhoto(file);
-            // Erkennung ist optional: ohne KI oder bei Fehler still bei der manuellen Auswahl bleiben
-            const result = await api<IdentifyResult>('/ai/identify', { body: { key } }).catch(() => null);
-            onDone({ key, preview: URL.createObjectURL(file), result });
+            onDone({ key, preview: URL.createObjectURL(file) });
           } catch (x) {
             setErr(x instanceof Error ? x.message : 'Hochladen fehlgeschlagen');
           } finally {
@@ -311,10 +248,8 @@ function PhotoFirst({ onDone, photo }: { onDone: (p: FirstPhoto) => void; photo:
           <span className="grid size-5 shrink-0 place-items-center text-ink">{busy ? <Loader2 className="size-5 animate-spin" /> : <Camera className="size-5" strokeWidth={1.75} />}</span>
         )}
         <span className="min-w-0 flex-1">
-          <span className="block text-body font-medium text-ink">{busy ? 'Wird erkannt …' : photo ? 'Anderes Foto aufnehmen' : 'Foto aufnehmen'}</span>
-          <span className="block text-meta text-ink-3">
-            {photo ? 'Foto übernommen – bitte die Art unten wählen.' : 'Art und Typenschild werden erkannt, du bestätigst nur noch.'}
-          </span>
+          <span className="block text-body font-medium text-ink">{busy ? 'Wird hochgeladen …' : photo ? 'Anderes Foto wählen' : 'Foto hinzufügen'}</span>
+          <span className="block text-meta text-ink-3">{photo ? 'Foto übernommen – bitte die Art unten wählen.' : 'Optional, z. B. vom Typenschild. Wird am Element gespeichert.'}</span>
         </span>
       </button>
       {err && <p className="text-caption text-bad">{err}</p>}
@@ -322,10 +257,10 @@ function PhotoFirst({ onDone, photo }: { onDone: (p: FirstPhoto) => void; photo:
   );
 }
 
-/** Schritt 1 beim Anlegen: Foto aufnehmen oder Art wählen (Liste mit Norm und Intervall). */
+/** Schritt 1 beim Anlegen: Art wählen (Liste mit Norm und Intervall), optional mit Foto. */
 function CategoryPicker({ onPick, onClose, photo, onPhoto }: { onPick: (c: Category) => void; onClose: () => void; photo: FirstPhoto | null; onPhoto: (p: FirstPhoto) => void }) {
   return (
-    <Modal title="Neues Element" description="Foto aufnehmen oder Art wählen" onClose={onClose}>
+    <Modal title="Neues Element" description="Art wählen, optional mit Foto" onClose={onClose}>
       <PhotoFirst photo={photo} onDone={onPhoto} />
       <p className="mt-6 mb-1 text-meta font-medium text-ink-3">Art wählen</p>
       <ul className="-mx-2 flex flex-col">
@@ -385,24 +320,9 @@ export function AssetForm({
   const [attrs, setAttrs] = useState<Record<string, string | number | boolean | null>>(initial?.attributes ?? {});
   const [created, setCreated] = useState<string[]>([]);
   const [round, setRound] = useState(0);
-  /** Foto zuerst: wird nach dem Anlegen am Element gespeichert */
+  /** Optionales Foto: wird nach dem Anlegen am Element gespeichert */
   const [photo, setPhoto] = useState<FirstPhoto | null>(null);
-  const prefill = (p: FirstPhoto, cat: Category | null) => {
-    const r = p.result;
-    if (!r) return;
-    setF((x) => ({ ...x, manufacturer: r.manufacturer ?? x.manufacturer, model: [r.model, r.serial && `SN ${r.serial}`].filter(Boolean).join(' · ') || x.model }));
-    if (cat && r.year && getCategory(cat).attributes.some((a) => a.key === 'year')) setAttrs((a) => ({ ...a, year: r.year }));
-  };
-  const onPhoto = (p: FirstPhoto) => {
-    setPhoto(p);
-    const cat = p.result?.category && p.result.confidence >= 0.5 && allCategories().some((c) => c.key === p.result!.category) ? (p.result.category as Category) : null;
-    prefill(p, cat);
-    if (cat) setCategory(cat);
-  };
-  const pick = (cat: Category) => {
-    if (photo) prefill(photo, cat);
-    setCategory(cat);
-  };
+  const pick = (cat: Category) => setCategory(cat);
   const set = (k: keyof typeof f) => (e: React.ChangeEvent<HTMLInputElement>) => setF({ ...f, [k]: e.target.value });
   const setBuilding = (buildingId: string) => setF((x) => ({ ...x, buildingId, floor: (buildingId && lastFloor(buildingId)) || x.floor }));
   const save = useAction(
@@ -430,7 +350,7 @@ export function AssetForm({
     },
   );
 
-  if (!category) return <CategoryPicker onPick={pick} onClose={() => onClose()} photo={photo} onPhoto={onPhoto} />;
+  if (!category) return <CategoryPicker onPick={pick} onClose={() => onClose()} photo={photo} onPhoto={setPhoto} />;
 
   const def = getCategory(category);
   const buildingName = buildings?.find((b) => b.id === f.buildingId)?.name;
@@ -483,15 +403,8 @@ export function AssetForm({
       >
         {save.error && <ErrorBox error={save.error} />}
         {photo && !initial && (
-          <Notice
-            tone="info"
-            icon={<Sparkles />}
-            title={photo.result?.category === category ? `Erkannt: ${def.label}` : 'Foto übernommen'}
-            action={<img src={photo.preview} alt="Foto des Elements" className="size-12 rounded-md object-cover" />}
-          >
-            {photo.result?.category === category
-              ? 'Art und Angaben vom Foto vorgeschlagen – bitte prüfen. Falsche Art? Zurück zur Auswahl.'
-              : 'Das Foto wird mit dem Element gespeichert.'}
+          <Notice tone="info" icon={<Camera />} title="Foto übernommen" action={<img src={photo.preview} alt="Foto des Elements" className="size-12 rounded-md object-cover" />}>
+            Das Foto wird mit dem Element gespeichert.
           </Notice>
         )}
         <FormSection title="Ort">
@@ -518,11 +431,6 @@ export function AssetForm({
           </Field>
         </FormSection>
         <FormSection title="Gerät">
-          <TypePlateButton
-            onRead={(r) =>
-              setF((x) => ({ ...x, manufacturer: r.manufacturer ?? x.manufacturer, model: [r.model, r.serial && `SN ${r.serial}`].filter(Boolean).join(' · ') || x.model }))
-            }
-          />
           <Field label="Hersteller" optional>
             {(id) => <Input id={id} value={f.manufacturer} onChange={set('manufacturer')} />}
           </Field>
