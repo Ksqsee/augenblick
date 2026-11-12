@@ -18,6 +18,8 @@ interface ShareData {
   assets: { code: string; category: Category; location: string; floor: string; nextDueAt: number | null; lastInspectedAt: number | null; buildingName: string; lastResult: Result | null; openDefects: number }[];
   defects: { title: string; severity: Severity; measure: string; createdAt: number; code: string | null }[] | null;
   recent: { code: string; category: Category; inspectedAt: number; result: Result }[];
+  /** letzte Prüfung oder Mangeländerung des Objekts */
+  updatedAt: number | null;
   generatedAt: number;
 }
 
@@ -129,6 +131,7 @@ export function CustomerView() {
         />
         <div className="px-(--row-px) pb-6">
           <p className="text-h2 font-medium tracking-[-0.01em] text-ink">{overall}</p>
+          {d.updatedAt && <p className="mt-1.5 text-meta text-ink-3">Zuletzt aktualisiert {fmtDate(d.updatedAt)}</p>}
         </div>
 
         <Section title="Fristgerecht geprüft" action={<span className="text-meta text-ink-3 tabular-nums">{`${okCount} von ${c.assets} Elementen`}</span>}>

@@ -73,7 +73,7 @@ async function shareByToken(c: Ctx) {
 sharePublic.get('/property/:token', async (c) => {
   const s = await shareByToken(c);
   const DB = c.env.DB;
-  const [head, assets, defects, recent] = await DB.batch([
+  const [head, assets, defects, recent, changed] = await DB.batch([
     DB.prepare('SELECT p.name, p.address, t.name AS tenantName, t.phone AS tenantPhone, t.email AS tenantEmail, t.logo_key AS logoKey FROM properties p JOIN tenants t ON t.id = p.tenant_id WHERE p.id = ?').bind(s.propertyId),
     DB.prepare(
       `SELECT a.code, a.category, a.location, a.floor, a.next_due_at AS nextDueAt, a.last_inspected_at AS lastInspectedAt, b.name AS buildingName,
@@ -89,6 +89,13 @@ sharePublic.get('/property/:token', async (c) => {
     DB.prepare(
       `SELECT a.code, a.category, i.inspected_at AS inspectedAt, i.result FROM inspections i JOIN assets a ON a.id = i.asset_id JOIN buildings b ON b.id = a.building_id
         WHERE b.property_id = ? AND i.status = 'submitted' AND i.superseded_at IS NULL ORDER BY i.inspected_at DESC LIMIT 15`,
+    ).bind(s.propertyId),
+    // „Zuletzt aktualisiert“: letzte Prüfung oder Mangeländerung (erfasst, behoben, ausgeblendet) des Objekts
+    DB.prepare(
+      `SELECT MAX(at) AS at FROM (
+         SELECT MAX(i.inspected_at) AS at FROM inspections i JOIN assets a ON a.id = i.asset_id JOIN buildings b ON b.id = a.building_id
+          WHERE b.property_id = ?1 AND i.status = 'submitted' AND a.deleted_at IS NULL
+         UNION ALL SELECT MAX(MAX(d.created_at, COALESCE(d.resolved_at, 0), COALESCE(d.hidden_at, 0))) FROM defects d WHERE d.property_id = ?1)`,
     ).bind(s.propertyId),
   ]);
   if (!s.lastViewedAt || s.lastViewedAt < now() - 60_000) {
@@ -109,6 +116,7 @@ sharePublic.get('/property/:token', async (c) => {
     assets: list,
     defects: s.showDefects ? defects.results : null,
     recent: recent.results,
+    updatedAt: ((changed.results[0] as { at: number | null } | undefined)?.at ?? null) || null,
     generatedAt: n,
   });
 });

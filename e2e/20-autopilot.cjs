@@ -454,6 +454,77 @@ const MONTHS = ['Januar', 'Februar', 'März', 'April', 'Mai', 'Juni', 'Juli', 'A
   check((await panelRec.inputValue()) === 'yearly', 'Detail zeigt Wiederholung');
   await p.keyboard.press('Escape');
 
+  step('Begehung: Feststellungen bekommen Aufgaben wie Prüfungsmängel (Regeln, Protokoll)');
+  rules = (await api('/automation')).json;
+  check(mode('assign_defect_tasks') === 'auto', 'Mängel zuweisen steht auf Automatisch');
+  const wProp = (await api('/properties')).json[0];
+  const wid = (await api(`/properties/${wProp.id}/walkthroughs`, { data: { purpose: 'extraordinary' } })).json.id;
+  const wk = (await api(`/walkthroughs/${wid}`)).json;
+  const [wq1, wq2] = wk.questions;
+  r = await api(`/walkthroughs/${wid}/submit`, {
+    data: {
+      answers: Object.fromEntries(wk.questions.map((q) => [q.id, q === wq1 || q === wq2 ? 'defect' : 'ok'])),
+      findings: [
+        { questionId: wq1.id, title: 'Fluchtweg zugestellt Autopilot', note: '', measure: 'Paletten entfernen', severity: 'medium' },
+        { questionId: wq2.id, title: 'Aushang veraltet Autopilot', note: '', severity: 'low' },
+      ],
+      signature: SIG,
+      signerName: 'E2E',
+    },
+  });
+  check(r.status === 200, `Begehung abgeschlossen (${r.status} ${r.text.slice(0, 120)})`);
+  const wDefects = (await api('/defects?status=all&source=walkthrough')).json.filter((d) => d.walkthroughId === wid);
+  const wMedium = wDefects.find((d) => d.title === 'Fluchtweg zugestellt Autopilot');
+  const wLow = wDefects.find((d) => d.title === 'Aushang veraltet Autopilot');
+  all = await tasks();
+  const wTask = all.find((t) => t.defectId === wMedium?.id);
+  check(wTask?.kind === 'defect' && wTask.assigneeId === P1.id && wTask.propertyId === wProp.id, `Feststellung (mittel) → Aufgabe an Prüfer nach Regel (${wTask?.title})`);
+  check(wTask && Math.abs(wTask.dueAt - Date.now() - 5 * DAY) < 120_000, 'Frist aus der Regel (5 Tage)');
+  check(!all.some((t) => t.defectId === wLow?.id), 'geringe Feststellung ohne Regel → keine Aufgabe');
+  const eWalk = (await log()).find((e) => e.key === 'assign_defect_tasks' && e.link === `/aufgaben?id=${wTask?.id}`);
+  check(eWalk?.undoable && eWalk.summary.includes('Paletten entfernen') && eWalk.summary.includes(P1.name), `Protokolleintrag zur Begehung (${eWalk?.summary})`);
+  // Zugriffsbereich: eingeschränkte Prüferin außerhalb des Objekts sieht weder Aufgabe noch Eintrag
+  const otherProp = (await api('/properties')).json.find((x) => x.id !== wProp.id);
+  await api(`/account/members/${P2.id}/access`, { method: 'PUT', data: { scope: { propertyIds: [otherProp.id], buildingIds: [] }, canCreate: true } });
+  check(!(await tasks(insp2)).some((t) => t.id === wTask?.id), 'Aufgabe außerhalb des Bereichs unsichtbar');
+  check(!(await log(insp2)).some((e) => e.id === eWalk?.id), 'Protokolleintrag außerhalb des Bereichs unsichtbar');
+  await api(`/account/members/${P2.id}/access`, { method: 'PUT', data: { scope: null, canCreate: true } });
+
+  step('Rundgang schließt sich, wenn im Gebäude nichts mehr fällig ist');
+  await api('/automation/plan_week/run', { data: {} });
+  const allAssets = (await api('/assets')).json;
+  const dueIn = (t) => allAssets.filter((a) => a.buildingId === t.buildingId && a.nextDueAt != null && a.nextDueAt < t.createdAt + 14 * DAY);
+  const openRounds = (await tasks()).filter((t) => t.buildingId && /^Rundgang /.test(t.title) && t.status === 'open' && dueIn(t).length > 0);
+  const round = openRounds.sort((x, y) => dueIn(x).length - dueIn(y).length)[0];
+  check(!!round, `offener Rundgang vorhanden (${openRounds.length})`);
+  if (round) {
+    const queue = dueIn(round).map((a) => a.id);
+    const inspectAll = async (assetId) => {
+      // so oft prüfen, bis das Element nicht mehr im Planungsfenster fällig ist (mehrere Prüfpläne möglich)
+      for (let k = 0; k < 4; k++) {
+        const a = (await api(`/assets/${assetId}`)).json;
+        if (a.nextDueAt == null || a.nextDueAt >= round.createdAt + 14 * DAY) return;
+        const iid = (await api(`/assets/${assetId}/inspections`, { data: {} })).json.id;
+        const draft = (await api(`/inspections/${iid}`)).json;
+        const res = await api(`/inspections/${iid}/submit`, {
+          data: { kinds: ['periodic'], answers: Object.fromEntries(draft.checkpoints.map((cp) => [cp.id, 'ok'])), defects: [], signature: SIG, signerName: 'E2E' },
+        });
+        if (res.status !== 200) throw new Error(`Abschluss ${res.status} ${res.text}`);
+      }
+    };
+    for (const aid of queue.slice(0, -1)) await inspectAll(aid);
+    let rt = (await tasks()).find((t) => t.id === round.id);
+    check(queue.length === 1 || rt?.status === 'open', `Rundgang bleibt offen, solange noch etwas fällig ist (${rt?.status})`);
+    await inspectAll(queue[queue.length - 1]);
+    rt = (await tasks()).find((t) => t.id === round.id);
+    check(rt?.status === 'done' && rt.closedAt > 0, `Rundgang nach der letzten Prüfung erledigt (${rt?.status})`);
+    const eDone = (await log()).find((e) => e.key === 'plan_week' && e.summary === `${round.title} abgeschlossen`);
+    check(!!eDone && eDone.link === `/aufgaben?id=${round.id}` && !eDone.undoable, `Protokoll „${round.title} abgeschlossen“ (${eDone?.summary})`);
+    // nächste Woche: ein neuer Rundgang ist wieder möglich, die Regel selbst bleibt unverändert
+    check((await api('/automation/plan_week/run', { data: {} })).status === 200, 'Woche planen läuft danach weiter');
+    check(!(await tasks()).some((t) => t.buildingId === round.buildingId && t.id !== round.id && /^Rundgang /.test(t.title) && t.status === 'open'), 'kein neuer Rundgang ohne Fälliges');
+  }
+
   step('MCP-Werkzeuge');
   const key = (await api('/account/api-keys', { data: { name: 'Autopilot MCP', scope: 'write', expiresInDays: 1 } })).json.key;
   const mcp = async (name, args = {}) => {

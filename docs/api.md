@@ -90,6 +90,9 @@ Standard: `assign_defect_tasks` und `recurring_tasks` automatisch (bisheriges Ve
 `assign_defect_tasks` folgt dem Schalter `autoTasks` im Firmenprofil (beide bleiben gleich). Der tägliche Cron führt Regeln in Stufe `auto`
 aus (`plan_week` nur montags in der Zeitzone des Workspaces); in Stufe `suggest` liefert `GET /smart/suggestions` Einträge mit
 `kind: "automation"`, `automation: <Schlüssel>` und `action.endpoint` (einmal ausführen).
+`assign_defect_tasks` wirkt auch auf Feststellungen einer abgeschlossenen Begehung (`POST /walkthroughs/:id/submit`; gleiche Regeln, Bereich und Protokoll).
+Ein von `plan_week` angelegter Prüfauftrag „Rundgang <Gebäude>“ wird beim Prüfungsabschluss erledigt, sobald kein Element des Gebäudes mehr
+vor Ablauf des Planungsfensters (14 Tage ab Anlage des Auftrags) fällig ist; Protokolleintrag „Rundgang … abgeschlossen“ (`plan_week`, ohne Rückgängig).
 
 | Endpunkt | Beschreibung |
 |----------|--------------|
@@ -107,7 +110,7 @@ aus (`plan_week` nur montags in der Zeitzone des Workspaces); in Stufe `suggest`
 |----------|--------------|
 | `GET/POST /properties/:id/shares` | Freigabe-Links eines Objekts auflisten bzw. erstellen (nur Admin-Sitzung): `{ label?, showDefects?, expiresInDays? }` → `{ id, token }` (Token nur einmal) |
 | `DELETE /shares/:id` | Link widerrufen |
-| `GET /public/property/:token` | Öffentliche, nur lesende Statusansicht (ohne Anmeldung); in der App unter `/kunde/:token` |
+| `GET /public/property/:token` | Öffentliche, nur lesende Statusansicht (ohne Anmeldung); in der App unter `/kunde/:token`. `updatedAt`: letzte Prüfung oder Mangeländerung (erfasst, behoben, ausgeblendet) des Objekts, `null` ohne beides |
 
 ## Partner-Zugang für Subunternehmer
 

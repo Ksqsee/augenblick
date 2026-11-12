@@ -22,7 +22,8 @@ API: [`docs/api.md`](docs/api.md)
 - **Autopilot** (Einstellungen → Automatik): Regeln je Workspace mit drei Stufen *Aus* · *Vorschlagen* (Vorschlag mit Knopf auf
   „Heute“) · *Automatisch* (ausgeführt und protokolliert, sieben Tage rückgängig zu machen):
   **Woche planen** (montags je Gebäude mit Fälligkeiten in 14 Tagen ein Prüfauftrag „Rundgang“, zuständig ist, wer dort
-  zuletzt geprüft hat), **Mängel zuweisen** (Aufgabe für schwere Mängel, Zuweisungsregeln Elementart + Schwere → Person
+  zuletzt geprüft hat; der Auftrag erledigt sich selbst, sobald nach einer Prüfung im Gebäude nichts mehr im Planungsfenster
+  fällig ist), **Mängel zuweisen** (Aufgabe für schwere Mängel aus Prüfungen, Meldungen und Begehungen, Zuweisungsregeln Elementart + Schwere → Person
   oder Subunternehmer mit Link, Frist in Tagen), **Fristen eskalieren**, **wiederkehrende Aufgaben** (monatlich,
   vierteljährlich, jährlich), **offene Mängel nachhalten** (Erinnerung 14 Tage nach erledigter Behebung),
   **Monatsberichte** (Objektberichte des Vormonats im Archiv, erzeugt im Browser einer Admin-Person),
@@ -76,7 +77,7 @@ API: [`docs/api.md`](docs/api.md)
 - **Handlungsbedarf**: schwere Mängel ohne Aufgabe, überfällige Aufgaben und Prüfungen in einer Liste nach Dringlichkeit
 - **Subunternehmer**: Aufgabe per Link teilen, Rückmeldung ohne Konto; **Partner-Zugang** je Firma mit widerrufbarem
   Einladungscode → Sammelseite `/partner/:code` mit allen offenen Aufträgen der Firma und Rückmeldung je Auftrag
-- **Kunden-Freigabe**: Link je Objekt für Auftraggeber – Prüfquote, Fälligkeiten, letzte Prüfungen, offene Mängel; ohne Konto, widerrufbar
+- **Kunden-Freigabe**: Link je Objekt für Auftraggeber – Prüfquote, Fälligkeiten, letzte Prüfungen, offene Mängel, „Zuletzt aktualisiert“; ohne Konto, widerrufbar
 - **Papierkorb**: gelöschte Elemente 30 Tage lang mit Historie wiederherstellbar
 - QR-Etiketten (auch Blanko-Etiketten, die beim ersten Scan zugeordnet werden), Suche (Strg+K)
 - **Import** aus Excel/CSV mit Vorschau

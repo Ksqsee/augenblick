@@ -58,6 +58,8 @@ const check = (ok, m) => {
   const raw = JSON.stringify(pub);
   check(!/tenant_?id|"id"|photo|inspector|signature|email":"demo@/i.test(raw.replace(/"email":"[^"]*"/, '')), 'keine internen IDs, Fotos oder Personen');
   check(Array.isArray(pub.defects), 'Mängel enthalten (Standard)');
+  const lastChange = Math.max(0, ...pub.recent.map((x) => x.inspectedAt), ...(pub.defects ?? []).map((x) => x.createdAt));
+  check(typeof pub.updatedAt === 'number' && pub.updatedAt >= lastChange && pub.updatedAt <= Date.now() + 1000, `Zuletzt aktualisiert = letzte Prüfung/Mangeländerung (${pub.updatedAt} ≥ ${lastChange})`);
   const anon = await b.newContext({ viewport: { width: 1360, height: 900 }, locale: 'de-DE' });
   const ap = await anon.newPage();
   ap.on('pageerror', (e) => errors.push(e.message));
@@ -65,6 +67,14 @@ const check = (ok, m) => {
   await ap.getByRole('heading', { name: prop.name }).waitFor();
   check(await ap.getByText('Fristgerecht geprüft').isVisible(), 'Prüfquote sichtbar');
   check(await ap.getByRole('progressbar', { name: 'Prüfquote' }).isVisible(), 'Fortschrittsbalken');
+  const fmtDay = (ts) => new Date(ts).toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit', year: 'numeric' });
+  check(await ap.getByText(`Zuletzt aktualisiert ${fmtDay(pub.updatedAt)}`).isVisible(), `„Zuletzt aktualisiert ${fmtDay(pub.updatedAt)}“ sichtbar`);
+  // ein neuer Mangel am Objekt schiebt den Zeitpunkt nach vorn
+  const before = Date.now();
+  const propAsset = (await api('/assets')).json.find((a) => a.propertyId === prop.id);
+  check((await api('/defects', { data: { assetId: propAsset.id, title: 'Kundenansicht Aktualisierung', severity: 'low', force: true } })).status === 200, 'Mangel erfasst');
+  const pub2 = await (await fetch(`${BASE}/api/public/property/${tok}`)).json();
+  check(pub2.updatedAt >= before - 1000, `Zeitpunkt nach neuem Mangel aktualisiert (${pub2.updatedAt} ≥ ${before})`);
   await ap.screenshot({ path: OUT + '02-kunde.png', fullPage: true });
   const m = await b.newContext({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true, locale: 'de-DE' });
   const mp = await m.newPage();

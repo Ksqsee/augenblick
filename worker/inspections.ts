@@ -10,7 +10,7 @@ import { assetQuery, mapAsset, severityEnum, str, tid } from './data';
 import { type AppEnv, assertInScope, type Ctx, id, logActivity, notFound, now, parseJson, requireRole, scopeSql } from './lib';
 import { adaptMode, intervalHistory, logIntervalChange, writeSchedules } from './intervals';
 import { notify } from './notify';
-import { afterTasksDone, autoDefectTasks } from './automation';
+import { afterTasksDone, autoDefectTasks, closeFinishedRounds } from './automation';
 
 export const inspections = new Hono<AppEnv>();
 
@@ -589,6 +589,8 @@ async function finalize(
   }
   // Wiederkehrende Prüfaufträge: Folgeauftrag anlegen (Autopilot recurring_tasks)
   if (done.results.length) await afterTasksDone(c, done.results.map((r) => r.id));
+  // Rundgang des Gebäudes (Woche planen) erledigt sich, wenn dort nichts mehr im Planungsfenster fällig ist
+  await closeFinishedRounds(c, opts.assetId);
   // Autopilot (assign_defect_tasks): schwere Mängel bekommen sofort eine Aufgabe, ggf. mit Zuweisung nach Regeln
   if (b.defects.length) await autoDefectTasks(c, { inspectionId: opts.iid });
   if (result === 'critical') {

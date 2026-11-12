@@ -4,6 +4,7 @@ import { z } from 'zod';
 import { WALK_PURPOSES, type WalkPurpose } from '../shared/catalog';
 import { type Answer, addMonths, computeResult, isComplete } from '../shared/logic';
 import { BUILDING_TYPES, type BuildingType, questionsFor, WALK_INTERVAL_MONTHS, type WalkQuestion } from '../shared/walkthrough';
+import { autoDefectTasks } from './automation';
 import { severityEnum, str, tid } from './data';
 import { notify } from './notify';
 import { type AppEnv, assertInScope, type Ctx, id, logActivity, notFound, now, parseJson, requireRole, walkScope } from './lib';
@@ -211,6 +212,8 @@ walks.post('/walkthroughs/:id/submit', async (c) => {
     throw e;
   }
   await logActivity(c, 'submit', 'walkthrough', wid, `${WALK_PURPOSES[w.purpose]} ${w.propertyName} abgeschlossen`);
+  // Autopilot (assign_defect_tasks): Feststellungen bekommen wie Prüfungsmängel sofort eine Aufgabe (Regeln, Bereich, Protokoll)
+  if (b.findings.length) await autoDefectTasks(c, { walkthroughId: wid });
   await notify(c, {
     roles: ['owner', 'admin'],
     type: 'walkthrough_submitted',

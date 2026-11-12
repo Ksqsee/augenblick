@@ -246,17 +246,17 @@ const plural = (n: number, one: string, many: string) => (n === 1 ? one : `${n} 
  * Für offene Mängel ohne Aufgabe je eine Aufgabe anlegen. Zuweisungsregeln bestimmen Person/Subunternehmer und Frist,
  * sonst gilt die SLA-Lösungsfrist. Schreibt das Protokoll (ein Eintrag je Ort und Zuständigen).
  */
-export async function createDefectTasks(c: Ctx, opts: { severities: string[]; inspectionId?: string; defectId?: string }, n = now()) {
+export async function createDefectTasks(c: Ctx, opts: { severities: string[]; inspectionId?: string; walkthroughId?: string; defectId?: string }, n = now()) {
   const t = tid(c);
   const rows = (
     await c.env.DB.prepare(
-      `SELECT d.id, d.title, d.measure, d.severity, d.asset_id, d.property_id, a.code, a.category, a.building_id
-         FROM defects d LEFT JOIN assets a ON a.id = d.asset_id
+      `SELECT d.id, d.title, d.measure, d.severity, d.asset_id, d.property_id, a.code, a.category, COALESCE(a.building_id, w.building_id) AS building_id
+         FROM defects d LEFT JOIN assets a ON a.id = d.asset_id LEFT JOIN walkthroughs w ON w.id = d.walkthrough_id
         WHERE d.tenant_id = ?1 AND d.status = 'open' AND d.hidden_at IS NULL AND d.severity IN (SELECT value FROM json_each(?2))
-          AND (?3 IS NULL OR d.inspection_id = ?3) AND (?4 IS NULL OR d.id = ?4) AND ${defectScope(c, 'd')}
+          AND (?3 IS NULL OR d.inspection_id = ?3) AND (?4 IS NULL OR d.id = ?4) AND (?5 IS NULL OR d.walkthrough_id = ?5) AND ${defectScope(c, 'd')}
           AND NOT EXISTS (SELECT 1 FROM tasks k WHERE k.defect_id = d.id) LIMIT 200`,
     )
-      .bind(t, JSON.stringify(opts.severities), opts.inspectionId ?? null, opts.defectId ?? null)
+      .bind(t, JSON.stringify(opts.severities), opts.inspectionId ?? null, opts.defectId ?? null, opts.walkthroughId ?? null)
       .all<{ id: string; title: string; measure: string; severity: string; asset_id: string | null; property_id: string; code: string | null; category: string | null; building_id: string | null }>()
   ).results;
   if (!rows.length) return 0;
@@ -320,9 +320,9 @@ export async function createDefectTasks(c: Ctx, opts: { severities: string[]; in
       const who = g[0].assignee ? access.get(g[0].assignee)?.name : g[0].sub ? subName.get(g[0].sub) : null;
       return {
         key: 'assign_defect_tasks' as const,
-        summary: `${g.length === 1 ? `Aufgabe „${g[0].title}“` : `${g.length} Aufgaben`} aus ${code ? `Prüfung ${code}` : g.length === 1 ? 'Mangel' : 'Mängeln'} angelegt${who ? `, an ${who}` : ''}`,
-        entityType: g.length === 1 ? 'task' : opts.inspectionId ? 'inspection' : null,
-        entityId: g.length === 1 ? g[0].id : (opts.inspectionId ?? null),
+        summary: `${g.length === 1 ? `Aufgabe „${g[0].title}“` : `${g.length} Aufgaben`} aus ${code ? `Prüfung ${code}` : opts.walkthroughId ? 'Begehung' : g.length === 1 ? 'Mangel' : 'Mängeln'} angelegt${who ? `, an ${who}` : ''}`,
+        entityType: g.length === 1 ? 'task' : opts.inspectionId ? 'inspection' : opts.walkthroughId ? 'walkthrough' : null,
+        entityId: g.length === 1 ? g[0].id : (opts.inspectionId ?? opts.walkthroughId ?? null),
         buildingId: g[0].buildingId,
         propertyId: g[0].propertyId,
         assigneeId: g[0].assignee,
@@ -335,8 +335,8 @@ export async function createDefectTasks(c: Ctx, opts: { severities: string[]; in
   return items.length;
 }
 
-/** Nach dem Erfassen von Mängeln: in Stufe „Automatisch“ sofort Aufgaben anlegen. */
-export async function autoDefectTasks(c: Ctx, opts: { inspectionId?: string; defectId?: string }) {
+/** Nach dem Erfassen von Mängeln (Prüfung, Meldung, Begehung): in Stufe „Automatisch“ sofort Aufgaben anlegen. */
+export async function autoDefectTasks(c: Ctx, opts: { inspectionId?: string; walkthroughId?: string; defectId?: string }) {
   const s = (await loadSettings(c.env, tid(c))).assign_defect_tasks;
   if (s.mode !== 'auto') return 0;
   return createDefectTasks(c, { severities: autoSeverities(rulesOf(s.config)), ...opts });
@@ -410,6 +410,56 @@ export async function planWeek(c: Ctx, n = now()) {
     n,
   );
   return items.length;
+}
+
+/**
+ * Rundgang erledigt: Ein von „Woche planen“ angelegter Prüfauftrag „Rundgang …“ schließt sich beim Prüfungsabschluss,
+ * sobald im Gebäude kein Element mehr vor Ablauf seines Planungsfensters (Anlage + 14 Tage) fällig ist.
+ * Wiederkehrende Aufträge bleiben außen vor; „Woche planen“ legt in der nächsten Woche wie gewohnt neu an.
+ */
+export async function closeFinishedRounds(c: Ctx, assetId: string, n = now()) {
+  const t = tid(c);
+  const rows = (
+    await c.env.DB.prepare(
+      `SELECT k.id, k.title, k.building_id AS buildingId, k.property_id AS propertyId, k.assignee_id AS assigneeId FROM tasks k
+        WHERE k.tenant_id = ?1 AND k.kind = 'inspection' AND k.asset_id IS NULL AND k.recurrence IS NULL AND k.status IN ('open','in_progress')
+          AND k.building_id = (SELECT building_id FROM assets WHERE id = ?2 AND tenant_id = ?1)
+          AND EXISTS (SELECT 1 FROM automation_log l WHERE l.tenant_id = ?1 AND l.key = 'plan_week' AND l.entity_id = k.id AND l.undone_at IS NULL)
+          AND NOT EXISTS (SELECT 1 FROM assets a WHERE a.tenant_id = ?1 AND a.building_id = k.building_id AND a.deleted_at IS NULL
+                            AND a.next_due_at IS NOT NULL AND a.next_due_at < k.created_at + ?3)`,
+    )
+      .bind(t, assetId, PLAN_HORIZON_DAYS * DAY)
+      .all<{ id: string; title: string; buildingId: string; propertyId: string | null; assigneeId: string | null }>()
+  ).results;
+  if (!rows.length) return 0;
+  const done = await c.env.DB.prepare(
+    `UPDATE tasks SET status = 'done', closed_at = ?1, updated_at = ?1, first_response_at = COALESCE(first_response_at, ?1)
+      WHERE tenant_id = ?2 AND status IN ('open','in_progress') AND id IN (SELECT value FROM json_each(?3)) RETURNING id`,
+  )
+    .bind(n, t, JSON.stringify(rows.map((r) => r.id)))
+    .all<{ id: string }>();
+  const closed = rows.filter((r) => done.results.some((d) => d.id === r.id));
+  if (!closed.length) return 0;
+  await c.env.DB.batch([
+    c.env.DB.prepare(
+      `INSERT INTO task_comments (id, tenant_id, task_id, user_id, author_name, body, created_at)
+       SELECT lower(hex(randomblob(8))), ?1, value, NULL, 'Autopilot', ?2, ?3 FROM json_each(?4)`,
+    ).bind(t, 'Alle fälligen Elemente des Gebäudes sind geprüft – Rundgang abgeschlossen.', n, JSON.stringify(closed.map((r) => r.id))),
+    ...closed.map(
+      (r) =>
+        logStatement(c.env, t, 'system', {
+          key: 'plan_week',
+          summary: `${r.title} abgeschlossen`,
+          entityType: 'task',
+          entityId: r.id,
+          buildingId: r.buildingId,
+          propertyId: r.propertyId,
+          assigneeId: r.assigneeId,
+          link: `/aufgaben?id=${r.id}`,
+        }, n).stmt,
+    ),
+  ]);
+  return closed.length;
 }
 
 // ---------- Regel: Fristen eskalieren (escalate_sla) ----------
