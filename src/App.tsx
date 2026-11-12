@@ -1,37 +1,56 @@
-import { type ReactNode, useEffect, useState } from 'react';
-import { BrowserRouter, Navigate, Route, Routes, useLocation } from 'react-router-dom';
-import { useCategories, useMe } from './api';
-import { autoMonthlyReports } from './automation';
-import { registerCategories } from './categories';
-import { setDisplayTimeZone } from './format';
-import { LegalGate, LegalPage } from './components/Legal';
-import { Shell } from './components/Shell';
-import { Spinner } from './components/ui';
-import { AssetPage, AssetByCode } from './pages/Asset';
-import { AssetsPage } from './pages/Assets';
-import { InviteAccept, Login, Register, ResetPassword } from './pages/Auth';
-import { Dashboard } from './pages/Dashboard';
-import { DefectsPage } from './pages/Defects';
-import { FloorPlanPage } from './pages/FloorPlan';
-import { HelpPage } from './pages/Help';
-import { ImportPage } from './pages/Import';
-import { OfflinePage, OfflineRun } from './pages/Offline';
-import { ExternalTaskPage, PartnerPage, SubcontractorsPage } from './pages/Subcontractors';
-import { WalkthroughProtocol, WalkthroughRun, WalkthroughsPage } from './pages/Walkthroughs';
-import { InspectionRun } from './pages/InspectionRun';
-import { InspectionsPage } from './pages/Inspections';
-import { Protocol } from './pages/Protocol';
-import { PropertiesPage } from './pages/Properties';
-import { PropertyPage } from './pages/Property';
-import { ComplianceReport, DefectReport, LabelSheet, ReportsPage } from './pages/Reports';
-import { OAuthAuthorize } from './pages/OAuthAuthorize';
-import { CustomerView } from './pages/CustomerView';
-import { RoundPage } from './pages/Round';
-import { ScanPage } from './pages/Scan';
-import { SettingsPage } from './pages/Settings';
-import { SignPage } from './pages/Sign';
-import { TasksPage } from './pages/Tasks';
-import { TeamPage } from './pages/Team';
+import { type ReactNode, useEffect, useState } from "react";
+import {
+  BrowserRouter,
+  Navigate,
+  Route,
+  Routes,
+  useLocation,
+} from "react-router-dom";
+import { useCategories, useMe } from "./api";
+import { autoMonthlyReports } from "./automation";
+import { registerCategories } from "./categories";
+import { setDisplayTimeZone } from "./format";
+import { LegalGate, LegalPage } from "./components/Legal";
+import { Shell } from "./components/Shell";
+import { Spinner } from "./components/ui";
+import { AssetPage, AssetByCode } from "./pages/Asset";
+import { AssetsPage } from "./pages/Assets";
+import { InviteAccept, Login, Register, ResetPassword } from "./pages/Auth";
+import { Dashboard } from "./pages/Dashboard";
+import { FloorPlanPage } from "./pages/FloorPlan";
+import { HelpPage } from "./pages/Help";
+import { ImportPage } from "./pages/Import";
+import { OfflinePage, OfflineRun } from "./pages/Offline";
+import {
+  ExternalTaskPage,
+  PartnerPage,
+  SubcontractorsPage,
+} from "./pages/Subcontractors";
+import {
+  WalkthroughProtocol,
+  WalkthroughRun,
+  WalkthroughsPage,
+} from "./pages/Walkthroughs";
+import { InspectionRun } from "./pages/InspectionRun";
+import { Moved, MOVED } from "./moved";
+import { OffenPage } from "./pages/Offen";
+import { PruefenPage } from "./pages/Pruefen";
+import { Protocol } from "./pages/Protocol";
+import { PropertiesPage } from "./pages/Properties";
+import { PropertyPage } from "./pages/Property";
+import {
+  ComplianceReport,
+  DefectReport,
+  LabelSheet,
+  ReportsPage,
+} from "./pages/Reports";
+import { OAuthAuthorize } from "./pages/OAuthAuthorize";
+import { CustomerView } from "./pages/CustomerView";
+import { RoundPage } from "./pages/Round";
+import { ScanPage } from "./pages/Scan";
+import { SettingsFrame, SettingsPage } from "./pages/Settings";
+import { SignPage } from "./pages/Sign";
+import { TeamPage } from "./pages/Team";
 
 function RequireAuth({ children }: { children: ReactNode }) {
   const me = useMe();
@@ -48,14 +67,23 @@ function RequireAuth({ children }: { children: ReactNode }) {
   useEffect(() => {
     if (me.data) void autoMonthlyReports(me.data);
   }, [me.data]);
-  if (me.isLoading || (cats.isLoading && navigator.onLine)) return <Spinner className="min-h-dvh items-center" />;
-  if (me.isError) return <Navigate to={`/login?next=${encodeURIComponent(loc.pathname + loc.search)}`} replace />;
+  if (me.isLoading || (cats.isLoading && navigator.onLine))
+    return <Spinner className="min-h-dvh items-center" />;
+  if (me.isError)
+    return (
+      <Navigate
+        to={`/login?next=${encodeURIComponent(loc.pathname + loc.search)}`}
+        replace
+      />
+    );
   // vor dem Rendern der Seiten, damit alle Datumsangaben die Workspace-Zeitzone nutzen
   setDisplayTimeZone(me.data?.tenant.timeZone);
   return (
     <>
       {children}
-      {me.data && me.data.pendingLegal?.length > 0 && navigator.onLine && <LegalGate pending={me.data.pendingLegal} />}
+      {me.data && me.data.pendingLegal?.length > 0 && navigator.onLine && (
+        <LegalGate pending={me.data.pendingLegal} />
+      )}
     </>
   );
 }
@@ -151,21 +179,53 @@ export function App() {
           <Route path="elemente" element={<AssetsPage />} />
           <Route path="elemente/:id" element={<AssetPage />} />
           <Route path="e/:code" element={<AssetByCode />} />
-          <Route path="pruefungen" element={<InspectionsPage />} />
+          {/* Fünf Orte (docs/plan/v4.md 5): Heute, Objekte, Prüfen, Offen, Berichte – alles andere unter Einstellungen */}
+          <Route path="pruefen" element={<PruefenPage />} />
+          <Route path="pruefen/begehungen" element={<WalkthroughsPage />} />
+          <Route path="offen" element={<OffenPage />} />
           <Route path="unterschreiben" element={<SignPage />} />
-          <Route path="maengel" element={<DefectsPage />} />
-          <Route path="begehungen" element={<WalkthroughsPage />} />
           <Route path="grundrisse/:id" element={<FloorPlanPage />} />
           <Route path="offline" element={<OfflinePage />} />
-          <Route path="import" element={<ImportPage />} />
-          <Route path="subunternehmer" element={<SubcontractorsPage />} />
-          <Route path="aufgaben" element={<TasksPage />} />
           <Route path="berichte" element={<ReportsPage />} />
-          <Route path="team" element={<TeamPage />} />
           <Route path="einstellungen" element={<SettingsPage />} />
+          <Route
+            path="einstellungen/team"
+            element={
+              <SettingsFrame current="team">
+                <TeamPage />
+              </SettingsFrame>
+            }
+          />
+          <Route
+            path="einstellungen/subunternehmer"
+            element={
+              <SettingsFrame current="subunternehmer">
+                <SubcontractorsPage />
+              </SettingsFrame>
+            }
+          />
+          <Route
+            path="einstellungen/import"
+            element={
+              <SettingsFrame current="import">
+                <ImportPage />
+              </SettingsFrame>
+            }
+          />
+          <Route
+            path="einstellungen/hilfe"
+            element={
+              <SettingsFrame current="hilfe">
+                <HelpPage />
+              </SettingsFrame>
+            }
+          />
           <Route path="scan" element={<ScanPage />} />
           <Route path="rundgang/:id" element={<RoundPage />} />
-          <Route path="hilfe" element={<HelpPage />} />
+          {/* alte Adressen (Lesezeichen, Benachrichtigungen, Mails) – Query-Parameter bleiben erhalten */}
+          {MOVED.map((m) => (
+            <Route key={m.from} path={m.from} element={<Moved to={m.to} />} />
+          ))}
           <Route path="*" element={<Navigate to="/" replace />} />
         </Route>
       </Routes>

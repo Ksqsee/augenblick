@@ -1,16 +1,11 @@
-// Mängel: offene nach Dringlichkeit (Schwere, dann ohne Aufgabe, dann die ältesten zuerst), behobene, ausgeblendete.
-// Was jetzt zu tun ist, steht als eine Warteschlange auf „Heute“ (GET /now) – kein eigener Reiter mehr.
+// Mängel (Ansicht in „Offen“): offene nach Dringlichkeit (Schwere, dann ohne Aufgabe, dann die ältesten zuerst),
+// behobene, ausgeblendete. Was jetzt zu tun ist, steht als eine Warteschlange auf „Heute“ (GET /now).
 import { useState } from 'react';
-import { useSearchParams } from 'react-router-dom';
 import { SEVERITIES, type Severity } from '../../shared/catalog';
-import { api, type Defect, useAction, useDefects, useMe } from '../api';
-import { ResolveDefectDialog } from '../components/DefectResolve';
-import { Empty, ErrorBox, FilterBar, Kbd, PageHeader, Segmented, SkeletonList, Surface, Tabs, useToast, useUrlTab } from '../components/ui';
-import { DefectPanel } from '../components/work/DefectPanel';
+import { api, type Defect, useAction, useDefects } from '../api';
+import { Empty, ErrorBox, Kbd, SearchField, Segmented, SkeletonList, Surface, useToast, useUrlTab } from '../components/ui';
 import { DefectRow } from '../components/work/DefectRow';
-import { taskFromDefect } from '../components/work/model';
 import { listKeys, TextAction, WorkGroup } from '../components/work/rows';
-import { TaskForm } from '../components/work/TaskCreate';
 
 type Tab = 'open' | 'resolved' | 'hidden';
 type Source = '' | 'asset' | 'walkthrough';
@@ -18,61 +13,36 @@ type Source = '' | 'asset' | 'walkthrough';
 const SEV_ORDER: Severity[] = ['critical', 'high', 'medium', 'low'];
 
 /** Dringlichkeit innerhalb einer Schwere: Mängel ohne Aufgabe (oder mit erledigter) zuerst, dann die ältesten. */
-const byUrgency = (a: Defect, b: Defect) => {
+export const byUrgency = (a: Defect, b: Defect) => {
   const free = (d: Defect) => (!d.taskId || d.taskStatus === 'done' || d.taskStatus === 'cancelled' ? 0 : 1);
   return free(a) - free(b) || a.createdAt - b.createdAt;
 };
 
-export function DefectsPage() {
-  const [params, setParams] = useSearchParams();
+/**
+ * Mängel als Ansicht in „Offen“ (?art=maengel): Status und Quelle als Umschalter, Suche. Detail, Behebung und
+ * Aufgabe-anlegen liegen eine Ebene höher (OffenPage), damit sie aus jeder Ansicht gleich funktionieren.
+ */
+export function DefectsView({ canEdit, onOpen, onResolve }: { canEdit: boolean; onOpen: (id: string) => void; onResolve: (id: string) => void }) {
   // Alter Link ?tab=action (früherer Reiter „Handlungsbedarf“) landet bei „Offen“, nach Dringlichkeit sortiert
   const [tab, setTab] = useUrlTab<Tab>('tab', 'open', ['open', 'resolved', 'hidden']);
   const [source, setSource] = useState<Source>('');
   const [q, setQ] = useState('');
-  const { data: me } = useMe();
-  const [taskFor, setTaskFor] = useState<Defect | null>(null);
-  const [resolveId, setResolveId] = useState<string | null>(null);
-  const canEdit = me?.user.role !== 'viewer';
-  // Zähler für die Reiter (dieselben Abfragen wie die Listen, also kein Mehraufwand)
+  // Zähler für den Umschalter (dieselbe Abfrage wie die Liste, also kein Mehraufwand)
   const openAll = useDefects('open', '', false);
-
-  // Detail über die URL (?id=…): Direktlinks aus Aufgaben und Benachrichtigungen
-  const detail = params.get('id');
-  const setDetail = (id: string | null) =>
-    setParams(
-      (p) => {
-        const n = new URLSearchParams(p);
-        if (id) n.set('id', id);
-        else n.delete('id');
-        return n;
-      },
-      { replace: true },
-    );
-
   return (
     <>
-      <PageHeader title="Mängel" subtitle="Alle Mängel aus Prüfungen und Begehungen, objektübergreifend" />
-      {/* Reihenfolge: Dialoge nach dem Detail, damit sie darüber liegen */}
-      {detail && <DefectPanel key={detail} id={detail} onClose={() => setDetail(null)} onTask={setTaskFor} onResolve={setResolveId} />}
-      {taskFor && <TaskForm initial={taskFromDefect(taskFor)} onClose={() => setTaskFor(null)} />}
-      {resolveId && <ResolveDefectDialog defectId={resolveId} onClose={() => setResolveId(null)} />}
-      <Tabs
-        className="mb-5"
-        value={tab}
-        onChange={setTab}
-        tabs={[
-          { value: 'open', label: 'Offen', count: openAll.data?.length },
-          { value: 'resolved', label: 'Behoben' },
-          { value: 'hidden', label: 'Ausgeblendet' },
-        ]}
-      />
-      <FilterBar
-        search={{
-          value: q,
-          onChange: setQ,
-          placeholder: 'Mängel durchsuchen …',
-        }}
-        trailing={
+      <div className="mb-4 flex flex-col gap-2.5 sm:flex-row sm:flex-wrap sm:items-center">
+        <SearchField value={q} onChange={setQ} placeholder="Mängel durchsuchen …" />
+        <div className="flex flex-wrap items-center gap-2 sm:ml-auto">
+          <Segmented
+            value={tab}
+            onChange={setTab}
+            options={[
+              { value: 'open', label: 'Offen', count: openAll.data?.length },
+              { value: 'resolved', label: 'Behoben' },
+              { value: 'hidden', label: 'Ausgeblendet' },
+            ]}
+          />
           <Segmented
             value={source}
             onChange={setSource}
@@ -82,9 +52,9 @@ export function DefectsPage() {
               { value: 'walkthrough', label: 'Begehungen' },
             ]}
           />
-        }
-      />
-      <DefectList tab={tab} source={source} q={q} canEdit={canEdit} onOpen={setDetail} onResolve={setResolveId} onReset={() => (setQ(''), setSource(''))} />
+        </div>
+      </div>
+      <DefectList tab={tab} source={source} q={q} canEdit={canEdit} onOpen={onOpen} onResolve={onResolve} onReset={() => (setQ(''), setSource(''))} />
     </>
   );
 }

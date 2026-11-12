@@ -262,7 +262,7 @@ function OutcomeSection({ outcome }: { outcome: Outcome }) {
             </p>
           )}
           {s > 0 && (
-            <Link to="/pruefungen?tab=done" className="mt-1 self-start text-meta text-ink-2 underline decoration-ink-4 underline-offset-4 hover:text-ink">
+            <Link to="/pruefen?tab=done" className="mt-1 self-start text-meta text-ink-2 underline decoration-ink-4 underline-offset-4 hover:text-ink">
               Durchgeführte Prüfungen ansehen
             </Link>
           )}

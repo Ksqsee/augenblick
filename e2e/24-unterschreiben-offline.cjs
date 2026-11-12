@@ -100,7 +100,7 @@ const overflow = (p) => p.evaluate(() => document.documentElement.scrollWidth - 
   };
 
   step('Prüfungen: Hinweis → Unterschreiben (390 px)');
-  await m.goto(BASE + '/pruefungen');
+  await m.goto(BASE + '/pruefen');
   await m.getByText('3 Prüfungen warten auf deine Unterschrift').waitFor();
   await m.getByRole('link', { name: 'Unterschreiben' }).click();
   await m.waitForURL(/\/unterschreiben$/);
@@ -188,8 +188,8 @@ const overflow = (p) => p.evaluate(() => document.documentElement.scrollWidth - 
   await m.goto(BASE + '/unterschreiben');
   await m.getByText('Keine Prüfung wartet auf deine Unterschrift.').waitFor();
   await shot(m, 'm-leer');
-  await m.goto(BASE + '/pruefungen');
-  await m.getByRole('heading', { name: 'Prüfungen' }).waitFor();
+  await m.goto(BASE + '/pruefen');
+  await m.getByRole('heading', { name: 'Prüfen', exact: true }).waitFor();
   await m.waitForTimeout(500);
   check(!(await m.getByText(/warten? auf deine Unterschrift/).count()), 'kein Hinweis ohne bereite Prüfungen');
 

@@ -34,6 +34,7 @@ export function InspectionsPage() {
   return (
     <>
       <PageHeader
+        backTo={{ to: '/pruefen', label: 'Prüfen' }}
         title="Prüfungen"
         subtitle="Was fällig ist, was läuft, was erledigt ist"
         actions={
@@ -43,7 +44,7 @@ export function InspectionsPage() {
             </ButtonLink>
             <Menu
               items={[
-                { label: 'Begehungen', icon: <Footprints />, to: '/begehungen' },
+                { label: 'Begehungen', icon: <Footprints />, to: '/pruefen/begehungen' },
                 { label: 'Offline vorbereiten', icon: <CloudDownload />, to: '/offline' },
               ]}
             />
@@ -77,7 +78,7 @@ export function InspectionsPage() {
 }
 
 /** Hinweis, solange eigene Prüfungen bereit zur Unterschrift liegen (z. B. von Claude ausgefüllt). */
-function ReadyBanner() {
+export function ReadyBanner() {
   const { data } = useInspections({ status: 'ready' });
   const n = data?.length ?? 0;
   if (!n) return null;

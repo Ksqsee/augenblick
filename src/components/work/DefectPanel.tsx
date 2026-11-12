@@ -180,7 +180,7 @@ export function DefectPanel({ id, onClose, onTask, onResolve }: { id: string; on
                   <ul className="-mx-2 divide-y divide-line">
                     {d.tasks.map((t) => (
                       <li key={t.id}>
-                        <Link to={`/aufgaben?id=${t.id}`} className="flex min-h-11 items-center gap-3 rounded-md px-2 py-2 transition-colors hover:bg-hover">
+                        <Link to={`/offen?aufgabe=${t.id}`} className="flex min-h-11 items-center gap-3 rounded-md px-2 py-2 transition-colors hover:bg-hover">
                           <span className="min-w-0 flex-1 truncate text-body">{t.title}</span>
                           <span className="flex shrink-0 items-center gap-1.5 text-meta text-ink-2">
                             <StatusDot tone={t.status === 'done' ? 'ok' : t.status === 'in_progress' ? 'info' : t.status === 'cancelled' ? 'muted' : 'warn'} />

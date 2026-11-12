@@ -232,7 +232,7 @@ export function TaskPanel({ task, onClose }: { task: Task; onClose: () => void }
         </PanelSection>
         {t.defectId && (
           <PanelSection title="Mangel">
-            <Link to={`/maengel?id=${t.defectId}`} className="group -mx-2 flex items-center gap-3 rounded-md px-2 py-2 transition-colors hover:bg-hover">
+            <Link to={`/offen?mangel=${t.defectId}`} className="group -mx-2 flex items-center gap-3 rounded-md px-2 py-2 transition-colors hover:bg-hover">
               <span className="min-w-0 flex-1">
                 <span className="block truncate text-body text-ink">{t.defectTitle ?? 'Mangel'}</span>
                 <span className="block text-meta text-ink-3">

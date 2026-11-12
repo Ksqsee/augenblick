@@ -92,7 +92,8 @@ const bearer = (key, path, opts = {}) =>
   step('Sprache Englisch + Zeitzone New York');
   await p.getByLabel('Sprache der Dokumente').selectOption('en');
   await p.getByLabel('Zeitzone').selectOption('America/New_York');
-  await p.getByRole('button', { name: 'Speichern' }).first().click();
+  // auf die Antwort des Speicherns warten – der Text „Gespeichert“ kann noch von vorher stehen
+  await Promise.all([p.waitForResponse((r) => r.url().includes('/api/') && r.request().method() !== 'GET'), p.getByRole('button', { name: 'Speichern' }).first().click()]);
   await p.getByText('Gespeichert').first().waitFor();
   const me = await api('/account/me');
   check(me.tenant.language === 'en' && me.tenant.timeZone === 'America/New_York', 'Sprache/Zeitzone gespeichert');

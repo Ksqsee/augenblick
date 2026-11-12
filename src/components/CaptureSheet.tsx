@@ -417,7 +417,7 @@ export function CaptureSheet({ initial, onClose }: { initial: { assetId?: string
             >
               Weiter erfassen
             </Button>
-            <Button onClick={() => go(n === 0 && done.queued ? '/offline' : done.defects ? '/maengel' : done.tasks ? '/aufgaben' : '/elemente')}>Ansehen</Button>
+            <Button onClick={() => go(n === 0 && done.queued ? '/offline' : done.defects ? '/offen?art=maengel' : done.tasks ? '/offen?art=aufgaben' : '/elemente')}>Ansehen</Button>
           </>
         }
       >

@@ -387,7 +387,7 @@ function StatusAside({ p }: { p: PropertyDetail }) {
               </AsideRow>
             ))}
             {openDefects > 0 && (
-              <AsideRow to="/maengel" value={<span className="text-body text-ink">{openDefects}</span>}>
+              <AsideRow to="/offen?art=maengel" value={<span className="text-body text-ink">{openDefects}</span>}>
                 <span className="inline-flex items-center gap-2">
                   <StatusDot tone="brand" />
                   {openDefects === 1 ? 'Offener Mangel' : 'Offene Mängel'}

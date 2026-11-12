@@ -3,7 +3,8 @@
 Verbindlicher Vertrag für alle Seiten. Herleitung und Befund: `docs/plan/v3.md` (Abschnitte 1–2).
 Tokens: `src/index.css` · Bausteine: `src/components/ui.tsx` · Rahmen: `src/components/Shell.tsx`.
 Vorzeigeseiten: **Heute** (`src/pages/Dashboard.tsx`) und **Anmeldung** (`src/pages/Auth.tsx`).
-Bilder (1360 und 390 px): `docs/design/v3/` (Bereiche in Unterordnern).
+Bilder (1360 und 390 px): `docs/design/v3/` (Bereiche in Unterordnern; fünf Orte: `d-/m-heute`, `d-/m-pruefen`,
+`d-/m-offen`, `d-/m-objekte`).
 
 > Kurz: ein Raum aus Sichtbeton mit einer Lichtfuge. Grauer Grund, **eine** weiße Fläche pro Seite,
 > Tinte als Akzent, **eine** Signalfarbe (Zinnober) nur für überfällig/kritisch. Status ist ein
@@ -126,21 +127,33 @@ Knöpfe: kein Skalieren beim Klick, nur Deckkraft `.85`.
 
 ## 3. Rahmen (`Shell.tsx`)
 
+**Fünf Orte** (v4, `docs/plan/v4.md` 5): Heute · Objekte · Prüfen · Offen · Berichte. Kein „Mehr“-Block –
+alles andere (Team, Subunternehmer, Import, Prüfvorlagen, Automatik, API, Offline-Modus, Hilfe) liegt unter
+**Einstellungen**. Unterseiten und alte Adressen heben ihren Ort hervor (`/elemente` → Objekte, `/rundgang`, `/scan`,
+`/offline`, `/pruefen/begehungen` → Prüfen); alte Pfade leiten samt Query um (`src/moved.tsx`).
+
 ### Desktop (≥ 1024 px)
 - **Seitenleiste** 232 px auf `canvas`, **ohne** Trennlinie zum Inhalt. Von oben: Logo + Glocke ·
-  Suche (Strg K) · **Erfassen** (schwarz, Mikrofon) + Scannen (`ghost`) · Navigation · „Mehr“
-  (einklappbar) · Workspace/Konto · Rechtslinks.
+  Suche (Strg K) · **Erfassen** (schwarz, Mikrofon) + Scannen (`ghost`) · die fünf Orte (`nav` „Orte“) ·
+  unten Workspace/Konto-Menü (Einstellungen, Workspaces, Abmelden) + **Zahnrad** zu den Einstellungen · Rechtslinks.
 - Navigation: Text 14 px, Symbol 16 px `ink-3`; aktiv = `selected` + Tinte, **kein** farbiger Balken.
-  Zähler (z. B. Offline-Warteschlange) als graue Zahl.
+  Zähler (Offline-Warteschlange an „Prüfen“) als graue Zahl.
 - **Inhalt** `max-w-6xl`, `px-10 pt-8`. Die weiße Fläche beginnt mit eigenem Rand (`Surface`).
 
 ### Handy (390 px ist Referenz)
-- Kopfzeile 56 px auf `canvas` (leicht durchscheinend), Logo · Glocke · Suche.
-- **Untere Leiste** `aria-label="Hauptnavigation"`: Heute · Prüfen · **Erfassen** · Mängel · Mehr.
-  Erfassen = schwarzer Kreis 52 px mit Mikrofon, kein Ring, ragt nicht heraus; solange das
+- Kopfzeile 56 px auf `canvas` (leicht durchscheinend), Logo · Glocke · Suche · **Avatar** (Konto-Menü mit Berichte,
+  Einstellungen, Workspaces, Abmelden, Rechtslinks).
+- **Untere Leiste** `aria-label="Hauptnavigation"`: Heute · Prüfen · **Erfassen** · Offen · Objekte.
+  Erfassen = schwarzer Kreis 52 px mit Mikrofon in der Mitte, kein Ring, ragt nicht heraus; solange das
   Erfassen-Sheet offen ist, wird er Zinnober. Aktiver Reiter nur durch Tinte statt `ink-3`.
 - `Surface` läuft auf dem Handy randlos über die volle Breite (oben/unten Haarlinie).
 - Kein horizontaler Überlauf: breite Inhalte scrollen in sich, Tabellen werden Zeilen (`DataTable`).
+
+### Einstellungen als Sammelort
+- `SettingsFrame` (`src/pages/Settings.tsx`): ab `lg` links eine Spalte auf dem Grund (184 px, Titel „Einstellungen“,
+  Gruppen Du · Workspace · Hilfe, Einträge wie die Navigation); darunter eine waagerecht scrollende Reiterleiste.
+- Reiter der eigentlichen Einstellungen bleiben `?tab=…`; Team, Subunternehmer, Import, Hilfe sind Unterseiten
+  `/einstellungen/team` usw. im selben Rahmen. Offline-Modus bleibt `/offline` (gehört zu Prüfen), ist hier verlinkt.
 
 Logo: schwarzes Quadrat (Radius 6/32), dünner weißer Kreis, weiße Nadel (`LogoMark`).
 
@@ -221,25 +234,46 @@ farbige Hintergründe ganzer Bereiche, Schatten auf Schatten, Orange.
 
 ### 5.1 Heute (umgesetzt in `Dashboard.tsx`)
 ```
-Grid lg:[1fr_280px]
+eine Spalte, ab lg höchstens 52rem breit
   Surface
     Kopf     Datum (h1-Größe, Tinte)                        [Rundgang starten]  (Scannen ghost)
              Lage als Satz (h1, ink-3; Zahlen Tinte, „überfällig/kritisch“ Zinnober)
     Section  „Prüfstatus“ · rechts „74 Elemente in 4 Objekten“
              StatTile ×5 ohne Kasten, senkrechte Haarlinien (Handy 3 Spalten)
-    Section  „Jetzt“ n (flush)       ○ Titel / Erklärung              [Aufgaben anlegen] | Öffnen
-             (GET /now: je Zeile genau eine Aktion, höchstens 12, „Alle n anzeigen“; Rundgänge darin fehlen unten)
-    Section  „Rundgänge“ (flush)     Gebäude · Objekt / n Elemente · ● seit 5 Monaten überfällig  ›
+    Section  „Jetzt“ n (flush)       ○ Titel / Erklärung                        Starten | [Aufgaben anlegen]
+             (GET /now: je Zeile genau eine Aktion, rechts in der Zeile; höchstens 12, am Handy höchstens 5,
+              dann „Alle n anzeigen“. Nur ein langer Knopftext (> 11 Zeichen) rutscht am Handy unter den Text)
     Section  „Erledigt für dich“     09:12  3 Aufgaben … angelegt           Rückgängig
              (lädt /api/automation/log?limit=5; bei 404/leer unsichtbar; „Alle“ → Einstellungen › Automatik)
-  aside (auf dem Grund)
-    Objekte          Name ………… ● 7 überfällig       (Haarlinien, keine Karte)
-    Offene Aufgaben  Titel ………… Datum (Zinnober wenn überfällig)
-    Zuletzt geprüft: Code vor 35 Tagen
 ```
+Keine Seitenspalte mehr: Objekte, offene Aufgaben und Rundgänge haben eigene Orte (Objekte, Offen, Prüfen).
 Leere Lage: „Alles geprüft. Nächste Fälligkeit am 03.12.“ – sonst nichts Zusätzliches.
 
+### 5.1a Prüfen (umgesetzt in `Pruefen.tsx`)
+```
+PageHeader  „Prüfen“ · [Rundgang starten] (Scannen ghost) ⋯ (Begehung starten, Offline)
+Surface
+  Section „Rundgänge“ n · „fällig in 30 Tagen“   Gebäude · Objekt / n Elemente · ● seit 5 Monaten überfällig  ›  (6, dann „Alle n anzeigen“)
+  Section „Fällig“ · „Neue Elemente ›“           ● Überfällig ……… 14 ›   (Zahl Zinnober nur bei Überfällig)
+  Section „Angefangen“                           Entwürfe (5, „Alle“ → ?tab=drafts)
+  Section „Begehungen“ · „Alle ›“                laufende zuerst, dann die letzten
+  Section „Zuletzt abgeschlossen“ · „Alle ›“     5 Prüfungen mit Ergebnis als Punkt + Wort
+```
+Mit `?tab=…` zeigt `/pruefen` die ausführliche Prüfungsliste (Vorlage 5.2) mit Zurück-Link „Prüfen“.
+
+### 5.1b Offen (umgesetzt in `Offen.tsx`)
+```
+PageHeader  „Offen“ · [Neue Aufgabe]
+Tabs        Alle n · Mängel n · Aufgaben n            (?art=)
+Alle:       Suche · Surface: „Dringend“ (schwere Mängel ohne Aufgabe + überfällige Aufgaben, nach Dringlichkeit),
+            „Weitere Mängel ohne Aufgabe“, dann Aufgaben nach Fälligkeit (Fällig heute, Diese Woche, Später, Ohne Datum)
+Mängel:     Suche · Segmented Offen/Behoben/Ausgeblendet · Segmented Alle/Elemente/Begehungen
+Aufgaben:   Suche · Segmented Offen/Erledigt · Meine · Filter · (Handy) Auswählen
+```
+Detail als Drawer über `?mangel=…` bzw. `?aufgabe=…` aus jeder Ansicht.
+
 ### 5.2 Liste (Objekte, Elemente, Prüfungen, Mängel, Aufgaben, Begehungen)
+Objekte und „Alle Elemente“ sind zwei Ansichten eines Orts: Reiter `ObjectViews` unter dem Kopf.
 ```
 PageHeader  title · subtitle · actions=[primary „Neues …“, Menu ⋯]
 Tabs        (Bereiche, Zähler als Zahl, useUrlTab)
