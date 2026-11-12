@@ -5,8 +5,8 @@ import type { Category } from '../shared/catalog';
 import { DEFAULT_SLA, HOUR } from '../shared/sla';
 import { addMonths } from '../shared/logic';
 import { getCategoryDef, getSchedule } from './categories';
-import { randomCode, str, tid } from './data';
-import { type AppEnv, type Ctx, id, logActivity, notFound, now, parseJson, requireRole, token } from './lib';
+import { assetInScope, randomCode, str, taskScope, tid } from './data';
+import { type AppEnv, assertInScope, type Ctx, id, logActivity, notFound, now, parseJson, requireRole, token } from './lib';
 import { notify, notifyTenant } from './notify';
 import { assertNotThrottled, clientIp, recordFailure } from './throttle';
 
@@ -169,7 +169,7 @@ work.get('/tasks', async (c) => {
          FROM tasks t LEFT JOIN users u ON u.id = t.assignee_id LEFT JOIN assets a ON a.id = t.asset_id
          LEFT JOIN subcontractors s ON s.id = t.subcontractor_id LEFT JOIN defects d ON d.id = t.defect_id
          LEFT JOIN properties p ON p.id = COALESCE(t.property_id, d.property_id)
-        WHERE t.tenant_id = ? ORDER BY CASE t.status WHEN 'in_progress' THEN 0 WHEN 'open' THEN 1 ELSE 2 END, COALESCE(t.due_at, 9e15), t.created_at DESC`,
+        WHERE t.tenant_id = ? AND ${taskScope(c, 't')} ORDER BY CASE t.status WHEN 'in_progress' THEN 0 WHEN 'open' THEN 1 ELSE 2 END, COALESCE(t.due_at, 9e15), t.created_at DESC`,
     )
       .bind(tid(c))
       .all<Record<string, unknown>>()
@@ -206,6 +206,8 @@ async function checkRefs(c: Ctx, b: TaskBody) {
   if (b.subcontractorId && !(await one('SELECT 1 FROM subcontractors WHERE tenant_id = ? AND id = ? AND deleted_at IS NULL', b.subcontractorId)))
     throw new HTTPException(400, { message: 'Subunternehmer nicht gefunden' });
   if (b.assetId && !(await one('SELECT 1 FROM assets WHERE tenant_id = ? AND id = ?', b.assetId))) throw new HTTPException(400, { message: 'Element nicht gefunden' });
+  if (b.assetId && c.get('user').scope) await assetInScope(c, b.assetId);
+  if (b.propertyId) assertInScope(c, 'property', b.propertyId);
   if (b.defectId && !(await one('SELECT 1 FROM defects WHERE tenant_id = ? AND id = ?', b.defectId))) throw new HTTPException(400, { message: 'Mangel nicht gefunden' });
   if (b.propertyId && !(await one('SELECT 1 FROM properties WHERE tenant_id = ? AND id = ?', b.propertyId)))
     throw new HTTPException(400, { message: 'Objekt nicht gefunden' });
@@ -246,7 +248,7 @@ work.patch('/tasks/:id', async (c) => {
   requireRole(c, 'inspector');
   const b = taskBody.parse(await c.req.json());
   await checkRefs(c, b);
-  const prev = await c.env.DB.prepare('SELECT assignee_id, status, first_response_at FROM tasks WHERE id = ? AND tenant_id = ?')
+  const prev = await c.env.DB.prepare(`SELECT assignee_id, status, first_response_at FROM tasks WHERE id = ? AND tenant_id = ? AND ${taskScope(c, 'tasks')}`)
     .bind(c.req.param('id'), tid(c))
     .first<{ assignee_id: string | null; status: string; first_response_at: number | null }>();
   if (!prev) notFound('Aufgabe');
@@ -281,7 +283,7 @@ work.delete('/tasks/:id', async (c) => {
 work.get('/tasks/:id/comments', async (c) => {
   const rows = await c.env.DB.prepare(
     `SELECT id, user_id AS userId, author_name AS authorName, body, created_at AS createdAt FROM task_comments
-      WHERE task_id = ? AND tenant_id = ? ORDER BY created_at`,
+      WHERE task_id = ? AND tenant_id = ? AND task_id IN (SELECT id FROM tasks WHERE ${taskScope(c, 'tasks')}) ORDER BY created_at`,
   )
     .bind(c.req.param('id'), tid(c))
     .all();
@@ -291,7 +293,7 @@ work.get('/tasks/:id/comments', async (c) => {
 work.post('/tasks/:id/comments', async (c) => {
   requireRole(c, 'inspector');
   const { body } = z.object({ body: str(4000).min(1, 'Kommentar ist leer') }).parse(await c.req.json());
-  const task = await c.env.DB.prepare('SELECT id, title, assignee_id, created_by, first_response_at FROM tasks WHERE id = ? AND tenant_id = ?')
+  const task = await c.env.DB.prepare(`SELECT id, title, assignee_id, created_by, first_response_at FROM tasks WHERE id = ? AND tenant_id = ? AND ${taskScope(c, 'tasks')}`)
     .bind(c.req.param('id'), tid(c))
     .first<{ id: string; title: string; assignee_id: string | null; created_by: string; first_response_at: number | null }>();
   if (!task) notFound('Aufgabe');
@@ -316,7 +318,7 @@ work.get('/tasks/stats', async (c) => {
   const rows = (
     await c.env.DB.prepare(
       `SELECT t.status, t.priority, t.due_at, t.created_at, t.closed_at, t.first_response_at, t.assignee_id, u.name AS assignee
-         FROM tasks t LEFT JOIN users u ON u.id = t.assignee_id WHERE t.tenant_id = ?`,
+         FROM tasks t LEFT JOIN users u ON u.id = t.assignee_id WHERE t.tenant_id = ? AND ${taskScope(c, 't')}`,
     )
       .bind(tid(c))
       .all<{ status: string; priority: 'low' | 'medium' | 'high'; due_at: number | null; created_at: number; closed_at: number | null; first_response_at: number | null; assignee_id: string | null; assignee: string | null }>()
@@ -353,7 +355,7 @@ work.get('/tasks/stats', async (c) => {
 /** Externen Link für Subunternehmer erzeugen. */
 work.post('/tasks/:id/share', async (c) => {
   requireRole(c, 'inspector');
-  const t = await c.env.DB.prepare('SELECT subcontractor_id, share_token FROM tasks WHERE id=? AND tenant_id=?')
+  const t = await c.env.DB.prepare(`SELECT subcontractor_id, share_token FROM tasks WHERE id=? AND tenant_id=? AND ${taskScope(c, 'tasks')}`)
     .bind(c.req.param('id'), tid(c))
     .first<{ subcontractor_id: string | null; share_token: string | null }>();
   if (!t) notFound('Aufgabe');
@@ -365,7 +367,7 @@ work.post('/tasks/:id/share', async (c) => {
 
 work.delete('/tasks/:id/share', async (c) => {
   requireRole(c, 'inspector');
-  await c.env.DB.prepare('UPDATE tasks SET share_token=NULL WHERE id=? AND tenant_id=?').bind(c.req.param('id'), tid(c)).run();
+  await c.env.DB.prepare(`UPDATE tasks SET share_token=NULL WHERE id=? AND tenant_id=? AND ${taskScope(c, 'tasks')}`).bind(c.req.param('id'), tid(c)).run();
   return c.json({ ok: true });
 });
 

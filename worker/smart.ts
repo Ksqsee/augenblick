@@ -3,8 +3,8 @@ import { Hono } from 'hono';
 import { z } from 'zod';
 import { DAY } from '../shared/logic';
 import { DEFAULT_SLA, HOUR } from '../shared/sla';
-import { tid } from './data';
-import { type AppEnv, type Ctx, id, logActivity, now, requireRole } from './lib';
+import { defectScope, tid } from './data';
+import { type AppEnv, type Ctx, id, logActivity, now, requireRole, scopeSql } from './lib';
 
 export const smart = new Hono<AppEnv>();
 
@@ -30,7 +30,7 @@ async function rounds(c: Ctx, days: number) {
               b.id AS buildingId, b.name AS buildingName, p.id AS propertyId, p.name AS propertyName
          FROM assets a JOIN buildings b ON b.id = a.building_id JOIN properties p ON p.id = b.property_id
         WHERE a.tenant_id = ?1 AND a.deleted_at IS NULL AND b.deleted_at IS NULL AND p.deleted_at IS NULL
-          AND (a.next_due_at IS NULL OR a.next_due_at < ?2)
+          AND (a.next_due_at IS NULL OR a.next_due_at < ?2) AND ${scopeSql(c, 'b.id', 'building')}
         ORDER BY p.name, b.name, a.floor, a.location, a.code LIMIT 2000`,
     )
       .bind(tid(c), n + days * DAY)
@@ -75,13 +75,13 @@ smart.get('/smart/suggestions', async (c) => {
     rounds(c, 14),
     c.env.DB.prepare(
       `SELECT d.id, d.severity FROM defects d WHERE d.tenant_id = ?1 AND d.status = 'open' AND d.severity IN ('high','critical')
-          AND NOT EXISTS (SELECT 1 FROM tasks k WHERE k.defect_id = d.id) LIMIT 200`,
+          AND ${defectScope(c, 'd')} AND NOT EXISTS (SELECT 1 FROM tasks k WHERE k.defect_id = d.id) LIMIT 200`,
     )
       .bind(t)
       .all<{ id: string; severity: string }>(),
     c.env.DB.prepare(
       `SELECT p.id, p.name, (SELECT MAX(w.next_due_at) FROM walkthroughs w WHERE w.property_id = p.id AND w.status = 'submitted') AS due
-         FROM properties p WHERE p.tenant_id = ?1 AND p.deleted_at IS NULL`,
+         FROM properties p WHERE p.tenant_id = ?1 AND p.deleted_at IS NULL AND ${scopeSql(c, 'p.id', 'property')}`,
     )
       .bind(t)
       .all<{ id: string; name: string; due: number | null }>(),
@@ -157,7 +157,7 @@ export async function tasksFromDefects(c: Ctx, opts: { severities: string[]; ins
       `SELECT d.id, d.title, d.measure, d.severity, d.asset_id, d.property_id, a.code
          FROM defects d LEFT JOIN assets a ON a.id = d.asset_id
         WHERE d.tenant_id = ?1 AND d.status = 'open' AND d.severity IN (SELECT value FROM json_each(?2))
-          AND (?3 IS NULL OR d.inspection_id = ?3) AND (?4 IS NULL OR d.id = ?4)
+          AND (?3 IS NULL OR d.inspection_id = ?3) AND (?4 IS NULL OR d.id = ?4) AND ${defectScope(c, 'd')}
           AND NOT EXISTS (SELECT 1 FROM tasks k WHERE k.defect_id = d.id) LIMIT 200`,
     )
       .bind(t, JSON.stringify(opts.severities), opts.inspectionId ?? null, opts.defectId ?? null)

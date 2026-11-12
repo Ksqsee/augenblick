@@ -1,7 +1,7 @@
 import { Hono } from 'hono';
 import { z } from 'zod';
 import { assetQuery, mapAsset, str, tid } from './data';
-import { type AppEnv, id, logActivity, notFound, now, requireRole } from './lib';
+import { type AppEnv, assertInScope, id, logActivity, notFound, now, requireRole } from './lib';
 
 export const plans = new Hono<AppEnv>();
 
@@ -37,6 +37,7 @@ plans.get('/floor-plans/:id', async (c) => {
     .bind(c.req.param('id'), tid(c))
     .first<Record<string, unknown>>();
   if (!f) notFound('Grundriss');
+  assertInScope(c, 'building', f.buildingId as string);
   const [assets, siblings] = await Promise.all([
     assetQuery(c, 'a.building_id = ?2').bind(tid(c), f.buildingId).all(),
     c.env.DB.prepare('SELECT id, name, level FROM floor_plans WHERE building_id = ? AND tenant_id = ? AND deleted_at IS NULL ORDER BY level, name')

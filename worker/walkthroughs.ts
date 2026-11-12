@@ -6,7 +6,7 @@ import { type Answer, addMonths, computeResult, isComplete } from '../shared/log
 import { BUILDING_TYPES, type BuildingType, questionsFor, WALK_INTERVAL_MONTHS, type WalkQuestion } from '../shared/walkthrough';
 import { severityEnum, str, tid } from './data';
 import { notify } from './notify';
-import { type AppEnv, type Ctx, id, logActivity, notFound, now, parseJson, requireRole } from './lib';
+import { type AppEnv, assertInScope, type Ctx, id, logActivity, notFound, now, parseJson, requireRole, scopeSql } from './lib';
 
 export const walks = new Hono<AppEnv>();
 
@@ -28,6 +28,12 @@ const body = z.object({
 });
 type Body = z.infer<typeof body>;
 
+/** Begehungen im Zugriffsbereich: Objekt erlaubt und (falls auf ein Gebäude bezogen) Gebäude erlaubt. */
+function walkScope(c: Ctx) {
+  if (!c.get('user').scope) return '1=1';
+  return `(${scopeSql(c, 'w.property_id', 'property')} AND (w.building_id IS NULL OR ${scopeSql(c, 'w.building_id', 'building')}))`;
+}
+
 walks.get('/walkthroughs', async (c) => {
   const rows = await c.env.DB.prepare(
     `SELECT w.id, w.status, w.result, w.purpose, w.follow_up_of AS followUpOf, w.building_type AS buildingType, w.inspected_at AS inspectedAt, w.created_at AS createdAt, w.next_due_at AS nextDueAt,
@@ -35,7 +41,7 @@ walks.get('/walkthroughs', async (c) => {
             (SELECT COUNT(*) FROM defects d WHERE d.walkthrough_id = w.id AND d.status = 'open') AS openDefects
        FROM walkthroughs w JOIN properties p ON p.id = w.property_id LEFT JOIN buildings b ON b.id = w.building_id
        JOIN users u ON u.id = w.inspector_id
-      WHERE w.tenant_id = ? AND p.deleted_at IS NULL ORDER BY COALESCE(w.inspected_at, w.created_at) DESC LIMIT 300`,
+      WHERE w.tenant_id = ? AND p.deleted_at IS NULL AND ${walkScope(c)} ORDER BY COALESCE(w.inspected_at, w.created_at) DESC LIMIT 300`,
   )
     .bind(tid(c))
     .all();
@@ -44,6 +50,7 @@ walks.get('/walkthroughs', async (c) => {
 
 walks.post('/properties/:id/walkthroughs', async (c) => {
   requireRole(c, 'inspector');
+  assertInScope(c, 'property', c.req.param('id'));
   const b = z
     .object({
       buildingId: z.string().nullable().default(null),
@@ -67,6 +74,8 @@ walks.post('/properties/:id/walkthroughs', async (c) => {
       : null;
   if (b.purpose === 'follow_up' && !origin) throw new HTTPException(400, { message: 'Ausgangsbegehung für die Nachbegehung nicht gefunden' });
   const buildingId = origin ? origin.building_id : b.buildingId;
+  if (buildingId) assertInScope(c, 'building', buildingId);
+  else if (c.get('user').scope && !c.get('user').scope!.fullProperties.includes(p.id)) notFound('Objekt'); // ganzes Objekt nur bei voller Freigabe
   if (buildingId && !origin) {
     const ok = await c.env.DB.prepare('SELECT 1 FROM buildings WHERE id = ? AND property_id = ? AND deleted_at IS NULL').bind(buildingId, p.id).first();
     if (!ok) notFound('Gebäude');
@@ -102,7 +111,7 @@ async function load(c: Ctx, wid: string) {
        FROM walkthroughs w JOIN properties p ON p.id = w.property_id LEFT JOIN buildings b ON b.id = w.building_id
        JOIN users u ON u.id = w.inspector_id JOIN tenants t ON t.id = w.tenant_id
        LEFT JOIN walkthroughs f ON f.id = w.follow_up_of AND f.tenant_id = w.tenant_id
-      WHERE w.id = ? AND w.tenant_id = ?`,
+      WHERE w.id = ? AND w.tenant_id = ? AND ${walkScope(c)}`,
   )
     .bind(wid, tid(c))
     .first<Record<string, unknown>>();
@@ -115,6 +124,9 @@ async function load(c: Ctx, wid: string) {
     purpose: (r.purpose as WalkPurpose) ?? 'regular',
     followUpOf: r.follow_up_of as string | null,
     followUpDate: r.followUpDate as number | null,
+    /** null = vor Einführung des Status abgeschlossen bzw. noch Entwurf */
+    inspectorFireOfficer: r.inspector_fire_officer == null ? null : !!r.inspector_fire_officer,
+    inspectorQualification: (r.inspector_qualification as string) ?? '',
     status: r.status as 'draft' | 'submitted',
     result: r.result as string | null,
     questions: parseJson<WalkQuestion[]>(r.questions as string, []),
@@ -171,8 +183,14 @@ walks.post('/walkthroughs/:id/submit', async (c) => {
   const next = w.followUpOf ? null : addMonths(t, WALK_INTERVAL_MONTHS);
   const byId = new Map(w.questions.map((q) => [q.id, q]));
   // wie bei Prüfungen: erst beanspruchen, dann Mängel mengenbasiert schreiben
-  const claim = await c.env.DB.prepare("UPDATE walkthroughs SET status='submitted', result=?, inspected_at=?, next_due_at=?, updated_at=? WHERE id=? AND status='draft'")
-    .bind(result, t, next, t, wid)
+  // Qualifikation der durchführenden Person zum Zeitpunkt der Begehung festhalten (Hinweis im Protokoll, DGUV I 205-003)
+  const officer = await c.env.DB.prepare('SELECT fire_officer, fire_officer_qualification FROM memberships WHERE tenant_id = ? AND user_id = ?')
+    .bind(tid(c), w.inspectorId)
+    .first<{ fire_officer: number; fire_officer_qualification: string }>();
+  const claim = await c.env.DB.prepare(
+    "UPDATE walkthroughs SET status='submitted', result=?, inspected_at=?, next_due_at=?, updated_at=?, inspector_fire_officer=?, inspector_qualification=? WHERE id=? AND status='draft'",
+  )
+    .bind(result, t, next, t, officer?.fire_officer ? 1 : 0, officer?.fire_officer_qualification ?? '', wid)
     .run();
   if (!claim.meta.changes) throw new HTTPException(409, { message: 'Begehung ist bereits abgeschlossen' });
   const findings = b.findings.map((f) => ({ ...f, basis: (f.questionId && byId.get(f.questionId)?.basis) || '' }));
