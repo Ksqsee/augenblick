@@ -151,6 +151,12 @@ BASE=http://localhost:4173 npm run e2e   # gegen den Produktions-Build (npx vite
 Lokal wird Chromium aus `PLAYWRIGHT_BROWSERS_PATH` genutzt, in CI per `npx playwright install chromium`.
 Reihe 06 braucht `pdftotext` (Paket `poppler-utils`).
 
+**Sporadische 500er in vollen Läufen** (leere/HTML-Antwort, danach `vite-error-overlay` in einer *späteren* Reihe) kamen nicht vom
+Neuladen durch Vite: Antwortete der Worker auf einen POST, ohne den Körper zu lesen (401/403 vor `c.req.json()`), setzte workerd lokal
+die Keep-Alive-Verbindung zurück; Miniflares nächste Anfrage darauf endete mit `ECONNRESET`, Vite meldete 500 „fetch failed“ und hob den
+Fehler für den nächsten verbundenen Browser auf. Der Worker liest kleine ungelesene Körper deshalb zu Ende (`worker/index.ts`).
+Zur Fehlersuche schreibt `E2E_SERVER_LOG=datei npm run e2e -- --serve` die Ausgabe des Dev-Servers mit.
+
 **CI** (`.github/workflows/ci.yml`): bei jedem Push Typprüfung, Unit-Tests und Build, danach alle Browser-Tests.
 Bei Fehlern werden die Screenshots als Artefakt angehängt.
 
