@@ -3,7 +3,7 @@
 Verbindlicher Vertrag für alle Seiten. Herleitung und Befund: `docs/plan/v3.md` (Abschnitte 1–2).
 Tokens: `src/index.css` · Bausteine: `src/components/ui.tsx` · Rahmen: `src/components/Shell.tsx`.
 Vorzeigeseiten: **Heute** (`src/pages/Dashboard.tsx`) und **Anmeldung** (`src/pages/Auth.tsx`).
-Bilder (1360 und 390 px): `docs/design/v3/`. Ältere Bilder in `docs/design/**` zeigen v2.
+Bilder (1360 und 390 px): `docs/design/v3/` (Bereiche in Unterordnern).
 
 > Kurz: ein Raum aus Sichtbeton mit einer Lichtfuge. Grauer Grund, **eine** weiße Fläche pro Seite,
 > Tinte als Akzent, **eine** Signalfarbe (Zinnober) nur für überfällig/kritisch. Status ist ein
