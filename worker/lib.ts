@@ -223,11 +223,20 @@ export async function resolveScope(c: Ctx, tenantId: string, role: Role, raw: st
  * SQL-Bedingung für den Zugriffsbereich: `col` ist eine Gebäude- bzw. Objekt-ID-Spalte.
  * Die IDs stammen aus der Datenbank und werden zusätzlich auf [a-z0-9] geprüft, bevor sie als Literale eingesetzt werden.
  */
-export function scopeSql(c: Ctx, col: string, kind: 'building' | 'property'): string {
+export function scopeSql(c: Ctx, col: string, kind: 'building' | 'property' | 'fullProperty'): string {
   const s = c.get('user').scope;
   if (!s) return '1=1';
-  const ids = (kind === 'building' ? s.buildings : s.properties).filter((x) => SAFE_ID.test(x));
+  const ids = (kind === 'building' ? s.buildings : kind === 'property' ? s.properties : s.fullProperties).filter((x) => SAFE_ID.test(x));
   return ids.length ? `${col} IN (${ids.map((x) => `'${x}'`).join(',')})` : '0=1';
+}
+
+/**
+ * Begehungen im Zugriffsbereich: Objekt erlaubt und – falls auf ein Gebäude bezogen – das Gebäude erlaubt.
+ * Begehungen eines ganzen Objekts (ohne Gebäude) nur bei voller Freigabe des Objekts.
+ */
+export function walkScope(c: Ctx, w = 'w'): string {
+  if (!c.get('user').scope) return '1=1';
+  return `(CASE WHEN ${w}.building_id IS NULL THEN ${scopeSql(c, `${w}.property_id`, 'fullProperty')} ELSE ${scopeSql(c, `${w}.building_id`, 'building')} END)`;
 }
 
 /** Gebäude/Objekt im Zugriffsbereich? Sonst 404 (Existenz nicht verraten). */

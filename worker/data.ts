@@ -9,7 +9,7 @@ import { buildXlsx } from '../shared/xlsx';
 import { getCategoryDef, listCategories } from './categories';
 import { similarity } from '../shared/smart';
 import { tasksFromDefects } from './smart';
-import { type AppEnv, assertInScope, type Ctx, id, logActivity, notFound, now, parseJson, requireCreate, requireRole, scopeSql } from './lib';
+import { type AppEnv, assertInScope, type Ctx, id, logActivity, notFound, now, parseJson, requireCreate, requireRole, scopeSql, walkScope } from './lib';
 
 export const data = new Hono<AppEnv>();
 
@@ -18,20 +18,32 @@ export const str = (max = 500) => z.string().trim().max(max);
 const buildingTypeEnum = z.enum(Object.keys(BUILDING_TYPES) as [keyof typeof BUILDING_TYPES]);
 export const severityEnum = z.enum(Object.keys(SEVERITIES) as ['low', 'medium', 'high', 'critical']);
 
-/** Mängel im Zugriffsbereich: Begehungsmängel über das Objekt, Elementmängel über das Gebäude. */
+/**
+ * Mängel im Zugriffsbereich: Elementmängel über das Gebäude, Begehungsmängel wie ihre Begehung,
+ * sonstige (am Objekt gemeldete) über das Objekt.
+ */
 export function defectScope(c: Ctx, d: string) {
   if (!c.get('user').scope) return '1=1';
-  return `((${d}.asset_id IS NULL AND ${scopeSql(c, `${d}.property_id`, 'property')}) OR ${d}.asset_id IN (SELECT id FROM assets WHERE ${scopeSql(c, 'building_id', 'building')}))`;
+  return `(CASE WHEN ${d}.asset_id IS NOT NULL THEN ${d}.asset_id IN (SELECT id FROM assets WHERE ${scopeSql(c, 'building_id', 'building')})
+               WHEN ${d}.walkthrough_id IS NOT NULL THEN ${d}.walkthrough_id IN (SELECT ws.id FROM walkthroughs ws WHERE ${walkScope(c, 'ws')})
+               ELSE ${scopeSql(c, `${d}.property_id`, 'property')} END)`;
 }
 
-/** Aufgaben im Zugriffsbereich: über Element bzw. Objekt; ohne Bezug nur eigene oder zugewiesene. */
+/** Aufgaben im Zugriffsbereich: über Element, Mangel bzw. Objekt; ohne Bezug nur eigene oder zugewiesene. */
 export function taskScope(c: Ctx, t: string) {
   const u = c.get('user');
   if (!u.scope) return '1=1';
   const me = /^[a-z0-9]{1,40}$/.test(u.userId) ? `'${u.userId}'` : "''";
   return `(CASE WHEN ${t}.asset_id IS NOT NULL THEN ${t}.asset_id IN (SELECT id FROM assets WHERE ${scopeSql(c, 'building_id', 'building')})
+               WHEN ${t}.defect_id IS NOT NULL THEN ${t}.defect_id IN (SELECT dd.id FROM defects dd WHERE ${defectScope(c, 'dd')})
                WHEN ${t}.property_id IS NOT NULL THEN ${scopeSql(c, `${t}.property_id`, 'property')}
                ELSE ${t}.assignee_id = ${me} OR ${t}.created_by = ${me} END)`;
+}
+
+/** Mangel im Zugriffsbereich (und im Workspace)? Sonst 404. */
+export async function defectInScope(c: Ctx, defectId: string) {
+  const d = await c.env.DB.prepare(`SELECT d.id FROM defects d WHERE d.id = ? AND d.tenant_id = ? AND ${defectScope(c, 'd')}`).bind(defectId, tid(c)).first();
+  if (!d) notFound('Mangel');
 }
 
 /** Element im Zugriffsbereich (und vorhanden)? Liefert das Gebäude. */
@@ -68,7 +80,7 @@ data.get('/dashboard', async (c) => {
          (SELECT COUNT(*) FROM defects WHERE tenant_id = ?1 AND status = 'open' AND severity = 'critical' ${sd}) AS criticalDefects,
          (SELECT COUNT(*) FROM inspections WHERE tenant_id = ?1 AND status = 'submitted' AND superseded_at IS NULL AND inspected_at > ?4 ${si}) AS inspections30d,
          (SELECT COUNT(*) FROM inspections WHERE tenant_id = ?1 AND status = 'draft' ${si}) AS drafts,
-         (SELECT COUNT(*) FROM properties p WHERE p.tenant_id = ?1 AND p.deleted_at IS NULL AND ${scopeSql(c, 'p.id', 'property')} AND COALESCE(
+         (SELECT COUNT(*) FROM properties p WHERE p.tenant_id = ?1 AND p.deleted_at IS NULL AND ${scopeSql(c, 'p.id', 'fullProperty')} AND COALESCE(
             (SELECT MAX(w.next_due_at) FROM walkthroughs w WHERE w.property_id = p.id AND w.status = 'submitted'), 0) < ?3) AS walkDue`,
     ).bind(t, n, soon, n - 30 * DAY),
     propertyStatusQuery(c).bind(t, n, soon),
@@ -186,7 +198,7 @@ data.get('/properties/:id', async (c) => {
       `SELECT w.id, w.status, w.result, w.purpose, w.building_id AS buildingId, w.inspected_at AS inspectedAt, w.created_at AS createdAt, w.next_due_at AS nextDueAt, u.name AS inspector,
               (SELECT COUNT(*) FROM defects d WHERE d.walkthrough_id = w.id AND d.status = 'open') AS openDefects
          FROM walkthroughs w JOIN users u ON u.id = w.inspector_id
-        WHERE w.property_id = ? AND w.tenant_id = ? ORDER BY COALESCE(w.inspected_at, w.created_at) DESC LIMIT 20`,
+        WHERE w.property_id = ? AND w.tenant_id = ? AND ${walkScope(c)} ORDER BY COALESCE(w.inspected_at, w.created_at) DESC LIMIT 20`,
     ).bind(p.id, tid(c)),
     c.env.DB.prepare(
       `SELECT id, name, company, phone, email, qualification, appointed_from AS appointedFrom, appointed_to AS appointedTo, notes
@@ -288,6 +300,17 @@ data.delete('/fire-officers/:id', async (c) => {
 });
 
 // ---------- Gebäude ----------
+/** Alle Gebäude im Zugriffsbereich (schlank, z. B. für Auswahllisten). */
+data.get('/buildings', async (c) => {
+  const rows = await c.env.DB.prepare(
+    `SELECT b.id, b.name, b.property_id AS propertyId FROM buildings b JOIN properties p ON p.id = b.property_id
+      WHERE b.tenant_id = ? AND b.deleted_at IS NULL AND p.deleted_at IS NULL AND ${scopeSql(c, 'b.id', 'building')} ORDER BY b.name`,
+  )
+    .bind(tid(c))
+    .all();
+  return c.json(rows.results);
+});
+
 const buildingBody = z.object({ name: str(160).min(1, 'Name fehlt'), address: str(400).default('') });
 
 data.post('/properties/:id/buildings', async (c) => {
@@ -423,7 +446,8 @@ async function assertLabelFree(c: Ctx, label: string, exceptAssetId?: string) {
   )
     .bind(tid(c), label, label, exceptAssetId ?? '')
     .first<{ code: string }>();
-  if (hit) throw new HTTPException(409, { message: `Etikett ist bereits ${hit.code} zugeordnet` });
+  // Eingeschränkte Mitglieder erfahren nicht, welchem (evtl. fremden) Element das Etikett gehört
+  if (hit) throw new HTTPException(409, { message: c.get('user').scope ? 'Etikett ist bereits vergeben' : `Etikett ist bereits ${hit.code} zugeordnet` });
 }
 
 data.post('/assets', async (c) => {

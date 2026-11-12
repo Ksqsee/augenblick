@@ -518,11 +518,13 @@ inspections.post('/inspections/offline', async (c) => {
     .parse(await c.req.json());
   checkKeys(c, body);
   const kinds = await kindsOf(c, body);
-  const existing = await c.env.DB.prepare('SELECT id FROM inspections WHERE tenant_id = ? AND client_id = ?').bind(tid(c), body.clientId).first<{ id: string }>();
+  const a = await loadAsset(c, body.assetId); // prüft auch den Zugriffsbereich
+  const existing = await c.env.DB.prepare('SELECT id FROM inspections WHERE tenant_id = ? AND client_id = ? AND inspector_id = ?')
+    .bind(tid(c), body.clientId, c.get('user').userId)
+    .first<{ id: string }>();
   if (existing) return c.json({ id: existing.id, duplicate: true });
   const n = now();
   if (body.inspectedAt > n + 5 * 60_000 || body.inspectedAt < n - 90 * DAY) throw new HTTPException(400, { message: 'Prüfdatum unplausibel' });
-  const a = await loadAsset(c, body.assetId);
   const iid = id();
   await c.env.DB.prepare(
     `INSERT INTO inspections (id, tenant_id, asset_id, inspector_id, kind, reason, status, schedule, answers, maintenance, checkpoints, client_id, created_at, updated_at)
@@ -557,7 +559,10 @@ inspections.delete('/inspections/:id', async (c) => {
   const u = c.get('user');
   const isAdmin = ['admin', 'owner'].includes(u.role);
   // Eigene Entwürfe verwerfen; fremde nur als Admin
-  const r = await c.env.DB.prepare("DELETE FROM inspections WHERE id = ? AND tenant_id = ? AND status = 'draft' AND (inspector_id = ? OR ?)")
+  const r = await c.env.DB.prepare(
+    `DELETE FROM inspections WHERE id = ? AND tenant_id = ? AND status = 'draft' AND (inspector_id = ? OR ?)
+        AND asset_id IN (SELECT id FROM assets WHERE ${scopeSql(c, 'building_id', 'building')})`,
+  )
     .bind(c.req.param('id'), tid(c), u.userId, isAdmin ? 1 : 0)
     .run();
   if (!r.meta.changes) throw new HTTPException(409, { message: 'Nur eigene Entwürfe können verworfen werden' });

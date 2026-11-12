@@ -2,8 +2,8 @@
 import { Hono } from 'hono';
 import { HTTPException } from 'hono/http-exception';
 import { z } from 'zod';
-import { tid } from './data';
-import { type AppEnv, assertInScope, id, notFound, now, requireRole, scopeSql } from './lib';
+import { defectScope, tid } from './data';
+import { type AppEnv, assertInScope, type Ctx, id, notFound, now, requireRole, scopeSql, walkScope } from './lib';
 
 export const REPORT_KINDS = {
   compliance: 'Compliance-Übersicht',
@@ -14,8 +14,16 @@ export const REPORT_KINDS = {
   annual: 'Jahresbericht',
 } as const;
 
-/** Berichte im Zugriffsbereich: eingeschränkte Mitglieder sehen nur Berichte zu ihren Objekten. */
-const reportScope = (c: Parameters<typeof scopeSql>[0]) => (c.get('user').scope ? `r.property_id IS NOT NULL AND ${scopeSql(c, 'r.property_id', 'property')}` : '1=1');
+/**
+ * Berichte im Zugriffsbereich: eingeschränkte Mitglieder sehen Berichte zu vollständig freigegebenen Objekten
+ * und ihre eigenen (diese enthalten nur Daten aus ihrem Bereich). Workspace-weite Berichte nie.
+ */
+function reportScope(c: Ctx) {
+  const u = c.get('user');
+  if (!u.scope) return '1=1';
+  const me = /^[a-z0-9]{1,40}$/.test(u.userId) ? `'${u.userId}'` : "''";
+  return `r.property_id IS NOT NULL AND (${scopeSql(c, 'r.property_id', 'fullProperty')} OR (r.created_by = ${me} AND ${scopeSql(c, 'r.property_id', 'property')}))`;
+}
 const MAX_REPORT = 25 * 1024 * 1024;
 const TYPES = ['application/pdf', 'application/zip'];
 
@@ -61,15 +69,15 @@ reports.get('/reports/annual', async (c) => {
     ).bind(...binds),
     c.env.DB.prepare(
       `SELECT d.property_id AS propertyId, d.severity, d.status, d.walkthrough_id IS NOT NULL AS fromWalk, d.created_at AS createdAt, d.resolved_at AS resolvedAt
-         FROM defects d JOIN properties p ON p.id = d.property_id LEFT JOIN assets a ON a.id = d.asset_id LEFT JOIN buildings b ON b.id = a.building_id
-        WHERE d.tenant_id = ?1 AND d.created_at >= ?2 AND d.created_at < ?3 AND ${sp} AND (d.asset_id IS NULL OR ${sb}) ${pf}`,
+         FROM defects d JOIN properties p ON p.id = d.property_id
+        WHERE d.tenant_id = ?1 AND d.created_at >= ?2 AND d.created_at < ?3 AND ${sp} AND ${defectScope(c, 'd')} ${pf}`,
     ).bind(...binds),
     c.env.DB.prepare(
       `SELECT w.property_id AS propertyId, w.inspected_at AS inspectedAt, w.purpose, w.result, u.name AS inspector,
               w.inspector_fire_officer AS fireOfficer, w.inspector_qualification AS qualification,
               (SELECT COUNT(*) FROM defects d WHERE d.walkthrough_id = w.id) AS findings
          FROM walkthroughs w JOIN properties p ON p.id = w.property_id JOIN users u ON u.id = w.inspector_id
-        WHERE w.tenant_id = ?1 AND w.status = 'submitted' AND w.inspected_at >= ?2 AND w.inspected_at < ?3 AND ${sp} ${pf} ORDER BY w.inspected_at`,
+        WHERE w.tenant_id = ?1 AND w.status = 'submitted' AND w.inspected_at >= ?2 AND w.inspected_at < ?3 AND ${sp} AND ${walkScope(c)} ${pf} ORDER BY w.inspected_at`,
     ).bind(...binds),
     c.env.DB.prepare(
       `SELECT f.property_id AS propertyId, f.name, f.qualification, f.appointed_from AS appointedFrom, f.appointed_to AS appointedTo

@@ -444,6 +444,7 @@ function UnknownLabel({ code }: { code: string }) {
   const [q, setQ] = useState('');
   const navigate = useNavigate();
   const toast = useToast();
+  const { data: me } = useMe();
   const assets = useAssets({ q: q.trim() || undefined });
   const assign = useAction(
     (assetId: string) => api(`/assets/${assetId}/label`, { method: 'PUT', body: { labelCode: code } }),
@@ -458,17 +459,19 @@ function UnknownLabel({ code }: { code: string }) {
       <PageHeader title={`Etikett ${code}`} subtitle="Dieses Etikett ist noch keinem Element zugeordnet." />
       {assign.error && <ErrorBox error={assign.error} />}
       <div className="flex flex-col gap-4">
-        <Link to={`/elemente?neu=1&etikett=${encodeURIComponent(code)}`}>
-          <Card className="flex items-center gap-3 p-4 hover:border-line-strong">
-            <span className="grid size-10 place-items-center rounded-lg bg-brand-soft text-brand-strong">
-              <Plus className="size-5" />
-            </span>
-            <span>
-              <span className="block text-sm font-semibold">Neues Element mit diesem Etikett</span>
-              <span className="block text-xs text-ink-3">Element anlegen und Etikett direkt verknüpfen</span>
-            </span>
-          </Card>
-        </Link>
+        {me?.user.canCreate !== false && (
+          <Link to={`/elemente?neu=1&etikett=${encodeURIComponent(code)}`}>
+            <Card className="flex items-center gap-3 p-4 hover:border-line-strong">
+              <span className="grid size-10 place-items-center rounded-lg bg-brand-soft text-brand-strong">
+                <Plus className="size-5" />
+              </span>
+              <span>
+                <span className="block text-sm font-semibold">Neues Element mit diesem Etikett</span>
+                <span className="block text-xs text-ink-3">Element anlegen und Etikett direkt verknüpfen</span>
+              </span>
+            </Card>
+          </Link>
+        )}
         <Card>
           <CardHeader title="Vorhandenem Element zuordnen" />
           <div className="p-4">

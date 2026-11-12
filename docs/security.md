@@ -34,6 +34,7 @@ nachvollzogen und – soweit behoben – mit einem automatisierten Angriffstest 
 | 23 | mittel | Kunden-Freigabe (öffentlicher Link je Objekt) | Nur Admins; Link = 256-Bit-Token, gespeichert nur als SHA-256; Ablauf 1 Jahr, widerrufbar; Ansicht ohne interne IDs, Fotos, Personen, Notizen; Mängel abschaltbar; ungültige Links gedrosselt (`token-ip`); Aufrufzähler zur Kontrolle (`e2e/16-customer-share.cjs`) |
 | 24 | niedrig | Kalender-Abo (ICS-Link) | Persönlicher 256-Bit-Link, nur Hash gespeichert, neu erzeugen macht den alten ungültig, beendbar; Inhalt im Zugriffsbereich der Person; nur Codes/Standorte, keine Mängeltexte oder Personen; Verwaltung nur mit Sitzung; ungültige Links gedrosselt |
 | 20 | niedrig | Mangel ohne Prüfung (`POST /defects`) mit fremdem Element/Foto | Element und Objekt werden auf den Workspace geprüft, Foto-Schlüssel nur mit eigenem Präfix (`e2e/12-overhaul.cjs`) |
+| 25 | hoch | Zugriffsbereich je Mitglied (Paket B) ließ sich umgehen: Aufgabe mit fremdem Mangel verknüpfen und auf „erledigt“ setzen (schloss den Mangel), Aufgaben/Mängel/Begehungen fremder Gebäude über das Objekt sichtbar, Existenz-Orakel (400 vs. 404) beim Verknüpfen, workspace-weite Berichte und das Aktivitätsprotokoll für Eingeschränkte lesbar, Etikett-Konflikt nannte fremde Codes, gleichzeitige Statusänderungen konnten die Hash-Kette verzweigen | Bereich zentral in `worker/lib.ts`/`worker/data.ts` (`scopeSql`, `walkScope`, `defectScope`, `taskScope`, `defectInScope`); Bezüge außerhalb des Bereichs und unbekannte IDs liefern einheitlich `404`; Begehungen des ganzen Objekts nur bei voller Freigabe; Berichte nur zu voll freigegebenen Objekten oder selbst erstellte; Aktivität nur eigene Einträge; Verlaufseintrag wird nur geschrieben, wenn der Vorgänger unverändert ist (sonst `409`), Abweichung zwischen Status und Verlauf wird angezeigt (`e2e/08-security.cjs` #25, `e2e/13-team-scope.cjs`) |
 
 ## Offen / bewusst akzeptiert
 
@@ -50,6 +51,9 @@ nachvollzogen und – soweit behoben – mit einem automatisierten Angriffstest 
 | MCP-Variante mit Schlüssel im Pfad (`/api/mcp/k/pk_…`) | niedrig – nötig für Connectoren ohne eigene Header; der Schlüssel kann in Logs von Proxys landen. Empfehlung in der App: eigenen, widerrufbaren Schlüssel nur dafür anlegen |
 | Mikrofon-Freigabe (`Permissions-Policy: microphone=(self)`) | info – nur für das Diktat; Aufnahmen werden nicht gespeichert, nur zur Umwandlung an Workers AI geschickt |
 | OAuth-Clients registrieren sich ohne Freigabe (dynamische Registrierung) | info – Registrierung allein gewährt nichts; erst die Freigabe durch eine Person mit Schlüssel bzw. Admin-Sitzung. Der Anwendungsname auf der Freigabeseite ist vom Client gewählt – deshalb wird die Rücksprung-Domain deutlich angezeigt |
+| Tägliche Erinnerungen (Cron) nennen workspace-weite Anzahlen fälliger Prüfungen auch für eingeschränkte Prüfer | niedrig – nur Zahlen, keine Namen oder Codes; Liste hinter dem Link ist eingeschränkt |
+| Admin weist einer eingeschränkten Person eine Aufgabe außerhalb ihres Bereichs zu | info – die Person erhält die Benachrichtigung, sieht die Aufgabe aber nicht; Bereich geht vor |
+| Dateien (`/api/files/…`) prüfen nur den Workspace, nicht den Bereich | niedrig – Schlüssel sind 24 Zeichen zufällig und nur über Daten im eigenen Bereich erfahrbar |
 | Keine Drosselung der API je Schlüssel | niedrig – ungültige Schlüssel werden gedrosselt; gültige nur durch Admins vergeben |
 
 ## Geprüft und in Ordnung
@@ -60,6 +64,7 @@ nachvollzogen und – soweit behoben – mit einem automatisierten Angriffstest 
 - **CSRF:** Header `x-pk` zusätzlich zu SameSite=Lax, kein CORS.
 - **Cookies:** HttpOnly, Secure.
 - **Rollen:** an allen schreibenden Routen geprüft.
+- **Zugriffsbereich (12.11.2026):** Prüfer/Lesezugriff können auf Objekte bzw. einzelne Gebäude beschränkt werden; alle Listen, Details, Suche, Startseite, Rundgänge, Vorschläge, Exporte, Jahresbericht und Schreibrouten beachten ihn, Admins und Inhaber sind nie eingeschränkt, API-Schlüssel erben den Bereich der erstellenden Person. Anlegerecht für neue Elemente separat (`403`). Status „Brandschutzbeauftragte/r“ nur durch Admins, Verlauf als SHA-256-Hash-Kette.
 - **API-Schlüssel:** nur als Hash gespeichert, Rolle gedeckelt, kein Zugriff auf Konto und Benachrichtigungen.
 - **Service Worker:** cacht keine API-Antworten.
 - **Nachweise (11.10.2026):** Berichtigungen ändern die ursprüngliche Prüfung nicht (Unterschrift, Befunde und Datum bleiben erhalten); berichtigen dürfen nur die prüfende Person oder Admins, Lesezugriff nie. Papierkorb und Wiederherstellung nur für Admins (`e2e/10-corrections.cjs`).

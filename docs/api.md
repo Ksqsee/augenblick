@@ -24,6 +24,7 @@ Für API-Schlüssel gelten diese Regeln:
 
 - Ein Schlüssel handelt im Namen der Person, die ihn erstellt hat. Er hat nie mehr Rechte als diese Person.
 - Entfernt man die Person aus dem Workspace, wird der Schlüssel ungültig.
+- Ist die Person auf bestimmte Objekte/Gebäude eingeschränkt (Team → Zugriff), gilt das auch für den Schlüssel – auch wenn die Einschränkung erst später gesetzt wird. Einträge außerhalb des Bereichs liefern `404`.
 - Admin-Funktionen sind per API nicht erreichbar, auch nicht mit Schreibrechten. Dazu gehören Objekte anlegen, Team, Vorlagen und das JSON-Backup.
 - Konto, Benachrichtigungen und Push sind ebenfalls nicht erreichbar. Anfragen darauf liefern `403`.
 - Änderungen per API erscheinen im Aktivitätsprotokoll mit dem Namen des Schlüssels.
@@ -37,6 +38,7 @@ Für API-Schlüssel gelten diese Regeln:
 | `GET /dashboard` | Kennzahlen (überfällig, bald fällig, nie geprüft, nicht prüfbar, neue Elemente, Mängel …) |
 | `GET /search?q=` | Suche über Objekte, Gebäude, Elemente |
 | `GET /properties` | Objekte mit Status (überfällig, bald fällig, Mängel, nächste Begehung) |
+| `GET /buildings` | Alle Gebäude (`id`, `name`, `propertyId`) |
 | `GET /properties/:id` | Objekt mit Gebäuden, Elementen, Grundrissen, Begehungen, Brandschutzbeauftragten |
 | `GET /assets` | Elemente. Filter: `due=overdue\|soon\|never\|not_inspectable\|new\|defects`, `schedule=<Prüfart>`, `propertyId`, `buildingId`, `category`, `q` |
 | `GET /assets/:id` | Element mit Prüfarten, Historie, offenen Mängeln, Anhängen |
@@ -48,6 +50,7 @@ Für API-Schlüssel gelten diese Regeln:
 | `GET /tasks`, `GET /tasks/:id/comments`, `GET /tasks/stats?days=30` | Aufgaben, Kommentare, Statistik |
 | `GET /categories` | Elementarten mit Prüfarten und Prüfpunkten |
 | `GET /reports`, `GET /reports/:id/file` | Archiv erstellter Berichte (PDF/ZIP) |
+| `GET /reports/annual?year=2026&propertyId=` | Daten des Jahresberichts je Objekt: Prüfungen nach Ergebnis/Art, Mängel mit Behebungsquote, Begehungen (mit Qualifikation der durchführenden Person), Brandschutzbeauftragte |
 | `GET /export/assets.xlsx`, `GET /export/assets.csv` | Elementliste in der Dokumentsprache des Workspaces |
 
 ## Schreiben (Schlüssel mit `write`)

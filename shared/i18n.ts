@@ -328,6 +328,13 @@ const EN: Record<string, string> = {
   Prüfungsart: 'Inspection type',
   Suche: 'Search',
   Alle: 'All',
+  // Zeiträume des Berichtsgenerators (Filterbeschreibung im PDF-Kopf)
+  'Gesamter Zeitraum': 'All time',
+  'Letzte 30 Tage': 'Last 30 days',
+  'Letzte 12 Monate': 'Last 12 months',
+  'Dieses Jahr': 'This year',
+  'Letztes Jahr': 'Last year',
+  'Eigener Zeitraum': 'Custom period',
 };
 
 /** Standardtext in die Dokumentsprache übersetzen; unbekannte Texte bleiben unverändert. */

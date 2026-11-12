@@ -26,6 +26,14 @@ describe('Dokumentsprache', () => {
     expect(used.length).toBeGreaterThan(50);
     expect(used.filter((t) => tr('en', t) === t && !['Code', 'Status', 'in'].includes(t))).toEqual([]);
   });
+  it('Filterbeschreibung des Berichtsgenerators ist übersetzt', () => {
+    const src = readFileSync('src/components/InspectionFilters.tsx', 'utf8');
+    const periods = [...src.slice(src.indexOf('const PERIODS'), src.indexOf('];', src.indexOf('const PERIODS'))).matchAll(/\['\w*', '([^']+)'\]/g)].map((m) => m[1]);
+    const labels = [...src.matchAll(/out\.push\(\['([^']+)'/g)].map((m) => m[1]);
+    expect(periods.length).toBeGreaterThan(4);
+    expect(labels.length).toBeGreaterThan(5);
+    expect([...periods, ...labels].filter((t) => tr('en', t) === t)).toEqual([]);
+  });
   it('Ortsdatum in der Zeitzone', () => {
     // 23:30 UTC am Sonntag = Montag 01:30 in Berlin
     expect(zonedDay(Date.parse('2026-10-11T23:30:00Z'), 'Europe/Berlin')).toEqual({ ymd: '2026-10-12', weekday: 1 });

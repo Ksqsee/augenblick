@@ -27,7 +27,7 @@ export function AssetsPage() {
   const { data: me } = useMe();
   const [selected, setSelected] = useState<Asset | null>(null);
   const navigate = useNavigate();
-  const creating = params.get('neu') === '1';
+  const creating = params.get('neu') === '1' && me?.user.canCreate !== false;
 
   useEffect(() => {
     const t = setTimeout(() => setDebounced(q.trim()), 250);
@@ -47,7 +47,8 @@ export function AssetsPage() {
         title="Elemente"
         subtitle="Alle prüfpflichtigen Elemente über alle Objekte"
         actions={
-          me?.user.role !== 'viewer' && (
+          me?.user.role !== 'viewer' &&
+          me?.user.canCreate !== false && (
             <Button icon={<Plus className="size-4" />} onClick={() => setParam('neu', '1')}>
               Neues Element
             </Button>

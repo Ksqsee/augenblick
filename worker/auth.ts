@@ -482,8 +482,10 @@ account.get('/members', async (c) => {
   )
     .bind(u.tenantId)
     .all<Record<string, unknown>>();
+  const admin = RANKED(u.role);
   for (const m of members.results) {
-    m.scope = parseJson(m.scope as string, null);
+    // Zugriffsbereiche anderer Mitglieder sehen nur Admins
+    m.scope = admin || m.id === u.userId ? parseJson(m.scope as string, null) : null;
     m.canCreate = !!m.canCreate;
     m.fireOfficer = !!m.fireOfficer;
   }
@@ -553,6 +555,7 @@ account.put('/members/:userId/access', async (c) => {
   if (cur.role === 'owner' || cur.role === 'admin') throw new HTTPException(400, { message: 'Admins und Inhaber haben immer Zugriff auf den gesamten Workspace' });
   let scope: { propertyIds: string[]; buildingIds: string[] } | null = null;
   if (b.scope) {
+    if (!b.scope.propertyIds.length && !b.scope.buildingIds.length) throw new HTTPException(400, { message: 'Bitte mindestens ein Objekt oder Gebäude auswählen' });
     // nur IDs aus diesem Workspace übernehmen
     const [props, builds] = await c.env.DB.batch([
       c.env.DB.prepare('SELECT id FROM properties WHERE tenant_id = ? AND deleted_at IS NULL AND id IN (SELECT value FROM json_each(?))').bind(u.tenantId, JSON.stringify(b.scope.propertyIds)),
@@ -586,17 +589,28 @@ account.put('/members/:userId/fire-officer', async (c) => {
     .first<{ fire_officer: number; fire_officer_qualification: string }>();
   if (!cur) throw new HTTPException(404, { message: 'Mitglied nicht gefunden' });
   if (!!cur.fire_officer === b.value && cur.fire_officer_qualification === b.qualification) return c.json({ ok: true, changed: false });
-  const last = await c.env.DB.prepare('SELECT hash FROM member_flag_history WHERE tenant_id = ? AND user_id = ? ORDER BY changed_at DESC, rowid DESC LIMIT 1')
-    .bind(u.tenantId, target)
-    .first<string>('hash');
-  const row = { user_id: target, flag: 'fire_officer', value: b.value ? 1 : 0, note: b.qualification, changed_by: u.userId, changed_at: now() };
+  const LAST = 'SELECT hash FROM member_flag_history WHERE tenant_id = ?1 AND user_id = ?2 ORDER BY changed_at DESC, rowid DESC LIMIT 1';
+  const last = await c.env.DB.prepare(LAST).bind(u.tenantId, target).first<string>('hash');
   const prev = last ?? GENESIS;
-  await c.env.DB.batch([
-    c.env.DB.prepare('UPDATE memberships SET fire_officer = ?, fire_officer_qualification = ? WHERE tenant_id = ? AND user_id = ?').bind(row.value, b.qualification, u.tenantId, target),
+  const lastRow = await c.env.DB.prepare('SELECT MAX(changed_at) AS t FROM member_flag_history WHERE tenant_id = ? AND user_id = ?').bind(u.tenantId, target).first<number | null>('t');
+  // Zeitstempel streng steigend, damit die Reihenfolge der Kette eindeutig bleibt
+  const row = { user_id: target, flag: 'fire_officer', value: b.value ? 1 : 0, note: b.qualification, changed_by: u.userId, changed_at: Math.max(now(), (lastRow ?? 0) + 1) };
+  // Nur schreiben, wenn seit dem Lesen kein anderer Eintrag dazugekommen ist (sonst zwei Einträge mit gleichem Vorgänger)
+  const unchanged = `COALESCE((${LAST}), '${GENESIS}') = ?3`;
+  const res = await c.env.DB.batch([
+    c.env.DB.prepare(`UPDATE memberships SET fire_officer = ?4, fire_officer_qualification = ?5 WHERE tenant_id = ?1 AND user_id = ?2 AND ${unchanged}`).bind(
+      u.tenantId,
+      target,
+      prev,
+      row.value,
+      b.qualification,
+    ),
     c.env.DB.prepare(
-      'INSERT INTO member_flag_history (id, tenant_id, user_id, flag, value, note, changed_by, changed_at, prev_hash, hash) VALUES (?,?,?,?,?,?,?,?,?,?)',
-    ).bind(id(), u.tenantId, target, row.flag, row.value, row.note, row.changed_by, row.changed_at, prev, await flagHash(prev, row)),
+      `INSERT INTO member_flag_history (id, tenant_id, user_id, flag, value, note, changed_by, changed_at, prev_hash, hash)
+       SELECT ?4, ?1, ?2, ?5, ?6, ?7, ?8, ?9, ?3, ?10 WHERE ${unchanged}`,
+    ).bind(u.tenantId, target, prev, id(), row.flag, row.value, row.note, row.changed_by, row.changed_at, await flagHash(prev, row)),
   ]);
+  if (!res[1].meta.changes) throw new HTTPException(409, { message: 'Gleichzeitig geändert – bitte erneut versuchen' });
   await logActivity(c, 'update', 'member', target, b.value ? 'Als Brandschutzbeauftragte/r hinterlegt' : 'Status Brandschutzbeauftragte/r entfernt');
   return c.json({ ok: true, changed: true });
 });
@@ -614,14 +628,22 @@ account.get('/members/:userId/fire-officer-history', async (c) => {
       .bind(u.tenantId, c.req.param('userId'))
       .all<{ user_id: string; flag: string; value: number; note: string; changed_by: string; changed_at: number; prev_hash: string; hash: string; changedByName: string | null }>()
   ).results;
+  const cur = await c.env.DB.prepare('SELECT fire_officer, fire_officer_qualification FROM memberships WHERE tenant_id = ? AND user_id = ?')
+    .bind(u.tenantId, c.req.param('userId'))
+    .first<{ fire_officer: number; fire_officer_qualification: string }>();
+  if (!cur) throw new HTTPException(404, { message: 'Mitglied nicht gefunden' });
   let prev = GENESIS;
   let chainValid = true;
   for (const r of rows) {
     if (r.prev_hash !== prev || r.hash !== (await flagHash(prev, r))) chainValid = false;
     prev = r.hash;
   }
+  // Aktueller Status muss dem letzten Eintrag entsprechen (erkennt Änderungen am Status ohne Verlaufseintrag)
+  const lastEntry = rows.at(-1);
+  const currentMatches = lastEntry ? !!lastEntry.value === !!cur.fire_officer && lastEntry.note === cur.fire_officer_qualification : !cur.fire_officer;
   return c.json({
     chainValid,
+    currentMatches,
     entries: rows.map((r) => ({ value: !!r.value, qualification: r.note, changedAt: r.changed_at, changedBy: r.changedByName ?? 'unbekannt' })),
   });
 });
@@ -687,9 +709,10 @@ account.delete('/members/:userId', async (c) => {
 account.get('/activity', async (c) => {
   const rows = await c.env.DB.prepare(
     `SELECT a.id, a.action, a.entity, a.entity_id AS entityId, a.summary, a.created_at AS createdAt, u.name AS userName
-       FROM activity a LEFT JOIN users u ON u.id = a.user_id WHERE a.tenant_id = ? ORDER BY a.created_at DESC LIMIT 200`,
+       FROM activity a LEFT JOIN users u ON u.id = a.user_id WHERE a.tenant_id = ?1 AND (?2 IS NULL OR a.user_id = ?2) ORDER BY a.created_at DESC LIMIT 200`,
   )
-    .bind(c.get('user').tenantId)
+    // Eingeschränkte Mitglieder sehen nur ihre eigenen Einträge (das Protokoll nennt Objekte und Elemente des ganzen Workspaces)
+    .bind(c.get('user').tenantId, c.get('user').scope ? c.get('user').userId : null)
     .all();
   return c.json(rows.results);
 });
