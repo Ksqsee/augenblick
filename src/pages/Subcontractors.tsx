@@ -1,17 +1,13 @@
 import { getCategory } from '../categories';
 import { useQuery } from '@tanstack/react-query';
-import { ArrowLeft, CheckCircle2, ChevronRight, HardHat, KeyRound, Mail, Pencil, Phone, Plus, Trash2 } from 'lucide-react';
+import { ArrowLeft, ChevronRight, KeyRound, Pencil, Plus, Trash2 } from 'lucide-react';
 import { useState } from 'react';
 import { Link, useParams, useSearchParams } from 'react-router-dom';
 import { type Category, type Severity } from '../../shared/catalog';
 import { api, type Subcontractor, useAction, useMe, useSubcontractors } from '../api';
-import { CopyField, PublicHeader } from '../components/admin';
-import { Logo } from '../components/Logo';
+import { CopyField, PublicPage, SurfaceHead } from '../components/admin';
 import {
-  Badge,
   Button,
-  Card,
-  CardHeader,
   Empty,
   ErrorBox,
   Field,
@@ -21,11 +17,12 @@ import {
   Notice,
   PageHeader,
   PropertyList,
-  RowIcon,
-  SectionHeader,
+  Section,
   SeverityBadge,
   Skeleton,
   SkeletonList,
+  StatusText,
+  Surface,
   Textarea,
   useConfirm,
   useToast,
@@ -77,56 +74,49 @@ export function SubcontractorsPage() {
       ) : error ? (
         <ErrorBox error={error} onRetry={() => refetch()} />
       ) : !data?.length ? (
-        <Card>
+        <Surface>
           <Empty
-            icon={<HardHat />}
             title="Noch keine Subunternehmer"
             text="Lege Fachfirmen an, um ihnen Aufgaben per Link zu geben."
             action={
               isAdmin && (
-                <Button icon={<Plus />} onClick={() => setEdit({})}>
+                <Button variant="secondary" icon={<Plus />} onClick={() => setEdit({})}>
                   Subunternehmer anlegen
                 </Button>
               )
             }
           />
-        </Card>
+        </Surface>
       ) : (
-        <>
-          <SectionHeader title="Firmen" count={data.length} meta={open ? `${open} offene Aufgaben` : 'Keine offenen Aufgaben'} />
-          <Card className="overflow-hidden">
-            <ul className="divide-y divide-line">
+        <Surface>
+          <Section title="Firmen" count={data.length} action={<span className="text-meta text-ink-3">{open ? `${open} offene Aufgaben` : 'Keine offenen Aufgaben'}</span>} flush>
+            <ul className="pk-list" aria-label="Subunternehmer">
               {data.map((s) => (
-                <li key={s.id} className="flex items-start gap-3 px-4 py-3 sm:items-center">
-                  <RowIcon>
-                    <HardHat />
-                  </RowIcon>
+                <li key={s.id} className="flex min-h-14 items-center gap-3 py-2.5 pr-[calc(var(--row-px)-0.5rem)] pl-(--row-px)">
                   <div className="min-w-0 flex-1">
-                    <p className="truncate text-body font-medium">{s.company}</p>
-                    <p className="truncate text-meta text-ink-3">{[s.trade || 'Gewerk nicht angegeben', s.contactName].filter(Boolean).join(' · ')}</p>
-                    {(s.phone || s.email) && (
-                      <p className="mt-1 flex flex-wrap gap-x-4 gap-y-1 text-meta">
-                        {s.phone && (
-                          <a className="inline-flex min-h-6 items-center gap-1.5 text-ink-2 hover:text-ink hover:underline" href={`tel:${s.phone}`}>
-                            <Phone className="size-3.5 text-ink-3" />
+                    <p className="truncate text-body text-ink">{s.company}</p>
+                    <p className="truncate text-meta text-ink-3">
+                      {[s.trade || 'Gewerk nicht angegeben', s.contactName].filter(Boolean).join(' · ')}
+                      {s.phone && (
+                        <>
+                          {' · '}
+                          <a className="text-ink-2 hover:text-ink hover:underline" href={`tel:${s.phone}`}>
                             {s.phone}
                           </a>
-                        )}
-                        {s.email && (
-                          <a className="inline-flex min-h-6 min-w-0 items-center gap-1.5 break-all text-ink-2 hover:text-ink hover:underline" href={`mailto:${s.email}`}>
-                            <Mail className="size-3.5 shrink-0 text-ink-3" />
+                        </>
+                      )}
+                      {s.email && (
+                        <>
+                          {' · '}
+                          <a className="text-ink-2 hover:text-ink hover:underline" href={`mailto:${s.email}`}>
                             {s.email}
                           </a>
-                        )}
-                      </p>
-                    )}
-                    <PartnerStatus s={s} />
-                    <span className="mt-1.5 flex gap-1.5 sm:hidden">
-                      <TaskCounts s={s} />
-                    </span>
+                        </>
+                      )}
+                    </p>
                   </div>
-                  <span className="hidden shrink-0 gap-1.5 sm:flex">
-                    <TaskCounts s={s} />
+                  <span className="shrink-0 text-meta">
+                    {s.openTasks ? <StatusText tone="warn">{s.openTasks} offen</StatusText> : <span className="text-ink-3 tabular-nums">{s.doneTasks} erledigt</span>}
                   </span>
                   {isAdmin && (
                     <Menu
@@ -169,8 +159,23 @@ export function SubcontractorsPage() {
                 </li>
               ))}
             </ul>
-          </Card>
-        </>
+          </Section>
+          {data.some((s) => s.partnerAccess) && (
+            <Section title="Partner-Zugänge" flush>
+              <p className="-mt-1 mb-2 max-w-2xl px-(--row-px) text-meta text-ink-2">Sammelseite je Firma mit allen offenen Aufträgen – ohne eigenes Konto.</p>
+              <ul className="pk-list" aria-label="Partner-Zugänge">
+                {data
+                  .filter((s) => s.partnerAccess)
+                  .map((s) => (
+                    <li key={s.id} className="flex min-h-11 flex-col justify-center gap-0.5 px-(--row-px) py-2.5 sm:flex-row sm:items-center sm:justify-between sm:gap-6">
+                      <span className="min-w-0 truncate text-body">{s.company}</span>
+                      <PartnerStatus s={s} />
+                    </li>
+                  ))}
+              </ul>
+            </Section>
+          )}
+        </Surface>
       )}
     </>
   );
@@ -180,12 +185,9 @@ export function SubcontractorsPage() {
 function PartnerStatus({ s }: { s: Subcontractor }) {
   if (!s.partnerAccess) return null;
   return (
-    <p className="mt-1 flex min-w-0 items-center gap-1.5 text-meta text-ink-3" data-partner-status>
-      <KeyRound className="size-3.5 shrink-0" />
-      <span className="min-w-0">
-        Partner-Zugang aktiv{s.partnerCreatedAt ? ` seit ${fmtDate(s.partnerCreatedAt)}` : ''} · {s.partnerUsedAt ? `zuletzt genutzt ${fmtDateTime(s.partnerUsedAt)}` : 'noch nicht genutzt'}
-      </span>
-    </p>
+    <span className="min-w-0 text-meta text-ink-3 sm:shrink-0 sm:text-right" data-partner-status>
+      Aktiv{s.partnerCreatedAt ? ` seit ${fmtDate(s.partnerCreatedAt)}` : ''} · {s.partnerUsedAt ? `zuletzt genutzt ${fmtDateTime(s.partnerUsedAt)}` : 'noch nicht genutzt'}
+    </span>
   );
 }
 
@@ -213,17 +215,6 @@ function PartnerLinkModal({ company, link, onClose }: { company: string; link: s
         <CopyField value={link} label="Partner-Link" />
       </div>
     </Modal>
-  );
-}
-
-function TaskCounts({ s }: { s: Subcontractor }) {
-  return (
-    <>
-      <Badge tone={s.openTasks ? 'warn' : 'muted'} dot={!!s.openTasks}>
-        {s.openTasks} offen
-      </Badge>
-      <Badge tone="muted">{s.doneTasks} erledigt</Badge>
-    </>
   );
 }
 
@@ -334,40 +325,42 @@ export function ExternalTaskPage() {
   const q = useQuery({ queryKey: ['ext', token], queryFn: () => api<ExternalTask>(`/public/tasks/${token}`), retry: false });
   const t = q.data;
   return (
-    <div className="min-h-dvh bg-canvas">
-      <PublicHeader>
-        <Logo />
-        {t && <span className="min-w-0 truncate border-l border-line pl-3 text-meta text-ink-3">Auftrag von {t.tenantName}</span>}
-      </PublicHeader>
-      <main className="mx-auto max-w-xl px-4 py-8 sm:py-10">
-        {q.isLoading ? (
-          <DetailSkeleton />
-        ) : !t ? (
-          <Card>
-            <Empty icon={<HardHat />} title="Link ungültig" text="Diese Aufgabe ist nicht mehr freigegeben. Bitte wende dich an deinen Auftraggeber." />
-          </Card>
-        ) : (
-          <ExternalTaskDetail
-            t={t}
-            photoUrl={`/api/public/tasks/${token}/photo`}
-            send={async (status, note) => {
-              await api(`/public/tasks/${token}`, { body: { status, note } });
-              await q.refetch();
-            }}
-          />
-        )}
-      </main>
-    </div>
+    <PublicPage context={t ? `Auftrag von ${t.tenantName}` : undefined}>
+      {q.isLoading ? (
+        <DetailSkeleton />
+      ) : !t ? (
+        <Invalid title="Link ungültig" text="Diese Aufgabe ist nicht mehr freigegeben. Bitte wende dich an deinen Auftraggeber." />
+      ) : (
+        <ExternalTaskDetail
+          t={t}
+          photoUrl={`/api/public/tasks/${token}/photo`}
+          send={async (status, note) => {
+            await api(`/public/tasks/${token}`, { body: { status, note } });
+            await q.refetch();
+          }}
+        />
+      )}
+    </PublicPage>
+  );
+}
+
+/** Ungültiger Link: ein Satz in der Fläche, wie bei der Anmeldung. */
+function Invalid({ title, text }: { title: string; text: string }) {
+  return (
+    <Surface className="max-w-[400px] px-5 py-7 sm:px-8 sm:py-9">
+      <h1 className="text-h1 font-semibold tracking-[-0.02em]">{title}</h1>
+      <p className="mt-1.5 text-body text-ink-2">{text}</p>
+    </Surface>
   );
 }
 
 function DetailSkeleton() {
   return (
-    <div className="flex flex-col gap-3">
+    <Surface className="flex flex-col gap-3 p-(--row-px) sm:p-8" role="status" aria-label="Lädt">
       <Skeleton className="h-4 w-40" />
       <Skeleton className="h-8 w-72 max-w-full" />
-      <Skeleton className="mt-4 h-40 w-full rounded-xl" />
-    </div>
+      <Skeleton className="mt-4 h-40 w-full" />
+    </Surface>
   );
 }
 
@@ -389,26 +382,23 @@ function ExternalTaskDetail({ t, photoUrl, send }: { t: ExternalTask; photoUrl: 
   };
   const overdue = !!t.dueAt && t.dueAt < Date.now() && t.status !== 'done';
   return (
-    <div className="flex flex-col gap-6">
-      <div>
-        <p className="text-meta text-ink-3">{t.subcontractorName ? `Für ${t.subcontractorName}` : `Auftrag von ${t.tenantName}`}</p>
-        <h1 className="mt-1 text-h1 font-semibold tracking-[-0.02em] break-words">{t.title}</h1>
-        <div className="mt-3 flex flex-wrap gap-2">
-          <Badge tone={STATUS[t.status].tone} dot>
-            {STATUS[t.status].label}
-          </Badge>
-          {t.dueAt && (
-            <Badge tone={overdue ? 'bad' : 'muted'} variant={overdue ? 'soft' : 'outline'}>
-              {overdue ? 'Überfällig seit' : 'Fällig am'} {fmtDate(t.dueAt)}
-            </Badge>
-          )}
-          <Badge variant="outline" tone={t.priority === 'high' ? 'bad' : 'muted'}>
-            Priorität {{ low: 'niedrig', medium: 'mittel', high: 'hoch' }[t.priority]}
-          </Badge>
-        </div>
-      </div>
-
-      <Card className="p-4 sm:p-5">
+    <Surface>
+      <SurfaceHead
+        eyebrow={t.subcontractorName ? `Für ${t.subcontractorName}` : `Auftrag von ${t.tenantName}`}
+        title={t.title}
+        meta={
+          <span className="flex flex-wrap items-center gap-x-3 gap-y-1 text-meta">
+            <StatusText tone={STATUS[t.status].tone}>{STATUS[t.status].label}</StatusText>
+            {t.dueAt && (
+              <span className={overdue ? 'text-shu' : 'text-ink-3'}>
+                {overdue ? 'Überfällig seit' : 'Fällig am'} <span className="tabular-nums">{fmtDate(t.dueAt)}</span>
+              </span>
+            )}
+            <span className="text-ink-3">Priorität {{ low: 'niedrig', medium: 'mittel', high: 'hoch' }[t.priority]}</span>
+          </span>
+        }
+      />
+      <Section title="Ort">
         <PropertyList
           items={[
             ...(t.propertyName
@@ -432,14 +422,13 @@ function ExternalTaskDetail({ t, photoUrl, send }: { t: ExternalTask; photoUrl: 
               : []),
           ]}
         />
-        {t.description && <p className="mt-4 border-t border-line pt-4 text-body whitespace-pre-line text-ink-2">{t.description}</p>}
-      </Card>
+        {t.description && <p className="mt-4 text-body whitespace-pre-line text-ink-2">{t.description}</p>}
+      </Section>
 
       {t.defectTitle && (
-        <Card>
-          <CardHeader title="Mangel" action={t.defectSeverity && <SeverityBadge severity={t.defectSeverity} />} />
-          <div className="flex flex-col gap-2 px-4 pb-4 text-body sm:px-5 sm:pb-5">
-            <p className="font-medium">{t.defectTitle}</p>
+        <Section title="Mangel" action={t.defectSeverity && <SeverityBadge severity={t.defectSeverity} />}>
+          <div className="flex flex-col gap-2 text-body">
+            <p>{t.defectTitle}</p>
             {t.defectNote && <p className="text-ink-2">{t.defectNote}</p>}
             {t.defectMeasure && (
               <p className="text-ink-2">
@@ -448,45 +437,43 @@ function ExternalTaskDetail({ t, photoUrl, send }: { t: ExternalTask; photoUrl: 
               </p>
             )}
             {t.legalBasis && <p className="text-meta text-ink-3">{t.legalBasis}</p>}
-            {t.hasPhoto && <img src={photoUrl} alt="Foto zum Mangel" className="mt-2 max-h-80 rounded-lg border border-line object-contain" />}
+            {t.hasPhoto && <img src={photoUrl} alt="Foto zum Mangel" className="mt-2 max-h-80 self-start rounded-md border border-line object-contain" />}
           </div>
-        </Card>
+        </Section>
       )}
 
       {t.status === 'done' ? (
-        <Card className="flex items-start gap-3 p-4 sm:p-5">
-          <span className="grid size-9 shrink-0 place-items-center rounded-full bg-ok-soft text-ok">
-            <CheckCircle2 className="size-5" />
-          </span>
+        <Section title="Rückmeldung">
           <div className="text-body">
-            <p className="font-medium">Als erledigt gemeldet {t.externalDoneAt && `am ${fmtDateTime(t.externalDoneAt)}`}</p>
-            {t.externalNote && <p className="mt-1 text-ink-2">{t.externalNote}</p>}
-            <p className="mt-1 text-meta text-ink-3">Danke! {t.tenantName} sieht deine Rückmeldung.</p>
+            <StatusText tone="ok" className="text-body">
+              Als erledigt gemeldet {t.externalDoneAt && `am ${fmtDateTime(t.externalDoneAt)}`}
+            </StatusText>
+            {t.externalNote && <p className="mt-2 text-ink-2">{t.externalNote}</p>}
+            <p className="mt-2 text-meta text-ink-3">Danke. {t.tenantName} sieht deine Rückmeldung.</p>
           </div>
-        </Card>
+        </Section>
       ) : (
-        <Card className="flex flex-col gap-4 p-4 sm:p-5">
-          <div>
-            <h2 className="text-title font-semibold">Rückmeldung geben</h2>
-            <p className="text-meta text-ink-3">{t.tenantName} sieht deine Notiz sofort.</p>
-          </div>
-          {!!err && <ErrorBox error={err} />}
-          <Field label="Rückmeldung" hint="Was wurde gemacht? Material, Hinweise …">
-            {(id) => <Textarea id={id} value={note} onChange={(e) => setNote(e.target.value)} />}
-          </Field>
-          <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
-            {t.status === 'open' && (
-              <Button variant="secondary" size="lg" className="sm:h-10 sm:text-body" loading={busy === 'in_progress'} disabled={!!busy} onClick={() => submit('in_progress')}>
-                In Arbeit
+        <Section title="Rückmeldung">
+          <div className="flex flex-col gap-4">
+            <p className="-mt-1 text-meta text-ink-2">{t.tenantName} sieht deine Notiz sofort.</p>
+            {!!err && <ErrorBox error={err} />}
+            <Field label="Rückmeldung" hint="Was wurde gemacht? Material, Hinweise …">
+              {(id) => <Textarea id={id} value={note} onChange={(e) => setNote(e.target.value)} />}
+            </Field>
+            <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+              {t.status === 'open' && (
+                <Button variant="secondary" size="lg" className="sm:h-10 sm:text-body" loading={busy === 'in_progress'} disabled={!!busy} onClick={() => submit('in_progress')}>
+                  In Arbeit
+                </Button>
+              )}
+              <Button size="lg" className="sm:h-10 sm:text-body" loading={busy === 'done'} disabled={!!busy} onClick={() => submit('done')}>
+                Als erledigt melden
               </Button>
-            )}
-            <Button size="lg" className="sm:h-10 sm:text-body" loading={busy === 'done'} disabled={!!busy} icon={<CheckCircle2 />} onClick={() => submit('done')}>
-              Als erledigt melden
-            </Button>
+            </div>
           </div>
-        </Card>
+        </Section>
       )}
-    </div>
+    </Surface>
   );
 }
 
@@ -511,99 +498,84 @@ export function PartnerPage() {
     window.scrollTo(0, 0);
   };
   return (
-    <div className="min-h-dvh bg-canvas">
-      <PublicHeader>
-        <Logo />
-        {v && <span className="min-w-0 truncate border-l border-line pl-3 text-meta text-ink-3">Aufträge von {v.tenantName}</span>}
-      </PublicHeader>
-      <main className="mx-auto max-w-xl px-4 py-8 sm:py-10">
-        {q.isLoading ? (
-          <DetailSkeleton />
-        ) : !v ? (
-          <Card>
-            <Empty icon={<HardHat />} title="Zugang ungültig" text="Dieser Partner-Link gilt nicht mehr. Bitte wende dich an deinen Auftraggeber." />
-          </Card>
-        ) : t ? (
-          <div className="flex flex-col gap-4">
-            <button type="button" onClick={() => open(null)} className="inline-flex min-h-9 items-center gap-1.5 self-start text-meta font-medium text-ink-2 hover:text-ink">
-              <ArrowLeft className="size-4" />
-              Alle Aufträge
-            </button>
-            <ExternalTaskDetail
-              key={t.ref}
-              t={t}
-              photoUrl={`/api/public/partner/${code}/tasks/${t.ref}/photo`}
-              send={async (status, note) => {
-                await api(`/public/partner/${code}/tasks/${t.ref}`, { body: { status, note } });
-                if (status === 'done') {
-                  setReported(t.title);
-                  open(null);
-                }
-                await q.refetch();
-              }}
-            />
-          </div>
-        ) : (
-          <div className="flex flex-col gap-6">
-            <div>
-              <p className="text-meta text-ink-3">Partner-Zugang von {v.tenantName}</p>
-              <h1 className="mt-1 text-h1 font-semibold tracking-[-0.02em] break-words">{v.company}</h1>
-              <p className="mt-1 text-body text-ink-2">
-                {v.tasks.length ? `${v.tasks.length} offene ${v.tasks.length === 1 ? 'Auftrag' : 'Aufträge'}` : 'Keine offenen Aufträge'}
-              </p>
+    <PublicPage context={v ? `Aufträge von ${v.tenantName}` : undefined}>
+      {q.isLoading ? (
+        <DetailSkeleton />
+      ) : !v ? (
+        <Invalid title="Zugang ungültig" text="Dieser Partner-Link gilt nicht mehr. Bitte wende dich an deinen Auftraggeber." />
+      ) : t ? (
+        <div className="flex flex-col gap-3">
+          <button type="button" onClick={() => open(null)} className="inline-flex min-h-9 items-center gap-1.5 self-start text-meta font-medium text-ink-2 hover:text-ink">
+            <ArrowLeft className="size-4" />
+            Alle Aufträge
+          </button>
+          <ExternalTaskDetail
+            key={t.ref}
+            t={t}
+            photoUrl={`/api/public/partner/${code}/tasks/${t.ref}/photo`}
+            send={async (status, note) => {
+              await api(`/public/partner/${code}/tasks/${t.ref}`, { body: { status, note } });
+              if (status === 'done') {
+                setReported(t.title);
+                open(null);
+              }
+              await q.refetch();
+            }}
+          />
+        </div>
+      ) : (
+        <Surface>
+          <SurfaceHead
+            eyebrow={`Partner-Zugang von ${v.tenantName}`}
+            title={v.company}
+            meta={v.tasks.length ? `${v.tasks.length} offene ${v.tasks.length === 1 ? 'Auftrag' : 'Aufträge'}` : 'Keine offenen Aufträge'}
+          />
+          {(reported || (ref && !t)) && (
+            <div className="flex flex-col gap-2 px-(--row-px) pb-5">
+              {reported && (
+                <StatusText tone="ok" className="text-body">
+                  Als erledigt gemeldet: „{reported}“ – {v.tenantName} sieht deine Rückmeldung.
+                </StatusText>
+              )}
+              {ref && !t && <Notice tone="warn">Dieser Auftrag ist nicht mehr offen.</Notice>}
             </div>
-            {reported && (
-              <Notice tone="ok" title="Als erledigt gemeldet">
-                „{reported}“ – {v.tenantName} sieht deine Rückmeldung.
-              </Notice>
-            )}
-            {ref && !t && <Notice tone="warn">Dieser Auftrag ist nicht mehr offen.</Notice>}
-            {v.tasks.length === 0 ? (
-              <Card>
-                <Empty compact icon={<CheckCircle2 />} title="Alles erledigt" text="Neue Aufträge erscheinen hier, sobald sie deiner Firma zugewiesen werden." />
-              </Card>
-            ) : (
-              <Card className="overflow-hidden">
-                <ul className="divide-y divide-line" aria-label="Offene Aufträge">
-                  {v.tasks.map((x) => {
-                    const overdue = !!x.dueAt && x.dueAt < Date.now();
-                    return (
-                      <li key={x.ref}>
-                        <Link
-                          to={`?auftrag=${x.ref}`}
-                          onClick={(e) => {
-                            e.preventDefault();
-                            open(x.ref);
-                          }}
-                          className="flex min-h-14 items-center gap-3 px-4 py-3 hover:bg-hover"
-                        >
-                          <div className="min-w-0 flex-1">
-                            <p className="text-body font-medium break-words">{x.title}</p>
-                            <p className="text-meta break-words text-ink-3">
-                              {[x.assetCode, x.propertyName, x.buildingName].filter(Boolean).join(' · ') || 'Ohne Ortsangabe'}
-                            </p>
-                            <p className="mt-1 flex flex-wrap gap-1.5">
-                              <Badge tone={STATUS[x.status].tone} dot>
-                                {STATUS[x.status].label}
-                              </Badge>
-                              {x.dueAt && (
-                                <Badge tone={overdue ? 'bad' : 'muted'} variant={overdue ? 'soft' : 'outline'}>
-                                  {overdue ? 'Überfällig seit' : 'Fällig am'} {fmtDate(x.dueAt)}
-                                </Badge>
-                              )}
-                            </p>
-                          </div>
-                          <ChevronRight className="size-4 shrink-0 text-ink-4" />
-                        </Link>
-                      </li>
-                    );
-                  })}
-                </ul>
-              </Card>
-            )}
-          </div>
-        )}
-      </main>
-    </div>
+          )}
+          {v.tasks.length === 0 ? (
+            <Section>
+              <p className="text-body text-ink-2">Alles erledigt. Neue Aufträge erscheinen hier, sobald sie deiner Firma zugewiesen werden.</p>
+            </Section>
+          ) : (
+            <Section title="Offene Aufträge" count={v.tasks.length} flush>
+              <ul className="pk-list" aria-label="Offene Aufträge">
+                {v.tasks.map((x) => {
+                  const overdue = !!x.dueAt && x.dueAt < Date.now();
+                  return (
+                    <li key={x.ref}>
+                      <Link
+                        to={`?auftrag=${x.ref}`}
+                        onClick={(e) => {
+                          e.preventDefault();
+                          open(x.ref);
+                        }}
+                        className="group flex min-h-14 items-center gap-3 px-(--row-px) py-2.5 hover:bg-hover"
+                      >
+                        <div className="min-w-0 flex-1">
+                          <p className="text-body break-words text-ink">{x.title}</p>
+                          <p className="text-meta break-words text-ink-3">
+                            {[x.assetCode, x.propertyName, x.buildingName].filter(Boolean).join(' · ') || 'Ohne Ortsangabe'} · {STATUS[x.status].label}
+                          </p>
+                        </div>
+                        {x.dueAt && <span className={overdue ? 'shrink-0 text-meta text-shu tabular-nums' : 'shrink-0 text-meta text-ink-3 tabular-nums'}>{fmtDate(x.dueAt)}</span>}
+                        <ChevronRight className="size-4 shrink-0 text-ink-4" />
+                      </Link>
+                    </li>
+                  );
+                })}
+              </ul>
+            </Section>
+          )}
+        </Surface>
+      )}
+    </PublicPage>
   );
 }

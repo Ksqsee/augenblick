@@ -37,7 +37,7 @@ export function SettingsPage() {
   return (
     <>
       <PageHeader title="Einstellungen" subtitle={me ? `${me.user.name} · ${me.tenant.name}` : undefined} className="lg:mb-6" />
-      <Tabs className="mb-8" value={tab} onChange={setTab} tabs={tabs} />
+      <Tabs className="mb-6" value={tab} onChange={setTab} tabs={tabs} />
       {tab === 'profile' && <AccountTab focus={raw === 'privacy' ? 'privacy' : undefined} />}
       {tab === 'notifications' && <NotificationsTab />}
       {tab === 'company' && isAdmin && <CompanyTab />}

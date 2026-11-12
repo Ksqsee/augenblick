@@ -1,12 +1,12 @@
 // Freigabeseite für OAuth (MCP-Clients wie Claude): Verbindung mit neuem oder vorhandenem API-Schlüssel erlauben.
 import { useQuery } from '@tanstack/react-query';
 import clsx from 'clsx';
-import { ArrowLeftRight, Check, KeyRound, Lock, ShieldCheck } from 'lucide-react';
+import { Check, Lock } from 'lucide-react';
 import { type FormEvent, useState } from 'react';
 import { Link, useLocation, useSearchParams } from 'react-router-dom';
 import { api, useMe } from '../api';
-import { Logo } from '../components/Logo';
-import { Avatar, Button, ErrorBox, Field, Input, Spinner } from '../components/ui';
+import { PublicPage } from '../components/admin';
+import { Avatar, Button, ErrorBox, Field, Input, Spinner, Surface } from '../components/ui';
 
 const READ = ['Objekte, Gebäude und Elemente ansehen', 'Prüfungen, Mängel, Aufgaben und Begehungen ansehen', 'Fälligkeiten und Rundgänge planen'];
 const WRITE = ['Aufgaben anlegen, kommentieren und Status ändern', 'Mängel melden und als behoben markieren', 'Elemente anlegen'];
@@ -77,124 +77,116 @@ export function OAuthAuthorize() {
   const perms = useSession ? (scope === 'write' ? [...READ, ...WRITE] : READ) : [...READ, 'Schreiben nur, wenn der Schlüssel Schreibrechte hat'];
 
   return (
-    <Frame>
-      <div className="flex items-center justify-center gap-3" aria-hidden>
-        <span className="grid size-14 place-items-center rounded-2xl bg-surface text-xl font-semibold shadow-card">{name.slice(0, 1).toUpperCase()}</span>
-        <ArrowLeftRight className="size-5 text-ink-4" />
-        <span className="grid size-14 place-items-center rounded-2xl bg-surface shadow-card">
-          <Logo className="[&>span]:hidden" />
-        </span>
-      </div>
-      <h1 className="mt-6 text-center text-h3 font-semibold tracking-tight text-balance sm:text-h2">{name} möchte sich mit Prüfkompass verbinden</h1>
-      <p className="mt-1.5 text-center text-meta text-ink-3">
-        Danach geht es zurück zu <span className="font-medium text-ink-2">{client.data!.redirectHost}</span>
+    <Frame
+      after={
+        <div className="mt-5 flex flex-col gap-2 px-1 text-body text-ink-2">
+          <p>Trennen jederzeit unter Einstellungen → API.</p>
+          {!loggedIn && (
+            <p>
+              Lieber ohne Schlüssel?{' '}
+              <Link
+                to={`/login?next=${encodeURIComponent(loc.pathname + loc.search)}`}
+                className="font-medium text-ink underline decoration-line-strong underline-offset-4 hover:decoration-ink"
+              >
+                Anmelden
+              </Link>
+            </p>
+          )}
+          {loggedIn && !isAdmin && <p>Neue Verbindungen ohne Schlüssel können nur Admins freigeben.</p>}
+        </div>
+      }
+    >
+      <h1 className="text-h2 font-semibold tracking-[-0.01em] text-balance">{name} möchte sich mit Prüfkompass verbinden</h1>
+      <p className="mt-1.5 text-body text-ink-2">
+        Danach geht es zurück zu <span className="text-ink">{client.data!.redirectHost}</span>.
       </p>
 
-      <form onSubmit={go} className="mt-6 overflow-hidden rounded-2xl bg-surface shadow-card">
+      <form onSubmit={go} className="mt-7 flex flex-col gap-5">
         {loggedIn && (
-          <div className="flex items-center gap-3 border-b border-line px-5 py-3">
+          <div className="flex items-center gap-3 border-y border-line py-3">
             <Avatar name={me.data!.user.name} size="md" />
             <div className="min-w-0 flex-1">
-              <p className="truncate text-body font-medium">{me.data!.user.name}</p>
+              <p className="truncate text-body">{me.data!.user.name}</p>
               <p className="truncate text-meta text-ink-3">Workspace {me.data!.tenant.name}</p>
             </div>
           </div>
         )}
-        <div className="flex flex-col gap-5 p-5">
-          {!!error && <ErrorBox error={error} />}
-          {isAdmin && (
-            <div role="radiogroup" aria-label="Verbindungsart" className="grid grid-cols-2 gap-0.5 rounded-lg bg-sunken p-0.5 text-meta font-medium">
-              {(['session', 'key'] as const).map((m) => (
-                <button
-                  key={m}
-                  type="button"
-                  role="radio"
-                  aria-checked={mode === m}
-                  onClick={() => setMode(m)}
-                  className={clsx('h-9 rounded-md transition', mode === m ? 'bg-surface text-ink shadow-card' : 'text-ink-2 hover:text-ink')}
-                >
-                  {m === 'session' ? 'Neue Verbindung' : 'Vorhandener Schlüssel'}
+        {!!error && <ErrorBox error={error} />}
+        {isAdmin && (
+          <div role="radiogroup" aria-label="Verbindungsart" className="grid grid-cols-2 gap-0.5 rounded-md bg-sunken p-0.5 text-meta font-medium">
+            {(['session', 'key'] as const).map((m) => (
+              <button
+                key={m}
+                type="button"
+                role="radio"
+                aria-checked={mode === m}
+                onClick={() => setMode(m)}
+                className={clsx('h-9 rounded-[5px] transition-colors sm:h-8', mode === m ? 'bg-surface text-ink shadow-[0_0_0_1px_var(--color-line)]' : 'text-ink-2 hover:text-ink')}
+              >
+                {m === 'session' ? 'Neue Verbindung' : 'Vorhandener Schlüssel'}
+              </button>
+            ))}
+          </div>
+        )}
+
+        {useSession ? (
+          <fieldset>
+            <legend className="mb-1 text-meta font-medium text-ink-2">Rechte</legend>
+            <div className="flex flex-col divide-y divide-line" role="radiogroup" aria-label="Rechte">
+              {(['read', 'write'] as const).map((s) => (
+                <button key={s} type="button" role="radio" aria-checked={scope === s} onClick={() => setScope(s)} className="flex items-start gap-3 py-3 text-left">
+                  <span className={clsx('mt-0.5 grid size-4 shrink-0 place-items-center rounded-full border', scope === s ? 'border-ink bg-ink' : 'border-line-strong')}>
+                    {scope === s && <span className="size-1.5 rounded-full bg-white" />}
+                  </span>
+                  <span>
+                    <span className="block text-body">{s === 'read' ? 'Nur lesen' : 'Lesen und schreiben'}</span>
+                    <span className="block text-meta text-ink-3">{s === 'read' ? 'Auswerten, planen, fragen' : 'Auch Aufgaben und Mängel anlegen'}</span>
+                  </span>
                 </button>
               ))}
             </div>
-          )}
+          </fieldset>
+        ) : (
+          <Field label="API-Schlüssel" hint="Erstellen unter Einstellungen → API. Die Verbindung hat dieselben Rechte wie der Schlüssel.">
+            {(id) => <Input id={id} required autoComplete="off" spellCheck={false} placeholder="pk_…" className="font-mono" value={key} onChange={(e) => setKey(e.target.value)} />}
+          </Field>
+        )}
 
-          {useSession ? (
-            <fieldset>
-              <legend className="mb-2 text-meta font-medium text-ink-2">Rechte</legend>
-              <div className="grid grid-cols-1 gap-2 sm:grid-cols-2" role="radiogroup" aria-label="Rechte">
-                {(['read', 'write'] as const).map((s) => (
-                  <button
-                    key={s}
-                    type="button"
-                    role="radio"
-                    aria-checked={scope === s}
-                    onClick={() => setScope(s)}
-                    className={clsx('flex items-start gap-2.5 rounded-xl border p-3 text-left transition', scope === s ? 'border-ink bg-canvas' : 'border-line hover:border-line-strong')}
-                  >
-                    <span className={clsx('mt-0.5 grid size-4 shrink-0 place-items-center rounded-full border', scope === s ? 'border-ink bg-ink' : 'border-line-strong')}>
-                      {scope === s && <span className="size-1.5 rounded-full bg-white" />}
-                    </span>
-                    <span>
-                      <span className="block text-body font-medium">{s === 'read' ? 'Nur lesen' : 'Lesen und schreiben'}</span>
-                      <span className="block text-meta text-ink-3">{s === 'read' ? 'Auswerten, planen, fragen' : 'Auch Aufgaben und Mängel anlegen'}</span>
-                    </span>
-                  </button>
-                ))}
-              </div>
-            </fieldset>
-          ) : (
-            <Field label="API-Schlüssel" hint="Erstellen unter Einstellungen → API. Die Verbindung hat dieselben Rechte wie der Schlüssel.">
-              {(id) => <Input id={id} required autoComplete="off" spellCheck={false} placeholder="pk_…" className="font-mono" value={key} onChange={(e) => setKey(e.target.value)} />}
-            </Field>
-          )}
-
-          <div className="rounded-xl border border-line">
-            <p className="border-b border-line px-4 py-2.5 text-meta font-medium text-ink-2">{name} darf danach</p>
-            <ul className="flex flex-col gap-2 px-4 py-3 text-body">
-              {perms.map((t) => (
-                <li key={t} className="flex gap-2.5">
-                  <Check className="mt-0.5 size-4 shrink-0 text-ok" />
-                  {t}
-                </li>
-              ))}
-              <li className="flex gap-2.5 text-ink-3">
-                <Lock className="mt-0.5 size-4 shrink-0" />
-                Kein Zugriff auf Konto, Team, Passwörter und Einstellungen
+        <div>
+          <p className="mb-2 text-meta font-medium text-ink-2">{name} darf danach</p>
+          <ul className="flex flex-col gap-2 text-body text-ink-2">
+            {perms.map((t) => (
+              <li key={t} className="flex gap-2.5">
+                <Check className="mt-0.5 size-4 shrink-0 text-ink-3" />
+                {t}
               </li>
-            </ul>
-          </div>
+            ))}
+            <li className="flex gap-2.5 text-ink-3">
+              <Lock className="mt-0.5 size-4 shrink-0" />
+              Kein Zugriff auf Konto, Team, Passwörter und Einstellungen
+            </li>
+          </ul>
         </div>
 
-        <div className="flex flex-col-reverse gap-2 border-t border-line bg-canvas/60 px-5 py-4 sm:flex-row sm:justify-end">
-          <Button type="button" variant="secondary" onClick={cancel}>
-            Abbrechen
-          </Button>
-          <Button loading={busy} disabled={!useSession && !key.trim()} icon={<ShieldCheck />}>
+        <div className="mt-2 flex flex-col gap-2">
+          <Button size="lg" className="w-full" loading={busy} disabled={!useSession && !key.trim()}>
             Verbinden
+          </Button>
+          <Button type="button" variant="ghost" className="w-full" onClick={cancel}>
+            Abbrechen
           </Button>
         </div>
       </form>
-      <p className="mt-4 text-center text-meta text-ink-3">Trennen jederzeit unter Einstellungen → API.</p>
-
-      {!loggedIn && (
-        <p className="mt-3 flex items-center justify-center gap-1.5 text-meta text-ink-3">
-          <KeyRound className="size-4" />
-          Lieber ohne Schlüssel?{' '}
-          <Link to={`/login?next=${encodeURIComponent(loc.pathname + loc.search)}`} className="font-medium text-ink underline underline-offset-4">
-            Anmelden
-          </Link>
-        </p>
-      )}
-      {loggedIn && !isAdmin && <p className="mt-3 text-center text-meta text-ink-3">Neue Verbindungen ohne Schlüssel können nur Admins freigeben.</p>}
     </Frame>
   );
 }
 
-function Frame({ children }: { children: React.ReactNode }) {
+/** Wie die Anmeldung: Beton, Logo oben links, eine schmale Fläche links im Raster. */
+function Frame({ children, after }: { children: React.ReactNode; after?: React.ReactNode }) {
   return (
-    <div className="flex min-h-dvh items-start justify-center bg-canvas px-4 py-10 sm:items-center">
-      <div className="w-full max-w-md">{children}</div>
-    </div>
+    <PublicPage width="narrow">
+      <Surface className="px-5 py-7 sm:px-8 sm:py-9">{children}</Surface>
+      {after}
+    </PublicPage>
   );
 }

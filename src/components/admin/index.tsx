@@ -1,9 +1,48 @@
-// Bausteine für Verwaltungsseiten (Einstellungen, Team, Import, Berichte) und öffentliche Seiten.
+// Bausteine für Verwaltungsseiten (Einstellungen, Team, Import, Berichte) und öffentliche Seiten – Designsystem v3.
 // Ergänzen ui.tsx, ohne es zu ändern. Regeln: docs/design.md, Verwendung: docs/design/verwaltung.md
 import clsx from 'clsx';
 import { Check, Copy } from 'lucide-react';
 import { type ReactNode, useState } from 'react';
+import { Link } from 'react-router-dom';
+import { fmtDate, fmtDateTime } from '../../format';
+import { Logo } from '../Logo';
 import { Button, IconButton, Input, useToast } from '../ui';
+
+/**
+ * Abschnitt einer Einstellungsseite innerhalb der einen Surface (v3): Haarlinie darüber, links kleiner grauer
+ * Titel (h2, 13 px) und ein Satz, rechts die Felder/Zeilen; Aktionen (footer) rechts unten. Keine Karte.
+ * Ersetzt SettingsSection aus ui.tsx (dort noch mit Karte) – gleiche Props.
+ */
+export function SettingsSection({
+  title,
+  description,
+  children,
+  footer,
+  className,
+  id,
+}: {
+  title: ReactNode;
+  description?: ReactNode;
+  children: ReactNode;
+  footer?: ReactNode;
+  className?: string;
+  id?: string;
+}) {
+  return (
+    <section id={id} className={clsx('border-t border-line px-(--row-px) py-6 first:border-t-0 sm:py-8', className)}>
+      <div className="grid gap-4 lg:grid-cols-[minmax(0,14rem)_minmax(0,1fr)] lg:gap-12">
+        <div className="min-w-0">
+          <h2 className="text-meta font-medium text-ink-3">{title}</h2>
+          {description && <p className="mt-1 max-w-prose text-meta text-ink-2">{description}</p>}
+        </div>
+        <div className="flex min-w-0 flex-col gap-4">
+          {children}
+          {footer && <div className="flex flex-wrap justify-end gap-2 pt-1">{footer}</div>}
+        </div>
+      </div>
+    </section>
+  );
+}
 
 /**
  * Zeile innerhalb einer SettingsSection: links Bezeichnung + Erklärung, rechts das Bedienelement.
@@ -25,18 +64,45 @@ export function SettingRow({
   return (
     <div className={clsx('flex gap-3', inline ? 'items-center justify-between' : 'flex-col sm:flex-row sm:items-center sm:justify-between sm:gap-6', className)}>
       <div className="min-w-0">
-        <p className="text-body font-medium text-ink">{title}</p>
-        {description && <p className="mt-0.5 text-meta text-ink-3">{description}</p>}
+        <div className="text-body text-ink">{title}</div>
+        {description && <div className="mt-0.5 text-meta text-ink-3">{description}</div>}
       </div>
       {children && <div className={clsx('flex shrink-0 items-center gap-2', !inline && 'max-sm:[&>*]:flex-1')}>{children}</div>}
     </div>
   );
 }
 
-/** Trennlinie zwischen SettingRows in derselben Karte (Karte hat p-4/p-5, die Linie läuft bis zum Rand). */
+/** Haarlinie zwischen SettingRows im selben Abschnitt. */
 export function RowDivider() {
-  return <hr className="-mx-4 border-line sm:-mx-5" />;
+  return <hr className="border-line" />;
 }
+
+/** Uhrzeit „09:12“ in der Zeitzone des Workspaces. */
+export const fmtTime = (ts: number) => fmtDateTime(ts).split(', ')[1] ?? '';
+
+/** „Heute“, „Gestern“ oder Datum – für nach Tagen gruppierte Protokolle. */
+export function dayLabel(ts: number) {
+  const d = fmtDate(ts);
+  if (d === fmtDate(Date.now())) return 'Heute';
+  if (d === fmtDate(Date.now() - 86_400_000)) return 'Gestern';
+  return d;
+}
+
+/** Einträge (neueste zuerst) nach Tag gruppieren, Reihenfolge bleibt. */
+export function groupByDay<T>(rows: T[], at: (r: T) => number): [string, T[]][] {
+  const m = new Map<string, T[]>();
+  for (const r of rows) {
+    const k = dayLabel(at(r));
+    m.set(k, [...(m.get(k) ?? []), r]);
+  }
+  return [...m.entries()];
+}
+
+/** Gruppen- oder Tageskopf innerhalb einer pk-list (13 px grau); die Zeile darunter bekommt keine Haarlinie. */
+export function DayHeading({ children }: { children: ReactNode }) {
+  return <li className="flex h-10 items-end px-(--row-px) pb-1.5 text-meta font-medium text-ink-3 [&+li]:before:hidden!">{children}</li>;
+}
+export const ListHeading = DayHeading;
 
 async function copyText(text: string) {
   try {
@@ -75,7 +141,7 @@ export function CopyField({ value, label, mono = true, className }: { value: str
 export function CodeBlock({ code, label = 'Befehl kopieren', className }: { code: string; label?: string; className?: string }) {
   const toast = useToast();
   return (
-    <div className={clsx('group relative min-w-0 rounded-lg border border-line bg-canvas', className)}>
+    <div className={clsx('group relative min-w-0 rounded-md border border-line bg-canvas', className)}>
       <pre className="scroll-thin overflow-x-auto py-2.5 pr-12 pl-3 font-mono text-caption leading-5 text-ink">{code}</pre>
       <IconButton
         label={label}
@@ -120,7 +186,7 @@ export function Stepper({ steps, current, className }: { steps: string[]; curren
             <span
               className={clsx(
                 'grid size-6 shrink-0 place-items-center rounded-full text-caption font-semibold tabular-nums',
-                state === 'done' && 'bg-ok-soft text-ok',
+                state === 'done' && 'bg-selected text-ink',
                 state === 'current' && 'bg-ink text-white',
                 state === 'todo' && 'border border-line-strong text-ink-3',
               )}
@@ -143,16 +209,16 @@ export function Stepper({ steps, current, className }: { steps: string[]; curren
 export function SaveBar({ dirty, saving, onReset, children = 'Speichern' }: { dirty: boolean; saving?: boolean; onReset: () => void; children?: ReactNode }) {
   if (!dirty) return null;
   return (
-    <div className="animate-in sticky bottom-24 z-20 mt-6 lg:bottom-6">
-      <div className="flex items-center gap-3 rounded-xl bg-ink py-2.5 pr-2.5 pl-4 text-white shadow-pop">
+    <div className="animate-in sticky bottom-24 z-20 mx-(--row-px,0) mb-6 lg:bottom-6">
+      <div className="flex items-center gap-3 rounded-lg bg-ink py-2.5 pr-2.5 pl-4 text-white shadow-pop">
         <span className="min-w-0 flex-1 truncate text-body font-medium">Ungespeicherte Änderungen</span>
-        <button type="button" onClick={onReset} className="h-9 shrink-0 rounded-lg px-3 text-meta font-medium text-white/75 hover:bg-white/10 hover:text-white">
+        <button type="button" onClick={onReset} className="h-9 shrink-0 rounded-md px-3 text-meta font-medium text-white/75 hover:bg-white/10 hover:text-white">
           Verwerfen
         </button>
         <button
           type="submit"
           disabled={saving}
-          className="inline-flex h-9 shrink-0 items-center rounded-lg bg-white px-3.5 text-meta font-semibold text-ink transition hover:bg-white/90 disabled:opacity-60"
+          className="inline-flex h-9 shrink-0 items-center rounded-md bg-white px-3.5 text-meta font-semibold text-ink transition hover:bg-white/90 disabled:opacity-60"
         >
           {children}
         </button>
@@ -172,14 +238,66 @@ export function MeterBar({ parts, label, className }: { parts: { value: number; 
   );
 }
 
-/** Kopf für öffentliche Seiten (Kunden-Link, Auftrag für Subunternehmer, Rechtstexte). */
-export function PublicHeader({ children, actions }: { children: ReactNode; actions?: ReactNode }) {
+/**
+ * Rahmen für öffentliche Seiten (Kunden-Link, Auftrag für Subunternehmer, Partner-Seite, OAuth-Freigabe,
+ * Rechtstexte) im Stil der Anmeldung: Beton-Grund, Logo oben links, Inhalt linksbündig im Raster, ganz unten
+ * Rechtslinks. Die eine weiße Fläche (Surface) setzt die Seite selbst.
+ * width: narrow = 400 px (wie Anmeldung), text = 640 px, wide = 768 px.
+ */
+export function PublicPage({
+  children,
+  brand,
+  context,
+  actions,
+  footer,
+  width = 'text',
+}: {
+  children: ReactNode;
+  brand?: ReactNode;
+  context?: ReactNode;
+  actions?: ReactNode;
+  footer?: ReactNode;
+  width?: 'narrow' | 'text' | 'wide';
+}) {
   return (
-    <header className="border-b border-line bg-surface">
-      <div className="mx-auto flex h-14 max-w-4xl items-center gap-3 px-4 sm:px-6">
-        <div className="flex min-w-0 flex-1 items-center gap-3">{children}</div>
-        {actions}
+    <div className="flex min-h-dvh flex-col bg-canvas px-4 pt-5 pb-6 sm:px-10 sm:pt-8 lg:px-[8vw]">
+      <header className="flex min-h-8 min-w-0 items-center gap-3">
+        {brand ?? (
+          <Link to="/" className="shrink-0" aria-label="Prüfkompass">
+            <Logo />
+          </Link>
+        )}
+        {context && <span className="min-w-0 truncate border-l border-line-strong pl-3 text-meta text-ink-3">{context}</span>}
+        {actions && <div className="no-print ml-auto flex shrink-0 items-center gap-2">{actions}</div>}
+      </header>
+      <main className={clsx('animate-in w-full flex-1 py-8 sm:py-12', width === 'narrow' ? 'sm:max-w-[400px]' : width === 'text' ? 'max-w-2xl' : 'max-w-3xl')}>{children}</main>
+      <footer className="no-print flex flex-wrap items-center gap-x-1 gap-y-1 px-1 text-caption text-ink-3">
+        {footer ?? (
+          <>
+            <Link to="/rechtliches/privacy" className="hover:text-ink">
+              Datenschutz
+            </Link>
+            <span aria-hidden>·</span>
+            <Link to="/rechtliches/terms" className="hover:text-ink">
+              Nutzungsbedingungen
+            </Link>
+          </>
+        )}
+      </footer>
+    </div>
+  );
+}
+
+/** Kopf einer Seite innerhalb einer Surface: kleine Zeile darüber, großer Titel, Meta-Zeile. */
+export function SurfaceHead({ eyebrow, title, meta, actions, className }: { eyebrow?: ReactNode; title: ReactNode; meta?: ReactNode; actions?: ReactNode; className?: string }) {
+  return (
+    <div className={clsx('flex flex-col gap-4 px-(--row-px) pt-6 pb-6 sm:flex-row sm:items-start sm:justify-between sm:pt-8', className)}>
+      <div className="min-w-0">
+        {eyebrow && <p className="mb-1 text-meta text-ink-3">{eyebrow}</p>}
+        <h1 className="text-h1 font-semibold tracking-[-0.02em] break-words">{title}</h1>
+        {meta && <div className="mt-1.5 text-body text-ink-2">{meta}</div>}
       </div>
-    </header>
+      {actions && <div className="flex shrink-0 flex-wrap items-center gap-2">{actions}</div>}
+    </div>
   );
 }

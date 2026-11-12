@@ -1,15 +1,12 @@
 import clsx from 'clsx';
-import { ChevronRight, Crown, KeyRound, Link2, Mail, ShieldAlert, ShieldCheck, Trash2, UserMinus, UserPlus, Users } from 'lucide-react';
+import { ChevronRight, Crown, KeyRound, Link2, Trash2, UserMinus, UserPlus } from 'lucide-react';
 import { useState } from 'react';
 import { ROLES, type Role } from '../../shared/catalog';
 import { api, type Member, queryClient, useAction, useBuildings, useFlagHistory, useMe, useMembers, useProperties } from '../api';
 import { CopyField } from '../components/admin';
 import {
   Avatar,
-  Badge,
   Button,
-  Card,
-  Empty,
   ErrorBox,
   Field,
   IconButton,
@@ -17,10 +14,12 @@ import {
   Menu,
   Modal,
   PageHeader,
-  SectionHeader,
+  Section,
   Segmented,
   Select,
   SkeletonList,
+  StatusText,
+  Surface,
   useConfirm,
   useToast,
 } from '../components/ui';
@@ -96,49 +95,43 @@ export function TeamPage() {
       ) : error || !data ? (
         <ErrorBox error={error} onRetry={() => refetch()} />
       ) : (
-        <div className="flex flex-col gap-8 lg:gap-10">
-          <section>
-            <SectionHeader title="Mitglieder" count={data.members.length} meta={isAdmin ? 'Antippen zum Bearbeiten' : undefined} />
-            <Card className="overflow-hidden">
-              <ul className="divide-y divide-line" aria-label="Mitglieder">
-                {data.members.map((m) => {
-                  const self = m.id === me?.user.id;
-                  const menu = isAdmin && m.role !== 'owner' && !self;
-                  const info = (
-                    <>
-                      <Avatar name={m.name} size="md" />
-                      <span className="min-w-0 flex-1">
-                        <span className="flex min-w-0 items-center gap-2">
-                          <span className="truncate text-body font-medium text-ink">{m.name}</span>
-                          {self && <span className="shrink-0 text-meta text-ink-3">du</span>}
-                        </span>
-                        <span className="mt-0.5 block truncate text-meta text-ink-3">
-                          {m.email}
-                          <span className="max-sm:hidden"> · seit {fmtDate(m.joinedAt)}</span>
-                        </span>
-                        <MemberBadges m={m} />
+        <Surface>
+          <Section title="Mitglieder" count={data.members.length} flush>
+            <ul className="pk-list" aria-label="Mitglieder">
+              {data.members.map((m) => {
+                const self = m.id === me?.user.id;
+                const menu = isAdmin && m.role !== 'owner' && !self;
+                const info = (
+                  <>
+                    <Avatar name={m.name} size="md" />
+                    <span className="min-w-0 flex-1">
+                      <span className="flex min-w-0 items-baseline gap-2">
+                        <span className="truncate text-body text-ink">{m.name}</span>
+                        {self && <span className="shrink-0 text-meta text-ink-3">du</span>}
                       </span>
-                      <span className="hidden w-28 shrink-0 text-meta text-ink-2 sm:block">{ROLES[m.role]}</span>
-                    </>
-                  );
-                  return (
-                    <li key={m.id} className="flex items-center">
-                      {isAdmin ? (
-                        <button
-                          type="button"
-                          aria-label={`Zugriff und Status von ${m.name}`}
-                          onClick={() => setEditing(m)}
-                          className="group flex min-h-16 min-w-0 flex-1 items-center gap-3 py-3 pl-4 text-left transition-colors hover:bg-hover sm:min-h-14"
-                        >
-                          {info}
-                          <ChevronRight className="size-4 shrink-0 text-ink-4 transition-transform group-hover:translate-x-0.5" />
-                        </button>
-                      ) : (
-                        <div className="flex min-h-14 min-w-0 flex-1 items-center gap-3 px-4 py-3">{info}</div>
-                      )}
-                      {isAdmin && (
-                        <div className="flex w-12 shrink-0 justify-center pr-1">
-                          {menu && (
+                      <span className="mt-0.5 block truncate text-meta text-ink-3">{memberMeta(m)}</span>
+                    </span>
+                    <span className="hidden w-32 shrink-0 text-meta text-ink-2 sm:block">{ROLES[m.role]}</span>
+                  </>
+                );
+                return (
+                  <li key={m.id} className="flex items-center" style={{ '--row-inset': '44px' } as React.CSSProperties}>
+                    {isAdmin ? (
+                      <button
+                        type="button"
+                        aria-label={`Zugriff und Status von ${m.name}`}
+                        onClick={() => setEditing(m)}
+                        className="group flex min-h-[60px] min-w-0 flex-1 items-center gap-3 py-2.5 pl-(--row-px) text-left transition-colors hover:bg-hover sm:min-h-14"
+                      >
+                        {info}
+                        <ChevronRight className="size-4 shrink-0 text-ink-4 transition-transform group-hover:translate-x-0.5" />
+                      </button>
+                    ) : (
+                      <div className="flex min-h-14 min-w-0 flex-1 items-center gap-3 px-(--row-px) py-2.5">{info}</div>
+                    )}
+                    {isAdmin && (
+                      <div className="flex w-12 shrink-0 justify-center pr-1 sm:mr-[calc(var(--row-px)-1rem)]">
+                        {menu && (
                           <Menu
                             label={`Weitere Aktionen für ${m.name}`}
                             items={[
@@ -166,95 +159,70 @@ export function TeamPage() {
                               },
                             ]}
                           />
-                          )}
-                        </div>
-                      )}
-                    </li>
-                  );
-                })}
-              </ul>
-            </Card>
-          </section>
+                        )}
+                      </div>
+                    )}
+                  </li>
+                );
+              })}
+            </ul>
+          </Section>
 
           {isAdmin && (
-            <section>
-              <SectionHeader title="Offene Einladungen" count={data.invites.length} meta="Einmal und 14 Tage gültig" />
+            <Section title="Offene Einladungen" count={data.invites.length} action={<span className="text-meta text-ink-3">Einmal und 14 Tage gültig</span>} flush={data.invites.length > 0}>
               {!data.invites.length ? (
-                <Card>
-                  <Empty
-                    compact
-                    icon={<Mail />}
-                    title="Keine offenen Einladungen"
-                    text="Eingeladene Personen erscheinen hier, bis sie den Link genutzt haben."
-                  />
-                </Card>
+                <p className="text-body text-ink-2">Keine offenen Einladungen. Eingeladene Personen erscheinen hier, bis sie den Link genutzt haben.</p>
               ) : (
-                <Card className="overflow-hidden">
-                  <ul className="divide-y divide-line">
-                    {data.invites.map((i) => (
-                      <li key={i.id} className="flex min-h-14 items-center gap-3 px-4 py-2.5">
-                        <span className="grid size-8 shrink-0 place-items-center rounded-full border border-dashed border-line-strong text-ink-3">
-                          <Mail className="size-4" />
-                        </span>
-                        <div className="min-w-0 flex-1">
-                          <p className="truncate text-body font-medium">{i.email}</p>
-                          <p className="text-meta text-ink-3">
-                            {ROLES[i.role]} · eingeladen {fmtDate(i.createdAt)}
-                          </p>
-                        </div>
-                        <Button size="sm" variant="secondary" icon={<Link2 />} onClick={() => copy(i.token)}>
-                          <span className="max-sm:sr-only">Link kopieren</span>
-                        </Button>
-                        <IconButton label={`Einladung an ${i.email} zurückziehen`} icon={<Trash2 />} onClick={() => revoke.mutate(i.id)} />
-                      </li>
-                    ))}
-                  </ul>
-                </Card>
+                <ul className="pk-list" aria-label="Offene Einladungen">
+                  {data.invites.map((i) => (
+                    <li key={i.id} className="flex min-h-14 items-center gap-2 py-2 pr-[calc(var(--row-px)-0.5rem)] pl-(--row-px)">
+                      <div className="min-w-0 flex-1">
+                        <p className="truncate text-body">{i.email}</p>
+                        <p className="text-meta text-ink-3">
+                          {ROLES[i.role]} · eingeladen {fmtDate(i.createdAt)}
+                        </p>
+                      </div>
+                      <Button size="sm" variant="ghost" icon={<Link2 />} onClick={() => copy(i.token)}>
+                        <span className="max-sm:sr-only">Link kopieren</span>
+                      </Button>
+                      <IconButton label={`Einladung an ${i.email} zurückziehen`} icon={<Trash2 />} onClick={() => revoke.mutate(i.id)} />
+                    </li>
+                  ))}
+                </ul>
               )}
-            </section>
+            </Section>
           )}
 
-          <section>
-            <SectionHeader title="Rollen" />
-            <Card className="grid grid-cols-1 divide-y divide-line sm:grid-cols-2 sm:divide-y-0 lg:grid-cols-4">
+          <Section title="Rollen">
+            <dl className="grid grid-cols-1 gap-x-10 gap-y-3 sm:grid-cols-2">
               {(Object.keys(ROLES) as Role[]).map((r) => (
-                <div key={r} className="flex flex-col gap-1 p-4 sm:[&:nth-child(n+3)]:border-t sm:[&:nth-child(n+3)]:border-line lg:[&:nth-child(n+2)]:border-l lg:[&:nth-child(n+3)]:border-t-0">
-                  <p className="flex items-center gap-2 text-body font-medium">
-                    {r === 'owner' ? <Crown className="size-4 text-ink-3" /> : <Users className="size-4 text-ink-3" />}
-                    {ROLES[r]}
-                  </p>
-                  <p className="text-meta text-ink-3">{ROLE_HINT[r]}</p>
+                <div key={r} className="min-w-0">
+                  <dt className="text-body text-ink">{ROLES[r]}</dt>
+                  <dd className="text-meta text-ink-3">{ROLE_HINT[r]}</dd>
                 </div>
               ))}
-            </Card>
-          </section>
-        </div>
+            </dl>
+          </Section>
+        </Surface>
       )}
     </>
   );
 }
 
-/** Kurzinfo unter dem Namen: Bereich, Anlegerecht, Brandschutzbeauftragte/r. Rolle auf dem Handy. */
-function MemberBadges({ m }: { m: Member }) {
+/** Meta-Zeile unter dem Namen: E-Mail, Rolle (Handy), Bereich, Anlegerecht, Brandschutzbeauftragte/r – als Text. */
+function memberMeta(m: Member) {
   const limited = !!m.scope && (m.role === 'inspector' || m.role === 'viewer');
-  const noCreate = m.role === 'inspector' && !m.canCreate;
+  const parts = [
+    m.email,
+    limited ? scopeText(m.scope!) : '',
+    m.role === 'inspector' && !m.canCreate ? 'Ohne Anlegerecht' : '',
+    m.fireOfficer ? `Brandschutzbeauftragte/r${m.fireOfficerQualification ? ` (${m.fireOfficerQualification})` : ''}` : '',
+  ].filter(Boolean);
   return (
-    <span className="mt-1.5 flex flex-wrap gap-1.5 empty:hidden">
-      <Badge variant="outline" className="sm:hidden">
-        {ROLES[m.role]}
-      </Badge>
-      {limited && (
-        <Badge tone="info" dot>
-          {scopeText(m.scope!)}
-        </Badge>
-      )}
-      {noCreate && <Badge tone="muted">Ohne Anlegerecht</Badge>}
-      {m.fireOfficer && (
-        <Badge variant="outline" className="max-w-full" icon={<ShieldCheck />}>
-          <span className="truncate">Brandschutzbeauftragte/r{m.fireOfficerQualification ? ` · ${m.fireOfficerQualification}` : ''}</span>
-        </Badge>
-      )}
-    </span>
+    <>
+      <span className="sm:hidden">{ROLES[m.role]} · </span>
+      {parts.join(' · ')}
+    </>
   );
 }
 
@@ -304,7 +272,7 @@ function MemberDialog({ member, canEditRole, onClose }: { member: Member; canEdi
     },
   );
   const check = 'size-4 shrink-0 rounded accent-ink';
-  const sectionTitle = 'text-meta font-semibold text-ink-2';
+  const sectionTitle = 'text-meta font-medium text-ink-3';
   return (
     <Modal
       title={member.name}
@@ -339,7 +307,7 @@ function MemberDialog({ member, canEditRole, onClose }: { member: Member; canEdi
             </Field>
           ) : (
             <p className="text-body">
-              <span className="font-medium">{ROLES[role]}</span> <span className="text-ink-3">· {ROLE_HINT[role]}</span>
+              {ROLES[role]} <span className="text-ink-3">· {ROLE_HINT[role]}</span>
             </p>
           )}
         </section>
@@ -362,7 +330,7 @@ function MemberDialog({ member, canEditRole, onClose }: { member: Member; canEdi
                 ]}
               />
               {mode === 'some' && (
-                <div className="overflow-hidden rounded-xl border border-line">
+                <div className="overflow-hidden rounded-md border border-line">
                   {props.isLoading || builds.isLoading ? (
                     <SkeletonList rows={3} className="shadow-none" />
                   ) : (
@@ -408,12 +376,12 @@ function MemberDialog({ member, canEditRole, onClose }: { member: Member; canEdi
                   ? 'Sieht alle Objekte, Elemente, Prüfungen, Mängel und Aufgaben des Workspaces.'
                   : 'Andere Objekte sind für diese Person unsichtbar. Ein ganzes Objekt schließt später angelegte Gebäude ein; Begehungen des ganzen Objekts nur bei voller Freigabe.'}
               </p>
-              {nothingPicked && <p className="text-meta text-bad">Wähle mindestens ein Objekt oder Gebäude.</p>}
+              {nothingPicked && <p className="text-meta text-ink-2">Wähle mindestens ein Objekt oder Gebäude.</p>}
               {role === 'inspector' && (
-                <label className="flex cursor-pointer items-start gap-2.5 rounded-lg border border-line px-3.5 py-3">
+                <label className="flex cursor-pointer items-start gap-2.5 py-1">
                   <input type="checkbox" className={`mt-0.5 ${check}`} checked={canCreate} onChange={(e) => setCanCreate(e.target.checked)} />
                   <span>
-                    <span className="block text-body font-medium">Darf neue Elemente anlegen</span>
+                    <span className="block text-body">Darf neue Elemente anlegen</span>
                     <span className="block text-meta text-ink-3">Ohne dieses Recht nur vorhandene Elemente prüfen und bearbeiten.</span>
                   </span>
                 </label>
@@ -426,10 +394,10 @@ function MemberDialog({ member, canEditRole, onClose }: { member: Member; canEdi
           <h3 id="officer-h" className={sectionTitle}>
             Status
           </h3>
-          <label className="flex cursor-pointer items-start gap-2.5 rounded-lg border border-line px-3.5 py-3">
+          <label className="flex cursor-pointer items-start gap-2.5 py-1">
             <input type="checkbox" className={`mt-0.5 ${check}`} checked={officer} onChange={(e) => setOfficer(e.target.checked)} />
             <span>
-              <span className="block text-body font-medium">Brandschutzbeauftragte/r</span>
+              <span className="block text-body">Brandschutzbeauftragte/r</span>
               <span className="block text-meta text-ink-3">Steht bei Begehungen im Protokoll und im Jahresbericht (DGUV Information 205-003).</span>
             </span>
           </label>
@@ -443,13 +411,9 @@ function MemberDialog({ member, canEditRole, onClose }: { member: Member; canEdi
               <p className="text-meta font-medium text-ink-2">Verlauf</p>
               {history.data &&
                 (history.data.chainValid && history.data.currentMatches ? (
-                  <Badge tone="ok" icon={<ShieldCheck />}>
-                    Verlauf geprüft, unverändert
-                  </Badge>
+                  <StatusText tone="ok">Verlauf geprüft, unverändert</StatusText>
                 ) : (
-                  <Badge tone="bad" icon={<ShieldAlert />}>
-                    {history.data.chainValid ? 'Status weicht vom Verlauf ab' : 'Verlauf wurde verändert'}
-                  </Badge>
+                  <StatusText tone="bad">{history.data.chainValid ? 'Status weicht vom Verlauf ab' : 'Verlauf wurde verändert'}</StatusText>
                 ))}
             </div>
             {history.isLoading ? (
@@ -459,10 +423,10 @@ function MemberDialog({ member, canEditRole, onClose }: { member: Member; canEdi
             ) : !history.data?.entries.length ? (
               <p className="text-meta text-ink-3">Noch keine Änderungen.</p>
             ) : (
-              <ol className="flex flex-col divide-y divide-line rounded-lg border border-line text-body" aria-label="Verlauf Brandschutzbeauftragte/r">
+              <ol className="flex flex-col divide-y divide-line border-y border-line text-body" aria-label="Verlauf Brandschutzbeauftragte/r">
                 {[...history.data.entries].reverse().map((e, i) => (
-                  <li key={i} className="flex flex-col gap-0.5 px-3 py-2 sm:flex-row sm:items-center sm:gap-3">
-                    <span className="font-medium">{e.value ? 'Hinterlegt' : 'Entfernt'}</span>
+                  <li key={i} className="flex flex-col gap-0.5 py-2 sm:flex-row sm:items-center sm:gap-3">
+                    <span>{e.value ? 'Hinterlegt' : 'Entfernt'}</span>
                     {e.qualification && <span className="min-w-0 truncate text-ink-2">{e.qualification}</span>}
                     <span className="text-meta text-ink-3 tabular-nums sm:ml-auto sm:shrink-0">
                       {fmtDateTime(e.changedAt)} · {e.changedBy}
@@ -525,13 +489,13 @@ function InviteModal({ onClose }: { onClose: () => void }) {
               <label
                 key={r}
                 className={clsx(
-                  'flex cursor-pointer items-start gap-3 rounded-lg border px-3.5 py-2.5 transition-colors',
-                  role === r ? 'border-ink bg-canvas' : 'border-line hover:border-line-strong',
+                  'flex cursor-pointer items-start gap-3 rounded-md border px-3.5 py-2.5 transition-colors',
+                  role === r ? 'border-line-strong bg-selected' : 'border-line hover:border-line-strong',
                 )}
               >
                 <input type="radio" name="role" className="mt-1 size-4 accent-ink" checked={role === r} onChange={() => setRole(r)} />
                 <span>
-                  <span className="block text-body font-medium">{ROLES[r]}</span>
+                  <span className="block text-body">{ROLES[r]}</span>
                   <span className="block text-meta text-ink-3">{ROLE_HINT[r]}</span>
                 </span>
               </label>

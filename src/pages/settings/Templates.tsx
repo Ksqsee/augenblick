@@ -4,14 +4,14 @@ import { ArrowDown, ArrowUp, ChevronRight, Copy, Plus, RotateCcw, X } from 'luci
 import { type ReactNode, useState } from 'react';
 import { type AttributeField, CATEGORY_COLORS, type Checkpoint } from '../../../shared/catalog';
 import { api, type CategoryInfo, type EffectiveSchedule, useAction, useCategories } from '../../api';
-import { CategoryIcon, COLOR_CLASSES } from '../../components/CategoryIcon';
-import { Badge, Button, ErrorBox, Field, IconButton, Input, Modal, PageSkeleton, Segmented, Select, SectionHeader, useConfirm, useToast } from '../../components/ui';
+import { Button, ErrorBox, Field, IconButton, Input, Modal, Segmented, Select, SkeletonList, Surface, useConfirm, useToast } from '../../components/ui';
+import { LabelDot } from './Tasks';
 
 export function TemplatesTab() {
   const { data, isLoading, error, refetch } = useCategories();
   const [open, setOpen] = useState<string | null>(null);
   const [editType, setEditType] = useState<Partial<CategoryInfo> | null>(null);
-  if (isLoading) return <PageSkeleton />;
+  if (isLoading) return <SkeletonList rows={6} />;
   if (error || !data) return <ErrorBox error={error} onRetry={() => refetch()} />;
   const variant = (t: CategoryInfo) =>
     setEditType({
@@ -26,35 +26,36 @@ export function TemplatesTab() {
       base: t.key,
     });
   return (
-    <div className="flex flex-col gap-4">
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+    <Surface>
+      <div className="flex flex-col gap-3 px-(--row-px) pt-5 pb-3 sm:flex-row sm:items-start sm:justify-between sm:pt-6">
         <div className="max-w-2xl">
-          <SectionHeader title="Elementarten" count={data.length} className="mb-1" />
-          <p className="text-meta text-ink-3">Prüfpunkte und Intervalle je Prüfart anpassen oder eigene Arten anlegen (z. B. Rauchschutzvorhänge). Änderungen gelten für neue Prüfungen.</p>
+          <h2 className="flex items-baseline gap-2 text-meta font-medium text-ink-3">
+            Elementarten <span className="font-normal tabular-nums">{data.length}</span>
+          </h2>
+          <p className="mt-1 text-meta text-ink-2">Prüfpunkte und Intervalle je Prüfart anpassen oder eigene Arten anlegen (z. B. Rauchschutzvorhänge). Änderungen gelten für neue Prüfungen.</p>
         </div>
-        <Button icon={<Plus />} onClick={() => setEditType({})}>
+        <Button variant="secondary" icon={<Plus />} className="self-start" onClick={() => setEditType({})}>
           Eigene Elementart
         </Button>
       </div>
       {editType && <CategoryEditor initial={editType} onClose={() => setEditType(null)} />}
-      <ul className="divide-y divide-line overflow-hidden rounded-xl bg-surface shadow-card">
+      <ul className="pk-list pb-2 sm:pb-3" aria-label="Elementarten">
         {data.map((t) => {
           const isOpen = open === t.key;
           return (
-            <li key={t.key}>
-              <div className={clsx('flex items-center gap-1 pr-2 transition-colors', !isOpen && 'hover:bg-hover')}>
+            <li key={t.key} style={{ '--row-inset': '28px' } as React.CSSProperties}>
+              <div className={clsx('flex items-center gap-1 pr-[calc(var(--row-px)-0.5rem)] transition-colors', !isOpen && 'hover:bg-hover')}>
                 <button
                   type="button"
-                  className="flex min-h-14 min-w-0 flex-1 items-center gap-3 py-2.5 pl-4 text-left"
+                  className="flex min-h-[52px] min-w-0 flex-1 items-center gap-3 py-2 pl-(--row-px) text-left sm:min-h-12"
                   onClick={() => setOpen(isOpen ? null : t.key)}
                   aria-expanded={isOpen}
                 >
                   <ChevronRight className={clsx('size-4 shrink-0 text-ink-4 transition-transform', isOpen && 'rotate-90')} />
-                  <CategoryIcon category={t.key} size="sm" />
                   <span className="min-w-0 flex-1">
-                    <span className="flex items-center gap-2 text-body font-medium">
+                    <span className="flex items-baseline gap-2 text-body">
                       <span className="truncate">{t.label}</span>
-                      <span className="shrink-0 font-mono text-caption font-normal text-ink-3">{t.prefix}</span>
+                      <span className="shrink-0 font-mono text-caption text-ink-3">{t.prefix}</span>
                     </span>
                     <span className="mt-0.5 block truncate text-meta text-ink-3">
                       {t.schedulesEffective.map((s) => `${s.label} · ${s.intervalMonths} Mon.`).join('  ·  ')}
@@ -62,18 +63,10 @@ export function TemplatesTab() {
                     </span>
                   </span>
                 </button>
-                {t.custom ? (
-                  <Badge tone="info" className="max-sm:hidden">
-                    Eigene Art
-                  </Badge>
-                ) : t.customized ? (
-                  <Badge variant="outline" className="max-sm:hidden">
-                    Angepasst
-                  </Badge>
-                ) : null}
+                {(t.custom || t.customized) && <span className="mr-2 shrink-0 text-meta text-ink-3 max-sm:hidden">{t.custom ? 'Eigene Art' : 'Angepasst'}</span>}
                 <IconButton label={`${t.label} als Variante kopieren`} icon={<Copy />} onClick={() => variant(t)} />
                 {t.custom && (
-                  <Button size="sm" variant="secondary" onClick={() => setEditType(t)}>
+                  <Button size="sm" variant="ghost" onClick={() => setEditType(t)}>
                     Bearbeiten
                   </Button>
                 )}
@@ -83,7 +76,7 @@ export function TemplatesTab() {
           );
         })}
       </ul>
-    </div>
+    </Surface>
   );
 }
 
@@ -91,7 +84,7 @@ function ScheduleTemplates({ category }: { category: CategoryInfo }) {
   const [key, setKey] = useState(category.schedulesEffective[0].key);
   const sched = category.schedulesEffective.find((s) => s.key === key) ?? category.schedulesEffective[0];
   return (
-    <div className="animate-in border-t border-line bg-canvas/60 px-4 py-5 sm:px-5 sm:pl-[3.75rem]">
+    <div className="animate-in px-(--row-px) pt-1 pb-6 sm:pl-[calc(var(--row-px)+1.75rem)]">
       {category.schedulesEffective.length > 1 && (
         <Segmented className="mb-4" value={key} onChange={setKey} options={category.schedulesEffective.map((s) => ({ value: s.key, label: s.label }))} />
       )}
@@ -211,7 +204,7 @@ function CategoryEditor({ initial, onClose }: { initial: Partial<CategoryInfo>; 
   );
   const sec = (title: string, hint: string, children: ReactNode) => (
     <div className="border-t border-line pt-4">
-      <p className="text-meta font-semibold text-ink-2">{title}</p>
+      <p className="text-meta font-medium text-ink-3">{title}</p>
       <p className="mb-3 text-caption text-ink-3">{hint}</p>
       {children}
     </div>
@@ -226,7 +219,7 @@ function CategoryEditor({ initial, onClose }: { initial: Partial<CategoryInfo>; 
           {editing && (
             <Button
               variant="ghost"
-              className="text-bad hover:bg-bad-soft hover:text-bad sm:mr-auto"
+              className="sm:mr-auto"
               onClick={async () => {
                 if (await confirm({ title: 'Elementart löschen?', text: 'Nur möglich, solange keine Elemente dieser Art existieren.', confirmLabel: 'Löschen', danger: true })) del.mutate(undefined);
               }}
@@ -257,7 +250,7 @@ function CategoryEditor({ initial, onClose }: { initial: Partial<CategoryInfo>; 
             {(id) => <Input id={id} value={f.norm} onChange={(e) => setF({ ...f, norm: e.target.value })} placeholder="z. B. DIN EN 12101-1" />}
           </Field>
           <div className="sm:col-span-2">
-            <p className="mb-2 text-meta font-medium text-ink-2">Farbe des Symbols</p>
+            <p className="mb-2 text-meta font-medium text-ink-2">Farbe</p>
             <div className="flex flex-wrap gap-2">
               {CATEGORY_COLORS.map((c) => (
                 <button
@@ -266,8 +259,10 @@ function CategoryEditor({ initial, onClose }: { initial: Partial<CategoryInfo>; 
                   aria-label={c}
                   aria-pressed={f.color === c}
                   onClick={() => setF({ ...f, color: c })}
-                  className={clsx('size-8 rounded-lg', COLOR_CLASSES[c], f.color === c && 'ring-2 ring-ink ring-offset-2')}
-                />
+                  className={clsx('grid size-8 place-items-center rounded-md transition-colors', f.color === c ? 'bg-selected' : 'hover:bg-hover')}
+                >
+                  <LabelDot color={c} size="lg" />
+                </button>
               ))}
             </div>
           </div>
