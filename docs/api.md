@@ -54,7 +54,7 @@ Für API-Schlüssel gelten diese Regeln:
 
 | Endpunkt | Beschreibung |
 |----------|--------------|
-| `POST /assets` | Element anlegen: `{ buildingId, category, location, floor, manufacturer, model, attributes, code? }` |
+| `POST /assets` | Element anlegen: `{ buildingId, category, location, floor, manufacturer, model, attributes, code?, warnDays? }` (`warnDays`: eigene Vorwarnzeit in Tagen) |
 | `PATCH /assets/:id` | Element ändern |
 | `PUT /assets/:id/schedules` | Prüfart aktivieren/deaktivieren: `{ key, enabled, nextDueAt? }` |
 | `POST /assets/:id/inspections` | Prüfungsentwurf anlegen: `{ schedule? }` oder Nachprüfung `{ purpose: "follow_up", followUpOf }` |

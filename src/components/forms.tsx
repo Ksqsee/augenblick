@@ -245,13 +245,14 @@ export function AssetForm({
     code: '',
     labelCode: initial?.labelCode ?? defaultLabel ?? '',
   });
+  const [warnDays, setWarnDays] = useState<number | ''>(initial?.warnDays ?? '');
   const [attrs, setAttrs] = useState<Record<string, string | number | boolean | null>>(initial?.attributes ?? {});
   const set = (k: keyof typeof f) => (e: React.ChangeEvent<HTMLInputElement>) => setF({ ...f, [k]: e.target.value });
   const save = useAction(
     () =>
       initial
-        ? api(`/assets/${initial.id}`, { method: 'PATCH', body: { ...f, labelCode: f.labelCode || undefined, attributes: attrs } })
-        : api<{ id: string; code: string }>('/assets', { body: { ...f, code: f.code || undefined, labelCode: f.labelCode || undefined, category, attributes: attrs } }),
+        ? api(`/assets/${initial.id}`, { method: 'PATCH', body: { ...f, labelCode: f.labelCode || undefined, attributes: attrs, warnDays: warnDays === '' ? null : warnDays } })
+        : api<{ id: string; code: string }>('/assets', { body: { ...f, code: f.code || undefined, labelCode: f.labelCode || undefined, category, attributes: attrs, warnDays: warnDays === '' ? null : warnDays } }),
     (r) => {
       const created = !initial && r && typeof r === 'object' ? (r as { id: string; code: string }) : undefined;
       toast(created ? `${created.code} angelegt` : 'Element gespeichert');
@@ -350,6 +351,19 @@ export function AssetForm({
         />
         <Field label="Hersteller">{(id) => <Input id={id} value={f.manufacturer} onChange={set('manufacturer')} />}</Field>
         <Field label="Typ / Modell">{(id) => <Input id={id} value={f.model} onChange={set('model')} />}</Field>
+        <Field label="Vorwarnung (Tage vor Fälligkeit)" hint="Leer = Vorgabe des Workspaces">
+          {(id) => (
+            <Input
+              id={id}
+              type="number"
+              min={1}
+              max={365}
+              inputMode="numeric"
+              value={warnDays}
+              onChange={(e) => setWarnDays(e.target.value === '' ? '' : Math.max(1, Math.min(365, Math.round(Number(e.target.value)))))}
+            />
+          )}
+        </Field>
         {!initial && (
           <Field label="Code" hint={`Leer lassen für automatischen Code (${def.prefix}-XXXX)`} className="sm:col-span-2">
             {(id) => <Input id={id} value={f.code} onChange={set('code')} placeholder={`${def.prefix}-…`} className="uppercase" />}

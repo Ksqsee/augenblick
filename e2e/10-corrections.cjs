@@ -204,11 +204,21 @@ const check = (ok, m) => {
   else {
     r = await api(`/assets/${target.id}/schedules`, { method: 'PUT', data: { key: 'visual', enabled: true, nextDueAt: Date.now() + 14 * DAY - 3_600_000 } });
     check(r.status === 200, 'Termin in 14 Tagen gesetzt');
+    // Element mit eigener Vorwarnzeit (60 Tage)
+    const t2 = (await api('/assets')).json.find((a) => a.id !== target.id && a.category === 'fire_door' && a.nextDueAt && a.nextDueAt > Date.now() + 70 * DAY);
+    if (t2) {
+      const full = (await api(`/assets/${t2.id}`)).json;
+      r = await api(`/assets/${t2.id}`, { method: 'PATCH', data: { buildingId: full.buildingId, location: full.location, floor: full.floor, manufacturer: full.manufacturer, model: full.model, attributes: full.attributes, warnDays: 60 } });
+      check(r.status === 200 && (await api(`/assets/${t2.id}`)).json.warnDays === 60, 'eigene Vorwarnzeit gespeichert');
+      await api(`/assets/${t2.id}/schedules`, { method: 'PUT', data: { key: 'visual', enabled: true, nextDueAt: Date.now() + 60 * DAY - 3_600_000 } });
+    }
     const cron = await fetch(`${BASE}/cdn-cgi/handler/scheduled?cron=15+5+*+*+*`);
     if (cron.status === 404) console.log('   (Cron-Endpunkt nur im Dev-Server – übersprungen)');
     else {
       const n = (await api('/notifications')).json.items.filter((x) => /in 14 Tagen fällig/.test(x.title));
       check(n.length === 1, `Vorab-Erinnerung erzeugt (${n.length})`);
+      const n60 = (await api('/notifications')).json.items.filter((x) => /in 60 Tagen fällig/.test(x.title));
+      check(n60.length === 1, `Erinnerung mit eigener Vorwarnzeit (${n60.length})`);
     }
   }
 

@@ -113,6 +113,8 @@ export interface Asset {
   floorPlanId: string | null;
   markerX: number | null;
   markerY: number | null;
+  /** eigene Vorwarnzeit (Tage), sonst Vorgabe des Workspaces */
+  warnDays?: number | null;
 }
 
 export interface Attachment {

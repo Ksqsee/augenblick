@@ -335,7 +335,7 @@ export function assetQuery(c: Ctx, where = '1=1', order = 'a.code') {
     `SELECT a.id, a.code, a.category, a.location, a.floor, a.manufacturer, a.model, a.attributes, a.label_code AS labelCode,
             a.floor_plan_id AS floorPlanId, a.marker_x AS markerX, a.marker_y AS markerY,
             a.last_inspection_id AS lastInspectionId, a.last_inspected_at AS lastInspectedAt, a.last_result AS lastResult,
-            a.next_due_at AS nextDueAt, a.created_at AS createdAt, a.schedules,
+            a.next_due_at AS nextDueAt, a.created_at AS createdAt, a.schedules, a.warn_days AS warnDays,
             b.id AS buildingId, b.name AS buildingName, p.id AS propertyId, p.name AS propertyName,
             (SELECT COUNT(*) FROM defects d WHERE d.asset_id = a.id AND d.status = 'open') AS openDefects
        FROM assets a JOIN buildings b ON b.id = a.building_id JOIN properties p ON p.id = b.property_id
@@ -397,6 +397,8 @@ const assetBody = z.object({
   attributes: z.record(attrValue).default({}),
   code: str(40).optional(),
   labelCode: str(60).optional(),
+  /** eigene Vorwarnzeit in Tagen (sonst Vorgabe des Workspaces) */
+  warnDays: z.number().int().min(1).max(365).nullable().default(null),
 });
 
 /** Zufälliger Code-Teil ohne verwechselbare Zeichen (0/O, 1/I). */
@@ -442,10 +444,10 @@ data.post('/assets', async (c) => {
   const aid = id();
   const t = now();
   await c.env.DB.prepare(
-    `INSERT INTO assets (id, tenant_id, building_id, category, code, location, floor, manufacturer, model, attributes, label_code, schedules, created_at, updated_at)
-     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+    `INSERT INTO assets (id, tenant_id, building_id, category, code, location, floor, manufacturer, model, attributes, label_code, schedules, created_at, updated_at, warn_days)
+     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
   )
-    .bind(aid, tid(c), b.buildingId, b.category, code, b.location, b.floor, b.manufacturer, b.model, JSON.stringify(b.attributes), label, JSON.stringify({ main: { enabled: true } }), t, t)
+    .bind(aid, tid(c), b.buildingId, b.category, code, b.location, b.floor, b.manufacturer, b.model, JSON.stringify(b.attributes), label, JSON.stringify({ main: { enabled: true } }), t, t, b.warnDays)
     .run();
   await logActivity(c, 'create', 'asset', aid, `${def.label} ${code} angelegt`);
   return c.json({ id: aid, code });
@@ -506,11 +508,11 @@ data.patch('/assets/:id', async (c) => {
   const label = b.labelCode?.toUpperCase() || null;
   if (label) await assertLabelFree(c, label, c.req.param('id'));
   const r = await c.env.DB.prepare(
-    `UPDATE assets SET building_id=?, location=?, floor=?, manufacturer=?, model=?, attributes=?, label_code=?, updated_at=?,
+    `UPDATE assets SET building_id=?, location=?, floor=?, manufacturer=?, model=?, attributes=?, label_code=?, updated_at=?, warn_days=?,
             floor_plan_id = CASE WHEN building_id = ? THEN floor_plan_id ELSE NULL END
       WHERE id=? AND tenant_id=? AND deleted_at IS NULL`,
   )
-    .bind(b.buildingId, b.location, b.floor, b.manufacturer, b.model, JSON.stringify(b.attributes), label, now(), b.buildingId, c.req.param('id'), tid(c))
+    .bind(b.buildingId, b.location, b.floor, b.manufacturer, b.model, JSON.stringify(b.attributes), label, now(), b.warnDays, b.buildingId, c.req.param('id'), tid(c))
     .run();
   if (!r.meta.changes) notFound('Element');
   return c.json({ ok: true });

@@ -47,22 +47,25 @@ async function runTenant(env: Env, t: Tenant, now: number) {
     });
   }
   // 1b) Vorab-Erinnerung: Elemente, deren Termin seit gestern in die Vorlaufzeit gerückt ist
-  if (t.reminder_days) {
-    const ahead = now + t.reminder_days * DAY;
-    const upcoming = await env.DB.prepare(
-      'SELECT COUNT(*) AS n FROM assets WHERE tenant_id = ? AND deleted_at IS NULL AND next_due_at < ? AND next_due_at >= ?',
+  //     (Vorlaufzeit je Element, sonst Vorgabe des Workspaces)
+  const ahead = (
+    await env.DB.prepare(
+      `SELECT COALESCE(warn_days, ?2) AS lead, COUNT(*) AS n FROM assets
+        WHERE tenant_id = ?1 AND deleted_at IS NULL AND COALESCE(warn_days, ?2) IS NOT NULL
+          AND next_due_at < ?3 + COALESCE(warn_days, ?2) * ?4 AND next_due_at >= ?3 + COALESCE(warn_days, ?2) * ?4 - ?4
+        GROUP BY lead`,
     )
-      .bind(t.id, ahead, ahead - DAY)
-      .first<number>('n');
-    if (upcoming) {
-      await notifyTenant(env, t.id, {
-        roles: ['owner', 'admin', 'inspector'],
-        type: 'due_reminder',
-        title: `${upcoming} ${upcoming === 1 ? 'Prüfung wird' : 'Prüfungen werden'} in ${t.reminder_days} Tagen fällig`,
-        link: '/pruefungen?tab=soon',
-        dedupe: `ahead-${today}`,
-      });
-    }
+      .bind(t.id, t.reminder_days, now, DAY)
+      .all<{ lead: number; n: number }>()
+  ).results;
+  for (const g of ahead) {
+    await notifyTenant(env, t.id, {
+      roles: ['owner', 'admin', 'inspector'],
+      type: 'due_reminder',
+      title: `${g.n} ${g.n === 1 ? 'Prüfung wird' : 'Prüfungen werden'} in ${g.lead} Tagen fällig`,
+      link: '/pruefungen?tab=soon',
+      dedupe: `ahead-${g.lead}-${today}`,
+    });
   }
   // 2) Wochenübersicht montags
   if (isMonday) {
