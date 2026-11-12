@@ -56,7 +56,7 @@ API: [`docs/api.md`](docs/api.md)
 - Rollen (Inhaber, Admin, Prüfer, Lesezugriff), Einladungen, Inhaberschaft übertragen, Aktivitätsprotokoll
 - **Benachrichtigungen** in der App und per Web Push, mit „Nicht stören“-Zeitraum; täglicher Cron für Fälligkeiten
   (einstellbare Vorab-Erinnerung), Wochenübersicht, SLA, Archiv; Hinweis bei Anmeldung von einem neuen Gerät
-- Passwort-Link durch Admin (kein E-Mail-Versand), Sitzungen verwalten, DSGVO-Export/-Löschung, Rechtstexte mit Zustimmung
+- Passwort-Link durch Admin (kein E-Mail-Versand), Sitzungen verwalten, **Anmeldeverlauf**, DSGVO-Export/-Löschung, Rechtstexte mit Zustimmung
 - **API-Zugangsschlüssel** (lesen oder lesen+schreiben) für Fremdsysteme; **Speicherverbrauch** des Workspaces
 - Anleitung & Hilfe in der App
 

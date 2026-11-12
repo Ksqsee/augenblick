@@ -107,8 +107,38 @@ function Profile() {
         </form>
       </Card>
       <Sessions />
+      <LoginHistory />
       <NewWorkspace />
     </div>
+  );
+}
+
+function LoginHistory() {
+  const q = useQuery({ queryKey: ['logins'], queryFn: () => api<{ at: number; success: boolean; userAgent: string; country: string }[]>('/account/logins') });
+  const failed = q.data?.filter((l) => !l.success).length ?? 0;
+  return (
+    <Card>
+      <CardHeader title="Anmeldeverlauf" subtitle={failed ? `${failed} fehlgeschlagene Versuche in den letzten 90 Tagen` : 'Letzte 90 Tage'} />
+      {q.isLoading ? (
+        <Spinner className="py-6" />
+      ) : !q.data?.length ? (
+        <p className="px-5 pb-5 text-sm text-ink-3">Noch keine Anmeldungen aufgezeichnet.</p>
+      ) : (
+        <ul className="max-h-80 divide-y divide-line overflow-y-auto">
+          {q.data.map((l, i) => (
+            <li key={i} className="flex items-center gap-3 px-5 py-2.5 text-sm">
+              <span className={clsx('size-2 shrink-0 rounded-full', l.success ? 'bg-ok' : 'bg-bad')} />
+              <span className="min-w-0 flex-1 truncate">
+                {deviceLabel(l.userAgent)}
+                {l.country && <span className="text-ink-3"> · {l.country}</span>}
+              </span>
+              {!l.success && <Badge tone="bad">Fehlgeschlagen</Badge>}
+              <span className="shrink-0 text-xs text-ink-3 tabular-nums">{fmtDateTime(l.at)}</span>
+            </li>
+          ))}
+        </ul>
+      )}
+    </Card>
   );
 }
 

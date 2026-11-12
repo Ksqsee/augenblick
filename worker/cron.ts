@@ -12,6 +12,7 @@ export async function runDaily(env: Env, now = Date.now()) {
     env.DB.prepare('DELETE FROM password_resets WHERE expires_at < ?').bind(now - 7 * DAY),
     env.DB.prepare('DELETE FROM auth_throttle WHERE created_at < ?').bind(now - DAY),
     env.DB.prepare('DELETE FROM notifications WHERE created_at < ?').bind(now - 180 * DAY),
+    env.DB.prepare('DELETE FROM login_events WHERE at < ?').bind(now - 90 * DAY),
   ]);
   // shortcut: rund 5 Queries je Workspace in einem Aufruf; ab ~150 Workspaces (D1: 1000 Queries je Aufruf, Free 50) auf Queues umstellen
   const tenants = (await env.DB.prepare('SELECT id, archive_after_months, timezone, reminder_days FROM tenants').all<Tenant>()).results;

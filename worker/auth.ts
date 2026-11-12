@@ -103,6 +103,7 @@ auth.post('/login', async (c) => {
   // Auch ohne Konto einen Hash prüfen, damit die Antwortzeit nicht verrät, ob die E-Mail existiert
   const ok = await verifyPassword(body.password, user?.password_hash ?? DUMMY_HASH);
   if (!user || !ok) {
+    if (user) await logLogin(c, user.id, false);
     await Promise.all([recordFailure(c, 'login-ip', ip), recordFailure(c, 'login-user', body.email)]);
     throw new HTTPException(401, { message: 'E-Mail oder Passwort falsch' });
   }
@@ -113,8 +114,17 @@ auth.post('/login', async (c) => {
   if (!m) throw new HTTPException(403, { message: 'Kein Workspace zugeordnet' });
   await startSession(c, user.id, m.tenant_id);
   await checkDevice(c, user.id, m.tenant_id);
+  await logLogin(c, user.id, true);
   return c.json({ ok: true });
 });
+
+/** Anmeldeverlauf: Gerät (User-Agent) und Land, keine IP-Adresse. */
+async function logLogin(c: Ctx, userId: string, success: boolean) {
+  const country = (c.req.raw as Request & { cf?: { country?: string } }).cf?.country ?? '';
+  await c.env.DB.prepare('INSERT INTO login_events (id, user_id, at, success, user_agent, country) VALUES (?,?,?,?,?,?)')
+    .bind(id(), userId, now(), success ? 1 : 0, (c.req.header('user-agent') ?? '').slice(0, 300), country)
+    .run();
+}
 
 const DEVICE_COOKIE = 'pk_device';
 
@@ -415,6 +425,7 @@ account.get('/export', async (c) => {
     user: await c.env.DB.prepare('SELECT id, email, name, created_at FROM users WHERE id = ?').bind(u.userId).first(),
     memberships: await q('SELECT m.tenant_id, t.name AS tenant, m.role, m.created_at FROM memberships m JOIN tenants t ON t.id = m.tenant_id WHERE m.user_id = ?', u.userId),
     sessions: await q('SELECT created_at, last_seen_at, user_agent, expires_at FROM sessions WHERE user_id = ?', u.userId),
+    logins: await q('SELECT at, success, user_agent, country FROM login_events WHERE user_id = ?', u.userId),
     legalAcknowledgments: await q('SELECT doc, version, accepted_at, user_agent FROM legal_acks WHERE user_id = ?', u.userId),
     activity: await q('SELECT tenant_id, action, entity, summary, created_at FROM activity WHERE user_id = ? ORDER BY created_at', u.userId),
     inspections: await q('SELECT id, tenant_id, asset_id, status, result, inspected_at FROM inspections WHERE inspector_id = ?', u.userId),
@@ -449,6 +460,7 @@ account.post('/delete', async (c) => {
     c.env.DB.prepare('DELETE FROM push_subscriptions WHERE user_id = ?').bind(u.userId),
     c.env.DB.prepare('DELETE FROM notifications WHERE user_id = ?').bind(u.userId),
     c.env.DB.prepare('DELETE FROM password_resets WHERE user_id = ?').bind(u.userId),
+    c.env.DB.prepare('DELETE FROM login_events WHERE user_id = ?').bind(u.userId),
     c.env.DB.prepare('DELETE FROM memberships WHERE user_id = ?').bind(u.userId),
     c.env.DB.prepare('UPDATE api_keys SET revoked_at = ? WHERE created_by = ? AND revoked_at IS NULL').bind(now(), u.userId),
     c.env.DB.prepare('UPDATE tasks SET assignee_id = NULL WHERE assignee_id = ?').bind(u.userId),
@@ -692,6 +704,14 @@ account.get('/api-keys', async (c) => {
     .bind(c.get('user').tenantId)
     .all();
   return c.json(rows.results);
+});
+
+/** Eigener Anmeldeverlauf (letzte 90 Tage, höchstens 50 Einträge). */
+account.get('/logins', async (c) => {
+  const rows = await c.env.DB.prepare('SELECT at, success, user_agent AS userAgent, country FROM login_events WHERE user_id = ? AND at > ? ORDER BY at DESC LIMIT 50')
+    .bind(c.get('user').userId, now() - 90 * 86_400_000)
+    .all<{ at: number; success: number; userAgent: string; country: string }>();
+  return c.json(rows.results.map((r) => ({ ...r, success: !!r.success })));
 });
 
 account.post('/api-keys', async (c) => {

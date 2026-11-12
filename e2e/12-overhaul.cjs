@@ -41,6 +41,17 @@ const check = (ok, m) => {
   await p.getByRole('button', { name: 'Anmelden' }).click();
   await p.getByText('Prüfstatus').waitFor();
 
+  step('Anmeldeverlauf');
+  {
+    const bad = await p.request.post(BASE + '/api/auth/login', { data: { email: 'demo@example.com', password: 'falsch-falsch' }, headers: { 'x-pk': '1' } });
+    check(bad.status() === 401, 'Fehlversuch');
+    const l = (await api('/account/logins')).json;
+    check(Array.isArray(l) && l.some((x) => x.success) && l.some((x) => !x.success) && !('ip' in l[0]), `Verlauf mit Erfolg und Fehlversuch (${l?.length})`);
+    const key = (await api('/account/api-keys', { data: { name: 'Verlauf', scope: 'read', expiresInDays: 1 } })).json.key;
+    const r = await fetch(BASE + '/api/account/logins', { headers: { authorization: `Bearer ${key}` } });
+    check(r.status === 403, `Verlauf nicht per API-Schlüssel (${r.status})`);
+  }
+
   step('Heute: Aktionen, Vorschläge, Rundgänge');
   await p.getByRole('heading', { name: 'Als Nächstes' }).waitFor();
   check(await p.getByRole('button', { name: /Erfassen/ }).first().isVisible(), 'Erfassen-Kachel');
