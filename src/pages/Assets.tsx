@@ -1,6 +1,7 @@
-// Elemente: alle prüfpflichtigen Elemente, nach Dringlichkeit gruppiert. Vorlage „Liste“ (docs/design.md 5.1).
+// Elemente: alle prüfpflichtigen Elemente, nach Dringlichkeit gruppiert. Vorlage „Liste“ (docs/design.md 5.2):
+// Kopf · Filter auf dem Grund · eine Surface mit einer Section „N Elemente“. Ein Statuswort je Zeile.
 // URL-Parameter: kategorie, status, objekt, q, neu, etikett
-import { FileUp, Package, Plus, Printer } from 'lucide-react';
+import { FileUp, Plus, Printer } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { type Asset, useAssets, useMe, useProperties } from '../api';
@@ -9,7 +10,7 @@ import { AssetDrawer } from '../components/AssetDrawer';
 import { AssetList } from '../components/AssetList';
 import { AssetForm } from '../components/forms';
 import { FilterSelect } from '../components/objects/FilterSelect';
-import { Button, Card, Chip, Empty, ErrorBox, FilterBar, Menu, PageHeader, SkeletonList } from '../components/ui';
+import { Button, Chip, Empty, ErrorBox, FilterBar, Menu, PageHeader, Section, SkeletonList, Surface } from '../components/ui';
 
 const DUE_FILTERS = [
   { value: 'overdue', label: 'Überfällig' },
@@ -95,7 +96,7 @@ export function AssetsPage() {
       <FilterBar
         search={{ value: q, onChange: setQ, placeholder: 'Code, Standort, Hersteller, Objekt …' }}
       >
-        <FilterSelect className="w-36" label="Nach Art filtern" value={category ?? ''} onChange={(v) => setParam('kategorie', v || undefined)}>
+        <FilterSelect className="w-32" label="Nach Art filtern" value={category ?? ''} onChange={(v) => setParam('kategorie', v || undefined)}>
           <option value="">Alle Arten</option>
           {allCategories().map((c) => (
             <option key={c.key} value={c.key}>
@@ -103,7 +104,7 @@ export function AssetsPage() {
             </option>
           ))}
         </FilterSelect>
-        <FilterSelect className="w-40" label="Nach Objekt filtern" value={propertyId ?? ''} onChange={(v) => setParam('objekt', v || undefined)}>
+        <FilterSelect className="w-36" label="Nach Objekt filtern" value={propertyId ?? ''} onChange={(v) => setParam('objekt', v || undefined)}>
           <option value="">Alle Objekte</option>
           {propertyId && !properties?.some((p) => p.id === propertyId) && <option value={propertyId}>Objekt</option>}
           {properties?.map((p) => (
@@ -120,39 +121,46 @@ export function AssetsPage() {
         ))}
       </FilterBar>
 
-      {isLoading ? (
-        <SkeletonList rows={8} />
-      ) : error ? (
+      {error ? (
         <ErrorBox error={error} onRetry={() => refetch()} />
-      ) : !data?.length ? (
-        <Card>
-          {filtered ? (
-            <Empty
-              icon={<Package />}
-              title="Keine Treffer"
-              text="Kein Element passt zu Suche und Filter."
-              action={
-                <Button variant="secondary" onClick={reset}>
-                  Filter zurücksetzen
-                </Button>
-              }
-            />
-          ) : (
-            <Empty icon={<Package />} title="Noch keine Elemente" text="Lege dein erstes Element an – oder importiere eine Liste." action={newButton('Element anlegen')} />
-          )}
-        </Card>
       ) : (
-        <Card className="overflow-hidden">
-          <div className="flex h-10 items-center justify-between gap-3 border-b border-line px-4 text-meta text-ink-3">
-            <span className="tabular-nums">{data.length} Elemente</span>
-            {filtered && (
-              <button type="button" onClick={reset} className="font-medium text-ink-2 hover:text-ink">
-                Filter zurücksetzen
-              </button>
-            )}
-          </div>
-          <AssetList assets={data} onSelect={setSelected} grouped={!due || due === 'defects'} />
-        </Card>
+        <Surface>
+          {isLoading ? (
+            <Section>
+              <SkeletonList rows={8} />
+            </Section>
+          ) : !data?.length ? (
+            <Section>
+              {filtered ? (
+                <Empty
+                  title="Keine Treffer"
+                  text="Kein Element passt zu Suche und Filter."
+                  action={
+                    <Button variant="ghost" onClick={reset}>
+                      Filter zurücksetzen
+                    </Button>
+                  }
+                />
+              ) : (
+                <Empty title="Noch keine Elemente" text="Lege dein erstes Element an – oder importiere eine Liste." action={newButton('Element anlegen')} />
+              )}
+            </Section>
+          ) : (
+            <Section
+              flush
+              title={data.length === 1 ? '1 Element' : `${data.length} Elemente`}
+              action={
+                filtered && (
+                  <button type="button" onClick={reset} className="text-meta font-medium text-ink-2 hover:text-ink">
+                    Filter zurücksetzen
+                  </button>
+                )
+              }
+            >
+              <AssetList assets={data} onSelect={setSelected} grouped={!due || due === 'defects'} aria-label="Elemente" />
+            </Section>
+          )}
+        </Surface>
       )}
     </>
   );
