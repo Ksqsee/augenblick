@@ -216,6 +216,10 @@ const check = (ok, m) => {
   await p.getByRole('region', { name: 'Überfällig' }).or(p.locator('section[aria-label="Überfällig"]')).first().waitFor();
   check(await p.locator('section[aria-label="Fällig heute"]').getByText('E2E heute fällig').isVisible(), 'Gruppe „Fällig heute“');
   check((await p.locator('section h2').allTextContents()).join('|').startsWith('Überfällig'), 'Überfällig steht oben');
+  // v3: kein SLA-Symbol in den Zeilen (das Datum trägt es), Label-Punkte immer neutral grau (ink-4)
+  check((await p.locator('[data-task] [aria-label="SLA-Lösungsfrist überschritten"]').count()) === 0, 'kein SLA-Symbol in den Zeilen');
+  const dots = await p.locator('[data-task] [data-label-dot]').evaluateAll((els) => els.map((e) => getComputedStyle(e).backgroundColor));
+  check(dots.length > 0 && dots.every((c) => c === 'rgb(180, 180, 175)'), `Label-Punkte in Zeilen neutral (${[...new Set(dots)].join(', ')})`);
   // v3: nur „Meine“ ist sichtbar, alles andere im Filter-Menü
   check((await p.getByRole('button', { name: 'Ohne Zuständige', exact: true }).count()) === 0, 'Filter liegen im Menü, nicht als Knopfreihe');
   const filterBtn = p.getByRole('button', { name: /^Filter( \d+)?$/ });

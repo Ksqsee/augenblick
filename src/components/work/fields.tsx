@@ -24,7 +24,10 @@ export function AssetCodes({ id = 'task-asset-codes' }: { id?: string }) {
   );
 }
 
-/** Labelfarbe nur als 6-px-Punkt, gemappt auf die gedämpften Status-Töne (keine Rohfarben). */
+/**
+ * Labelfarbe als Punkt, gemappt auf die gedämpften Status-Töne (keine Rohfarben).
+ * Nur in Einstellungen → Aufgaben, wo Labels gepflegt werden; in Listen und Panels ist der Punkt immer grau.
+ */
 const LABEL_DOT: Record<string, string> = {
   red: 'bg-shu',
   orange: 'bg-warn',
@@ -35,16 +38,18 @@ const LABEL_DOT: Record<string, string> = {
   violet: 'bg-info',
   slate: 'bg-ink-4',
 };
-export const labelDot = (color: string | null | undefined) => LABEL_DOT[color ?? ''] ?? 'bg-ink-4';
+export const labelTone = (color: string | null | undefined) => LABEL_DOT[color ?? ''] ?? 'bg-ink-4';
+/** Punkt eines Labels in Zeilen, Panels und Filtern: immer neutral (Zinnober bleibt für überfällig/kritisch). */
+export const LABEL_DOT_NEUTRAL = 'bg-ink-4';
 
-/** Label als schlichter Text mit Farbpunkt („● Wartungsvertrag“) – für die Meta-Zeile. */
+/** Label als schlichter Text mit grauem Punkt („● Wartungsvertrag“) – für die Meta-Zeile. */
 export function LabelText({ id }: { id: string }) {
   const { data } = useTaskLabels();
   const l = data?.find((x) => x.id === id);
   if (!l) return null;
   return (
     <span className="whitespace-nowrap">
-      <span aria-hidden className={clsx('mr-1 inline-block size-1.5 rounded-full align-middle', labelDot(l.color))} />
+      <span aria-hidden data-label-dot className={clsx('mr-1 inline-block size-1.5 rounded-full align-middle', LABEL_DOT_NEUTRAL)} />
       <span>{l.name}</span>
     </span>
   );
@@ -61,7 +66,7 @@ export function SeverityText({ severity, className }: { severity: Severity; clas
   );
 }
 
-/** Labels an/aus (Mehrfachauswahl). Neutral: Rahmen + Farbpunkt, gewählt = Tinte auf „selected“. */
+/** Labels an/aus (Mehrfachauswahl). Neutral: Rahmen + grauer Punkt, gewählt = Tinte auf „selected“. */
 export function LabelPicker({ value, onChange, disabled }: { value: string[]; onChange: (v: string[]) => void; disabled?: boolean }) {
   const labels = useTaskLabels();
   if (!labels.data?.length) return null;
@@ -83,7 +88,7 @@ export function LabelPicker({ value, onChange, disabled }: { value: string[]; on
               disabled && !on && 'hidden',
             )}
           >
-            <span aria-hidden className={clsx('size-1.5 rounded-full', labelDot(l.color))} />
+            <span aria-hidden data-label-dot className={clsx('size-1.5 rounded-full', LABEL_DOT_NEUTRAL)} />
             {l.name}
           </button>
         );

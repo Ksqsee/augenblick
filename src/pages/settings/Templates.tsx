@@ -2,10 +2,9 @@
 import clsx from 'clsx';
 import { ArrowDown, ArrowUp, ChevronRight, Copy, Plus, RotateCcw, X } from 'lucide-react';
 import { type ReactNode, useState } from 'react';
-import { type AttributeField, CATEGORY_COLORS, type Checkpoint } from '../../../shared/catalog';
+import { type AttributeField, type Checkpoint } from '../../../shared/catalog';
 import { api, type CategoryInfo, type EffectiveSchedule, useAction, useCategories } from '../../api';
 import { Button, ErrorBox, Field, IconButton, Input, Modal, Segmented, Select, SkeletonList, Surface, useConfirm, useToast } from '../../components/ui';
-import { LabelDot } from './Tasks';
 
 export function TemplatesTab() {
   const { data, isLoading, error, refetch } = useCategories();
@@ -176,6 +175,7 @@ function CategoryEditor({ initial, onClose }: { initial: Partial<CategoryInfo>; 
     prefix: editing ? (initial.prefix ?? '') : '',
     norm: initial.norm ?? '',
     intervalMonths: initial.intervalMonths ?? 12,
+    // Farbe hat seit v3 keine sichtbare Wirkung mehr (Symbole sind einfarbig) – gespeicherter Wert bleibt erhalten
     color: initial.color ?? 'slate',
   });
   const [checkpoints, setCheckpoints] = useState<Checkpoint[]>(initial.checkpoints?.length ? initial.checkpoints : [{ id: 'p1', label: '' }]);
@@ -249,23 +249,6 @@ function CategoryEditor({ initial, onClose }: { initial: Partial<CategoryInfo>; 
           <Field label="Norm / Grundlage" optional className="sm:col-span-2">
             {(id) => <Input id={id} value={f.norm} onChange={(e) => setF({ ...f, norm: e.target.value })} placeholder="z. B. DIN EN 12101-1" />}
           </Field>
-          <div className="sm:col-span-2">
-            <p className="mb-2 text-meta font-medium text-ink-2">Farbe</p>
-            <div className="flex flex-wrap gap-2">
-              {CATEGORY_COLORS.map((c) => (
-                <button
-                  key={c}
-                  type="button"
-                  aria-label={c}
-                  aria-pressed={f.color === c}
-                  onClick={() => setF({ ...f, color: c })}
-                  className={clsx('grid size-8 place-items-center rounded-md transition-colors', f.color === c ? 'bg-selected' : 'hover:bg-hover')}
-                >
-                  <LabelDot color={c} size="lg" />
-                </button>
-              ))}
-            </div>
-          </div>
         </div>
         {sec('Prüfpunkte', 'Werden bei jeder Prüfung abgefragt.', <CheckpointList items={checkpoints} onChange={setCheckpoints} />)}
         {sec(

@@ -1,5 +1,5 @@
 import clsx from 'clsx';
-import { AlarmClock, ClipboardCheck, MessageSquare } from 'lucide-react';
+import { ClipboardCheck, MessageSquare } from 'lucide-react';
 import { Fragment, type ReactNode } from 'react';
 import { TASK_KINDS } from '../../../shared/tasks';
 import type { Task } from '../../api';
@@ -52,7 +52,6 @@ export function TaskRow({
   const done = t.status === 'done';
   const closed = !isOpenTask(t);
   const due = closed ? { text: '' } : dueText(t.dueAt);
-  const breached = !closed && t.sla?.resolveBreached;
   const swipe = useSwipe(canEdit && !selectMode ? onToggleDone : undefined, done ? 'Wieder öffnen' : 'Erledigt', done);
   const who = t.assigneeName ?? t.subcontractorName;
   const context = [t.assetCode, t.propertyName].filter(Boolean).join(' · ');
@@ -99,11 +98,8 @@ export function TaskRow({
                 <span className="sr-only">Kommentare</span>
               </span>
             )}
-            {(due.text || breached) && (
-              <span className="inline-flex items-center justify-end gap-1.5 tabular-nums sm:min-w-20">
-                {breached && <AlarmClock className="hidden size-3.5 text-ink-4 sm:block" aria-label="SLA-Lösungsfrist überschritten" />}
-                <span className={due.tone === 'bad' ? 'text-shu' : due.tone === 'warn' ? 'text-ink' : 'text-ink-3'}>{due.text}</span>
-              </span>
+            {due.text && (
+              <span className={clsx('inline-block text-right tabular-nums sm:min-w-20', due.tone === 'bad' ? 'text-shu' : due.tone === 'warn' ? 'text-ink' : 'text-ink-3')}>{due.text}</span>
             )}
             <span className="hidden w-6 place-items-center sm:grid" title={who ?? 'Ohne Zuständige'}>
               {who ? <Avatar name={who} size="sm" /> : <span className="sr-only">Ohne Zuständige</span>}

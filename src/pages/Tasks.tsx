@@ -7,7 +7,7 @@ import { useStartInspection } from '../components/AssetDrawer';
 import { ResolveDefectDialog } from '../components/DefectResolve';
 import { Button, Chip, Empty, ErrorBox, Input, Kbd, PageHeader, SearchField, Section, SkeletonList, StatTile, Surface, Tabs, useConfirm, useToast, useUrlTab } from '../components/ui';
 import { BulkBar, barFieldCls } from '../components/work/BulkBar';
-import { labelDot } from '../components/work/fields';
+import { LABEL_DOT_NEUTRAL } from '../components/work/fields';
 import { FilterMenu } from '../components/work/FilterMenu';
 import { fromDateInput, isOpenTask, needsDefectQuestion, patchTask, TASK_PRIO, TASK_STATUS, typing } from '../components/work/model';
 import { listKeys, TextAction, WorkGroup } from '../components/work/rows';
@@ -198,7 +198,7 @@ export function TasksPage() {
                         label: 'Nach Label filtern',
                         value: label,
                         onChange: setLabel,
-                        options: [{ value: '', label: 'Alle Labels' }, ...labels.data.map((l) => ({ value: l.id, label: l.name, dot: labelDot(l.color) }))],
+                        options: [{ value: '', label: 'Alle Labels' }, ...labels.data.map((l) => ({ value: l.id, label: l.name, dot: LABEL_DOT_NEUTRAL }))],
                       },
                     ]
                   : []),

@@ -2,10 +2,9 @@
 import clsx from 'clsx';
 import { Plus, Trash2 } from 'lucide-react';
 import { useEffect, useState } from 'react';
-import { CATEGORY_COLORS } from '../../../shared/catalog';
 import { api, type SlaPolicies, useAction, useSla, useTaskLabels } from '../../api';
-import { COLOR_CLASSES } from '../../components/CategoryIcon';
 import { SettingsSection } from '../../components/admin';
+import { labelTone } from '../../components/work/fields';
 import { Button, ErrorBox, IconButton, Input, Skeleton, Surface, useConfirm, useToast } from '../../components/ui';
 
 export function TasksTab() {
@@ -70,12 +69,12 @@ function LabelsSection() {
       >
         <Input className="sm:flex-1" aria-label="Neues Label" placeholder="Neues Label" value={name} onChange={(e) => setName(e.target.value)} />
         <div className="flex items-center gap-1.5" role="radiogroup" aria-label="Farbe">
-          {CATEGORY_COLORS.map((c) => (
+          {LABEL_COLORS.map((c) => (
             <button
               key={c}
               type="button"
               role="radio"
-              aria-label={c}
+              aria-label={LABEL_COLOR_NAMES[c]}
               aria-checked={color === c}
               onClick={() => setColor(c)}
               className={clsx('grid size-8 place-items-center rounded-md transition-colors', color === c ? 'bg-selected' : 'hover:bg-hover')}
@@ -92,10 +91,13 @@ function LabelsSection() {
   );
 }
 
-/** Farbe eines Labels nur als Punkt (v3) – die Tonfarbe aus COLOR_CLASSES, ohne Fläche. */
+/** Wählbare Labelfarben: die gedämpften Status-Töne (ältere Werte wie „orange“ bleiben gültig und werden gemappt). */
+const LABEL_COLORS = ['slate', 'blue', 'green', 'amber', 'red'] as const;
+const LABEL_COLOR_NAMES: Record<string, string> = { slate: 'Grau', blue: 'Blau', green: 'Grün', amber: 'Ocker', red: 'Rot' };
+
+/** Farbe eines Labels als Punkt – nur hier in den Einstellungen; in Listen und Panels sind Label-Punkte grau. */
 export function LabelDot({ color, size = 'sm' }: { color: string; size?: 'sm' | 'lg' }) {
-  const text = (COLOR_CLASSES[color] ?? COLOR_CLASSES.slate).split(' ').find((c) => c.startsWith('text-'));
-  return <span aria-hidden className={clsx('shrink-0 rounded-full bg-current', text, size === 'lg' ? 'size-3' : 'size-1.5')} />;
+  return <span aria-hidden className={clsx('shrink-0 rounded-full', labelTone(color), size === 'lg' ? 'size-3' : 'size-1.5')} />;
 }
 
 const PR = { high: 'Hoch', medium: 'Mittel', low: 'Niedrig' } as const;
