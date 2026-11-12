@@ -6,8 +6,8 @@ import { useNavigate } from 'react-router-dom';
 import { deviceLabel } from '../../../shared/device';
 import { LEGAL_DOCS } from '../../../shared/legal';
 import { api, clearMeCache, queryClient, useAction, useMe } from '../../api';
-import { RowDivider, SettingRow } from '../../components/admin';
-import { Badge, Button, ErrorBox, Field, Input, Modal, Notice, SettingsSection, Skeleton, StatusDot, useConfirm, useToast } from '../../components/ui';
+import { RowDivider, SettingRow, SettingsSection } from '../../components/admin';
+import { Button, ErrorBox, Field, Input, Modal, Skeleton, StatusText, Surface, useConfirm, useToast } from '../../components/ui';
 import { fmtDateTime } from '../../format';
 import { forgetSignature, rememberedSignature } from '../../components/inspect/Signature';
 
@@ -16,7 +16,7 @@ export function AccountTab({ focus }: { focus?: 'privacy' }) {
     if (focus === 'privacy') setTimeout(() => document.getElementById('datenschutz')?.scrollIntoView({ block: 'start' }), 50);
   }, [focus]);
   return (
-    <div>
+    <Surface>
       <ProfileSection />
       <PasswordSection />
       <SessionsSection />
@@ -25,7 +25,7 @@ export function AccountTab({ focus }: { focus?: 'privacy' }) {
       <DataSection />
       <WorkspaceSection />
       <DeleteSection />
-    </div>
+    </Surface>
   );
 }
 
@@ -170,15 +170,11 @@ function SessionsSection() {
         <ul className="-my-1 divide-y divide-line">
           {sessions.map((s) => (
             <li key={s.id} className="flex items-center gap-3 py-3 first:pt-1 last:pb-1">
-              <span className="grid size-9 shrink-0 place-items-center rounded-lg bg-sunken text-ink-2 [&_svg]:size-[18px]">{isMobile(s.userAgent) ? <Smartphone /> : <Laptop />}</span>
+              <span className="shrink-0 text-ink-3 [&_svg]:size-4">{isMobile(s.userAgent) ? <Smartphone /> : <Laptop />}</span>
               <span className="min-w-0 flex-1">
-                <span className="flex flex-wrap items-center gap-2 text-body font-medium">
+                <span className="flex flex-wrap items-baseline gap-x-2 text-body">
                   {deviceLabel(s.userAgent)}
-                  {s.current && (
-                    <Badge tone="ok" dot>
-                      Dieses Gerät
-                    </Badge>
-                  )}
+                  {s.current && <span className="text-meta text-ink-3">dieses Gerät</span>}
                 </span>
                 <span className="mt-0.5 block text-meta text-ink-3">Zuletzt aktiv {fmtDateTime(s.lastSeenAt)}<span className="max-sm:hidden"> · angemeldet {fmtDateTime(s.createdAt)}</span></span>
               </span>
@@ -222,12 +218,15 @@ function LoginHistorySection() {
         <ul className="-my-1 divide-y divide-line">
           {rows.map((l, i) => (
             <li key={i} className="flex items-center gap-3 py-2.5 text-body first:pt-1 last:pb-1">
-              <StatusDot tone={l.success ? 'ok' : 'bad'} label={l.success ? 'Erfolgreich' : 'Fehlgeschlagen'} />
               <span className="min-w-0 flex-1 truncate">
                 {deviceLabel(l.userAgent)}
                 {l.country && <span className="text-ink-3"> · {l.country}</span>}
               </span>
-              {!l.success && <Badge tone="bad">Fehlgeschlagen</Badge>}
+              {!l.success && (
+                <StatusText tone="bad" className="shrink-0">
+                  Fehlgeschlagen
+                </StatusText>
+              )}
               <span className="shrink-0 text-meta text-ink-3 tabular-nums">{fmtDateTime(l.at)}</span>
             </li>
           ))}
@@ -262,7 +261,7 @@ function DataSection() {
           return (
             <li key={d.key} className="flex items-center gap-3 py-2.5 first:pt-1 last:pb-1">
               <a href={`/rechtliches/${d.key}`} target="_blank" rel="noreferrer" className="group min-w-0 flex-1">
-                <span className="flex items-center gap-1.5 text-body font-medium group-hover:underline">
+                <span className="flex items-center gap-1.5 text-body group-hover:underline">
                   {d.title}
                   <ExternalLink className="size-3.5 text-ink-4" />
                 </span>
@@ -271,9 +270,9 @@ function DataSection() {
               {ack ? (
                 <span className="shrink-0 text-meta text-ink-3">bestätigt {fmtDateTime(ack.acceptedAt)}</span>
               ) : (
-                <Badge tone="warn" dot>
+                <StatusText tone="warn" className="shrink-0">
                   offen
-                </Badge>
+                </StatusText>
               )}
             </li>
           );
@@ -337,13 +336,13 @@ function DeleteSection() {
     },
   );
   return (
-    <SettingsSection title="Konto löschen" description="Endgültig und ohne Wiederherstellung.">
-      <Notice tone="bad" title="Personenbezogene Daten werden gelöscht">
-        Prüfprotokolle bleiben als Nachweis für den Betreiber erhalten und zeigen dann „Gelöschte Person“.
-      </Notice>
-      <div className="flex justify-end">
+    <SettingsSection title="Gefahrenbereich" description="Endgültig und ohne Wiederherstellung.">
+      <SettingRow
+        title="Konto löschen"
+        description="Deine personenbezogenen Daten werden gelöscht. Prüfprotokolle bleiben als Nachweis für den Betreiber erhalten und zeigen dann „Gelöschte Person“."
+      >
         <Button
-          variant="danger"
+          variant="secondary"
           icon={<Trash2 />}
           onClick={async () => {
             if (await confirm({ title: 'Konto wirklich löschen?', text: 'Du wirst abgemeldet und kannst dich nicht mehr anmelden.', confirmLabel: 'Weiter', danger: true })) setOpen(true);
@@ -351,7 +350,7 @@ function DeleteSection() {
         >
           Konto löschen
         </Button>
-      </div>
+      </SettingRow>
       {confirmEl}
       {open && (
         <Modal

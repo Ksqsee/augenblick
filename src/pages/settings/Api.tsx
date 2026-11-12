@@ -1,10 +1,10 @@
 // Einstellungen → API: Zugangsschlüssel, Verbindung mit Claude (MCP) in zwei Schritten, REST-Kurzreferenz.
 import { useQuery } from '@tanstack/react-query';
-import { KeyRound, Plus } from 'lucide-react';
+import { Plus } from 'lucide-react';
 import { useState } from 'react';
 import { api, queryClient, useAction } from '../../api';
-import { CodeBlock, CopyField, Steps } from '../../components/admin';
-import { Badge, Button, Empty, ErrorBox, Field, Input, Menu, Modal, Notice, RowIcon, Select, SettingsSection, SkeletonList, useConfirm, useToast } from '../../components/ui';
+import { CodeBlock, CopyField, SettingsSection, Steps } from '../../components/admin';
+import { Button, ErrorBox, Field, Input, Menu, Modal, Select, Skeleton, Surface, useConfirm, useToast } from '../../components/ui';
 import { fmtDate, fmtRelative } from '../../format';
 
 interface ApiKeyRow {
@@ -64,11 +64,11 @@ const ENDPOINTS: [string, string][] = [
 
 export function ApiTab() {
   return (
-    <div>
+    <Surface>
       <KeysSection />
       <McpSection />
       <RestSection />
-    </div>
+    </Surface>
   );
 }
 
@@ -100,93 +100,81 @@ function KeysSection() {
   const newKey = () => setForm({ name: '', scope: 'read', expiresInDays: 365 });
 
   return (
-    <section className="grid gap-4 border-b border-line py-8 pt-0 lg:grid-cols-[minmax(0,16rem)_minmax(0,1fr)] lg:gap-10">
+    <SettingsSection
+      title="API-Schlüssel"
+      description="Für Fremdsysteme wie CAFM, ERP oder BI und für Verbindungen mit Claude. Ein Schlüssel handelt im Namen der Person, die ihn erstellt – höchstens mit Prüfer-Rechten."
+    >
       {confirmEl}
-      <div>
-        <h2 className="text-title font-semibold">API-Schlüssel</h2>
-        <p className="mt-1 text-meta text-ink-3">Für Fremdsysteme wie CAFM, ERP oder BI und für Verbindungen mit Claude. Ein Schlüssel handelt im Namen der Person, die ihn erstellt – höchstens mit Prüfer-Rechten.</p>
-      </div>
-      <div className="min-w-0">
-        {revoke.error && <ErrorBox error={revoke.error} className="mb-3" />}
-        {q.isLoading ? (
-          <SkeletonList rows={2} />
-        ) : q.error ? (
-          <ErrorBox error={q.error} onRetry={() => q.refetch()} />
-        ) : (
-          <div className="overflow-hidden rounded-xl bg-surface shadow-card">
-            <div className="flex items-center justify-between gap-3 border-b border-line px-4 py-2.5">
-              <span className="text-meta text-ink-3 tabular-nums">
-                {active.length} {active.length === 1 ? 'aktiver Schlüssel' : 'aktive Schlüssel'}
-              </span>
-              <Button size="sm" icon={<Plus />} onClick={newKey}>
-                Neuer Schlüssel
-              </Button>
-            </div>
-            {!keys.length ? (
-              <Empty compact icon={<KeyRound />} title="Noch keine Schlüssel" text="Lege einen Schlüssel an, um Prüfkompass mit anderen Systemen zu verbinden." />
-            ) : (
-              <ul className="divide-y divide-line">
-                {[...active, ...(showOld ? inactive : [])].map((k) => {
-                  const expired = !!k.expiresAt && k.expiresAt < Date.now();
-                  const off = !!k.revokedAt || expired;
-                  return (
-                    <li key={k.id} className="flex items-center gap-3 px-4 py-3">
-                      <RowIcon className={off ? 'opacity-50' : undefined}>
-                        <KeyRound />
-                      </RowIcon>
-                      <div className="min-w-0 flex-1">
-                        <p className="flex flex-wrap items-center gap-x-2 gap-y-1 text-body font-medium">
-                          <span className={off ? 'text-ink-3 line-through decoration-ink-4' : undefined}>{k.name}</span>
-                          <span className="font-mono text-caption font-normal text-ink-3">{k.prefix}…</span>
-                          {k.revokedAt ? (
-                            <Badge tone="muted">Widerrufen</Badge>
-                          ) : expired ? (
-                            <Badge tone="muted">Abgelaufen</Badge>
-                          ) : (
-                            <Badge variant="outline" tone={k.scope === 'write' ? 'warn' : 'muted'}>
-                              {k.scope === 'write' ? 'Lesen + Schreiben' : 'Nur lesen'}
-                            </Badge>
-                          )}
-                        </p>
-                        <p className="mt-0.5 truncate text-meta text-ink-3">
-                          {k.lastUsedAt ? `Zuletzt genutzt ${fmtRelative(k.lastUsedAt)}` : 'Noch nicht genutzt'} · {k.createdBy} · {k.expiresAt ? `gültig bis ${fmtDate(k.expiresAt)}` : 'ohne Ablauf'}
-                        </p>
-                      </div>
-                      {!k.revokedAt && (
-                        <Menu
-                          label={`Aktionen für ${k.name}`}
-                          items={[
-                            {
-                              label: 'Widerrufen',
-                              danger: true,
-                              onClick: async () => {
-                                if (
-                                  await confirm({
-                                    title: `„${k.name}“ widerrufen?`,
-                                    text: 'Systeme und Verbindungen, die diesen Schlüssel nutzen, verlieren sofort den Zugriff.',
-                                    confirmLabel: 'Widerrufen',
-                                    danger: true,
-                                  })
-                                )
-                                  revoke.mutate(k.id);
-                              },
-                            },
-                          ]}
-                        />
-                      )}
-                    </li>
-                  );
-                })}
-              </ul>
-            )}
-            {inactive.length > 0 && (
-              <button type="button" onClick={() => setShowOld(!showOld)} className="w-full border-t border-line px-4 py-2.5 text-left text-meta font-medium text-ink-2 hover:bg-hover hover:text-ink">
-                {showOld ? 'Widerrufene und abgelaufene ausblenden' : `${inactive.length} widerrufene oder abgelaufene anzeigen`}
-              </button>
-            )}
+      {revoke.error && <ErrorBox error={revoke.error} />}
+      {q.isLoading ? (
+        <Skeleton className="h-24 w-full" />
+      ) : q.error ? (
+        <ErrorBox error={q.error} onRetry={() => q.refetch()} />
+      ) : (
+        <div>
+          <div className="flex items-center justify-between gap-3 pb-2">
+            <span className="text-meta text-ink-3 tabular-nums">
+              {active.length} {active.length === 1 ? 'aktiver Schlüssel' : 'aktive Schlüssel'}
+            </span>
+            <Button size="sm" variant="secondary" icon={<Plus />} onClick={newKey}>
+              Neuer Schlüssel
+            </Button>
           </div>
-        )}
-      </div>
+          {!keys.length ? (
+            <p className="border-t border-line pt-3 text-body text-ink-2">Noch keine Schlüssel. Lege einen an, um Prüfkompass mit anderen Systemen zu verbinden.</p>
+          ) : (
+            <ul className="divide-y divide-line border-t border-line" aria-label="Schlüssel">
+              {[...active, ...(showOld ? inactive : [])].map((k) => {
+                const expired = !!k.expiresAt && k.expiresAt < Date.now();
+                const off = !!k.revokedAt || expired;
+                return (
+                  <li key={k.id} className="flex min-h-14 items-center gap-3 py-2.5">
+                    <div className="min-w-0 flex-1">
+                      <p className="flex min-w-0 items-baseline gap-2 text-body">
+                        <span className={off ? 'truncate text-ink-3 line-through decoration-ink-4' : 'truncate'}>{k.name}</span>
+                        <span className="shrink-0 font-mono text-caption text-ink-3">{k.prefix}…</span>
+                      </p>
+                      <p className="mt-0.5 truncate text-meta text-ink-3">
+                        {k.lastUsedAt ? `Zuletzt genutzt ${fmtRelative(k.lastUsedAt)}` : 'Noch nicht genutzt'} · {k.createdBy} · {k.expiresAt ? `gültig bis ${fmtDate(k.expiresAt)}` : 'ohne Ablauf'}
+                      </p>
+                    </div>
+                    <span className="shrink-0 text-meta text-ink-3 max-sm:hidden">
+                      {k.revokedAt ? 'Widerrufen' : expired ? 'Abgelaufen' : k.scope === 'write' ? 'Lesen + Schreiben' : 'Nur lesen'}
+                    </span>
+                    {!k.revokedAt && (
+                      <Menu
+                        label={`Aktionen für ${k.name}`}
+                        items={[
+                          {
+                            label: 'Widerrufen',
+                            danger: true,
+                            onClick: async () => {
+                              if (
+                                await confirm({
+                                  title: `„${k.name}“ widerrufen?`,
+                                  text: 'Systeme und Verbindungen, die diesen Schlüssel nutzen, verlieren sofort den Zugriff.',
+                                  confirmLabel: 'Widerrufen',
+                                  danger: true,
+                                })
+                              )
+                                revoke.mutate(k.id);
+                            },
+                          },
+                        ]}
+                      />
+                    )}
+                  </li>
+                );
+              })}
+            </ul>
+          )}
+          {inactive.length > 0 && (
+            <button type="button" onClick={() => setShowOld(!showOld)} className="min-h-10 border-t border-line pt-2 text-left text-meta font-medium text-ink-2 hover:text-ink w-full">
+              {showOld ? 'Widerrufene und abgelaufene ausblenden' : `${inactive.length} widerrufene oder abgelaufene anzeigen`}
+            </button>
+          )}
+        </div>
+      )}
 
       {form && (
         <Modal
@@ -246,7 +234,7 @@ function KeysSection() {
           </div>
         </Modal>
       )}
-    </section>
+    </SettingsSection>
   );
 }
 
@@ -296,7 +284,7 @@ function McpSection() {
             <p className="mb-2 font-medium text-ink-2">Werkzeuge</p>
             <ul className="flex flex-wrap gap-1.5" aria-label="MCP-Werkzeuge">
               {MCP_TOOLS.map((t) => (
-                <li key={t} className="rounded-md border border-line bg-canvas px-1.5 py-0.5 font-mono text-caption text-ink-2">
+                <li key={t} className="rounded-sm bg-sunken px-1.5 py-0.5 font-mono text-caption text-ink-2">
                   {t}
                 </li>
               ))}
@@ -321,7 +309,7 @@ function RestSection() {
           </div>
         ))}
       </dl>
-      <Notice tone="muted">Konto, Team, Benachrichtigungen und Einstellungen sind per API nicht erreichbar. Änderungen per API erscheinen in der Aktivität mit dem Namen des Schlüssels.</Notice>
+      <p className="text-meta text-ink-3">Konto, Team, Benachrichtigungen und Einstellungen sind per API nicht erreichbar. Änderungen per API erscheinen in der Aktivität mit dem Namen des Schlüssels.</p>
     </SettingsSection>
   );
 }

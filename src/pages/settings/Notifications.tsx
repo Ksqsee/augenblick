@@ -5,8 +5,8 @@ import { Bell, CalendarPlus } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { inQuietHours, type QuietHours } from '../../../shared/quiet';
 import { api, queryClient, useAction } from '../../api';
-import { CopyField, RowDivider, SettingRow } from '../../components/admin';
-import { Badge, Button, ErrorBox, Field, Input, Notice, SettingsSection, Skeleton, Switch, useToast } from '../../components/ui';
+import { CopyField, RowDivider, SettingRow, SettingsSection } from '../../components/admin';
+import { Button, ErrorBox, Field, Input, Notice, Skeleton, StatusText, Surface, Switch, useToast } from '../../components/ui';
 import { fmtDateTime } from '../../format';
 
 interface NotifySettings {
@@ -28,19 +28,19 @@ export function NotificationsTab() {
   const q = useQuery({ queryKey: ['notify-settings'], queryFn: () => api<NotifySettings>('/notifications/settings') });
   if (q.isLoading)
     return (
-      <div className="flex flex-col gap-6">
-        <Skeleton className="h-32 w-full rounded-xl" />
-        <Skeleton className="h-64 w-full rounded-xl" />
-      </div>
+      <Surface className="flex flex-col gap-6 p-(--row-px)">
+        <Skeleton className="h-24 w-full" />
+        <Skeleton className="h-48 w-full" />
+      </Surface>
     );
   if (q.error || !q.data) return <ErrorBox error={q.error} onRetry={() => q.refetch()} />;
   return (
-    <div>
+    <Surface>
       <PushSection data={q.data} />
       <EventsSection data={q.data} />
       <QuietSection initial={q.data.quiet} />
       <CalendarSection />
-    </div>
+    </Surface>
   );
 }
 
@@ -88,13 +88,9 @@ function PushSection({ data }: { data: NotifySettings }) {
       ) : (
         <SettingRow
           title={
-            <span className="flex items-center gap-2">
+            <span className="flex items-center gap-3">
               Push-Nachrichten
-              {state === 'on' && (
-                <Badge tone="ok" dot>
-                  Aktiv
-                </Badge>
-              )}
+              {state === 'on' && <StatusText tone="ok">Aktiv</StatusText>}
             </span>
           }
           description={devices}
@@ -135,15 +131,15 @@ function EventsSection({ data }: { data: NotifySettings }) {
   const box = 'size-[18px] cursor-pointer rounded accent-ink';
   return (
     <SettingsSection title="Worüber du informiert wirst" description="Für jedes Ereignis wählst du, ob es in der App (Glocke) und per Push kommt. Änderungen gelten sofort.">
-      <div className="-mx-4 -my-4 sm:-mx-5 sm:-my-5">
-        <div className="grid grid-cols-[minmax(0,1fr)_4.5rem_4.5rem] items-center border-b border-line px-4 py-2.5 text-caption font-medium text-ink-3 sm:px-5">
+      <div>
+        <div className="grid grid-cols-[minmax(0,1fr)_4.5rem_4.5rem] items-center border-b border-line pb-2 text-caption font-medium text-ink-3">
           <span>Ereignis</span>
           <span className="text-center">In der App</span>
           <span className="text-center">Push</span>
         </div>
         <ul className="divide-y divide-line">
           {Object.entries(data.types).map(([k, label]) => (
-            <li key={k} className="grid min-h-12 grid-cols-[minmax(0,1fr)_4.5rem_4.5rem] items-center px-4 py-2 text-body sm:px-5">
+            <li key={k} className="grid min-h-11 grid-cols-[minmax(0,1fr)_4.5rem_4.5rem] items-center py-1.5 text-body">
               <span className="min-w-0 pr-2">{label}</span>
               <span className="grid place-items-center">
                 <input type="checkbox" aria-label={`${label} in der App`} className={box} checked={prefs[k]?.inApp !== false} onChange={(e) => set(k, 'inApp', e.target.checked)} />
@@ -186,13 +182,9 @@ function QuietSection({ initial }: { initial: QuietHours }) {
         checked={f.enabled}
         onChange={(v) => setF({ ...f, enabled: v })}
         label={
-          <span className="flex items-center gap-2">
+          <span className="flex items-center gap-3">
             Ruhezeit verwenden
-            {active && (
-              <Badge tone="info" dot>
-                Gerade aktiv
-              </Badge>
-            )}
+            {active && <StatusText tone="info">Gerade aktiv</StatusText>}
           </span>
         }
         description={`Zeitzone ${tz.replace('_', ' ')}`}

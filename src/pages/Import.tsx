@@ -1,12 +1,11 @@
 import { allCategories, getCategory } from '../categories';
 import clsx from 'clsx';
-import { AlertCircle, CheckCircle2, Download, FileSpreadsheet, RotateCcw, Upload, X } from 'lucide-react';
+import { Download, RotateCcw, Upload, X } from 'lucide-react';
 import { useState } from 'react';
-import { Link } from 'react-router-dom';
 import { IMPORT_COLUMNS, type ImportRow, parseCsv, toImportRows } from '../../shared/importing';
 import { api, queryClient } from '../api';
 import { Stepper } from '../components/admin';
-import { Badge, Button, Card, type Column, DataTable, ErrorBox, IconButton, Notice, PageHeader, SectionHeader, Spinner, useToast } from '../components/ui';
+import { Button, ButtonLink, type Column, DataTable, ErrorBox, IconButton, PageHeader, Section, Spinner, StatusText, Surface, useToast } from '../components/ui';
 import { fmtDate } from '../format';
 
 interface ImportResponse {
@@ -121,9 +120,7 @@ export function ImportPage() {
       cell: (r) => {
         const res = resultByLine.get(r.line);
         return res ? (
-          <Badge tone={res.status === 'ok' ? 'ok' : 'bad'} dot>
-            {res.status === 'ok' ? 'Bereit' : 'Fehler'}
-          </Badge>
+          <StatusText tone={res.status === 'ok' ? 'ok' : 'bad'}>{res.status === 'ok' ? 'Bereit' : 'Fehler'}</StatusText>
         ) : (
           <span className="text-ink-4">–</span>
         );
@@ -137,10 +134,7 @@ export function ImportPage() {
       <Stepper className="mb-6" steps={['Datei wählen', 'Vorschau prüfen', 'Importiert']} current={step} />
 
       {done ? (
-        <Card className="flex flex-col items-center px-6 py-12 text-center">
-          <span className="mb-4 grid size-12 place-items-center rounded-full bg-ok-soft text-ok">
-            <CheckCircle2 className="size-6" />
-          </span>
+        <Surface className="flex flex-col items-center px-6 py-14 text-center">
           <p className="text-h3 font-semibold">{done.summary.created} Elemente importiert</p>
           <p className="mt-1 text-body text-ink-3">
             {n(done.summary.newProperties, 'neues Objekt', 'neue Objekte')} · {n(done.summary.newBuildings, 'neues Gebäude', 'neue Gebäude')}
@@ -150,27 +144,23 @@ export function ImportPage() {
             <Button variant="secondary" icon={<RotateCcw />} onClick={reset}>
               Weitere Datei
             </Button>
-            <Link to="/elemente">
-              <Button className="w-full">Zu den Elementen</Button>
-            </Link>
+            <ButtonLink to="/elemente">Zu den Elementen</ButtonLink>
           </div>
-        </Card>
+        </Surface>
       ) : (
-        <div className="flex flex-col gap-8">
-          <div className="grid grid-cols-1 gap-4 lg:grid-cols-[minmax(0,1fr)_20rem]">
+        <Surface>
+          <Section title="Datei">
+          <div className="grid grid-cols-1 gap-6 lg:grid-cols-[minmax(0,1fr)_18rem] lg:gap-10">
             {file ? (
-              <Card className="flex items-center gap-3 self-start p-4">
-                <span className="grid size-10 shrink-0 place-items-center rounded-lg bg-sunken text-ink-2">
-                  <FileSpreadsheet className="size-5" />
-                </span>
+              <div className="flex items-center gap-3 self-start border-y border-line py-3">
                 <div className="min-w-0 flex-1">
-                  <p className="truncate text-body font-medium">{file}</p>
+                  <p className="truncate text-body">{file}</p>
                   <p className="text-meta text-ink-3">
                     {busy ? 'Wird geprüft …' : error ? 'Konnte nicht gelesen werden' : `${n(rows.length, 'Zeile', 'Zeilen')} gelesen${problems.length ? ` · ${n(problems.length, 'Fehler', 'Fehler')}` : ''}`}
                   </p>
                 </div>
                 {busy ? <Spinner className="py-0" /> : <IconButton label="Andere Datei wählen" icon={<X />} onClick={reset} />}
-              </Card>
+              </div>
             ) : (
               <label
                 htmlFor="import-file"
@@ -186,15 +176,13 @@ export function ImportPage() {
                   if (f) onFile(f);
                 }}
                 className={clsx(
-                  'flex min-h-56 cursor-pointer flex-col items-center justify-center gap-3 rounded-xl border border-dashed px-6 py-10 text-center transition-colors',
-                  drag ? 'border-ink bg-surface' : 'border-line-strong bg-surface/60 hover:border-ink-3 hover:bg-surface',
+                  'flex min-h-48 cursor-pointer flex-col items-center justify-center gap-3 rounded-md border border-dashed px-6 py-10 text-center transition-colors',
+                  drag ? 'border-ink bg-hover' : 'border-line-strong hover:border-ink-3 hover:bg-hover',
                 )}
               >
-                <span className="grid size-11 place-items-center rounded-xl border border-line bg-surface text-ink-2 shadow-card">
-                  <Upload className="size-5" />
-                </span>
+                <Upload className="size-5 text-ink-3" />
                 <span>
-                  <span className="block text-title font-semibold">Datei hierher ziehen</span>
+                  <span className="block text-body font-medium">Datei hierher ziehen</span>
                   <span className="mt-0.5 block text-body text-ink-3">oder hier eine Excel- (.xlsx) oder CSV-Datei auswählen</span>
                 </span>
                 <span className="text-caption text-ink-3">Bis 1000 Zeilen pro Import</span>
@@ -211,8 +199,8 @@ export function ImportPage() {
                 if (f) onFile(f);
               }}
             />
-            <Card className="flex flex-col gap-3 p-4 sm:p-5">
-              <p className="text-title font-semibold">So klappt der Import</p>
+            <div className="flex flex-col gap-3 lg:border-l lg:border-line lg:pl-6">
+              <p className="text-meta font-medium text-ink-3">So klappt der Import</p>
               <ul className="flex flex-col gap-1.5 text-meta text-ink-2">
                 <li>Erste Zeile enthält die Spaltennamen.</li>
                 <li>
@@ -232,17 +220,16 @@ export function ImportPage() {
               <Button variant="secondary" icon={<Download />} onClick={downloadTemplate} className="mt-1 self-start">
                 Vorlage (CSV)
               </Button>
-            </Card>
+            </div>
           </div>
-
-          {!!error && <ErrorBox error={error} />}
+          {!!error && <ErrorBox error={error} className="mt-4" />}
+          </Section>
 
           {(rows.length > 0 || parseErrors.length > 0) && (
-            <section>
-              <div className="mb-3 flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+            <Section title="Vorschau" count={rows.length} flush>
+              <div className="mb-3 flex flex-col gap-3 px-(--row-px) sm:flex-row sm:items-center sm:justify-between">
                 <div>
-                  <SectionHeader title="Vorschau" count={rows.length} className="mb-0.5" />
-                  <p className="text-meta text-ink-3" aria-live="polite">
+                  <p className="text-meta text-ink-2" aria-live="polite">
                     {check
                       ? `${ready} Zeilen bereit · ${n(check.summary.newProperties, 'neues Objekt', 'neue Objekte')} · ${n(check.summary.newBuildings, 'neues Gebäude', 'neue Gebäude')}`
                       : busy
@@ -255,21 +242,29 @@ export function ImportPage() {
                 </Button>
               </div>
               {problems.length > 0 && (
-                <Notice tone="bad" icon={<AlertCircle />} title={`${n(problems.length, 'Zeile wird', 'Zeilen werden')} übersprungen`} className="mb-3">
-                  <ul className="mt-1 flex max-h-40 flex-col gap-0.5 overflow-y-auto text-meta">
+                <div className="mx-(--row-px) mb-4 border-l border-shu pl-3">
+                  <p className="text-body text-shu">{`${n(problems.length, 'Zeile wird', 'Zeilen werden')} übersprungen`}</p>
+                  <ul className="mt-1 flex max-h-40 flex-col gap-0.5 overflow-y-auto text-meta text-ink-2">
                     {problems.map((e, i) => (
                       <li key={i}>
                         Zeile {e.line}: {e.message}
                       </li>
                     ))}
                   </ul>
-                </Notice>
+                </div>
               )}
-              {rows.length > 0 && <DataTable columns={columns} rows={rows.slice(0, 200)} rowKey={(r) => String(r.line)} />}
-              {rows.length > 200 && <p className="mt-2 text-meta text-ink-3">… und {rows.length - 200} weitere Zeilen</p>}
-            </section>
+              {rows.length > 0 && (
+                <DataTable
+                  className="!rounded-none border-t border-line !bg-transparent !shadow-none [&_td:first-child]:pl-(--row-px) [&_th:first-child]:pl-(--row-px) [&_td:last-child]:pr-(--row-px) [&_th:last-child]:pr-(--row-px)"
+                  columns={columns}
+                  rows={rows.slice(0, 200)}
+                  rowKey={(r) => String(r.line)}
+                />
+              )}
+              {rows.length > 200 && <p className="mt-2 px-(--row-px) text-meta text-ink-3">… und {rows.length - 200} weitere Zeilen</p>}
+            </Section>
           )}
-        </div>
+        </Surface>
       )}
     </>
   );

@@ -1,9 +1,30 @@
-# Verwaltung und öffentliche Seiten – Designsystem v2
+# Verwaltung und öffentliche Seiten
 
 Umsetzung von `docs/design.md` für Einstellungen, Team, Subunternehmer, Import, Berichte, Hilfe, Suche (Strg K),
 Glocke, Rechtstexte sowie die öffentlichen Seiten Kunden-Link (`/kunde/:token`), Auftrag für Subunternehmer
-(`/extern/:token`) und die OAuth-Freigabe für MCP-Clients (`/oauth/authorize`).
-Bilder (1360 und 390 px): `docs/design/verwaltung/` (`d-…` Desktop, `m-…` Handy).
+(`/extern/:token`), Partner-Seite (`/partner/:code`) und die OAuth-Freigabe für MCP-Clients (`/oauth/authorize`).
+Bilder (1360 und 390 px, v3): `docs/design/v3/verwaltung/` (`d-…` Desktop, `m-…` Handy). Die v2-Bilder sind entfernt.
+
+## v3 (Phase 2, Paket H)
+
+- **Eine `Surface` je Seite bzw. Einstellungs-Reiter**, Abschnitte als `SettingsSection` (neu in `admin/`: Haarlinie
+  statt Karte, links 13-px-Titel + ein Satz, rechts Felder; Aktionen rechts unten) oder `Section`. Keine Karten in Karten.
+- **Automatik** ist die ruhigste Seite: Regeln als `SettingRow` (Name · ein Satz · `Segmented` · „Zuletzt ausgeführt“
+  in `ink-3` darunter), Zuweisungsregeln als Editor-Zeilen, Protokoll als zeitlich geordnete Liste nach Tagen
+  (Uhrzeit · Zusammenfassung · Regel · Person · „Rückgängig“ als Textknopf).
+- **Listen:** Titel · eine graue Meta-Zeile · rechts ein Statuswort (`StatusText`) oder Datum. Team: Rolle rechts,
+  Bereich/Anlegerecht/Brandschutzbeauftragte/r als Text in der Meta-Zeile. Subunternehmer: „3 offen“ als Statuswort,
+  Partner-Zugänge als eigener Abschnitt. Berichte: Liste ohne Symbole, Gruppen als kleine graue Köpfe.
+- **Keine Symbolkacheln, keine getönten Pillen** (Badges → Punkt + Wort), Label- und Artfarben nur als Punkt (`LabelDot`).
+- **Zinnober** nur für überfällig/kritisch und die eigentliche Lösch-Bestätigung („Konto löschen“ öffnet erst den Dialog).
+- **Öffentliche Seiten im Stil der Anmeldung** (`PublicPage`): Beton-Grund, Logo oben links, Inhalt linksbündig im
+  Raster, eine Surface, Rechtslinks unten. OAuth-Freigabe als schmale Fläche wie das Anmeldeformular; Kunden-Link mit
+  Lage als Satz, Prüfquote als Tintenlinie (Zinnober-Anteil = überfällig) und Kennzahlen ohne Kasten.
+- Neue Bausteine in `admin/`: `SettingsSection`, `PublicPage`, `SurfaceHead`, `DayHeading`/`ListHeading`,
+  `groupByDay`, `fmtTime`; `Stepper` neutral, `SaveBar` Radius 8. `PublicHeader` entfällt.
+- `public/icon.svg` und Manifest-/`theme-color` auf v3 (Tinte, Beton) – kein Orange mehr.
+
+## v2 (Stand davor)
 
 ## Neue Bausteine (`src/components/admin/index.tsx`)
 

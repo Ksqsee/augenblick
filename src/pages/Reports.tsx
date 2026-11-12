@@ -1,49 +1,32 @@
 import clsx from 'clsx';
-import {
-  AlertTriangle,
-  Building2,
-  CalendarClock,
-  CalendarRange,
-  ClipboardList,
-  DatabaseBackup,
-  Download,
-  Eye,
-  FileArchive,
-  FileSpreadsheet,
-  FileText,
-  Footprints,
-  QrCode,
-  ShieldCheck,
-  Trash2,
-} from 'lucide-react';
+import { Download, Eye, FileArchive, Trash2 } from 'lucide-react';
 import { useQuery } from '@tanstack/react-query';
 import { type ReactNode, useEffect, useMemo, useRef, useState } from 'react';
-import { Link, useSearchParams } from 'react-router-dom';
+import { useSearchParams } from 'react-router-dom';
 import { kindLabel, SEVERITIES } from '../../shared/catalog';
 import type { Result } from '../../shared/logic';
 import { api, archiveReport, type Asset, type Defect, type PropertyRow, type ReportRow, useAction, useAssets, useDefects, useInspections, useMe, useMembers, useProperties, useReports } from '../api';
 import { describeFilter, EMPTY_FILTER, filterParams, type InspectionFilter, InspectionFilters } from '../components/InspectionFilters';
+import { ListHeading } from '../components/admin';
 import { type MonthlyStatus, runMonthlyReports } from '../automation';
 import { DueBadge } from '../components/AssetList';
 import { APP_NAME } from '../components/Logo';
 import { PropertyReportButton } from '../components/PropertyReportButton';
 import {
   Button,
-  Card,
+  ButtonLink,
   Chip,
-  Empty,
   ErrorBox,
   IconButton,
   Input,
-  ListGroup,
   PageHeader,
-  RowIcon,
-  SectionHeader,
+  Section,
   Segmented,
   Select,
-  SkeletonList,
+  Skeleton,
   Spinner,
   StatusDot,
+  Surface,
   useConfirm,
   useToast,
 } from '../components/ui';
@@ -51,28 +34,23 @@ import { categoryLabel, fmtDate, fmtDateTime, RESULT_META } from '../format';
 import { QrImage } from './Asset';
 import { PrintFrame } from './Protocol';
 
-/** Zeile eines Standardberichts: Symbol, Titel, ein Satz – Aktionen rechts (Handy: darunter). */
-function ReportRowItem({ icon, title, text, children }: { icon: ReactNode; title: string; text: string; children: ReactNode }) {
+/** Zeile eines Standardberichts: Titel, ein Satz – Aktionen rechts (Handy: darunter). Kein Symbol. */
+function ReportRowItem({ title, text, children }: { icon?: ReactNode; title: string; text: string; children: ReactNode }) {
   return (
-    <li className="flex flex-col gap-3 px-4 py-3.5 md:flex-row md:items-center md:gap-4">
-      <div className="flex min-w-0 flex-1 items-start gap-3 md:items-center">
-        <RowIcon>{icon}</RowIcon>
-        <div className="min-w-0">
-          <p className="text-body font-medium">{title}</p>
-          <p className="mt-0.5 text-meta text-ink-3">{text}</p>
-        </div>
+    <li className="flex flex-col gap-2.5 px-(--row-px) py-3 md:flex-row md:items-center md:gap-6">
+      <div className="min-w-0 flex-1">
+        <p className="text-body text-ink">{title}</p>
+        <p className="mt-0.5 text-meta text-ink-3">{text}</p>
       </div>
-      <div className="flex shrink-0 flex-wrap items-center gap-2 max-md:pl-12">{children}</div>
+      <div className="flex shrink-0 flex-wrap items-center gap-2">{children}</div>
     </li>
   );
 }
 
 const LinkButton = ({ to, children, icon }: { to: string; children: ReactNode; icon?: ReactNode }) => (
-  <Link to={to}>
-    <Button variant="ghost" icon={icon} tabIndex={-1}>
-      {children}
-    </Button>
-  </Link>
+  <ButtonLink to={to} variant="ghost" icon={icon}>
+    {children}
+  </ButtonLink>
 );
 
 export function ReportsPage() {
@@ -82,27 +60,25 @@ export function ReportsPage() {
   return (
     <>
       <PageHeader title="Berichte" subtitle="Nachweise für Betreiber, Behörden und Versicherer" />
-      <div className="flex flex-col gap-8 lg:gap-10">
+      <Surface>
         <ReportBuilder />
 
-        <section>
-          <SectionHeader title="Standardberichte" meta="Landen automatisch im Archiv" />
-          <Card className="overflow-hidden">
-            <ul className="divide-y divide-line">
-              <ListGroup title="Als PDF" />
-              <ReportRowItem icon={<ShieldCheck />} title="Compliance-Übersicht" text="Prüfstatus aller Objekte mit überfälligen und bald fälligen Elementen.">
+        <Section title="Standardberichte" action={<span className="text-meta text-ink-3">Landen automatisch im Archiv</span>} flush>
+            <ul className="pk-list" aria-label="Standardberichte">
+              <ListHeading>Als PDF</ListHeading>
+              <ReportRowItem title="Compliance-Übersicht" text="Prüfstatus aller Objekte mit überfälligen und bald fälligen Elementen.">
                 <LinkButton to="/druck/compliance" icon={<Eye />}>
                   Ansehen
                 </LinkButton>
                 <PdfButton kind="compliance" />
               </ReportRowItem>
-              <ReportRowItem icon={<AlertTriangle />} title="Mängelbericht" text="Alle offenen Mängel nach Schwere sortiert, mit Fotos.">
+              <ReportRowItem title="Mängelbericht" text="Alle offenen Mängel nach Schwere sortiert, mit Fotos.">
                 <LinkButton to="/druck/maengel" icon={<Eye />}>
                   Ansehen
                 </LinkButton>
                 <PdfButton kind="defects" />
               </ReportRowItem>
-              <ReportRowItem icon={<Building2 />} title="Objektbericht" text="Ein Objekt komplett: Gebäude, Elemente mit Status, offene Mängel, Begehungen.">
+              <ReportRowItem title="Objektbericht" text="Ein Objekt komplett: Gebäude, Elemente mit Status, offene Mängel, Begehungen.">
                 <Select aria-label="Objekt für den Objektbericht" className="min-w-0 flex-1 md:w-52 md:flex-none" value={pid ?? ''} onChange={(e) => setPropId(e.target.value)}>
                   {props?.map((p) => (
                     <option key={p.id} value={p.id}>
@@ -115,8 +91,8 @@ export function ReportsPage() {
               <AnnualReportRow />
               <MonthlyReportsRow />
 
-              <ListGroup title="Listen und Etiketten" />
-              <ReportRowItem icon={<ClipboardList />} title="Elementliste" text="Alle Elemente mit Status und Terminen – bearbeitbar und über Import wieder einlesbar.">
+              <ListHeading>Listen und Etiketten</ListHeading>
+              <ReportRowItem title="Elementliste" text="Alle Elemente mit Status und Terminen – bearbeitbar und über Import wieder einlesbar.">
                 <a href="/api/export/assets.xlsx" download>
                   <Button variant="secondary" icon={<Download />} tabIndex={-1}>
                     Excel
@@ -128,33 +104,32 @@ export function ReportsPage() {
                   </Button>
                 </a>
               </ReportRowItem>
-              <ReportRowItem icon={<QrCode />} title="QR-Etiketten" text="Etikettenbogen zum Aufkleben. Der Scan öffnet direkt das Element.">
+              <ReportRowItem title="QR-Etiketten" text="Etikettenbogen zum Aufkleben. Der Scan öffnet direkt das Element.">
                 <LinkButton to="/druck/etiketten">Etiketten wählen</LinkButton>
               </ReportRowItem>
 
-              <ListGroup title="Weitere Nachweise" />
-              <ReportRowItem icon={<FileText />} title="Prüfprotokolle" text="Einzeln bei jeder Prüfung oder gesammelt als ZIP unter Prüfungen → Durchgeführt.">
+              <ListHeading>Weitere Nachweise</ListHeading>
+              <ReportRowItem title="Prüfprotokolle" text="Einzeln bei jeder Prüfung oder gesammelt als ZIP unter Prüfungen → Durchgeführt.">
                 <LinkButton to="/pruefungen?tab=done">Zu den Prüfungen</LinkButton>
               </ReportRowItem>
-              <ReportRowItem icon={<Footprints />} title="Begehungsprotokolle" text="Brandschutzbegehungen mit Feststellungen und Rechtsgrundlagen.">
+              <ReportRowItem title="Begehungsprotokolle" text="Brandschutzbegehungen mit Feststellungen und Rechtsgrundlagen.">
                 <LinkButton to="/begehungen">Zu den Begehungen</LinkButton>
               </ReportRowItem>
-              <ReportRowItem icon={<DatabaseBackup />} title="JSON-Backup" text="Vollständige Sicherung aller Daten des Workspaces (ohne Passwörter).">
+              <ReportRowItem title="JSON-Backup" text="Vollständige Sicherung aller Daten des Workspaces (ohne Passwörter).">
                 <a href="/api/export/backup.json" download>
                   <Button variant="ghost" icon={<Download />} tabIndex={-1}>
                     Herunterladen
                   </Button>
                 </a>
               </ReportRowItem>
-              <ReportRowItem icon={<FileSpreadsheet />} title="Import" text="Bestandslisten aus Excel oder CSV übernehmen – mit Objekten und Gebäuden.">
+              <ReportRowItem title="Import" text="Bestandslisten aus Excel oder CSV übernehmen – mit Objekten und Gebäuden.">
                 <LinkButton to="/import">Import öffnen</LinkButton>
               </ReportRowItem>
             </ul>
-          </Card>
-        </section>
+        </Section>
 
         <ReportArchive />
-      </div>
+      </Surface>
     </>
   );
 }
@@ -217,20 +192,18 @@ function ReportBuilder() {
     ['not_inspectable', 'nicht prüfbar'],
   ];
   return (
-    <section>
-      <SectionHeader title="Neuen Bericht erstellen" />
-      <Card className="overflow-hidden">
-        <div className="p-4 sm:p-5">
-          <p className="mb-4 max-w-2xl text-meta text-ink-3">Prüfungen nach Zeitraum, Objekt, Elementart, Ergebnis, Prüfer oder Art auswählen – als Übersicht (PDF) oder mit allen Protokollen (ZIP).</p>
+    <Section title="Neuen Bericht erstellen">
+        <div>
+          <p className="-mt-1 mb-4 max-w-2xl text-meta text-ink-2">Prüfungen nach Zeitraum, Objekt, Elementart, Ergebnis, Prüfer oder Art auswählen – als Übersicht (PDF) oder mit allen Protokollen (ZIP).</p>
           <InspectionFilters value={f} onChange={setF} />
         </div>
-        <div className="flex flex-col gap-3 border-t border-line bg-canvas/60 px-4 py-3 sm:px-5 md:flex-row md:items-center">
+        <div className="mt-4 flex flex-col gap-3 border-t border-line pt-4 md:flex-row md:items-center">
           <div className="mr-auto min-w-0 text-body" aria-live="polite">
             {isLoading ? (
               <span className="text-ink-3">Zählt …</span>
             ) : (
               <>
-                <span className="font-semibold tabular-nums">{rows.length} Prüfungen</span>
+                <span className="tabular-nums">{rows.length} Prüfungen</span>
                 {rows.length > 0 && (
                   <span className="mt-1 flex flex-wrap gap-x-3 gap-y-1 text-meta text-ink-3 md:mt-0 md:ml-3 md:inline-flex">
                     {split.map(([k, label]) => (
@@ -254,8 +227,7 @@ function ReportBuilder() {
             </Button>
           </div>
         </div>
-      </Card>
-    </section>
+    </Section>
   );
 }
 
@@ -299,7 +271,6 @@ function MonthlyReportsRow() {
   const s = status.data;
   return (
     <ReportRowItem
-      icon={<CalendarClock />}
       title="Monatsberichte"
       text={s.due ? `Objektberichte für ${s.label} – je Objekt ein PDF im Archiv.` : `Für ${s.label} bereits im Archiv. Der nächste Monat folgt zum Monatsanfang.`}
     >
@@ -325,7 +296,7 @@ function AnnualReportRow() {
   const [propertyId, setPropertyId] = useState('');
   const [busy, setBusy] = useState(false);
   return (
-    <ReportRowItem icon={<CalendarRange />} title="Jahresbericht" text="Ein Jahr je Objekt: Prüfungen nach Ergebnis, Mängel mit Behebungsquote, Begehungen.">
+    <ReportRowItem title="Jahresbericht" text="Ein Jahr je Objekt: Prüfungen nach Ergebnis, Mängel mit Behebungsquote, Begehungen.">
       <Select aria-label="Jahr" className="!w-24 shrink-0" value={year} onChange={(e) => setYear(Number(e.target.value))}>
         {[0, 1, 2, 3, 4].map((n) => (
           <option key={n} value={thisYear - n}>
@@ -386,17 +357,11 @@ function ReportArchive() {
   const rows = all.filter((r) => !kind || r.kind === kind);
   const count = (k: ReportRow['kind']) => all.filter((r) => r.kind === k).length;
   return (
-    <section aria-labelledby="archive-h">
+    <Section title="Erstellte Berichte" count={data ? all.length : undefined} flush>
       {confirmEl}
-      <div className="mb-2.5 flex flex-col gap-1">
-        <h2 id="archive-h" className="flex items-center gap-2 text-title font-semibold tracking-tight">
-          Erstellte Berichte
-          {data && <span className="rounded-md bg-sunken px-1.5 text-caption font-medium text-ink-2 tabular-nums">{all.length}</span>}
-        </h2>
-        <p className="text-meta text-ink-3">Jeder erzeugte Bericht bleibt hier als Nachweis abrufbar.</p>
-      </div>
+      <p className="-mt-1 mb-3 px-(--row-px) text-meta text-ink-2">Jeder erzeugte Bericht bleibt hier als Nachweis abrufbar.</p>
       {all.length > 0 && (
-        <div className="no-scrollbar -mx-4 mb-3 flex gap-1.5 overflow-x-auto px-4 sm:mx-0 sm:flex-wrap sm:px-0">
+        <div className="no-scrollbar mb-2 flex gap-1.5 overflow-x-auto px-(--row-px) sm:flex-wrap">
           <Chip active={!kind} onClick={() => setKind('')} count={all.length}>
             Alle
           </Chip>
@@ -409,23 +374,24 @@ function ReportArchive() {
             ))}
         </div>
       )}
-      {del.error && <ErrorBox error={del.error} className="mb-3" />}
+      {del.error && <ErrorBox error={del.error} className="mx-(--row-px) mb-3" />}
       {isLoading ? (
-        <SkeletonList rows={4} />
+        <div className="px-(--row-px) py-2">
+          <Skeleton className="h-28 w-full" />
+        </div>
       ) : error ? (
-        <ErrorBox error={error} onRetry={() => refetch()} />
+        <div className="px-(--row-px) py-2">
+          <ErrorBox error={error} onRetry={() => refetch()} />
+        </div>
       ) : !rows.length ? (
-        <Card>
-          <Empty compact icon={<FileArchive />} title="Noch keine Berichte" text="Erzeugte PDFs und ZIP-Exporte erscheinen automatisch hier." />
-        </Card>
+        <p className="px-(--row-px) py-3 text-body text-ink-2">Noch keine Berichte. Erzeugte PDFs und ZIP-Exporte erscheinen automatisch hier.</p>
       ) : (
-        <Card className="overflow-hidden">
-          <ul className="divide-y divide-line">
+        <>
+          <ul className="pk-list" aria-label="Erstellte Berichte">
             {rows.slice(0, limit).map((r) => (
-              <li key={r.id} className="flex min-h-14 items-center gap-3 py-2.5 pr-2 pl-4">
-                <RowIcon>{r.contentType === 'application/zip' ? <FileArchive /> : <FileText />}</RowIcon>
+              <li key={r.id} className="flex min-h-14 items-center gap-2 py-2 pr-[calc(var(--row-px)-0.5rem)] pl-(--row-px)">
                 <div className="min-w-0 flex-1">
-                  <p className="truncate text-body font-medium">{r.title}</p>
+                  <p className="truncate text-body text-ink">{r.title}</p>
                   <p className="truncate text-meta text-ink-3">
                     {KIND_LABEL[r.kind]} · <span className="tabular-nums">{fmtDateTime(r.createdAt)}</span>
                     <span className="max-sm:hidden">
@@ -439,7 +405,7 @@ function ReportArchive() {
                   download={r.fileName}
                   aria-label={`${r.title} herunterladen`}
                   title="Herunterladen"
-                  className="inline-flex h-10 shrink-0 items-center gap-1.5 rounded-lg px-2.5 text-meta font-medium text-ink-2 hover:bg-sunken hover:text-ink sm:h-9 [&_svg]:size-4"
+                  className="inline-flex h-10 shrink-0 items-center gap-1.5 rounded-md px-2.5 text-meta font-medium text-ink-2 hover:bg-hover hover:text-ink sm:h-9 [&_svg]:size-4"
                 >
                   <Download />
                   <span className="max-sm:hidden">Herunterladen</span>
@@ -457,13 +423,13 @@ function ReportArchive() {
             ))}
           </ul>
           {rows.length > limit && (
-            <button type="button" onClick={() => setLimit(limit + 30)} className="w-full border-t border-line px-4 py-2.5 text-left text-meta font-medium text-ink-2 hover:bg-hover hover:text-ink">
+            <button type="button" onClick={() => setLimit(limit + 30)} className="min-h-11 w-full border-t border-line px-(--row-px) text-left text-meta font-medium text-ink-2 hover:bg-hover hover:text-ink">
               {rows.length - limit} weitere anzeigen
             </button>
           )}
-        </Card>
+        </>
       )}
-    </section>
+    </Section>
   );
 }
 

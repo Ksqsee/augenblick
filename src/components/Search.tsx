@@ -1,20 +1,19 @@
 import { useQuery } from '@tanstack/react-query';
 import clsx from 'clsx';
-import { Building, Building2, CornerDownLeft, Loader2, Search as SearchIcon, SlidersHorizontal } from 'lucide-react';
+import { CornerDownLeft, Loader2, Search as SearchIcon, SlidersHorizontal } from 'lucide-react';
 import { type ReactNode, useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { parseQuery, queryUrl } from '../../shared/query';
 import { api, type SearchResult, useProperties } from '../api';
 import { allCategories } from '../categories';
 import { categoryLabel } from '../format';
-import { CategoryIcon } from './CategoryIcon';
 import { Kbd } from './ui';
 
 interface Hit {
   key: string;
   group: string;
   to: string;
-  icon: ReactNode;
+  icon?: ReactNode;
   title: string;
   sub: string;
 }
@@ -80,11 +79,7 @@ export function SearchPalette({ onClose }: { onClose: () => void }) {
             key: 'smart',
             group: 'Gefilterte Liste',
             to: queryUrl(smart),
-            icon: (
-              <span className="grid size-8 place-items-center rounded-lg bg-ink text-white">
-                <SlidersHorizontal className="size-4" />
-              </span>
-            ),
+            icon: <SlidersHorizontal className="size-4 text-ink-3" />,
             title: `${smart.target === 'defects' ? 'Mängel' : smart.target === 'tasks' ? 'Aufgaben' : 'Elemente'} anzeigen: ${smart.chips.join(' · ') || 'alle'}`,
             sub: smart.rest ? `und Text „${smart.rest}“` : 'Gefilterte Liste öffnen',
           },
@@ -97,7 +92,6 @@ export function SearchPalette({ onClose }: { onClose: () => void }) {
         key: `a${a.id}`,
         group: 'Elemente',
         to: `/elemente/${a.id}`,
-        icon: <CategoryIcon category={a.category} size="sm" />,
         title: `${a.code} · ${categoryLabel(a.category)}`,
         sub: [a.location, a.buildingName, a.propertyName].filter(Boolean).join(' · '),
       })),
@@ -105,11 +99,6 @@ export function SearchPalette({ onClose }: { onClose: () => void }) {
         key: `p${p.id}`,
         group: 'Objekte',
         to: `/objekte/${p.id}`,
-        icon: (
-          <span className="grid size-8 place-items-center rounded-lg bg-sunken text-ink-2">
-            <Building2 className="size-4" />
-          </span>
-        ),
         title: p.name,
         sub: p.address.split('\n').join(', '),
       })),
@@ -117,11 +106,6 @@ export function SearchPalette({ onClose }: { onClose: () => void }) {
         key: `b${b.id}`,
         group: 'Gebäude',
         to: `/objekte/${b.propertyId}`,
-        icon: (
-          <span className="grid size-8 place-items-center rounded-lg bg-sunken text-ink-2">
-            <Building className="size-4" />
-          </span>
-        ),
         title: b.name,
         sub: b.propertyName,
       })),
@@ -134,7 +118,7 @@ export function SearchPalette({ onClose }: { onClose: () => void }) {
   };
   return (
     <div className="animate-fade fixed inset-0 z-[70] flex items-start justify-center bg-ink/35 p-3 pt-[10vh] sm:p-4 sm:pt-[12vh]" onMouseDown={onClose}>
-      <div className="animate-in flex max-h-[80dvh] w-full max-w-xl flex-col overflow-hidden rounded-2xl bg-surface shadow-pop" onMouseDown={(e) => e.stopPropagation()} role="dialog" aria-modal aria-label="Suche">
+      <div className="animate-in flex max-h-[80dvh] w-full max-w-xl flex-col overflow-hidden rounded-xl bg-surface shadow-pop" onMouseDown={(e) => e.stopPropagation()} role="dialog" aria-modal aria-label="Suche">
         <div className="flex items-center gap-3 border-b border-line px-4">
           <SearchIcon className="size-5 shrink-0 text-ink-3" />
           <input
@@ -159,7 +143,7 @@ export function SearchPalette({ onClose }: { onClose: () => void }) {
         <ul className="scroll-thin min-h-0 flex-1 overflow-y-auto p-1.5">
           {debounced.length < 2 ? (
             <li className="px-3 py-8 text-center text-body text-ink-3">
-              <p className="font-medium text-ink-2">Element, Objekt oder Gebäude finden</p>
+              <p className="text-ink">Element, Objekt oder Gebäude finden</p>
               <p className="mt-1 text-meta">Tipp: „Brandschutztüren mit Mängeln“ öffnet direkt die gefilterte Liste.</p>
             </li>
           ) : hits.length === 0 && !isFetching ? (
@@ -171,11 +155,11 @@ export function SearchPalette({ onClose }: { onClose: () => void }) {
                 <button
                   onMouseEnter={() => setIdx(i)}
                   onClick={() => go(h)}
-                  className={clsx('flex min-h-12 w-full items-center gap-3 rounded-lg px-3 py-2 text-left', i === idx && 'bg-sunken')}
+                  className={clsx('flex min-h-12 w-full items-center gap-3 rounded-md px-3 py-2 text-left', i === idx && 'bg-selected')}
                 >
                   {h.icon}
                   <span className="min-w-0 flex-1">
-                    <span className="block truncate text-body font-medium">{h.title}</span>
+                    <span className="block truncate text-body text-ink">{h.title}</span>
                     <span className="block truncate text-meta text-ink-3">{h.sub || '–'}</span>
                   </span>
                   {i === idx && <CornerDownLeft className="size-4 shrink-0 text-ink-3 max-sm:hidden" />}

@@ -1,5 +1,5 @@
 import clsx from 'clsx';
-import { Bell as BellIcon, BellOff, CheckCheck, Settings2 } from 'lucide-react';
+import { Bell as BellIcon, CheckCheck, Settings2 } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { api, type Notification, queryClient, useNotifications } from '../api';
@@ -35,16 +35,16 @@ export function Bell({ align = 'right' }: { align?: 'left' | 'right' }) {
     <li key={n.id}>
       <button
         type="button"
-        className="flex w-full gap-3 rounded-lg px-3 py-2.5 text-left transition-colors hover:bg-hover"
+        className="flex w-full gap-3 rounded-md px-3 py-2.5 text-left transition-colors hover:bg-hover"
         onClick={async () => {
           setOpen(false);
           if (!n.readAt) await markRead([n.id]);
           if (n.link) navigate(n.link);
         }}
       >
-        <span className={clsx('mt-[7px] size-2 shrink-0 rounded-full', n.readAt ? 'bg-transparent' : 'bg-brand')} aria-label={n.readAt ? undefined : 'Ungelesen'} />
+        <span className={clsx('mt-[7px] size-1.5 shrink-0 rounded-full', n.readAt ? 'bg-transparent' : 'bg-ink')} aria-label={n.readAt ? undefined : 'Ungelesen'} />
         <span className="min-w-0 flex-1">
-          <span className={clsx('block text-body', n.readAt ? 'text-ink-2' : 'font-medium text-ink')}>{n.title}</span>
+          <span className={clsx('block text-body', n.readAt ? 'text-ink-2' : 'text-ink')}>{n.title}</span>
           {n.body && <span className="mt-0.5 line-clamp-2 text-meta text-ink-3">{n.body}</span>}
           <span className="mt-0.5 block text-caption text-ink-3">{fmtRelative(n.createdAt)}</span>
         </span>
@@ -54,7 +54,7 @@ export function Bell({ align = 'right' }: { align?: 'left' | 'right' }) {
   const group = (title: string, list: Notification[]) =>
     list.length > 0 && (
       <div>
-        <p className="px-3 pt-2 pb-1 text-caption font-medium text-ink-3">{title}</p>
+        <p className="px-3 pt-2 pb-1 text-meta font-medium text-ink-3">{title}</p>
         <ul>{list.map(row)}</ul>
       </div>
     );
@@ -86,9 +86,9 @@ export function Bell({ align = 'right' }: { align?: 'left' | 'right' }) {
           )}
         >
           <div className="flex items-center justify-between gap-3 border-b border-line px-4 py-3">
-            <p className="flex items-center gap-2 text-title font-semibold">
+            <p className="flex items-baseline gap-2 text-body font-semibold">
               Benachrichtigungen
-              {unread > 0 && <span className="rounded-md bg-sunken px-1.5 text-caption font-medium text-ink-2 tabular-nums">{unread}</span>}
+              {unread > 0 && <span className="text-meta font-normal text-ink-3 tabular-nums">{unread}</span>}
             </p>
             {unread > 0 && (
               <button type="button" onClick={() => markRead()} className="inline-flex h-8 items-center gap-1.5 rounded-md px-2 text-meta font-medium text-ink-2 hover:bg-sunken hover:text-ink">
@@ -111,10 +111,7 @@ export function Bell({ align = 'right' }: { align?: 'left' | 'right' }) {
           <div className="scroll-thin min-h-0 flex-1 overflow-y-auto p-1.5">
             {!items.length ? (
               <div className="flex flex-col items-center px-6 py-10 text-center">
-                <span className="mb-3 grid size-10 place-items-center rounded-xl border border-line text-ink-3">
-                  <BellOff className="size-5" />
-                </span>
-                <p className="text-body font-medium">{filter === 'unread' ? 'Alles gelesen' : 'Keine Benachrichtigungen'}</p>
+                <p className="text-body text-ink">{filter === 'unread' ? 'Alles gelesen' : 'Keine Benachrichtigungen'}</p>
                 <p className="mt-1 text-meta text-ink-3">Fälligkeiten, Mängel und Aufgaben melden sich hier.</p>
               </div>
             ) : (

@@ -1,18 +1,19 @@
 // Einstellungen → Aufgaben: Labels und SLA-Fristen je Priorität.
 import clsx from 'clsx';
-import { Plus, Tag, Trash2 } from 'lucide-react';
+import { Plus, Trash2 } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { CATEGORY_COLORS } from '../../../shared/catalog';
 import { api, type SlaPolicies, useAction, useSla, useTaskLabels } from '../../api';
 import { COLOR_CLASSES } from '../../components/CategoryIcon';
-import { Button, Empty, ErrorBox, IconButton, Input, SettingsSection, Skeleton, useConfirm, useToast } from '../../components/ui';
+import { SettingsSection } from '../../components/admin';
+import { Button, ErrorBox, IconButton, Input, Skeleton, Surface, useConfirm, useToast } from '../../components/ui';
 
 export function TasksTab() {
   return (
-    <div>
+    <Surface>
       <LabelsSection />
       <SlaSection />
-    </div>
+    </Surface>
   );
 }
 
@@ -37,13 +38,16 @@ function LabelsSection() {
       {isLoading ? (
         <Skeleton className="h-20 w-full" />
       ) : !data?.length ? (
-        <Empty compact className="!py-4" icon={<Tag />} title="Noch keine Labels" text="Lege unten das erste Label an." />
+        <p className="text-body text-ink-2">Noch keine Labels. Lege unten das erste an.</p>
       ) : (
         <ul className="-my-1 divide-y divide-line">
           {data.map((l) => (
             <li key={l.id} className="flex items-center gap-3 py-2 first:pt-0 last:pb-0">
-              <span className={clsx('rounded-md px-2 py-0.5 text-meta font-medium', COLOR_CLASSES[l.color])}>{l.name}</span>
-              <span className="flex-1 text-meta text-ink-3 tabular-nums">
+              <span className="flex min-w-0 items-center gap-2 text-body">
+                <LabelDot color={l.color} />
+                <span className="truncate">{l.name}</span>
+              </span>
+              <span className="flex-1 text-right text-meta text-ink-3 tabular-nums">
                 {l.used} {l.used === 1 ? 'Aufgabe' : 'Aufgaben'}
               </span>
               <IconButton
@@ -74,8 +78,10 @@ function LabelsSection() {
               aria-label={c}
               aria-checked={color === c}
               onClick={() => setColor(c)}
-              className={clsx('size-6 rounded-full', COLOR_CLASSES[c], color === c && 'ring-2 ring-ink ring-offset-2')}
-            />
+              className={clsx('grid size-8 place-items-center rounded-md transition-colors', color === c ? 'bg-selected' : 'hover:bg-hover')}
+            >
+              <LabelDot color={c} size="lg" />
+            </button>
           ))}
         </div>
         <Button variant="secondary" icon={<Plus />} loading={add.isPending} disabled={!name.trim()}>
@@ -84,6 +90,12 @@ function LabelsSection() {
       </form>
     </SettingsSection>
   );
+}
+
+/** Farbe eines Labels nur als Punkt (v3) – die Tonfarbe aus COLOR_CLASSES, ohne Fläche. */
+export function LabelDot({ color, size = 'sm' }: { color: string; size?: 'sm' | 'lg' }) {
+  const text = (COLOR_CLASSES[color] ?? COLOR_CLASSES.slate).split(' ').find((c) => c.startsWith('text-'));
+  return <span aria-hidden className={clsx('shrink-0 rounded-full bg-current', text, size === 'lg' ? 'size-3' : 'size-1.5')} />;
 }
 
 const PR = { high: 'Hoch', medium: 'Mittel', low: 'Niedrig' } as const;
@@ -110,16 +122,16 @@ function SlaSection() {
       {!f ? (
         <Skeleton className="h-32 w-full" />
       ) : (
-        <div className="-mx-4 -my-4 sm:-mx-5 sm:-my-5">
-          <div className="grid grid-cols-[minmax(0,1fr)_6.5rem_6.5rem] gap-3 border-b border-line px-4 py-2.5 text-caption font-medium text-ink-3 sm:grid-cols-[minmax(0,1fr)_9rem_9rem] sm:px-5">
+        <div>
+          <div className="grid grid-cols-[minmax(0,1fr)_6.5rem_6.5rem] gap-3 border-b border-line pb-2 text-caption font-medium text-ink-3 sm:grid-cols-[minmax(0,1fr)_9rem_9rem]">
             <span>Priorität</span>
             <span>Reaktion (h)</span>
             <span>Lösung (h)</span>
           </div>
           <ul className="divide-y divide-line">
             {(['high', 'medium', 'low'] as const).map((p) => (
-              <li key={p} className="grid grid-cols-[minmax(0,1fr)_6.5rem_6.5rem] items-center gap-3 px-4 py-2.5 sm:grid-cols-[minmax(0,1fr)_9rem_9rem] sm:px-5">
-                <span className="text-body font-medium">{PR[p]}</span>
+              <li key={p} className="grid grid-cols-[minmax(0,1fr)_6.5rem_6.5rem] items-center gap-3 py-2 sm:grid-cols-[minmax(0,1fr)_9rem_9rem]">
+                <span className="text-body">{PR[p]}</span>
                 <Input
                   type="number"
                   min={1}

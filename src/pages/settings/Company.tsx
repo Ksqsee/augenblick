@@ -2,16 +2,15 @@
 // Speichern-Leiste, darunter sofort wirksame Bereiche (Speicher, Sicherung, Papierkorb).
 import { useQuery } from '@tanstack/react-query';
 import clsx from 'clsx';
-import { Download, ImageUp, Plus, RotateCcw, X } from 'lucide-react';
+import { Download, ImageUp, Plus, X } from 'lucide-react';
 import { useMemo, useRef, useState } from 'react';
 import { DOC_LANGUAGES, type DocLanguage, TIME_ZONES } from '../../../shared/i18n';
 import { buildFileName, DEFAULT_PDF_PATTERN, PDF_PLACEHOLDERS } from '../../../shared/filename';
 import { api, downscale, fileUrl, type Me, queryClient, uploadBlob, useAction, useMe } from '../../api';
-import { MeterBar, RowDivider, SaveBar, SettingRow } from '../../components/admin';
-import { CategoryIcon } from '../../components/CategoryIcon';
-import { Button, Empty, ErrorBox, Field, IconButton, Input, Segmented, Select, SettingsSection, Skeleton, Switch, Textarea, useToast } from '../../components/ui';
+import { MeterBar, RowDivider, SaveBar, SettingRow, SettingsSection } from '../../components/admin';
+import { categoryLabel, fmtDateTime } from '../../format';
+import { Button, Empty, ErrorBox, Field, IconButton, Input, Segmented, Select, Skeleton, Surface, Switch, Textarea, useToast } from '../../components/ui';
 import { ADAPT_MODES, type AdaptMode } from '../../../shared/intervals';
-import { fmtDateTime } from '../../format';
 
 function initialForm(t: Me['tenant']) {
   return {
@@ -37,11 +36,11 @@ export function CompanyTab() {
   const { data: me } = useMe();
   if (!me) return <Skeleton className="h-96 w-full rounded-xl" />;
   return (
-    <div>
+    <Surface>
       <CompanyForm me={me} />
       <StorageSection />
       <TrashSection />
-    </div>
+    </Surface>
   );
 }
 
@@ -108,7 +107,7 @@ function CompanyForm({ me }: { me: Me }) {
       <SettingsSection title="Firmenprofil" description="Steht im Kopf aller Protokolle und Berichte.">
         {save.error && <ErrorBox error={save.error} />}
         <div className="flex items-center gap-4">
-          <div className="grid h-16 w-28 shrink-0 place-items-center overflow-hidden rounded-lg border border-line bg-canvas">
+          <div className="grid h-16 w-28 shrink-0 place-items-center overflow-hidden rounded-md border border-line bg-surface">
             {f.logoKey ? <img src={fileUrl(f.logoKey)} alt="Logo" className="max-h-12 max-w-24 object-contain" /> : <span className="text-caption text-ink-3">Kein Logo</span>}
           </div>
           <div className="flex min-w-0 flex-col gap-1.5">
@@ -164,7 +163,7 @@ function CompanyForm({ me }: { me: Me }) {
 
       <SettingsSection title="Prüfungen" description="Arten, Erinnerungen und Archiv für den ganzen Workspace.">
         <div>
-          <p className="text-body font-medium">Eigene Prüfungsarten</p>
+          <p className="text-body">Eigene Prüfungsarten</p>
           <p className="mt-0.5 text-meta text-ink-3">Ergänzen die festen Arten wie „Wiederkehrende Prüfung“. Pro Prüfung lassen sich mehrere wählen.</p>
           <ul className="mt-3 flex flex-col gap-2">
             {f.kinds.map((k, i) => (
@@ -239,7 +238,7 @@ function CompanyForm({ me }: { me: Me }) {
         </SettingRow>
       </SettingsSection>
 
-      <SettingsSection className="!border-b" title="Dokumente" description="Die Oberfläche bleibt deutsch. Sprache und Dateinamen gelten für PDF-Protokolle, Berichte und den Excel-Export.">
+      <SettingsSection title="Dokumente" description="Die Oberfläche bleibt deutsch. Sprache und Dateinamen gelten für PDF-Protokolle, Berichte und den Excel-Export.">
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
           <Field label="Sprache der Dokumente" hint="Eigene Prüfpunkte und Freitexte bleiben unverändert.">
             {(id) => (
@@ -389,14 +388,15 @@ function TrashSection() {
       ) : q.error ? (
         <ErrorBox error={q.error} onRetry={() => q.refetch()} />
       ) : !q.data?.length ? (
-        <Empty compact className="!py-4" icon={<RotateCcw />} title="Papierkorb ist leer" text="Gelöschte Elemente erscheinen hier 30 Tage lang." />
+        <Empty compact className="!items-start !px-0 !py-2 !text-left" title="Papierkorb ist leer" text="Gelöschte Elemente erscheinen hier 30 Tage lang." />
       ) : (
         <ul className="-my-1 divide-y divide-line">
           {q.data.map((a) => (
             <li key={a.id} className="flex items-center gap-3 py-2.5 first:pt-1 last:pb-1">
-              <CategoryIcon category={a.category} size="sm" />
               <span className="min-w-0 flex-1">
-                <span className="block text-body font-medium">{a.code}</span>
+                <span className="block text-body">
+                  {a.code} <span className="text-ink-3">· {categoryLabel(a.category)}</span>
+                </span>
                 <span className="block truncate text-meta text-ink-3">
                   {[a.location, a.buildingName, a.propertyName].filter(Boolean).join(' · ')} · gelöscht {fmtDateTime(a.deletedAt)}
                 </span>

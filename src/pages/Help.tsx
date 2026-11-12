@@ -1,8 +1,8 @@
 import clsx from 'clsx';
-import { ArrowRight, ChevronDown, LifeBuoy, SearchX } from 'lucide-react';
+import { ArrowRight, ChevronDown } from 'lucide-react';
 import { useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { Button, Card, Empty, PageHeader, SearchField, SectionHeader } from '../components/ui';
+import { Button, Empty, PageHeader, SearchField, Section, Surface } from '../components/ui';
 
 interface Topic {
   id: string;
@@ -146,44 +146,41 @@ export function HelpPage() {
   return (
     <div className="max-w-3xl">
       <PageHeader title="Anleitung & Hilfe" subtitle="So arbeitest du mit Prüfkompass – Schritt für Schritt." />
-      <SearchField className="mb-8 sm:!max-w-none" label="Hilfe durchsuchen" placeholder="Hilfe durchsuchen …" value={q} onChange={setQ} />
-      {topics.length > 0 && (
-        <section className="mb-10">
-          <SectionHeader title="Anleitungen" count={topics.length} />
-          <Card className="overflow-hidden">
-            <ul className="divide-y divide-line">
+      <SearchField className="mb-6 sm:!max-w-none" label="Hilfe durchsuchen" placeholder="Hilfe durchsuchen …" value={q} onChange={setQ} />
+      <Surface>
+        {topics.length > 0 && (
+          <Section title="Anleitungen" count={topics.length} flush>
+            <ul className="pk-list" aria-label="Anleitungen">
               {topics.map((t) => {
                 const isOpen = open === t.id || !!ql;
                 return (
                   <li key={t.id}>
                     <button
                       type="button"
-                      className="flex min-h-14 w-full items-center justify-between gap-3 px-4 py-3 text-left transition-colors hover:bg-hover sm:px-5"
+                      className="flex min-h-[52px] w-full items-center justify-between gap-3 px-(--row-px) py-2.5 text-left transition-colors hover:bg-hover sm:min-h-12"
                       onClick={() => setOpen(isOpen && !ql ? null : t.id)}
                       aria-expanded={isOpen}
                     >
-                      <span className="text-body font-medium">{t.title}</span>
+                      <span className="text-body text-ink">{t.title}</span>
                       <span className="flex shrink-0 items-center gap-3 text-meta text-ink-3">
                         <span className="max-sm:hidden">{t.steps.length} Schritte</span>
-                        <ChevronDown className={clsx('size-4 transition-transform', isOpen && 'rotate-180')} />
+                        <ChevronDown className={clsx('size-4 text-ink-4 transition-transform', isOpen && 'rotate-180')} />
                       </span>
                     </button>
                     {isOpen && (
-                      <div className="animate-in px-4 pb-5 sm:px-5">
-                        <ol className="flex flex-col gap-3">
+                      <div className="animate-in px-(--row-px) pb-5">
+                        <ol className="flex flex-col gap-2.5">
                           {t.steps.map((s, i) => (
                             <li key={i} className="flex gap-3 text-body leading-relaxed text-ink-2">
-                              <span className="mt-0.5 grid size-5 shrink-0 place-items-center rounded-full bg-sunken text-caption font-semibold text-ink-2 tabular-nums">{i + 1}</span>
+                              <span className="w-4 shrink-0 text-right text-meta leading-relaxed text-ink-3 tabular-nums">{i + 1}</span>
                               <span className="min-w-0">{s}</span>
                             </li>
                           ))}
                         </ol>
                         {t.link && (
-                          <Link to={t.link[0]} className="mt-4 ml-8 inline-block">
-                            <Button variant="secondary" size="sm" tabIndex={-1}>
-                              {t.link[1]}
-                              <ArrowRight />
-                            </Button>
+                          <Link to={t.link[0]} className="mt-3 ml-7 inline-flex min-h-9 items-center gap-1.5 text-meta font-medium text-ink underline decoration-line-strong underline-offset-4 hover:decoration-ink">
+                            {t.link[1]}
+                            <ArrowRight className="size-3.5" />
                           </Link>
                         )}
                       </div>
@@ -192,33 +189,27 @@ export function HelpPage() {
                 );
               })}
             </ul>
-          </Card>
-        </section>
-      )}
-      {faq.length > 0 && (
-        <section>
-          <SectionHeader title="Häufige Fragen" count={faq.length} />
-          <Card className="overflow-hidden">
-            <ul className="divide-y divide-line">
+          </Section>
+        )}
+        {faq.length > 0 && (
+          <Section title="Häufige Fragen" count={faq.length} flush>
+            <ul className="pk-list" aria-label="Häufige Fragen">
               {faq.map(([qq, a]) => (
                 <li key={qq}>
                   <details className="group" open={!!ql}>
-                    <summary className="flex min-h-12 cursor-pointer list-none items-center justify-between gap-3 px-4 py-3 text-body font-medium transition-colors hover:bg-hover sm:px-5 [&::-webkit-details-marker]:hidden">
+                    <summary className="flex min-h-[52px] cursor-pointer list-none items-center justify-between gap-3 px-(--row-px) py-2.5 text-body text-ink transition-colors hover:bg-hover sm:min-h-12 [&::-webkit-details-marker]:hidden">
                       {qq}
-                      <ChevronDown className="size-4 shrink-0 text-ink-3 transition-transform group-open:rotate-180" />
+                      <ChevronDown className="size-4 shrink-0 text-ink-4 transition-transform group-open:rotate-180" />
                     </summary>
-                    <p className="px-4 pb-4 text-body leading-relaxed text-ink-2 sm:px-5">{a}</p>
+                    <p className="px-(--row-px) pb-4 text-body leading-relaxed text-ink-2">{a}</p>
                   </details>
                 </li>
               ))}
             </ul>
-          </Card>
-        </section>
-      )}
-      {!topics.length && !faq.length && (
-        <Card>
+          </Section>
+        )}
+        {!topics.length && !faq.length && (
           <Empty
-            icon={<SearchX />}
             title="Nichts gefunden"
             text={`Zu „${q.trim()}“ gibt es keine Anleitung. Versuche ein anderes Wort, z. B. „Prüfung“ oder „Export“.`}
             action={
@@ -227,12 +218,9 @@ export function HelpPage() {
               </Button>
             }
           />
-        </Card>
-      )}
-      <p className="mt-10 flex items-center gap-2 text-meta text-ink-3">
-        <LifeBuoy className="size-4" />
-        Fragen zur Prüfpflicht selbst beantworten Herstellerangaben, Vorschriften und das Brandschutzkonzept.
-      </p>
+        )}
+      </Surface>
+      <p className="mt-8 px-1 text-meta text-ink-3">Fragen zur Prüfpflicht selbst beantworten Herstellerangaben, Vorschriften und das Brandschutzkonzept.</p>
     </div>
   );
 }

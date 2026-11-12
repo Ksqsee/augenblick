@@ -1,11 +1,9 @@
-import { FileText } from 'lucide-react';
 import { useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { LEGAL_DOCS } from '../../shared/legal';
 import { api, queryClient } from '../api';
-import { PublicHeader } from './admin';
-import { Logo } from './Logo';
-import { Button, ErrorBox, Segmented } from './ui';
+import { PublicPage, SurfaceHead } from './admin';
+import { Button, ErrorBox, Segmented, Surface } from './ui';
 
 /** Muss bestätigt werden, bevor die App genutzt werden kann (nach jeder neuen Textversion). */
 export function LegalGate({ pending }: { pending: string[] }) {
@@ -28,9 +26,8 @@ export function LegalGate({ pending }: { pending: string[] }) {
         <div className="scroll-thin flex-1 overflow-y-auto px-5 py-4">
           {doc && (
             <>
-              <p className="mb-3 flex items-center gap-2 text-body font-medium">
-                <FileText className="size-4 text-ink-3" /> {doc.title}
-                <span className="text-meta font-normal text-ink-3">· Version {doc.version}</span>
+              <p className="mb-3 text-meta font-medium text-ink-3">
+                {doc.title} · Version {doc.version}
               </p>
               <div className="text-body leading-relaxed whitespace-pre-line text-ink-2">{doc.body}</div>
             </>
@@ -72,32 +69,24 @@ export function LegalPage() {
   const { doc } = useParams();
   const d = LEGAL_DOCS.find((x) => x.key === doc) ?? LEGAL_DOCS[0];
   return (
-    <div className="min-h-dvh bg-canvas">
-      <PublicHeader>
-        <Link to="/" aria-label="Zur Startseite">
-          <Logo />
-        </Link>
-      </PublicHeader>
-      <main className="mx-auto max-w-2xl px-4 py-8 sm:py-10">
-        <nav aria-label="Rechtstexte" className="no-scrollbar -mx-4 mb-6 flex gap-5 overflow-x-auto border-b border-line px-4 sm:mx-0 sm:px-0">
-          {LEGAL_DOCS.map((x) => (
-            <Link
-              key={x.key}
-              to={`/rechtliches/${x.key}`}
-              aria-current={x.key === d.key ? 'page' : undefined}
-              className={`relative flex h-11 shrink-0 items-center text-body font-medium whitespace-nowrap ${x.key === d.key ? 'text-ink' : 'text-ink-3 hover:text-ink-2'}`}
-            >
-              {x.title}
-              {x.key === d.key && <span className="absolute inset-x-0 -bottom-px h-0.5 rounded-full bg-ink" />}
-            </Link>
-          ))}
-        </nav>
-        <article>
-          <h1 className="text-h1 font-semibold tracking-[-0.02em]">{d.title}</h1>
-          <p className="mt-1 text-meta text-ink-3">Version {d.version}</p>
-          <div className="mt-6 rounded-xl bg-surface p-5 text-body leading-relaxed whitespace-pre-line text-ink-2 shadow-card sm:p-6">{d.body}</div>
-        </article>
-      </main>
-    </div>
+    <PublicPage>
+      <nav aria-label="Rechtstexte" className="no-scrollbar mb-6 flex gap-5 overflow-x-auto border-b border-line">
+        {LEGAL_DOCS.map((x) => (
+          <Link
+            key={x.key}
+            to={`/rechtliches/${x.key}`}
+            aria-current={x.key === d.key ? 'page' : undefined}
+            className={`relative flex h-11 shrink-0 items-center text-body font-medium whitespace-nowrap ${x.key === d.key ? 'text-ink' : 'text-ink-3 hover:text-ink-2'}`}
+          >
+            {x.title}
+            {x.key === d.key && <span className="absolute inset-x-0 -bottom-px h-[1.5px] bg-ink" />}
+          </Link>
+        ))}
+      </nav>
+      <Surface as="article">
+        <SurfaceHead title={d.title} meta={<span className="text-meta text-ink-3">Version {d.version}</span>} className="pb-2 sm:pb-2" />
+        <div className="px-(--row-px) pt-2 pb-8 text-body leading-relaxed whitespace-pre-line text-ink-2">{d.body}</div>
+      </Surface>
+    </PublicPage>
   );
 }
