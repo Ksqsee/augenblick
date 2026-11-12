@@ -38,7 +38,7 @@ const bearer = (key, path, opts = {}) =>
   await p.getByRole('button', { name: 'Neuer Schlüssel' }).click();
   await p.getByLabel('Name', { exact: true }).fill('E2E Lesezugriff');
   await p.getByRole('button', { name: 'Erstellen' }).click();
-  const readKey = await p.getByLabel('API-Schlüssel').inputValue();
+  const readKey = await p.getByLabel('API-Schlüssel', { exact: true }).inputValue();
   check(/^pk_[A-Za-z0-9_-]{40,}$/.test(readKey), 'Schlüsselformat');
   await p.screenshot({ path: OUT + '01-key-created.png' });
   await p.getByRole('button', { name: 'Fertig' }).click();

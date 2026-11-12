@@ -27,7 +27,7 @@ const step = (m) => console.log('·', m);
 
   step('search');
   await p.keyboard.press('Control+k');
-  await p.getByPlaceholder('Element-Code, Standort, Objekt, Gebäude …').fill('Küche');
+  await p.getByRole('dialog', { name: 'Suche' }).locator('input').fill('Küche');
   await p.getByRole('dialog', { name: 'Suche' }).locator('button').first().waitFor();
   await shot('02-search', false);
   await p.keyboard.press('Enter');

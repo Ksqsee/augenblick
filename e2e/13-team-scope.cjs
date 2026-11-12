@@ -250,8 +250,14 @@ function client(bearer) {
   await p.getByRole('button', { name: 'Zugriff und Status von Aylin Demir' }).click();
   await p.getByRole('dialog').getByRole('tab', { name: 'Alle Objekte' }).click();
   await p.getByRole('dialog').getByRole('button', { name: 'Speichern' }).click();
-  await p.getByText('Gespeichert').first().waitFor();
-  check((await owner('/account/members')).json.members.find((m) => m.id === aylin.id).scope === null, 'gesamter Workspace wieder freigegeben');
+  // erster Hinweis „Gespeichert“ kann noch sichtbar sein – auf das Schließen des Dialogs warten und kurz nachfragen
+  await p.getByRole('dialog').waitFor({ state: 'detached' });
+  let freed = false;
+  for (let i = 0; i < 20 && !freed; i++) {
+    freed = (await owner('/account/members')).json.members.find((m) => m.id === aylin.id).scope === null;
+    if (!freed) await p.waitForTimeout(250);
+  }
+  check(freed, 'gesamter Workspace wieder freigegeben');
 
   // Berichte: Jahresbericht und Berichtsgenerator erzeugen PDFs im Browser
   await p.goto(BASE + '/berichte');
