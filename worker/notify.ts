@@ -11,6 +11,7 @@ export const NOTIFY_TYPES = {
   task_mention: 'Erwähnung in einem Kommentar',
   task_watch: 'Statusänderung beobachteter Aufgaben',
   task_external: 'Rückmeldung von Subunternehmern',
+  offline_failure: 'Offline-Prüfung nicht übernommen',
   critical_defect: 'Kritischer Mangel festgestellt',
   walkthrough_submitted: 'Begehung abgeschlossen',
   due_reminder: 'Fällige und überfällige Prüfungen',

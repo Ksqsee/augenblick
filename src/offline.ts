@@ -123,13 +123,15 @@ export async function removeFromOutbox(clientId: string) {
   bump();
 }
 
-let syncing: Promise<{ sent: number; failed: number }> | null = null;
+let syncing: Promise<{ sent: number; failed: number; stored: number }> | null = null;
 
 /** Alle wartenden Prüfungen übertragen. Fotos werden vorher hochgeladen. */
 export function syncOutbox() {
   syncing ??= (async () => {
     let sent = 0;
     let failed = 0;
+    /** vom Server abgelehnt und dort unter „Übertragungen prüfen“ aufbewahrt */
+    let stored = 0;
     for (const item of await getOutbox()) {
       try {
         const upload = async (key?: string) => {
@@ -168,6 +170,12 @@ export function syncOutbox() {
       } catch (e) {
         if (!(e instanceof ApiError)) break; // kein Netz: später erneut
         failed++;
+        if (typeof e.data?.failureId === 'string') {
+          // Der Server bewahrt die Prüfung auf (erneut versuchen oder löschen auf der Offline-Seite)
+          stored++;
+          await removeFromOutbox(item.clientId);
+          continue;
+        }
         const box = await getOutbox();
         await set('outbox', box.map((x) => (x.clientId === item.clientId ? { ...x, error: e.message } : x)), store);
         bump();
@@ -175,7 +183,8 @@ export function syncOutbox() {
       }
     }
     if (sent) await queryClient.invalidateQueries();
-    return { sent, failed };
+    if (stored) await queryClient.invalidateQueries({ queryKey: ['offline-failures'] });
+    return { sent, failed, stored };
   })().finally(() => {
     syncing = null;
   });

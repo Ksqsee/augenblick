@@ -9,7 +9,8 @@ import { buildFileName, DEFAULT_PDF_PATTERN, PDF_PLACEHOLDERS } from '../../../s
 import { api, downscale, fileUrl, type Me, queryClient, uploadBlob, useAction, useMe } from '../../api';
 import { MeterBar, RowDivider, SaveBar, SettingRow } from '../../components/admin';
 import { CategoryIcon } from '../../components/CategoryIcon';
-import { Button, Empty, ErrorBox, Field, IconButton, Input, Select, SettingsSection, Skeleton, Switch, Textarea, useToast } from '../../components/ui';
+import { Button, Empty, ErrorBox, Field, IconButton, Input, Segmented, Select, SettingsSection, Skeleton, Switch, Textarea, useToast } from '../../components/ui';
+import { ADAPT_MODES, type AdaptMode } from '../../../shared/intervals';
 import { fmtDateTime } from '../../format';
 
 function initialForm(t: Me['tenant']) {
@@ -26,6 +27,7 @@ function initialForm(t: Me['tenant']) {
     timeZone: t.timeZone || 'Europe/Berlin',
     reminderDays: (t.reminderDays ?? '') as number | '',
     autoTasks: t.autoTasks !== false,
+    adaptIntervals: (t.adaptIntervalsMode ?? 'suggest') as AdaptMode,
     kinds: (t.inspectionKinds ?? []) as { key?: string; label: string }[],
   };
 }
@@ -70,6 +72,7 @@ function CompanyForm({ me }: { me: Me }) {
           timeZone: f.timeZone,
           reminderDays: f.reminderDays === '' ? null : Number(f.reminderDays),
           autoTasks: f.autoTasks,
+          adaptIntervalsMode: f.adaptIntervals,
           inspectionKinds: f.kinds.filter((k) => k.label.trim().length >= 2),
         },
       }),
@@ -223,6 +226,17 @@ function CompanyForm({ me }: { me: Me }) {
           label="Aufgaben für schwere Mängel automatisch anlegen"
           description="Bei Mängeln der Stufe „Hoch“ oder „Kritisch“ entsteht sofort eine Aufgabe mit Frist nach SLA – aus Prüfungen und aus dem Erfassen."
         />
+        <RowDivider />
+        <SettingRow
+          title="Prüfintervalle selbst anpassen"
+          description="Nach zwei Prüfungen in Folge mit Mängeln wird das Intervall des Elements halbiert (mindestens 1 Monat), nach vier mängelfreien Prüfungen gilt wieder der Standard. Nie länger als der Standard."
+        >
+          <Segmented<AdaptMode>
+            value={f.adaptIntervals}
+            onChange={(v) => set('adaptIntervals', v)}
+            options={(Object.keys(ADAPT_MODES) as AdaptMode[]).map((k) => ({ value: k, label: ADAPT_MODES[k] }))}
+          />
+        </SettingRow>
       </SettingsSection>
 
       <SettingsSection className="!border-b" title="Dokumente" description="Die Oberfläche bleibt deutsch. Sprache und Dateinamen gelten für PDF-Protokolle, Berichte und den Excel-Export.">

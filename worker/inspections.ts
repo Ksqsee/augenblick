@@ -3,9 +3,11 @@ import { HTTPException } from 'hono/http-exception';
 import { z } from 'zod';
 import { type Category, type Checkpoint, type CustomKind, INSPECTION_KINDS, type InspectionPurpose, kindLabel } from '../shared/catalog';
 import { type Answer, addMonths, applyInspection, computeResult, DAY, finalResult, isComplete, type Result, type Schedules, summarizeSchedules } from '../shared/logic';
+import { describeProposal, effectiveInterval, type IntervalProposal, proposeInterval } from '../shared/intervals';
 import { getCategoryDef, getSchedule, listCategories } from './categories';
 import { assetQuery, mapAsset, severityEnum, str, tid } from './data';
 import { type AppEnv, assertInScope, type Ctx, id, logActivity, notFound, now, parseJson, requireRole, scopeSql } from './lib';
+import { adaptMode, intervalHistory, writeSchedules } from './intervals';
 import { notify } from './notify';
 import { tasksFromDefects } from './smart';
 
@@ -111,7 +113,7 @@ inspections.get('/inspections', async (c) => {
   return c.json(rows.results.map((r) => ({ ...r, kinds: parseJson<string[]>(r.kinds as string, []) })));
 });
 
-async function loadAsset(c: Ctx, assetId: string) {
+export async function loadAsset(c: Ctx, assetId: string) {
   const a = await c.env.DB.prepare(
     `SELECT a.id, a.code, a.category, a.schedules, b.property_id AS propertyId FROM assets a JOIN buildings b ON b.id = a.building_id
       WHERE a.id = ? AND a.tenant_id = ? AND a.deleted_at IS NULL AND ${scopeSql(c, 'a.building_id', 'building')}`,
@@ -138,16 +140,6 @@ inspections.put('/assets/:id/schedules', async (c) => {
   return c.json({ ok: true });
 });
 
-function writeSchedules(c: Ctx, assetId: string, s: Schedules, lastInspectionId?: string | null) {
-  const sum = summarizeSchedules(s);
-  return c.env.DB.prepare(
-    `UPDATE assets SET schedules = ?, next_due_at = ?, last_inspected_at = ?, last_result = ?, updated_at = ?,
-            last_inspection_id = COALESCE(?, last_inspection_id) WHERE id = ?`,
-  )
-    .bind(JSON.stringify(s), sum.nextDueAt, sum.lastAt, sum.lastResult, now(), lastInspectionId ?? null, assetId)
-    .run();
-}
-
 /**
  * Termine von Elementen vollständig aus der Prüfhistorie neu berechnen (nach Wiedereröffnen/Löschen).
  * Feste Zahl an Queries, egal wie viele Elemente (D1: höchstens 100 Parameter und 50/1000 Queries je Aufruf).
@@ -165,14 +157,23 @@ export async function recomputeAssets(c: Ctx, assetIds: string[]) {
   const updates = (assets.results as { id: string; schedules: string }[]).map((a) => {
     const own = rows.filter((r) => r.asset_id === a.id);
     let s: Schedules = {};
-    for (const [k, v] of Object.entries(parseJson<Schedules>(a.schedules, {}))) {
+    const stored = parseJson<Schedules>(a.schedules, {});
+    for (const [k, v] of Object.entries(stored)) {
       const inspected = own.some((r) => r.schedule === k);
+      // Angepasstes Intervall (shared/intervals.ts) bleibt erhalten
+      const interval = v.intervalAt != null ? { intervalMonths: v.intervalMonths ?? null, intervalAt: v.intervalAt } : {};
       // Manuell gesetzte Ersttermine optionaler Prüfarten bleiben erhalten
       s[k] = v.baseline
-        ? { enabled: true, baseline: v.baseline, lastAt: v.baseline.lastAt, nextDueAt: v.baseline.nextDueAt }
-        : { enabled: v.enabled || k === 'main', nextDueAt: !inspected && k !== 'main' ? (v.nextDueAt ?? null) : null };
+        ? { enabled: true, baseline: v.baseline, lastAt: v.baseline.lastAt, nextDueAt: v.baseline.nextDueAt, ...interval }
+        : { enabled: v.enabled || k === 'main', nextDueAt: !inspected && k !== 'main' ? (v.nextDueAt ?? null) : null, ...interval };
     }
     for (const r of own) s = applyInspection(s, r.schedule, r.inspected_at, r.result, r.next_due_at);
+    // Intervall nach der letzten Prüfung geändert: Termin wie beim Ändern ab der letzten Prüfung (siehe applyInterval)
+    for (const [k, v] of Object.entries(s)) {
+      if (v.intervalAt != null && v.lastAt != null && v.intervalAt > v.lastAt && v.lastResult && v.lastResult !== 'not_inspectable' && v.intervalMonths) {
+        s[k] = { ...v, nextDueAt: addMonths(v.lastAt, v.intervalMonths) };
+      }
+    }
     const sum = summarizeSchedules(s);
     return { id: a.id, s, n: sum.nextDueAt, l: sum.lastAt, r: sum.lastResult, i: own.at(-1)?.id ?? null };
   });
@@ -396,10 +397,23 @@ async function finalize(
   }
   const result = finalResult(computed, b.resultOverride, b.defects.length);
   const t = opts.inspectedAt;
-  // Nicht prüfbar: Termin bleibt, damit das Element weiter als fällig auftaucht.
-  const nextDue = result === 'not_inspectable' || opts.followUpOf ? null : addMonths(t, sched.intervalMonths);
   const asset = await loadAsset(c, opts.assetId);
-  const schedules = applyInspection(asset.schedules, opts.schedule, t, result, nextDue);
+  const state = asset.schedules[opts.schedule];
+  let interval = effectiveInterval(sched.intervalMonths, state);
+  // Selbstanpassende Intervalle, Stufe „Automatisch“: nur reguläre, aktuelle Prüfungen (keine Nachprüfung/Berichtigung/Nachzügler)
+  let adapted: IntervalProposal | null = null;
+  const current = !(state?.lastAt != null && state.lastAt > t);
+  if (current && result !== 'not_inspectable' && !opts.followUpOf && !opts.supersedesId && (await adaptMode(c)) === 'auto') {
+    const history = (await intervalHistory(c, [opts.assetId])).get(`${opts.assetId}|${opts.schedule}`) ?? [];
+    adapted = proposeInterval(sched.intervalMonths, state, [...history, { at: t, result }]);
+    if (adapted) interval = adapted.to;
+  }
+  // Nicht prüfbar: Termin bleibt, damit das Element weiter als fällig auftaucht.
+  const nextDue = result === 'not_inspectable' || opts.followUpOf ? null : addMonths(t, interval);
+  let schedules = applyInspection(asset.schedules, opts.schedule, t, result, nextDue);
+  if (adapted && schedules !== asset.schedules) {
+    schedules = { ...schedules, [opts.schedule]: { ...schedules[opts.schedule], intervalMonths: adapted.to === adapted.standard ? null : adapted.to, intervalAt: t } };
+  }
   // Erst den Abschluss beanspruchen (nur aus dem Entwurf): ein gleichzeitiger zweiter Abschluss bekommt 409 und schreibt nichts
   const claim = await c.env.DB.prepare("UPDATE inspections SET status='submitted', result=?, inspected_at=?, next_due_at=?, updated_at=? WHERE id=? AND status='draft'")
     .bind(result, t, nextDue, now(), opts.iid)
@@ -473,6 +487,7 @@ async function finalize(
   } else {
     if (schedules !== asset.schedules) await writeSchedules(c, opts.assetId, schedules, opts.iid);
     await logActivity(c, 'submit', 'inspection', opts.iid, `${opts.followUpOf ? 'Nachprüfung' : 'Prüfung'} ${opts.code} (${sched.label}) abgeschlossen`);
+    if (adapted) await logActivity(c, 'adapt_interval', 'asset', opts.assetId, `${opts.code} (${sched.label}): ${describeProposal(adapted)} – automatisch`);
   }
   // Offene Prüfaufträge für dieses Element sind mit der Prüfung erledigt
   const done = await c.env.DB.prepare(
@@ -530,33 +545,38 @@ inspections.post('/inspections/:id/submit', async (c) => {
   return c.json({ ok: true, ...r });
 });
 
-/** Offline erfasste Prüfung übernehmen (idempotent über clientId). */
-inspections.post('/inspections/offline', async (c) => {
-  requireRole(c, 'inspector');
-  const body = inspectionBody
-    .extend({
-      clientId: z.string().min(8).max(64),
-      assetId: z.string(),
-      schedule: z.string().max(40).default('main'),
-      inspectedAt: z.number().int(),
-      checkpoints: z.array(z.object({ id: str(40).min(1), label: str(300).min(1), hint: str(300).optional() })).min(1).max(100),
-    })
-    .parse(await c.req.json());
+/** Body einer offline erfassten Prüfung. */
+export const offlineBody = inspectionBody
+  .extend({
+    clientId: z.string().min(8).max(64),
+    assetId: z.string().max(40),
+    schedule: z.string().max(40).default('main'),
+    inspectedAt: z.number().int(),
+    checkpoints: z.array(z.object({ id: str(40).min(1), label: str(300).min(1), hint: str(300).optional() })).min(1).max(100),
+  });
+
+/**
+ * Offline erfasste Prüfung übernehmen (idempotent über clientId). `inspectorId` = Person, die offline geprüft hat
+ * (beim erneuten Versuch aus `offline_failures` nicht zwingend die angemeldete Person). Route: worker/offline.ts.
+ */
+export async function submitOffline(c: Ctx, raw: unknown, inspectorId: string, receivedAt = now()) {
+  const body = offlineBody.parse(raw);
   checkKeys(c, body);
   const kinds = await kindsOf(c, body);
   const a = await loadAsset(c, body.assetId); // prüft auch den Zugriffsbereich
   const existing = await c.env.DB.prepare('SELECT id FROM inspections WHERE tenant_id = ? AND client_id = ? AND inspector_id = ?')
-    .bind(tid(c), body.clientId, c.get('user').userId)
+    .bind(tid(c), body.clientId, inspectorId)
     .first<{ id: string }>();
-  if (existing) return c.json({ id: existing.id, duplicate: true });
+  if (existing) return { id: existing.id, duplicate: true };
   const n = now();
-  if (body.inspectedAt > n + 5 * 60_000 || body.inspectedAt < n - 90 * DAY) throw new HTTPException(400, { message: 'Prüfdatum unplausibel' });
+  // Plausibel zum Zeitpunkt des Eingangs (beim erneuten Versuch: der ersten Übertragung)
+  if (body.inspectedAt > receivedAt + 5 * 60_000 || body.inspectedAt < receivedAt - 90 * DAY) throw new HTTPException(400, { message: 'Prüfdatum unplausibel' });
   const iid = id();
   await c.env.DB.prepare(
     `INSERT INTO inspections (id, tenant_id, asset_id, inspector_id, kind, reason, status, schedule, answers, maintenance, checkpoints, client_id, created_at, updated_at)
      VALUES (?,?,?,?,?,'offline','draft',?,'{}','{"items":[],"defects":[]}',?,?,?,?)`,
   )
-    .bind(iid, tid(c), a.id, c.get('user').userId, kinds[0] ?? 'periodic', body.schedule, JSON.stringify(body.checkpoints), body.clientId, body.inspectedAt, n)
+    .bind(iid, tid(c), a.id, inspectorId, kinds[0] ?? 'periodic', body.schedule, JSON.stringify(body.checkpoints), body.clientId, body.inspectedAt, n)
     .run();
   await storeDraft(c, iid, body, kinds).run();
   try {
@@ -572,13 +592,13 @@ inspections.post('/inspections/offline', async (c) => {
       kinds,
       inspectedAt: body.inspectedAt,
     });
-    return c.json({ id: iid, ...r });
+    return { id: iid, ...r };
   } catch (e) {
     // vollständig zurückrollen, damit ein erneuter Versuch mit derselben clientId sauber startet
     await c.env.DB.batch([...dropSubmittedArtifacts(c, iid), c.env.DB.prepare('DELETE FROM inspections WHERE id = ?').bind(iid)]);
     throw e;
   }
-});
+}
 
 inspections.delete('/inspections/:id', async (c) => {
   requireRole(c, 'inspector');

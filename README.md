@@ -31,7 +31,12 @@ API: [`docs/api.md`](docs/api.md)
 - **Berichtigung** abgeschlossener Prüfungen: neue Fassung ersetzt die alte, die als Nachweis erhalten bleibt
 - **Nachprüfung** nach Mängelbehebung: nur beanstandete Punkte, behobene Mängel werden geschlossen, Turnus bleibt
 - Prüfung wieder öffnen, archivieren (auch automatisch), mehrere löschen
-- **Offline-Modus** (PWA): Gebäude vorab laden, ohne Netz prüfen, automatische Synchronisation
+- **Offline-Modus** (PWA): Gebäude vorab laden, ohne Netz prüfen, automatische Synchronisation; vom Server abgelehnte
+  Übertragungen bleiben dort unter **„Übertragungen prüfen“** (Grund, Person, Element; *Erneut versuchen* – auch an einem
+  anderen Element derselben Art – oder *Löschen*), mit Benachrichtigung an die prüfende Person und Admins
+- **Selbstanpassende Prüfintervalle**: nach zwei Prüfungen in Folge mit Mängeln halbiertes Intervall (mind. 1 Monat), nach
+  vier mängelfreien zurück zum Standard, nie länger; Stufe je Workspace *Aus / Vorschlagen / Automatisch*
+  (Einstellungen → Unternehmen), Anzeige und *Zurücksetzen* auf der Elementseite
 - **Brandschutzbegehung** je Objekt mit Fragenkatalog nach Nutzung und Rechtsgrundlagen; Anlass
   (regelmäßig, außerordentlich, nach Änderung) und **Nachbegehung** zu einer früheren Begehung
 
@@ -50,7 +55,8 @@ API: [`docs/api.md`](docs/api.md)
 - **Behebung dokumentieren** mit Notiz und Nachher-Foto (wer/wann), im Mangel-Detail, Mängelbericht und Prüfprotokoll;
   **Mangel-Detail** mit Fotos vorher/nachher, Aufgaben und Verlauf; **Ausblenden** (Admins, mit Grund, zählt nicht mit)
 - **Handlungsbedarf**: schwere Mängel ohne Aufgabe, überfällige Aufgaben und Prüfungen in einer Liste nach Dringlichkeit
-- **Subunternehmer**: Aufgabe per Link teilen, Rückmeldung ohne Konto
+- **Subunternehmer**: Aufgabe per Link teilen, Rückmeldung ohne Konto; **Partner-Zugang** je Firma mit widerrufbarem
+  Einladungscode → Sammelseite `/partner/:code` mit allen offenen Aufträgen der Firma und Rückmeldung je Auftrag
 - **Kunden-Freigabe**: Link je Objekt für Auftraggeber – Prüfquote, Fälligkeiten, letzte Prüfungen, offene Mängel; ohne Konto, widerrufbar
 - **Papierkorb**: gelöschte Elemente 30 Tage lang mit Historie wiederherstellbar
 - QR-Etiketten (auch Blanko-Etiketten, die beim ersten Scan zugeordnet werden), Suche (Strg+K)
@@ -89,9 +95,11 @@ Bewusst nicht enthalten: Bezahlung/Tarife und E-Mail-Versand.
 ```
 src/          Oberfläche (pages/, components/, pdf/ für die PDF-Erzeugung, offline.ts)
 worker/       API: auth (Login, Konto, API-Schlüssel, Speicher), data, inspections, walkthroughs,
-              plans, categories, work (Aufgaben, Subunternehmer, Import), reports, notify, push, cron
+              plans, categories, work (Aufgaben, Subunternehmer, Import), reports, notify, push, cron,
+              offline (Offline-Übertragung, abgelehnte Übertragungen), intervals (selbstanpassende Intervalle),
+              partners (Partner-Zugang für Subunternehmer)
 shared/       Code für Browser und Worker
-migrations/   D1-Schema (0001 … 0012)
+migrations/   D1-Schema (0001 … 0019)
 e2e/          Browser-Tests und Runner
 .github/      CI
 scripts/      seed.ts – Demodaten
@@ -110,7 +118,7 @@ npm run check              # Typprüfung + Unit-Tests + Build
 ## Tests
 
 - **Unit-Tests** (`npm test`, Vitest): Fachlogik, Import/Export, Übersetzungen, Ruhezeiten, Web Push.
-- **Browser-Tests** (`e2e/`, Playwright): Reihen von der Registrierung über Sicherheitskorrekturen und Massenoperationen bis zu Berichtigung, Nachprüfung sowie Aufgaben und Mängeln (`14-tasks-defects`).
+- **Browser-Tests** (`e2e/`, Playwright): Reihen von der Registrierung über Sicherheitskorrekturen und Massenoperationen bis zu Berichtigung, Nachprüfung sowie Aufgaben und Mängeln (`14-tasks-defects`) und den offenen Punkten aus der Analyse (`21-offene-punkte`: Offline-Fehlliste, Intervalle, Partner-Zugang).
   Vor jeder Reihe wird die lokale D1 geleert und mit Demodaten befüllt.
 
 ```bash

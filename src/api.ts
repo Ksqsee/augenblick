@@ -8,6 +8,8 @@ export class ApiError extends Error {
   constructor(
     public status: number,
     message: string,
+    /** vollständige Fehlerantwort (z. B. `failureId` bei abgelehnten Offline-Übertragungen) */
+    public data?: Record<string, unknown>,
   ) {
     super(message);
   }
@@ -26,12 +28,14 @@ export async function api<T = unknown>(path: string, init: { method?: string; bo
   const res = await fetch(`/api${path}`, { method: init.method ?? (body ? 'POST' : 'GET'), headers, body, credentials: 'same-origin' });
   if (!res.ok) {
     let msg = res.statusText;
+    let data: Record<string, unknown> | undefined;
     try {
-      msg = ((await res.json()) as { error?: string }).error ?? msg;
+      data = (await res.json()) as Record<string, unknown>;
+      msg = typeof data.error === 'string' ? data.error : msg;
     } catch {
       /* keine JSON-Antwort */
     }
-    throw new ApiError(res.status, msg);
+    throw new ApiError(res.status, msg, data);
   }
   return res.json() as Promise<T>;
 }
@@ -63,6 +67,8 @@ export interface Tenant {
   reminderDays: number | null;
   /** Für schwere Mängel automatisch Aufgaben anlegen */
   autoTasks?: boolean;
+  /** Selbstanpassende Prüfintervalle: aus, vorschlagen, automatisch */
+  adaptIntervalsMode?: 'off' | 'suggest' | 'auto';
   /** eigene Prüfungsarten */
   inspectionKinds: CustomKind[];
 }
@@ -254,6 +260,10 @@ export interface Subcontractor {
   notes: string;
   openTasks: number;
   doneTasks: number;
+  /** Partner-Zugang (Einladungscode) aktiv */
+  partnerAccess?: boolean;
+  partnerCreatedAt?: number | null;
+  partnerUsedAt?: number | null;
 }
 
 export interface PropertyDetail {

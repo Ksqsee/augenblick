@@ -69,6 +69,10 @@ export interface ScheduleState {
   nextDueAt?: number | null;
   /** aus Import übernommener Stand ohne Prüfprotokoll */
   baseline?: { lastAt: number; nextDueAt: number | null };
+  /** angepasstes Intervall in Monaten (siehe shared/intervals.ts); fehlt = Standard der Prüfart */
+  intervalMonths?: number | null;
+  /** Zeitpunkt der letzten Intervall-Entscheidung (Anpassung oder Zurücksetzen) */
+  intervalAt?: number | null;
 }
 export type Schedules = Record<string, ScheduleState>;
 
