@@ -1,116 +1,141 @@
-import { Building2, Plus, Search } from 'lucide-react';
+// Objekte: Liste der Liegenschaften mit Prüfstatus. Vorlage „Liste“ (docs/design.md 5.1).
+import { Building2, Plus } from 'lucide-react';
 import { useState } from 'react';
-import { Link, useNavigate, useSearchParams } from 'react-router-dom';
-import { useMe, useProperties } from '../api';
+import { useSearchParams } from 'react-router-dom';
+import { type PropertyRow, useMe, useProperties } from '../api';
 import { PropertyForm } from '../components/forms';
-import { Badge, Button, Card, Empty, ErrorBox, Input, PageHeader, Spinner } from '../components/ui';
-import { defectsLabel, fmtDate } from '../format';
+import { StatusBar } from '../components/objects/status';
+import { Badge, Button, Chip, type Column, DataTable, Empty, ErrorBox, FilterBar, PageHeader, SkeletonList } from '../components/ui';
+import { fmtDate } from '../format';
 
-export function PropertiesPage() {
-  const { data, isLoading, error } = useProperties();
-  const { data: me } = useMe();
-  const [params, setParams] = useSearchParams();
-  const [q, setQ] = useState('');
-  const navigate = useNavigate();
-  const creating = params.get('neu') === '1';
-  const canEdit = me && ['owner', 'admin'].includes(me.user.role);
-  const rows = (data ?? []).filter((p) => (p.name + p.address + p.contactName).toLowerCase().includes(q.toLowerCase()));
+type Filter = 'alle' | 'ueberfaellig' | 'maengel';
 
+const counts = (p: PropertyRow) => {
+  const overdue = p.overdue ?? 0;
+  const soon = p.soon ?? 0;
+  const never = p.never ?? 0;
+  return { overdue, soon, never, ok: Math.max(0, p.assets - overdue - soon - never) };
+};
+
+/** Dringendster Zustand eines Objekts als ein Badge. */
+function SummaryBadge({ p }: { p: PropertyRow }) {
+  const c = counts(p);
+  if (!p.assets) return <Badge>Leer</Badge>;
+  if (c.overdue)
+    return (
+      <Badge tone="bad" dot>
+        {c.overdue} überfällig
+      </Badge>
+    );
+  if (c.soon)
+    return (
+      <Badge tone="warn" dot>
+        {c.soon} bald fällig
+      </Badge>
+    );
+  if (c.never)
+    return (
+      <Badge tone="info" dot>
+        {c.never} ungeprüft
+      </Badge>
+    );
   return (
-    <>
-      <PageHeader
-        title="Objekte"
-        subtitle="Liegenschaften mit ihren Gebäuden und Elementen"
-        actions={
-          canEdit && (
-            <Button icon={<Plus className="size-4" />} onClick={() => setParams({ neu: '1' })}>
-              Neues Objekt
-            </Button>
-          )
-        }
-      />
-      {creating && <PropertyForm onClose={() => setParams({})} />}
-      <div className="relative mb-4 max-w-sm">
-        <Search className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-ink-3" />
-        <Input placeholder="Objekte durchsuchen" className="pl-9" value={q} onChange={(e) => setQ(e.target.value)} />
-      </div>
-      {isLoading ? (
-        <Spinner />
-      ) : error ? (
-        <ErrorBox error={error} />
-      ) : rows.length === 0 ? (
-        <Card>
-          <Empty
-            icon={<Building2 className="size-5" />}
-            title={q ? 'Kein Treffer' : 'Noch keine Objekte'}
-            text={q ? undefined : 'Lege ein Objekt an, um Gebäude und Elemente zu erfassen.'}
-            action={
-              !q &&
-              canEdit && (
-                <Button icon={<Plus className="size-4" />} onClick={() => setParams({ neu: '1' })}>
-                  Objekt anlegen
-                </Button>
-              )
-            }
-          />
-        </Card>
-      ) : (
-        <Card className="overflow-hidden">
-          <table className="w-full text-sm">
-            <thead className="hidden border-b border-line bg-sunken/50 text-left text-xs text-ink-3 md:table-header-group">
-              <tr>
-                <th className="px-5 py-2.5 font-medium">Objekt</th>
-                <th className="px-3 py-2.5 font-medium">Status</th>
-                <th className="px-3 py-2.5 text-right font-medium">Elemente</th>
-                <th className="px-3 py-2.5 text-right font-medium">Mängel</th>
-                <th className="px-3 py-2.5 font-medium">Letzte Prüfung</th>
-                <th className="px-5 py-2.5 font-medium">Nächste fällig</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-line">
-              {rows.map((p) => {
-                const overdue = p.overdue ?? 0;
-                const soon = p.soon ?? 0;
-                const never = p.never ?? 0;
-                return (
-                  <tr key={p.id} onClick={() => navigate(`/objekte/${p.id}`)} className="cursor-pointer hover:bg-sunken/60">
-                    <td className="px-5 py-3.5">
-                      <Link to={`/objekte/${p.id}`} className="font-medium" onClick={(e) => e.stopPropagation()}>
-                        {p.name}
-                      </Link>
-                      <p className="text-xs text-ink-3">{p.address.split('\n').join(', ') || '–'}</p>
-                      <div className="mt-2 flex flex-wrap gap-1.5 md:hidden">
-                        <StatusBadges overdue={overdue} soon={soon} never={never} defects={p.openDefects} assets={p.assets} />
-                      </div>
-                    </td>
-                    <td className="hidden px-3 py-3.5 md:table-cell">
-                      <div className="flex flex-wrap gap-1.5">
-                        <StatusBadges overdue={overdue} soon={soon} never={never} defects={0} assets={p.assets} />
-                      </div>
-                    </td>
-                    <td className="hidden px-3 py-3.5 text-right tabular-nums md:table-cell">{p.assets}</td>
-                    <td className="hidden px-3 py-3.5 text-right tabular-nums md:table-cell">
-                      {p.openDefects ? <span className="font-medium text-warn">{p.openDefects}</span> : <span className="text-ink-3">0</span>}
-                    </td>
-                    <td className="hidden px-3 py-3.5 text-ink-2 md:table-cell">{fmtDate(p.lastInspectedAt)}</td>
-                    <td className="hidden px-5 py-3.5 text-ink-2 md:table-cell">{fmtDate(p.nextDueAt)}</td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </Card>
-      )}
-    </>
+    <Badge tone="ok" dot>
+      Aktuell
+    </Badge>
   );
 }
 
-function StatusBadges({ overdue, soon, never, defects, assets }: { overdue: number; soon: number; never: number; defects: number; assets: number }) {
-  const out = [];
-  if (overdue) out.push(<Badge key="o" tone="bad" dot>{overdue} überfällig</Badge>);
-  if (soon) out.push(<Badge key="s" tone="warn" dot>{soon} bald fällig</Badge>);
-  if (defects) out.push(<Badge key="d" tone="warn">{defectsLabel(defects)}</Badge>);
-  if (never) out.push(<Badge key="n" tone="info" dot>{never} ungeprüft</Badge>);
-  if (!out.length) out.push(assets ? <Badge key="ok" tone="ok" dot>Aktuell</Badge> : <Badge key="e">Leer</Badge>);
-  return <>{out}</>;
+const columns: Column<PropertyRow>[] = [
+  { key: 'name', header: 'Objekt', cell: (p) => p.name },
+  { key: 'address', header: 'Adresse', cell: (p) => <span className="text-ink-3">{p.address.split('\n').join(', ') || '–'}</span>, className: 'max-w-64 truncate' },
+  { key: 'bar', header: 'Prüfstatus', cell: (p) => <StatusBar counts={counts(p)} className="w-28" />, mobile: 'hidden' },
+  { key: 'assets', header: 'Elemente', align: 'right', cell: (p) => (p.assets ? p.assets : <span className="text-ink-4">0</span>), mobile: 'hidden' },
+  {
+    key: 'defects',
+    header: 'Mängel',
+    align: 'right',
+    cell: (p) => (p.openDefects ? <span className="font-medium text-warn">{p.openDefects}</span> : <span className="text-ink-4">0</span>),
+    mobile: 'hidden',
+  },
+  { key: 'next', header: 'Nächste Prüfung', className: 'whitespace-nowrap', cell: (p) => <span className={p.nextDueAt && p.nextDueAt < Date.now() ? 'text-bad' : undefined}>{fmtDate(p.nextDueAt)}</span>, mobile: 'hidden' },
+  { key: 'status', header: 'Status', cell: (p) => <SummaryBadge p={p} /> },
+];
+
+export function PropertiesPage() {
+  const { data, isLoading, error, refetch } = useProperties();
+  const { data: me } = useMe();
+  const [params, setParams] = useSearchParams();
+  const [q, setQ] = useState('');
+  const [filter, setFilter] = useState<Filter>('alle');
+  const creating = params.get('neu') === '1';
+  const canEdit = me && ['owner', 'admin'].includes(me.user.role);
+  const all = data ?? [];
+  const byFilter = (p: PropertyRow) => (filter === 'ueberfaellig' ? (p.overdue ?? 0) > 0 : filter === 'maengel' ? p.openDefects > 0 : true);
+  const rows = all
+    .filter((p) => (p.name + p.address + p.contactName).toLowerCase().includes(q.trim().toLowerCase()))
+    .filter(byFilter);
+  const filtered = !!q.trim() || filter !== 'alle';
+  const newButton = (label: string) =>
+    canEdit && (
+      <Button icon={<Plus className="size-4" />} onClick={() => setParams({ neu: '1' })}>
+        {label}
+      </Button>
+    );
+
+  return (
+    <>
+      <PageHeader title="Objekte" subtitle="Liegenschaften mit ihren Gebäuden und Elementen" actions={newButton('Neues Objekt')} />
+      {creating && <PropertyForm onClose={() => setParams({})} />}
+
+      {all.length > 0 && (
+        <FilterBar search={{ value: q, onChange: setQ, placeholder: 'Name, Adresse, Ansprechperson' }}>
+          <Chip active={filter === 'alle'} onClick={() => setFilter('alle')} count={all.length}>
+            Alle
+          </Chip>
+          <Chip active={filter === 'ueberfaellig'} onClick={() => setFilter(filter === 'ueberfaellig' ? 'alle' : 'ueberfaellig')} count={all.filter((p) => (p.overdue ?? 0) > 0).length}>
+            Mit Überfälligen
+          </Chip>
+          <Chip active={filter === 'maengel'} onClick={() => setFilter(filter === 'maengel' ? 'alle' : 'maengel')} count={all.filter((p) => p.openDefects > 0).length}>
+            Mit Mängeln
+          </Chip>
+        </FilterBar>
+      )}
+
+      {isLoading ? (
+        <SkeletonList rows={4} />
+      ) : error ? (
+        <ErrorBox error={error} onRetry={() => refetch()} />
+      ) : (
+        <DataTable
+          columns={columns}
+          rows={rows}
+          rowKey={(p) => p.id}
+          rowTo={(p) => `/objekte/${p.id}`}
+          empty={
+            filtered ? (
+              <Empty
+                compact
+                title="Keine Treffer"
+                text="Kein Objekt passt zu Suche und Filter."
+                action={
+                  <Button
+                    variant="secondary"
+                    onClick={() => {
+                      setQ('');
+                      setFilter('alle');
+                    }}
+                  >
+                    Filter zurücksetzen
+                  </Button>
+                }
+              />
+            ) : (
+              <Empty icon={<Building2 />} title="Noch keine Objekte" text="Lege ein Objekt an, um Gebäude und Elemente zu erfassen." action={newButton('Objekt anlegen')} />
+            )
+          }
+        />
+      )}
+    </>
+  );
 }

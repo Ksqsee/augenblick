@@ -1,12 +1,15 @@
-import { allCategories } from '../categories';
-import { Package, Plus, Search } from 'lucide-react';
+// Elemente: alle prüfpflichtigen Elemente, nach Dringlichkeit gruppiert. Vorlage „Liste“ (docs/design.md 5.1).
+// URL-Parameter: kategorie, status, objekt, q, neu, etikett
+import { FileUp, Package, Plus, Printer } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { type Asset, useAssets, useMe, useProperties } from '../api';
+import { allCategories } from '../categories';
 import { AssetDrawer } from '../components/AssetDrawer';
 import { AssetList } from '../components/AssetList';
 import { AssetForm } from '../components/forms';
-import { Button, Card, Chip, Empty, ErrorBox, Input, PageHeader, Spinner } from '../components/ui';
+import { FilterSelect } from '../components/objects/FilterSelect';
+import { Button, Card, Chip, Empty, ErrorBox, FilterBar, Menu, PageHeader, SkeletonList } from '../components/ui';
 
 const DUE_FILTERS = [
   { value: 'overdue', label: 'Überfällig' },
@@ -22,24 +25,49 @@ export function AssetsPage() {
   const category = params.get('kategorie') ?? undefined;
   const due = params.get('status') ?? undefined;
   const propertyId = params.get('objekt') ?? undefined;
-  const { data, isLoading, error } = useAssets({ q: debounced, category, due, propertyId });
+  const { data, isLoading, error, refetch } = useAssets({ q: debounced, category, due, propertyId });
   const { data: properties } = useProperties();
   const { data: me } = useMe();
   const [selected, setSelected] = useState<Asset | null>(null);
   const navigate = useNavigate();
-  const creating = params.get('neu') === '1' && me?.user.canCreate !== false;
+  const canCreate = me?.user.role !== 'viewer' && me?.user.canCreate !== false;
+  const creating = params.get('neu') === '1' && canCreate;
+
+  const setParam = (k: string, v?: string) =>
+    setParams(
+      (p) => {
+        const next = new URLSearchParams(p);
+        if (v) next.set(k, v);
+        else next.delete(k);
+        return next;
+      },
+      { replace: true },
+    );
 
   useEffect(() => {
-    const t = setTimeout(() => setDebounced(q.trim()), 250);
+    const t = setTimeout(() => {
+      setDebounced(q.trim());
+      setParam('q', q.trim() || undefined);
+    }, 250);
     return () => clearTimeout(t);
   }, [q]);
 
-  const setParam = (k: string, v?: string) => {
-    const next = new URLSearchParams(params);
-    if (v) next.set(k, v);
-    else next.delete(k);
-    setParams(next, { replace: true });
+  const filtered = !!(debounced || category || due || propertyId);
+  const reset = () => {
+    setQ('');
+    setDebounced('');
+    setParams((p) => {
+      const next = new URLSearchParams();
+      if (p.get('neu')) next.set('neu', p.get('neu')!);
+      return next;
+    });
   };
+  const newButton = (label: string) =>
+    canCreate && (
+      <Button icon={<Plus className="size-4" />} onClick={() => setParam('neu', '1')}>
+        {label}
+      </Button>
+    );
 
   return (
     <>
@@ -47,12 +75,16 @@ export function AssetsPage() {
         title="Elemente"
         subtitle="Alle prüfpflichtigen Elemente über alle Objekte"
         actions={
-          me?.user.role !== 'viewer' &&
-          me?.user.canCreate !== false && (
-            <Button icon={<Plus className="size-4" />} onClick={() => setParam('neu', '1')}>
-              Neues Element
-            </Button>
-          )
+          <>
+            <Menu
+              label="Weitere Aktionen zu Elementen"
+              items={[
+                ...(canCreate ? [{ label: 'Aus Excel/CSV importieren', icon: <FileUp />, to: '/import' }] : []),
+                { label: 'QR-Etiketten drucken', icon: <Printer />, to: '/druck/etiketten' },
+              ]}
+            />
+            {newButton('Neues Element')}
+          </>
         }
       />
       {creating && (
@@ -60,46 +92,66 @@ export function AssetsPage() {
       )}
       {selected && <AssetDrawer asset={selected} onClose={() => setSelected(null)} />}
 
-      <div className="mb-4 flex flex-col gap-3">
-        <div className="relative max-w-md">
-          <Search className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-ink-3" />
-          <Input placeholder="Code, Standort, Hersteller, Objekt …" className="pl-9" value={q} onChange={(e) => setQ(e.target.value)} />
-        </div>
-        <div className="-mx-4 flex gap-2 overflow-x-auto px-4 pb-1 sm:mx-0 sm:flex-wrap sm:px-0">
-          <Chip active={!category} onClick={() => setParam('kategorie')}>
-            Alle Arten
-          </Chip>
+      <FilterBar
+        search={{ value: q, onChange: setQ, placeholder: 'Code, Standort, Hersteller, Objekt …' }}
+      >
+        <FilterSelect className="w-36" label="Nach Art filtern" value={category ?? ''} onChange={(v) => setParam('kategorie', v || undefined)}>
+          <option value="">Alle Arten</option>
           {allCategories().map((c) => (
-            <Chip key={c.key} active={category === c.key} onClick={() => setParam('kategorie', category === c.key ? undefined : c.key)}>
+            <option key={c.key} value={c.key}>
               {c.plural}
-            </Chip>
+            </option>
           ))}
-          {propertyId && (
-            <Chip active onClick={() => setParam('objekt')}>
-              {properties?.find((p) => p.id === propertyId)?.name ?? 'Objekt'} ×
-            </Chip>
-          )}
-          <span className="mx-1 w-px shrink-0 bg-line" />
-          {DUE_FILTERS.map((f) => (
-            <Chip key={f.value} active={due === f.value} onClick={() => setParam('status', due === f.value ? undefined : f.value)}>
-              {f.label}
-            </Chip>
+        </FilterSelect>
+        <FilterSelect className="w-40" label="Nach Objekt filtern" value={propertyId ?? ''} onChange={(v) => setParam('objekt', v || undefined)}>
+          <option value="">Alle Objekte</option>
+          {propertyId && !properties?.some((p) => p.id === propertyId) && <option value={propertyId}>Objekt</option>}
+          {properties?.map((p) => (
+            <option key={p.id} value={p.id}>
+              {p.name}
+            </option>
           ))}
-        </div>
-      </div>
+        </FilterSelect>
+        <span className="mx-0.5 w-px shrink-0 self-stretch bg-line" aria-hidden />
+        {DUE_FILTERS.map((f) => (
+          <Chip key={f.value} active={due === f.value} onClick={() => setParam('status', due === f.value ? undefined : f.value)}>
+            {f.label}
+          </Chip>
+        ))}
+      </FilterBar>
 
       {isLoading ? (
-        <Spinner />
+        <SkeletonList rows={8} />
       ) : error ? (
-        <ErrorBox error={error} />
+        <ErrorBox error={error} onRetry={() => refetch()} />
       ) : !data?.length ? (
         <Card>
-          <Empty icon={<Package className="size-5" />} title="Keine Elemente gefunden" text={q || category || due || propertyId ? 'Passe Suche oder Filter an.' : 'Lege dein erstes Element an.'} />
+          {filtered ? (
+            <Empty
+              icon={<Package />}
+              title="Keine Treffer"
+              text="Kein Element passt zu Suche und Filter."
+              action={
+                <Button variant="secondary" onClick={reset}>
+                  Filter zurücksetzen
+                </Button>
+              }
+            />
+          ) : (
+            <Empty icon={<Package />} title="Noch keine Elemente" text="Lege dein erstes Element an – oder importiere eine Liste." action={newButton('Element anlegen')} />
+          )}
         </Card>
       ) : (
         <Card className="overflow-hidden">
-          <div className="border-b border-line px-5 py-2.5 text-xs text-ink-3">{data.length} Elemente</div>
-          <AssetList assets={data} onSelect={setSelected} />
+          <div className="flex h-10 items-center justify-between gap-3 border-b border-line px-4 text-meta text-ink-3">
+            <span className="tabular-nums">{data.length} Elemente</span>
+            {filtered && (
+              <button type="button" onClick={reset} className="font-medium text-ink-2 hover:text-ink">
+                Filter zurücksetzen
+              </button>
+            )}
+          </div>
+          <AssetList assets={data} onSelect={setSelected} grouped={!due || due === 'defects'} />
         </Card>
       )}
     </>
