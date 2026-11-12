@@ -11,6 +11,8 @@ export interface Env {
   VAPID_PUBLIC_KEY?: string;
   VAPID_PRIVATE_KEY?: string;
   VAPID_SUBJECT?: string;
+  /** Workers AI (nur in Produktion; lokal/CI fehlt es und es greift der Regel-Parser) */
+  AI?: Ai;
 }
 
 export interface SessionUser {
@@ -140,7 +142,9 @@ export const sessionOnly: MiddlewareHandler<AppEnv> = async (c, next) => {
 /** Schreibende Requests brauchen einen eigenen Header (CSRF-Schutz zusätzlich zu SameSite). */
 export const csrfGuard: MiddlewareHandler<AppEnv> = async (c, next) => {
   // Mit API-Schlüssel (Authorization-Header) gibt es kein Cookie-Risiko
-  if (!['GET', 'HEAD', 'OPTIONS'].includes(c.req.method) && c.req.header('x-pk') !== '1' && !c.req.header('authorization')?.startsWith('Bearer ')) {
+  // MCP nutzt keine Cookies (nur API-Schlüssel) – CSRF ist dort kein Thema
+  const mcpKeyPath = c.req.path === '/api/mcp' || c.req.path.startsWith('/api/mcp/');
+  if (!['GET', 'HEAD', 'OPTIONS'].includes(c.req.method) && c.req.header('x-pk') !== '1' && !c.req.header('authorization')?.startsWith('Bearer ') && !mcpKeyPath) {
     throw new HTTPException(403, { message: 'Ungültige Anfrage' });
   }
   await next();

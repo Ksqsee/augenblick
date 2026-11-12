@@ -250,12 +250,15 @@ account.get('/me', async (c) => {
   const u = c.get('user');
   const tenant = await c.env.DB.prepare(
     `SELECT id, name, logo_key AS logoKey, address, phone, email, website, pdf_pattern AS pdfPattern, archive_after_months AS archiveAfterMonths,
-            language, timezone AS timeZone, reminder_days AS reminderDays, inspection_kinds AS inspectionKinds
+            language, timezone AS timeZone, reminder_days AS reminderDays, inspection_kinds AS inspectionKinds, auto_tasks AS autoTasks
        FROM tenants WHERE id = ?`,
   )
     .bind(u.tenantId)
     .first<Record<string, unknown>>();
-  if (tenant) tenant.inspectionKinds = parseJson(tenant.inspectionKinds as string, []);
+  if (tenant) {
+    tenant.inspectionKinds = parseJson(tenant.inspectionKinds as string, []);
+    tenant.autoTasks = !!tenant.autoTasks;
+  }
   const acks = (await c.env.DB.prepare('SELECT doc, version FROM legal_acks WHERE user_id = ?').bind(u.userId).all<{ doc: string; version: string }>()).results;
   const pendingLegal = LEGAL_DOCS.filter((d) => !acks.some((a) => a.doc === d.key && a.version === d.version)).map((d) => d.key);
   const workspaces = await c.env.DB.prepare(
@@ -311,6 +314,7 @@ account.patch('/company', async (c) => {
       language: z.enum(Object.keys(DOC_LANGUAGES) as [DocLanguage]).optional(),
       timeZone: z.string().max(60).refine(isValidTimeZone, 'Unbekannte Zeitzone').optional(),
       reminderDays: z.number().int().min(1).max(365).nullable().optional(),
+      autoTasks: z.boolean().optional(),
       inspectionKinds: z
         .array(z.object({ key: z.string().max(40).optional(), label: z.string().trim().min(2).max(60) }))
         .max(30)
@@ -328,12 +332,13 @@ account.patch('/company', async (c) => {
             archive_after_months = CASE WHEN ? THEN ? ELSE archive_after_months END,
             language = COALESCE(?, language), timezone = COALESCE(?, timezone),
             reminder_days = CASE WHEN ? THEN ? ELSE reminder_days END,
-            inspection_kinds = COALESCE(?, inspection_kinds)
+            inspection_kinds = COALESCE(?, inspection_kinds),
+            auto_tasks = COALESCE(?, auto_tasks)
       WHERE id = ?`,
   )
     .bind(b.name, b.address, b.phone, b.email, b.website, b.logoKey !== undefined ? 1 : 0, b.logoKey ?? null, b.pdfPattern ?? null,
       b.archiveAfterMonths !== undefined ? 1 : 0, b.archiveAfterMonths ?? null, b.language ?? null, b.timeZone ?? null,
-      b.reminderDays !== undefined ? 1 : 0, b.reminderDays ?? null, kinds ? JSON.stringify(kinds) : null, t)
+      b.reminderDays !== undefined ? 1 : 0, b.reminderDays ?? null, kinds ? JSON.stringify(kinds) : null, b.autoTasks === undefined ? null : b.autoTasks ? 1 : 0, t)
     .run();
   await logActivity(c, 'update', 'tenant', null, 'Firmenprofil geändert');
   return c.json({ ok: true });

@@ -1,6 +1,9 @@
 import { Hono } from 'hono';
 import { HTTPException } from 'hono/http-exception';
 import { ZodError } from 'zod';
+import { ai } from './ai';
+import { mcpRoutes } from './mcp';
+import { smart } from './smart';
 import { account, auth } from './auth';
 import { categories } from './categories';
 import { runDaily } from './cron';
@@ -35,6 +38,8 @@ app.get('/health', (c) => c.json({ ok: true }));
 app.route('/auth', auth);
 app.route('/public', publicApi);
 app.route('/account', account);
+// MCP für Claude & Co.: eigene Authentifizierung per API-Schlüssel, Werkzeuge rufen intern die API auf
+app.route('/', mcpRoutes((req, c) => Promise.resolve(app.fetch(req, c.env, c.executionCtx))));
 
 // Alles Weitere nur mit gültiger Sitzung (einmalige Prüfung)
 const secured = new Hono<AppEnv>();
@@ -47,6 +52,8 @@ secured.route('/', plans);
 secured.route('/', reports);
 secured.route('/', work);
 secured.route('/', data);
+secured.route('/', ai);
+secured.route('/', smart);
 app.route('/', secured);
 
 app.notFound((c) => c.json({ error: 'Nicht gefunden' }, 404));

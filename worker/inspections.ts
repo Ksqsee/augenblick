@@ -7,6 +7,7 @@ import { getCategoryDef, getSchedule, listCategories } from './categories';
 import { assetQuery, mapAsset, severityEnum, str, tid } from './data';
 import { type AppEnv, type Ctx, id, logActivity, notFound, now, parseJson, requireRole } from './lib';
 import { notify } from './notify';
+import { tasksFromDefects } from './smart';
 
 export const inspections = new Hono<AppEnv>();
 
@@ -433,6 +434,11 @@ async function finalize(
   } else {
     if (schedules !== asset.schedules) await writeSchedules(c, opts.assetId, schedules, opts.iid);
     await logActivity(c, 'submit', 'inspection', opts.iid, `${opts.followUpOf ? 'Nachprüfung' : 'Prüfung'} ${opts.code} (${sched.label}) abgeschlossen`);
+  }
+  // Automatisierung: schwere Mängel bekommen sofort eine Aufgabe mit SLA-Frist (abschaltbar je Workspace)
+  if (b.defects.some((d) => d.severity === 'high' || d.severity === 'critical')) {
+    const auto = await c.env.DB.prepare('SELECT auto_tasks FROM tenants WHERE id = ?').bind(tid(c)).first<number>('auto_tasks');
+    if (auto) await tasksFromDefects(c, { severities: ['high', 'critical'], inspectionId: opts.iid });
   }
   if (result === 'critical') {
     await notify(c, { roles: ['owner', 'admin'], type: 'critical_defect', title: `Kritischer Mangel an ${opts.code}`, body: b.defects.find((d) => d.severity === 'critical')?.title ?? '', link: `/druck/protokoll/${opts.iid}` });
