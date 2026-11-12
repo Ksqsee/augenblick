@@ -1,27 +1,76 @@
-import { AlertTriangle, Building2, CalendarRange, ClipboardList, DatabaseBackup, Download, FileArchive, FileSpreadsheet, FileText, Filter, Footprints, QrCode, ShieldCheck, Trash2 } from 'lucide-react';
+import clsx from 'clsx';
+import {
+  AlertTriangle,
+  Building2,
+  CalendarRange,
+  ClipboardList,
+  DatabaseBackup,
+  Download,
+  Eye,
+  FileArchive,
+  FileSpreadsheet,
+  FileText,
+  Footprints,
+  QrCode,
+  ShieldCheck,
+  Trash2,
+} from 'lucide-react';
 import { type ReactNode, useMemo, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { kindLabel, SEVERITIES } from '../../shared/catalog';
+import type { Result } from '../../shared/logic';
 import { api, archiveReport, type Asset, type Defect, type PropertyRow, type ReportRow, useAction, useAssets, useDefects, useInspections, useMe, useMembers, useProperties, useReports } from '../api';
 import { describeFilter, EMPTY_FILTER, filterParams, type InspectionFilter, InspectionFilters } from '../components/InspectionFilters';
 import { DueBadge } from '../components/AssetList';
 import { APP_NAME } from '../components/Logo';
 import { PropertyReportButton } from '../components/PropertyReportButton';
-import { Button, Card, Chip, ErrorBox, Input, PageHeader, Segmented, Select, Spinner, useToast } from '../components/ui';
+import {
+  Button,
+  Card,
+  Chip,
+  Empty,
+  ErrorBox,
+  IconButton,
+  Input,
+  ListGroup,
+  PageHeader,
+  RowIcon,
+  SectionHeader,
+  Segmented,
+  Select,
+  SkeletonList,
+  Spinner,
+  StatusDot,
+  useConfirm,
+  useToast,
+} from '../components/ui';
 import { categoryLabel, fmtDate, fmtDateTime, RESULT_META } from '../format';
 import { QrImage } from './Asset';
 import { PrintFrame } from './Protocol';
 
-function ReportCard({ icon, title, text, action }: { icon: ReactNode; title: string; text: string; action: ReactNode }) {
+/** Zeile eines Standardberichts: Symbol, Titel, ein Satz – Aktionen rechts (Handy: darunter). */
+function ReportRowItem({ icon, title, text, children }: { icon: ReactNode; title: string; text: string; children: ReactNode }) {
   return (
-    <Card className="flex flex-col p-5">
-      <div className="mb-4 grid size-10 place-items-center rounded-lg bg-brand-soft text-brand-strong [&>svg]:size-5">{icon}</div>
-      <p className="font-semibold">{title}</p>
-      <p className="mt-1 flex-1 text-sm text-ink-3">{text}</p>
-      <div className="mt-5">{action}</div>
-    </Card>
+    <li className="flex flex-col gap-3 px-4 py-3.5 md:flex-row md:items-center md:gap-4">
+      <div className="flex min-w-0 flex-1 items-start gap-3 md:items-center">
+        <RowIcon>{icon}</RowIcon>
+        <div className="min-w-0">
+          <p className="text-body font-medium">{title}</p>
+          <p className="mt-0.5 text-meta text-ink-3">{text}</p>
+        </div>
+      </div>
+      <div className="flex shrink-0 flex-wrap items-center gap-2 max-md:pl-12">{children}</div>
+    </li>
   );
 }
+
+const LinkButton = ({ to, children, icon }: { to: string; children: ReactNode; icon?: ReactNode }) => (
+  <Link to={to}>
+    <Button variant="ghost" icon={icon} tabIndex={-1}>
+      {children}
+    </Button>
+  </Link>
+);
 
 export function ReportsPage() {
   const { data: props } = useProperties();
@@ -30,123 +79,78 @@ export function ReportsPage() {
   return (
     <>
       <PageHeader title="Berichte" subtitle="Nachweise für Betreiber, Behörden und Versicherer" />
-      <ReportBuilder />
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">
-        <ReportCard
-          icon={<ShieldCheck />}
-          title="Compliance-Übersicht"
-          text="Prüfstatus aller Objekte mit überfälligen und bald fälligen Elementen."
-          action={
-            <div className="flex gap-2">
-              <Link to="/druck/compliance">
-                <Button variant="secondary">Ansehen</Button>
-              </Link>
-              <PdfButton kind="compliance" />
-            </div>
-          }
-        />
-        <ReportCard
-          icon={<AlertTriangle />}
-          title="Mängelbericht"
-          text="Alle offenen Mängel nach Schwere sortiert, inklusive Fotos."
-          action={
-            <div className="flex gap-2">
-              <Link to="/druck/maengel">
-                <Button variant="secondary">Ansehen</Button>
-              </Link>
-              <PdfButton kind="defects" />
-            </div>
-          }
-        />
-        <ReportCard
-          icon={<Building2 />}
-          title="Objektbericht"
-          text="Ein Objekt komplett: Gebäude, alle Elemente mit Status, offene Mängel, Begehungen und Brandschutzbeauftragte."
-          action={
-            <div className="flex flex-wrap gap-2">
-              <Select aria-label="Objekt für den Objektbericht" className="h-10 min-w-0 flex-1" value={pid ?? ''} onChange={(e) => setPropId(e.target.value)}>
-                {props?.map((p) => (
-                  <option key={p.id} value={p.id}>
-                    {p.name}
-                  </option>
-                ))}
-              </Select>
-              <PropertyReportButton propertyId={pid} variant="primary" label="PDF" />
-            </div>
-          }
-        />
-        <AnnualReportCard />
-        <ReportCard
-          icon={<FileText />}
-          title="Prüfprotokolle"
-          text="Einzeln als PDF bei jeder Prüfung oder gesammelt als ZIP: unter Prüfungen → Durchgeführt mehrere auswählen."
-          action={
-            <Link to="/pruefungen?tab=done">
-              <Button variant="secondary">Zu den Prüfungen</Button>
-            </Link>
-          }
-        />
-        <ReportCard
-          icon={<ClipboardList />}
-          title="Elementliste (Excel)"
-          text="Alle Elemente mit Status und Terminen. Die Datei lässt sich bearbeiten und über Import wieder einlesen."
-          action={
-            <div className="flex gap-2">
-              <a href="/api/export/assets.xlsx" download>
-                <Button variant="secondary" icon={<Download className="size-4" />}>
-                  Excel
-                </Button>
-              </a>
-              <a href="/api/export/assets.csv" download>
-                <Button variant="ghost">CSV</Button>
-              </a>
-            </div>
-          }
-        />
-        <ReportCard
-          icon={<Footprints />}
-          title="Begehungsprotokolle"
-          text="Protokolle der Brandschutzbegehungen mit Feststellungen und Rechtsgrundlagen."
-          action={
-            <Link to="/begehungen">
-              <Button variant="secondary">Zu den Begehungen</Button>
-            </Link>
-          }
-        />
-        <ReportCard
-          icon={<FileSpreadsheet />}
-          title="Import"
-          text="Bestandslisten aus Excel oder CSV übernehmen – inklusive Objekten und Gebäuden."
-          action={
-            <Link to="/import">
-              <Button variant="secondary">Import öffnen</Button>
-            </Link>
-          }
-        />
-        <ReportCard
-          icon={<DatabaseBackup />}
-          title="JSON-Backup"
-          text="Vollständige Sicherung aller Daten des Workspaces als JSON-Datei (ohne Passwörter)."
-          action={
-            <a href="/api/export/backup.json" download>
-              <Button variant="secondary" icon={<Download className="size-4" />}>
-                Herunterladen
-              </Button>
-            </a>
-          }
-        />
-        <ReportCard
-          icon={<QrCode />}
-          title="QR-Etiketten"
-          text="Etikettenbogen zum Aufkleben. Beim Scannen öffnet sich direkt das Element."
-          action={
-            <Link to="/druck/etiketten">
-              <Button variant="secondary">Etiketten wählen</Button>
-            </Link>
-          }
-        />
+      <div className="flex flex-col gap-8 lg:gap-10">
+        <ReportBuilder />
+
+        <section>
+          <SectionHeader title="Standardberichte" meta="Landen automatisch im Archiv" />
+          <Card className="overflow-hidden">
+            <ul className="divide-y divide-line">
+              <ListGroup title="Als PDF" />
+              <ReportRowItem icon={<ShieldCheck />} title="Compliance-Übersicht" text="Prüfstatus aller Objekte mit überfälligen und bald fälligen Elementen.">
+                <LinkButton to="/druck/compliance" icon={<Eye />}>
+                  Ansehen
+                </LinkButton>
+                <PdfButton kind="compliance" />
+              </ReportRowItem>
+              <ReportRowItem icon={<AlertTriangle />} title="Mängelbericht" text="Alle offenen Mängel nach Schwere sortiert, mit Fotos.">
+                <LinkButton to="/druck/maengel" icon={<Eye />}>
+                  Ansehen
+                </LinkButton>
+                <PdfButton kind="defects" />
+              </ReportRowItem>
+              <ReportRowItem icon={<Building2 />} title="Objektbericht" text="Ein Objekt komplett: Gebäude, Elemente mit Status, offene Mängel, Begehungen.">
+                <Select aria-label="Objekt für den Objektbericht" className="min-w-0 flex-1 md:w-52 md:flex-none" value={pid ?? ''} onChange={(e) => setPropId(e.target.value)}>
+                  {props?.map((p) => (
+                    <option key={p.id} value={p.id}>
+                      {p.name}
+                    </option>
+                  ))}
+                </Select>
+                <PropertyReportButton propertyId={pid} variant="secondary" label="PDF" />
+              </ReportRowItem>
+              <AnnualReportRow />
+
+              <ListGroup title="Listen und Etiketten" />
+              <ReportRowItem icon={<ClipboardList />} title="Elementliste" text="Alle Elemente mit Status und Terminen – bearbeitbar und über Import wieder einlesbar.">
+                <a href="/api/export/assets.xlsx" download>
+                  <Button variant="secondary" icon={<Download />} tabIndex={-1}>
+                    Excel
+                  </Button>
+                </a>
+                <a href="/api/export/assets.csv" download>
+                  <Button variant="ghost" tabIndex={-1}>
+                    CSV
+                  </Button>
+                </a>
+              </ReportRowItem>
+              <ReportRowItem icon={<QrCode />} title="QR-Etiketten" text="Etikettenbogen zum Aufkleben. Der Scan öffnet direkt das Element.">
+                <LinkButton to="/druck/etiketten">Etiketten wählen</LinkButton>
+              </ReportRowItem>
+
+              <ListGroup title="Weitere Nachweise" />
+              <ReportRowItem icon={<FileText />} title="Prüfprotokolle" text="Einzeln bei jeder Prüfung oder gesammelt als ZIP unter Prüfungen → Durchgeführt.">
+                <LinkButton to="/pruefungen?tab=done">Zu den Prüfungen</LinkButton>
+              </ReportRowItem>
+              <ReportRowItem icon={<Footprints />} title="Begehungsprotokolle" text="Brandschutzbegehungen mit Feststellungen und Rechtsgrundlagen.">
+                <LinkButton to="/begehungen">Zu den Begehungen</LinkButton>
+              </ReportRowItem>
+              <ReportRowItem icon={<DatabaseBackup />} title="JSON-Backup" text="Vollständige Sicherung aller Daten des Workspaces (ohne Passwörter).">
+                <a href="/api/export/backup.json" download>
+                  <Button variant="ghost" icon={<Download />} tabIndex={-1}>
+                    Herunterladen
+                  </Button>
+                </a>
+              </ReportRowItem>
+              <ReportRowItem icon={<FileSpreadsheet />} title="Import" text="Bestandslisten aus Excel oder CSV übernehmen – mit Objekten und Gebäuden.">
+                <LinkButton to="/import">Import öffnen</LinkButton>
+              </ReportRowItem>
+            </ul>
+          </Card>
+        </section>
+
+        <ReportArchive />
       </div>
-      <ReportArchive />
     </>
   );
 }
@@ -202,48 +206,57 @@ function ReportBuilder() {
       setBusy(null);
     }
   };
+  const split: [Result, string][] = [
+    ['ok', 'ohne Mängel'],
+    ['defects', 'mit Mängeln'],
+    ['critical', 'kritisch'],
+    ['not_inspectable', 'nicht prüfbar'],
+  ];
   return (
-    <Card className="mb-6 p-5">
-      <div className="mb-4 flex items-start gap-3">
-        <div className="grid size-10 shrink-0 place-items-center rounded-lg bg-brand-soft text-brand-strong">
-          <Filter className="size-5" />
+    <section>
+      <SectionHeader title="Neuen Bericht erstellen" />
+      <Card className="overflow-hidden">
+        <div className="p-4 sm:p-5">
+          <p className="mb-4 max-w-2xl text-meta text-ink-3">Prüfungen nach Zeitraum, Objekt, Elementart, Ergebnis, Prüfer oder Art auswählen – als Übersicht (PDF) oder mit allen Protokollen (ZIP).</p>
+          <InspectionFilters value={f} onChange={setF} />
         </div>
-        <div>
-          <h2 className="font-semibold">Neuen Bericht erstellen</h2>
-          <p className="text-sm text-ink-3">Prüfungen nach Zeitraum, Objekt, Elementart, Ergebnis, Prüfer oder Art auswählen – als Übersicht (PDF) oder mit allen Protokollen (ZIP).</p>
+        <div className="flex flex-col gap-3 border-t border-line bg-canvas/60 px-4 py-3 sm:px-5 md:flex-row md:items-center">
+          <div className="mr-auto min-w-0 text-body" aria-live="polite">
+            {isLoading ? (
+              <span className="text-ink-3">Zählt …</span>
+            ) : (
+              <>
+                <span className="font-semibold tabular-nums">{rows.length} Prüfungen</span>
+                {rows.length > 0 && (
+                  <span className="mt-1 flex flex-wrap gap-x-3 gap-y-1 text-meta text-ink-3 md:mt-0 md:ml-3 md:inline-flex">
+                    {split.map(([k, label]) => (
+                      <span key={k} className={clsx('inline-flex items-center gap-1.5 tabular-nums', !counts[k] && 'text-ink-4')}>
+                        <StatusDot tone={counts[k] ? RESULT_META[k].tone : 'muted'} />
+                        {counts[k]} {label}
+                      </span>
+                    ))}
+                  </span>
+                )}
+                {rows.length >= 1000 && <span className="ml-2 text-meta text-warn">auf 1000 begrenzt – Filter eingrenzen</span>}
+              </>
+            )}
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <Button variant="secondary" icon={<FileArchive />} disabled={!rows.length || !!busy} loading={!!busy && busy !== 'pdf'} onClick={() => run('zip')}>
+              {busy && busy !== 'pdf' ? `PDF ${busy}` : 'Protokolle (ZIP)'}
+            </Button>
+            <Button icon={<Download />} disabled={!rows.length || !!busy} loading={busy === 'pdf'} onClick={() => run('pdf')}>
+              Prüfbericht (PDF)
+            </Button>
+          </div>
         </div>
-      </div>
-      <InspectionFilters value={f} onChange={setF} />
-      <div className="mt-4 flex flex-wrap items-center gap-3">
-        <p className="mr-auto text-sm text-ink-2" aria-live="polite">
-          {isLoading ? (
-            'Zählt …'
-          ) : (
-            <>
-              <span className="font-semibold">{rows.length} Prüfungen</span>
-              {rows.length > 0 && (
-                <span className="text-ink-3">
-                  {' '}
-                  · {counts.ok} {RESULT_META.ok.label.toLowerCase()} · {counts.defects} mit Mängeln · {counts.critical} kritisch · {counts.not_inspectable} nicht prüfbar
-                </span>
-              )}
-              {rows.length >= 1000 && <span className="text-warn"> (auf 1000 begrenzt – Filter eingrenzen)</span>}
-            </>
-          )}
-        </p>
-        <Button icon={<Download className="size-4" />} disabled={!rows.length || !!busy} loading={busy === 'pdf'} onClick={() => run('pdf')}>
-          Prüfbericht (PDF)
-        </Button>
-        <Button variant="secondary" icon={<FileArchive className="size-4" />} disabled={!rows.length || !!busy} loading={!!busy && busy !== 'pdf'} onClick={() => run('zip')}>
-          {busy && busy !== 'pdf' ? `PDF ${busy}` : 'Protokolle (ZIP)'}
-        </Button>
-      </div>
-    </Card>
+      </Card>
+    </section>
   );
 }
 
 /** Jahresbericht: Zusammenfassung eines Kalenderjahres je Objekt (Prüfungen, Mängel, Behebungsquote, Begehungen). */
-function AnnualReportCard() {
+function AnnualReportRow() {
   const { data: me } = useMe();
   const { data: props } = useProperties();
   const toast = useToast();
@@ -252,120 +265,142 @@ function AnnualReportCard() {
   const [propertyId, setPropertyId] = useState('');
   const [busy, setBusy] = useState(false);
   return (
-    <ReportCard
-      icon={<CalendarRange />}
-      title="Jahresbericht"
-      text="Zusammenfassung eines Jahres je Objekt: Prüfungen nach Ergebnis, erfasste und behobene Mängel mit Behebungsquote, Begehungen und Brandschutzbeauftragte."
-      action={
-        <div className="flex flex-wrap gap-2">
-          <Select aria-label="Jahr" className="h-10 w-24" value={year} onChange={(e) => setYear(Number(e.target.value))}>
-            {[0, 1, 2, 3, 4].map((n) => (
-              <option key={n} value={thisYear - n}>
-                {thisYear - n}
-              </option>
-            ))}
-          </Select>
-          <Select aria-label="Objekt für den Jahresbericht" className="h-10 min-w-0 flex-1" value={propertyId} onChange={(e) => setPropertyId(e.target.value)}>
-            <option value="">Alle Objekte</option>
-            {props?.map((p) => (
-              <option key={p.id} value={p.id}>
-                {p.name}
-              </option>
-            ))}
-          </Select>
-          <Button
-            icon={<Download className="size-4" />}
-            loading={busy}
-            disabled={!me}
-            onClick={async () => {
-              if (!me) return;
-              setBusy(true);
-              try {
-                const r = await import('../pdf/reports');
-                const data = await api<import('../pdf/reports').AnnualData>(`/reports/annual?year=${year}${propertyId ? `&propertyId=${propertyId}` : ''}`);
-                const bytes = await r.annualPdf(data, await r.loadBrand(me));
-                const name = propertyId ? props?.find((p) => p.id === propertyId)?.name : undefined;
-                const fileName = `Jahresbericht_${year}${name ? `_${name.replace(/[^\p{L}\p{N}]+/gu, '-')}` : ''}.pdf`;
-                r.download(bytes, fileName);
-                if (await archiveReport(me, bytes, { kind: 'annual', title: `Jahresbericht ${year}${name ? ` ${name}` : ''}`, fileName, propertyId: propertyId || undefined }).catch(() => false))
-                  toast('Im Berichtsarchiv gespeichert');
-              } catch (e) {
-                toast(e instanceof Error ? e.message : 'PDF fehlgeschlagen', 'bad');
-              } finally {
-                setBusy(false);
-              }
-            }}
-          >
-            PDF
-          </Button>
-        </div>
-      }
-    />
+    <ReportRowItem icon={<CalendarRange />} title="Jahresbericht" text="Ein Jahr je Objekt: Prüfungen nach Ergebnis, Mängel mit Behebungsquote, Begehungen.">
+      <Select aria-label="Jahr" className="!w-24 shrink-0" value={year} onChange={(e) => setYear(Number(e.target.value))}>
+        {[0, 1, 2, 3, 4].map((n) => (
+          <option key={n} value={thisYear - n}>
+            {thisYear - n}
+          </option>
+        ))}
+      </Select>
+      <Select aria-label="Objekt für den Jahresbericht" className="min-w-0 flex-1 md:w-44 md:flex-none" value={propertyId} onChange={(e) => setPropertyId(e.target.value)}>
+        <option value="">Alle Objekte</option>
+        {props?.map((p) => (
+          <option key={p.id} value={p.id}>
+            {p.name}
+          </option>
+        ))}
+      </Select>
+      <Button
+        variant="secondary"
+        icon={<Download />}
+        loading={busy}
+        disabled={!me}
+        onClick={async () => {
+          if (!me) return;
+          setBusy(true);
+          try {
+            const r = await import('../pdf/reports');
+            const data = await api<import('../pdf/reports').AnnualData>(`/reports/annual?year=${year}${propertyId ? `&propertyId=${propertyId}` : ''}`);
+            const bytes = await r.annualPdf(data, await r.loadBrand(me));
+            const name = propertyId ? props?.find((p) => p.id === propertyId)?.name : undefined;
+            const fileName = `Jahresbericht_${year}${name ? `_${name.replace(/[^\p{L}\p{N}]+/gu, '-')}` : ''}.pdf`;
+            r.download(bytes, fileName);
+            if (await archiveReport(me, bytes, { kind: 'annual', title: `Jahresbericht ${year}${name ? ` ${name}` : ''}`, fileName, propertyId: propertyId || undefined }).catch(() => false))
+              toast('Im Berichtsarchiv gespeichert');
+          } catch (e) {
+            toast(e instanceof Error ? e.message : 'PDF fehlgeschlagen', 'bad');
+          } finally {
+            setBusy(false);
+          }
+        }}
+      >
+        PDF
+      </Button>
+    </ReportRowItem>
   );
 }
 const fmtSize = (n: number) => (n > 1024 * 1024 ? `${(n / 1024 / 1024).toFixed(1).replace('.', ',')} MB` : `${Math.max(1, Math.round(n / 1024))} KB`);
 
 /** Erstellte Berichte – bleiben gespeichert und lassen sich später erneut herunterladen. */
 function ReportArchive() {
-  const { data, isLoading, error } = useReports();
+  const { data, isLoading, error, refetch } = useReports();
   const { data: me } = useMe();
   const toast = useToast();
+  const [confirm, confirmEl] = useConfirm();
   const [kind, setKind] = useState<'' | ReportRow['kind']>('');
+  const [limit, setLimit] = useState(15);
   const del = useAction((id: string) => api(`/reports/${id}`, { method: 'DELETE' }), () => toast('Bericht gelöscht'));
   const isAdmin = me && ['owner', 'admin'].includes(me.user.role);
-  const rows = (data ?? []).filter((r) => !kind || r.kind === kind);
+  const all = data ?? [];
+  const rows = all.filter((r) => !kind || r.kind === kind);
+  const count = (k: ReportRow['kind']) => all.filter((r) => r.kind === k).length;
   return (
-    <section className="mt-10" aria-labelledby="archive-h">
-      <div className="mb-3 flex flex-wrap items-end justify-between gap-3">
-        <div>
-          <h2 id="archive-h" className="text-lg font-semibold">
-            Erstellte Berichte
-          </h2>
-          <p className="text-sm text-ink-3">Jeder erzeugte Bericht wird hier abgelegt und bleibt als Nachweis abrufbar.</p>
-        </div>
-        <div className="flex flex-wrap gap-2">
-          <Chip active={!kind} onClick={() => setKind('')}>
+    <section aria-labelledby="archive-h">
+      {confirmEl}
+      <div className="mb-2.5 flex flex-col gap-1">
+        <h2 id="archive-h" className="flex items-center gap-2 text-title font-semibold tracking-tight">
+          Erstellte Berichte
+          {data && <span className="rounded-md bg-sunken px-1.5 text-caption font-medium text-ink-2 tabular-nums">{all.length}</span>}
+        </h2>
+        <p className="text-meta text-ink-3">Jeder erzeugte Bericht bleibt hier als Nachweis abrufbar.</p>
+      </div>
+      {all.length > 0 && (
+        <div className="no-scrollbar -mx-4 mb-3 flex gap-1.5 overflow-x-auto px-4 sm:mx-0 sm:flex-wrap sm:px-0">
+          <Chip active={!kind} onClick={() => setKind('')} count={all.length}>
             Alle
           </Chip>
-          {(Object.keys(KIND_LABEL) as ReportRow['kind'][]).map((k) => (
-            <Chip key={k} active={kind === k} onClick={() => setKind(k)}>
-              {KIND_LABEL[k]}
-            </Chip>
-          ))}
+          {(Object.keys(KIND_LABEL) as ReportRow['kind'][])
+            .filter((k) => count(k) > 0)
+            .map((k) => (
+              <Chip key={k} active={kind === k} onClick={() => setKind(k)} count={count(k)}>
+                {KIND_LABEL[k]}
+              </Chip>
+            ))}
         </div>
-      </div>
+      )}
+      {del.error && <ErrorBox error={del.error} className="mb-3" />}
       {isLoading ? (
-        <Spinner />
+        <SkeletonList rows={4} />
       ) : error ? (
-        <ErrorBox error={error} />
+        <ErrorBox error={error} onRetry={() => refetch()} />
       ) : !rows.length ? (
-        <Card className="p-6 text-center text-sm text-ink-3">Noch keine Berichte erstellt. Erzeugte PDFs und ZIP-Exporte erscheinen automatisch hier.</Card>
+        <Card>
+          <Empty compact icon={<FileArchive />} title="Noch keine Berichte" text="Erzeugte PDFs und ZIP-Exporte erscheinen automatisch hier." />
+        </Card>
       ) : (
-        <Card className="divide-y divide-line overflow-hidden">
-          {del.error && <ErrorBox error={del.error} />}
-          {rows.map((r) => (
-            <div key={r.id} className="flex items-center gap-3 px-5 py-3">
-              <span className="grid size-9 shrink-0 place-items-center rounded-lg bg-sunken text-ink-2">
-                {r.contentType === 'application/zip' ? <FileArchive className="size-4" /> : <FileText className="size-4" />}
-              </span>
-              <div className="min-w-0 flex-1">
-                <p className="truncate text-sm font-medium">{r.title}</p>
-                <p className="truncate text-xs text-ink-3">
-                  {KIND_LABEL[r.kind]} · {fmtDateTime(r.createdAt)} · {r.createdBy ?? 'unbekannt'} · {fmtSize(r.size)}
-                </p>
-              </div>
-              <a href={`/api/reports/${r.id}/file`} download={r.fileName} aria-label={`${r.title} herunterladen`}>
-                <Button size="sm" variant="secondary" icon={<Download className="size-3.5" />}>
-                  <span className="hidden sm:inline">Herunterladen</span>
-                </Button>
-              </a>
-              {(isAdmin || r.createdById === me?.user.id) && (
-                <Button size="sm" variant="ghost" aria-label={`${r.title} löschen`} onClick={() => confirm(`„${r.title}“ aus dem Archiv löschen?`) && del.mutate(r.id)}>
-                  <Trash2 className="size-4" />
-                </Button>
-              )}
-            </div>
-          ))}
+        <Card className="overflow-hidden">
+          <ul className="divide-y divide-line">
+            {rows.slice(0, limit).map((r) => (
+              <li key={r.id} className="flex min-h-14 items-center gap-3 py-2.5 pr-2 pl-4">
+                <RowIcon>{r.contentType === 'application/zip' ? <FileArchive /> : <FileText />}</RowIcon>
+                <div className="min-w-0 flex-1">
+                  <p className="truncate text-body font-medium">{r.title}</p>
+                  <p className="truncate text-meta text-ink-3">
+                    {KIND_LABEL[r.kind]} · <span className="tabular-nums">{fmtDateTime(r.createdAt)}</span>
+                    <span className="max-sm:hidden">
+                      {' '}
+                      · {r.createdBy ?? 'unbekannt'} · {fmtSize(r.size)}
+                    </span>
+                  </p>
+                </div>
+                <a
+                  href={`/api/reports/${r.id}/file`}
+                  download={r.fileName}
+                  aria-label={`${r.title} herunterladen`}
+                  title="Herunterladen"
+                  className="inline-flex h-10 shrink-0 items-center gap-1.5 rounded-lg px-2.5 text-meta font-medium text-ink-2 hover:bg-sunken hover:text-ink sm:h-9 [&_svg]:size-4"
+                >
+                  <Download />
+                  <span className="max-sm:hidden">Herunterladen</span>
+                </a>
+                {(isAdmin || r.createdById === me?.user.id) && (
+                  <IconButton
+                    label={`${r.title} löschen`}
+                    icon={<Trash2 />}
+                    onClick={async () => {
+                      if (await confirm({ title: 'Bericht löschen?', text: `„${r.title}“ wird aus dem Archiv entfernt.`, confirmLabel: 'Löschen', danger: true })) del.mutate(r.id);
+                    }}
+                  />
+                )}
+              </li>
+            ))}
+          </ul>
+          {rows.length > limit && (
+            <button type="button" onClick={() => setLimit(limit + 30)} className="w-full border-t border-line px-4 py-2.5 text-left text-meta font-medium text-ink-2 hover:bg-hover hover:text-ink">
+              {rows.length - limit} weitere anzeigen
+            </button>
+          )}
         </Card>
       )}
     </section>
@@ -378,7 +413,8 @@ function PdfButton({ kind }: { kind: 'defects' | 'compliance' }) {
   const [busy, setBusy] = useState(false);
   return (
     <Button
-      icon={<Download className="size-4" />}
+      variant="secondary"
+      icon={<Download />}
       loading={busy}
       disabled={!me}
       onClick={async () => {

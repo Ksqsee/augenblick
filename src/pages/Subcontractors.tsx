@@ -1,21 +1,45 @@
 import { getCategory } from '../categories';
 import { useQuery } from '@tanstack/react-query';
-import { Building, CheckCircle2, HardHat, Mail, Pencil, Phone, Plus, Trash2 } from 'lucide-react';
+import { CheckCircle2, HardHat, Mail, Pencil, Phone, Plus, Trash2 } from 'lucide-react';
 import { useState } from 'react';
 import { useParams } from 'react-router-dom';
-import { type Category, SEVERITIES, type Severity } from '../../shared/catalog';
+import { type Category, type Severity } from '../../shared/catalog';
 import { api, type Subcontractor, useAction, useMe, useSubcontractors } from '../api';
+import { PublicHeader } from '../components/admin';
 import { Logo } from '../components/Logo';
-import { Badge, Button, Card, Empty, ErrorBox, Field, Input, Modal, PageHeader, Spinner, Textarea, useToast } from '../components/ui';
+import {
+  Badge,
+  Button,
+  Card,
+  CardHeader,
+  Empty,
+  ErrorBox,
+  Field,
+  Input,
+  Menu,
+  Modal,
+  PageHeader,
+  PropertyList,
+  RowIcon,
+  SectionHeader,
+  SeverityBadge,
+  Skeleton,
+  SkeletonList,
+  Textarea,
+  useConfirm,
+  useToast,
+} from '../components/ui';
 import { fmtDate, fmtDateTime } from '../format';
 
 export function SubcontractorsPage() {
-  const { data, isLoading, error } = useSubcontractors();
+  const { data, isLoading, error, refetch } = useSubcontractors();
   const { data: me } = useMe();
   const [edit, setEdit] = useState<Partial<Subcontractor> | null>(null);
   const toast = useToast();
-  const isAdmin = me && ['owner', 'admin'].includes(me.user.role);
-  const del = useAction((id: string) => api(`/subcontractors/${id}`, { method: 'DELETE' }), () => toast('Entfernt'));
+  const [confirm, confirmEl] = useConfirm();
+  const isAdmin = !!me && ['owner', 'admin'].includes(me.user.role);
+  const del = useAction((id: string) => api(`/subcontractors/${id}`, { method: 'DELETE' }), () => toast('Subunternehmer entfernt'));
+  const open = (data ?? []).reduce((s, x) => s + x.openTasks, 0);
   return (
     <>
       <PageHeader
@@ -23,71 +47,104 @@ export function SubcontractorsPage() {
         subtitle="Fachfirmen für Wartung und Mängelbehebung. Aufgaben teilst du per Link – ohne eigenes Konto."
         actions={
           isAdmin && (
-            <Button icon={<Plus className="size-4" />} onClick={() => setEdit({})}>
+            <Button icon={<Plus />} onClick={() => setEdit({})}>
               Neuer Subunternehmer
             </Button>
           )
         }
       />
+      {confirmEl}
       {edit && <SubForm initial={edit} onClose={() => setEdit(null)} />}
+      {del.error && <ErrorBox error={del.error} className="mb-4" />}
       {isLoading ? (
-        <Spinner />
+        <SkeletonList rows={4} />
       ) : error ? (
-        <ErrorBox error={error} />
+        <ErrorBox error={error} onRetry={() => refetch()} />
       ) : !data?.length ? (
         <Card>
-          <Empty icon={<HardHat className="size-5" />} title="Noch keine Subunternehmer" text="Lege Fachfirmen an, um ihnen Aufgaben zuzuweisen." />
+          <Empty
+            icon={<HardHat />}
+            title="Noch keine Subunternehmer"
+            text="Lege Fachfirmen an, um ihnen Aufgaben per Link zu geben."
+            action={
+              isAdmin && (
+                <Button icon={<Plus />} onClick={() => setEdit({})}>
+                  Subunternehmer anlegen
+                </Button>
+              )
+            }
+          />
         </Card>
       ) : (
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">
-          {data.map((s) => (
-            <Card key={s.id} className="flex flex-col p-5">
-              <div className="flex items-start gap-3">
-                <span className="grid size-10 shrink-0 place-items-center rounded-lg bg-sunken text-ink-2">
-                  <Building className="size-5" />
-                </span>
-                <div className="min-w-0 flex-1">
-                  <p className="truncate font-semibold">{s.company}</p>
-                  <p className="truncate text-xs text-ink-3">{s.trade || 'Gewerk nicht angegeben'}</p>
-                </div>
-                {isAdmin && (
-                  <div className="flex">
-                    <Button size="sm" variant="ghost" aria-label="Bearbeiten" onClick={() => setEdit(s)}>
-                      <Pencil className="size-3.5" />
-                    </Button>
-                    <Button size="sm" variant="ghost" aria-label="Löschen" onClick={() => confirm(`${s.company} entfernen?`) && del.mutate(s.id)}>
-                      <Trash2 className="size-3.5" />
-                    </Button>
+        <>
+          <SectionHeader title="Firmen" count={data.length} meta={open ? `${open} offene Aufgaben` : 'Keine offenen Aufgaben'} />
+          <Card className="overflow-hidden">
+            <ul className="divide-y divide-line">
+              {data.map((s) => (
+                <li key={s.id} className="flex items-start gap-3 px-4 py-3 sm:items-center">
+                  <RowIcon>
+                    <HardHat />
+                  </RowIcon>
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate text-body font-medium">{s.company}</p>
+                    <p className="truncate text-meta text-ink-3">{[s.trade || 'Gewerk nicht angegeben', s.contactName].filter(Boolean).join(' · ')}</p>
+                    {(s.phone || s.email) && (
+                      <p className="mt-1 flex flex-wrap gap-x-4 gap-y-1 text-meta">
+                        {s.phone && (
+                          <a className="inline-flex min-h-6 items-center gap-1.5 text-ink-2 hover:text-ink hover:underline" href={`tel:${s.phone}`}>
+                            <Phone className="size-3.5 text-ink-3" />
+                            {s.phone}
+                          </a>
+                        )}
+                        {s.email && (
+                          <a className="inline-flex min-h-6 min-w-0 items-center gap-1.5 break-all text-ink-2 hover:text-ink hover:underline" href={`mailto:${s.email}`}>
+                            <Mail className="size-3.5 shrink-0 text-ink-3" />
+                            {s.email}
+                          </a>
+                        )}
+                      </p>
+                    )}
+                    <span className="mt-1.5 flex gap-1.5 sm:hidden">
+                      <TaskCounts s={s} />
+                    </span>
                   </div>
-                )}
-              </div>
-              <ul className="mt-4 flex-1 space-y-1.5 text-sm text-ink-2">
-                {s.contactName && <li>{s.contactName}</li>}
-                {s.phone && (
-                  <li>
-                    <a className="inline-flex items-center gap-2 hover:underline" href={`tel:${s.phone}`}>
-                      <Phone className="size-3.5 text-ink-3" />
-                      {s.phone}
-                    </a>
-                  </li>
-                )}
-                {s.email && (
-                  <li>
-                    <a className="inline-flex items-center gap-2 break-all hover:underline" href={`mailto:${s.email}`}>
-                      <Mail className="size-3.5 text-ink-3" />
-                      {s.email}
-                    </a>
-                  </li>
-                )}
-              </ul>
-              <div className="mt-4 flex gap-2 border-t border-line pt-3">
-                <Badge tone={s.openTasks ? 'warn' : 'muted'}>{s.openTasks} offen</Badge>
-                <Badge tone="ok">{s.doneTasks} erledigt</Badge>
-              </div>
-            </Card>
-          ))}
-        </div>
+                  <span className="hidden shrink-0 gap-1.5 sm:flex">
+                    <TaskCounts s={s} />
+                  </span>
+                  {isAdmin && (
+                    <Menu
+                      label={`Aktionen für ${s.company}`}
+                      items={[
+                        { label: 'Bearbeiten', icon: <Pencil />, onClick: () => setEdit(s) },
+                        'separator',
+                        {
+                          label: 'Entfernen',
+                          icon: <Trash2 />,
+                          danger: true,
+                          onClick: async () => {
+                            if (await confirm({ title: `${s.company} entfernen?`, text: 'Geteilte Aufgaben bleiben erhalten.', confirmLabel: 'Entfernen', danger: true })) del.mutate(s.id);
+                          },
+                        },
+                      ]}
+                    />
+                  )}
+                </li>
+              ))}
+            </ul>
+          </Card>
+        </>
       )}
+    </>
+  );
+}
+
+function TaskCounts({ s }: { s: Subcontractor }) {
+  return (
+    <>
+      <Badge tone={s.openTasks ? 'warn' : 'muted'} dot={!!s.openTasks}>
+        {s.openTasks} offen
+      </Badge>
+      <Badge tone="muted">{s.doneTasks} erledigt</Badge>
     </>
   );
 }
@@ -116,7 +173,7 @@ function SubForm({ initial, onClose }: { initial: Partial<Subcontractor>; onClos
       onClose={onClose}
       footer={
         <>
-          <Button variant="ghost" onClick={onClose}>
+          <Button variant="secondary" onClick={onClose}>
             Abbrechen
           </Button>
           <Button form="sub-form" loading={save.isPending}>
@@ -141,11 +198,19 @@ function SubForm({ initial, onClose }: { initial: Partial<Subcontractor>; onClos
         <Field label="Firma" className="sm:col-span-2">
           {(id) => <Input id={id} required autoFocus value={f.company} onChange={set('company')} />}
         </Field>
-        <Field label="Gewerk">{(id) => <Input id={id} value={f.trade} onChange={set('trade')} placeholder="z. B. Türtechnik" />}</Field>
-        <Field label="Ansprechperson">{(id) => <Input id={id} value={f.contactName} onChange={set('contactName')} />}</Field>
-        <Field label="Telefon">{(id) => <Input id={id} type="tel" value={f.phone} onChange={set('phone')} />}</Field>
-        <Field label="E-Mail">{(id) => <Input id={id} type="email" value={f.email} onChange={set('email')} />}</Field>
-        <Field label="Notizen" className="sm:col-span-2">
+        <Field label="Gewerk" optional>
+          {(id) => <Input id={id} value={f.trade} onChange={set('trade')} placeholder="z. B. Türtechnik" />}
+        </Field>
+        <Field label="Ansprechperson" optional>
+          {(id) => <Input id={id} value={f.contactName} onChange={set('contactName')} />}
+        </Field>
+        <Field label="Telefon" optional>
+          {(id) => <Input id={id} type="tel" value={f.phone} onChange={set('phone')} />}
+        </Field>
+        <Field label="E-Mail" optional>
+          {(id) => <Input id={id} type="email" value={f.email} onChange={set('email')} />}
+        </Field>
+        <Field label="Notizen" optional className="sm:col-span-2">
           {(id) => <Textarea id={id} value={f.notes} onChange={set('notes')} />}
         </Field>
       </form>
@@ -179,14 +244,21 @@ interface ExternalTask {
   hasPhoto: boolean;
 }
 
+const STATUS = {
+  open: { label: 'Offen', tone: 'warn' },
+  in_progress: { label: 'In Arbeit', tone: 'info' },
+  done: { label: 'Erledigt', tone: 'ok' },
+  cancelled: { label: 'Abgebrochen', tone: 'muted' },
+} as const;
+
 export function ExternalTaskPage() {
   const { token = '' } = useParams();
   const q = useQuery({ queryKey: ['ext', token], queryFn: () => api<ExternalTask>(`/public/tasks/${token}`), retry: false });
   const [note, setNote] = useState('');
-  const [busy, setBusy] = useState(false);
+  const [busy, setBusy] = useState<'in_progress' | 'done' | null>(null);
   const [err, setErr] = useState<unknown>(null);
   const send = async (status: 'in_progress' | 'done') => {
-    setBusy(true);
+    setBusy(status);
     setErr(null);
     try {
       await api(`/public/tasks/${token}`, { body: { status, note } });
@@ -194,94 +266,121 @@ export function ExternalTaskPage() {
     } catch (e) {
       setErr(e);
     } finally {
-      setBusy(false);
+      setBusy(null);
     }
   };
   const t = q.data;
+  const overdue = !!t?.dueAt && t.dueAt < Date.now() && t.status !== 'done';
   return (
-    <div className="min-h-dvh bg-canvas px-4 py-8">
-      <div className="mx-auto max-w-xl">
+    <div className="min-h-dvh bg-canvas">
+      <PublicHeader>
         <Logo />
+        {t && <span className="min-w-0 truncate border-l border-line pl-3 text-meta text-ink-3">Auftrag von {t.tenantName}</span>}
+      </PublicHeader>
+      <main className="mx-auto max-w-xl px-4 py-8 sm:py-10">
         {q.isLoading ? (
-          <Spinner />
+          <div className="flex flex-col gap-3">
+            <Skeleton className="h-4 w-40" />
+            <Skeleton className="h-8 w-72" />
+            <Skeleton className="mt-4 h-40 w-full rounded-xl" />
+          </div>
         ) : !t ? (
-          <Card className="mt-6">
-            <Empty icon={<HardHat className="size-5" />} title="Link ungültig" text="Diese Aufgabe ist nicht mehr freigegeben. Bitte wende dich an deinen Auftraggeber." />
+          <Card>
+            <Empty icon={<HardHat />} title="Link ungültig" text="Diese Aufgabe ist nicht mehr freigegeben. Bitte wende dich an deinen Auftraggeber." />
           </Card>
         ) : (
-          <div className="mt-6 flex flex-col gap-4">
+          <div className="flex flex-col gap-6">
             <div>
-              <p className="text-sm text-ink-3">
-                Auftrag von {t.tenantName}
-                {t.subcontractorName && ` an ${t.subcontractorName}`}
-              </p>
-              <h1 className="mt-1 text-2xl font-semibold tracking-tight">{t.title}</h1>
-              <div className="mt-2 flex flex-wrap gap-2">
-                <Badge tone={t.status === 'done' ? 'ok' : t.status === 'in_progress' ? 'info' : 'warn'}>
-                  {{ open: 'Offen', in_progress: 'In Arbeit', done: 'Erledigt', cancelled: 'Abgebrochen' }[t.status]}
+              <p className="text-meta text-ink-3">{t.subcontractorName ? `Für ${t.subcontractorName}` : `Auftrag von ${t.tenantName}`}</p>
+              <h1 className="mt-1 text-h1 font-semibold tracking-[-0.02em]">{t.title}</h1>
+              <div className="mt-3 flex flex-wrap gap-2">
+                <Badge tone={STATUS[t.status].tone} dot>
+                  {STATUS[t.status].label}
                 </Badge>
-                {t.dueAt && <Badge tone={t.dueAt < Date.now() && t.status !== 'done' ? 'bad' : 'muted'}>fällig {fmtDate(t.dueAt)}</Badge>}
-                <Badge tone={t.priority === 'high' ? 'bad' : 'muted'}>Priorität {{ low: 'niedrig', medium: 'mittel', high: 'hoch' }[t.priority]}</Badge>
+                {t.dueAt && (
+                  <Badge tone={overdue ? 'bad' : 'muted'} variant={overdue ? 'soft' : 'outline'}>
+                    {overdue ? 'Überfällig seit' : 'Fällig am'} {fmtDate(t.dueAt)}
+                  </Badge>
+                )}
+                <Badge variant="outline" tone={t.priority === 'high' ? 'bad' : 'muted'}>
+                  Priorität {{ low: 'niedrig', medium: 'mittel', high: 'hoch' }[t.priority]}
+                </Badge>
               </div>
             </div>
-            <Card className="p-5 text-sm">
-              <dl className="grid grid-cols-[110px_1fr] gap-y-2">
-                {t.propertyName && (
-                  <>
-                    <dt className="text-ink-3">Objekt</dt>
-                    <dd className="font-medium">
-                      {t.propertyName}
-                      {t.propertyAddress && <span className="block font-normal text-ink-2">{t.propertyAddress.split('\n').join(', ')}</span>}
-                    </dd>
-                  </>
-                )}
-                {t.assetCode && (
-                  <>
-                    <dt className="text-ink-3">Element</dt>
-                    <dd className="font-medium">
-                      {t.assetCode} {t.category && <span className="font-normal text-ink-2">· {getCategory(t.category).label}</span>}
-                    </dd>
-                    <dt className="text-ink-3">Standort</dt>
-                    <dd>{[t.buildingName, t.floor, t.location].filter(Boolean).join(' · ') || '–'}</dd>
-                  </>
-                )}
-                {t.defectTitle && (
-                  <>
-                    <dt className="text-ink-3">Mangel</dt>
-                    <dd>
-                      <span className="font-medium">{t.defectTitle}</span>
-                      {t.defectSeverity && <span className="text-ink-2"> · {SEVERITIES[t.defectSeverity]}</span>}
-                      {t.legalBasis && <span className="block text-xs text-ink-3">{t.legalBasis}</span>}
-                      {t.defectNote && <span className="block text-ink-2">{t.defectNote}</span>}
-                      {t.defectMeasure && <span className="block text-ink-2">Maßnahme: {t.defectMeasure}</span>}
-                    </dd>
-                  </>
-                )}
-              </dl>
-              {t.description && <p className="mt-4 border-t border-line pt-4 whitespace-pre-line text-ink-2">{t.description}</p>}
-              {t.hasPhoto && <img src={`/api/public/tasks/${token}/photo`} alt="Foto zum Mangel" className="mt-4 max-h-80 rounded-lg border border-line" />}
+
+            <Card className="p-4 sm:p-5">
+              <PropertyList
+                items={[
+                  ...(t.propertyName
+                    ? [
+                        {
+                          label: 'Objekt',
+                          value: (
+                            <>
+                              {t.propertyName}
+                              {t.propertyAddress && <span className="block font-normal text-ink-2">{t.propertyAddress.split('\n').join(', ')}</span>}
+                            </>
+                          ),
+                        },
+                      ]
+                    : []),
+                  ...(t.assetCode
+                    ? [
+                        { label: 'Element', value: `${t.assetCode}${t.category ? ` · ${getCategory(t.category).label}` : ''}` },
+                        { label: 'Standort', value: [t.buildingName, t.floor, t.location].filter(Boolean).join(' · ') },
+                      ]
+                    : []),
+                ]}
+              />
+              {t.description && <p className="mt-4 border-t border-line pt-4 text-body whitespace-pre-line text-ink-2">{t.description}</p>}
             </Card>
+
+            {t.defectTitle && (
+              <Card>
+                <CardHeader title="Mangel" action={t.defectSeverity && <SeverityBadge severity={t.defectSeverity} />} />
+                <div className="flex flex-col gap-2 px-4 pb-4 text-body sm:px-5 sm:pb-5">
+                  <p className="font-medium">{t.defectTitle}</p>
+                  {t.defectNote && <p className="text-ink-2">{t.defectNote}</p>}
+                  {t.defectMeasure && (
+                    <p className="text-ink-2">
+                      <span className="text-ink-3">Maßnahme: </span>
+                      {t.defectMeasure}
+                    </p>
+                  )}
+                  {t.legalBasis && <p className="text-meta text-ink-3">{t.legalBasis}</p>}
+                  {t.hasPhoto && <img src={`/api/public/tasks/${token}/photo`} alt="Foto zum Mangel" className="mt-2 max-h-80 rounded-lg border border-line object-contain" />}
+                </div>
+              </Card>
+            )}
+
             {t.status === 'done' ? (
-              <Card className="flex items-start gap-3 p-5">
-                <CheckCircle2 className="size-5 text-ok" />
-                <div className="text-sm">
+              <Card className="flex items-start gap-3 p-4 sm:p-5">
+                <span className="grid size-9 shrink-0 place-items-center rounded-full bg-ok-soft text-ok">
+                  <CheckCircle2 className="size-5" />
+                </span>
+                <div className="text-body">
                   <p className="font-medium">Als erledigt gemeldet {t.externalDoneAt && `am ${fmtDateTime(t.externalDoneAt)}`}</p>
                   {t.externalNote && <p className="mt-1 text-ink-2">{t.externalNote}</p>}
+                  <p className="mt-1 text-meta text-ink-3">Danke! {t.tenantName} sieht deine Rückmeldung.</p>
                 </div>
               </Card>
             ) : (
-              <Card className="flex flex-col gap-3 p-5">
+              <Card className="flex flex-col gap-4 p-4 sm:p-5">
+                <div>
+                  <h2 className="text-title font-semibold">Rückmeldung geben</h2>
+                  <p className="text-meta text-ink-3">{t.tenantName} sieht deine Notiz sofort.</p>
+                </div>
                 {!!err && <ErrorBox error={err} />}
                 <Field label="Rückmeldung" hint="Was wurde gemacht? Material, Hinweise …">
                   {(id) => <Textarea id={id} value={note} onChange={(e) => setNote(e.target.value)} />}
                 </Field>
-                <div className="flex flex-wrap gap-2">
+                <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
                   {t.status === 'open' && (
-                    <Button variant="secondary" loading={busy} onClick={() => send('in_progress')}>
+                    <Button variant="secondary" size="lg" className="sm:h-10 sm:text-body" loading={busy === 'in_progress'} disabled={!!busy} onClick={() => send('in_progress')}>
                       In Arbeit
                     </Button>
                   )}
-                  <Button loading={busy} icon={<CheckCircle2 className="size-4" />} onClick={() => send('done')}>
+                  <Button size="lg" className="sm:h-10 sm:text-body" loading={busy === 'done'} disabled={!!busy} icon={<CheckCircle2 />} onClick={() => send('done')}>
                     Als erledigt melden
                   </Button>
                 </div>
@@ -289,7 +388,7 @@ export function ExternalTaskPage() {
             )}
           </div>
         )}
-      </div>
+      </main>
     </div>
   );
 }

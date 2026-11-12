@@ -158,7 +158,8 @@ if (!PROD) {
 if (!PROD) {
   step('Team: Passwort-Link');
   await p.goto(BASE + '/team');
-  await p.getByRole('button', { name: 'Passwort-Link für Aylin Demir' }).click();
+  await p.getByRole('button', { name: 'Weitere Aktionen für Aylin Demir' }).click();
+  await p.getByRole('menuitem', { name: 'Passwort-Link erzeugen' }).click();
   const url = await p.locator('input[readonly]').first().inputValue();
   check(url.includes('/passwort/'), 'Reset-Link erzeugt');
   const p2 = await (await b.newContext({ locale: 'de-DE' })).newPage();

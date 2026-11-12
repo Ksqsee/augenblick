@@ -96,6 +96,7 @@ const check = (ok, m) => { if (!ok) { fail.push(m); console.log('  ✗', m); } }
   if (!PROD) {
     const before = archive.length;
     await p.getByRole('button', { name: /Compliance-Übersicht .* löschen/ }).first().click();
+    await p.getByRole('dialog').getByRole('button', { name: 'Löschen', exact: true }).click();
     await p.getByText('Bericht gelöscht').waitFor();
     check((await api('/reports')).length === before - 1, 'Bericht gelöscht');
   }

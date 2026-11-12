@@ -3,45 +3,48 @@ import { useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { LEGAL_DOCS } from '../../shared/legal';
 import { api, queryClient } from '../api';
+import { PublicHeader } from './admin';
 import { Logo } from './Logo';
-import { Button, ErrorBox } from './ui';
+import { Button, ErrorBox, Segmented } from './ui';
 
 /** Muss bestätigt werden, bevor die App genutzt werden kann (nach jeder neuen Textversion). */
 export function LegalGate({ pending }: { pending: string[] }) {
   const docs = LEGAL_DOCS.filter((d) => pending.includes(d.key));
-  const [open, setOpen] = useState(docs[0]?.key);
+  const [open, setOpen] = useState(docs[0]?.key ?? '');
   const [checked, setChecked] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<unknown>(null);
+  const doc = docs.find((d) => d.key === open);
   return (
-    <div className="fixed inset-0 z-[80] flex items-end justify-center bg-ink/40 backdrop-blur-sm sm:items-center sm:p-6">
-      <div className="animate-in flex max-h-[92dvh] w-full max-w-2xl flex-col rounded-t-2xl bg-surface shadow-pop sm:rounded-2xl" role="dialog" aria-modal aria-label="Rechtstexte bestätigen">
-        <div className="border-b border-line px-5 py-4">
-          <h2 className="text-base font-semibold">Bitte bestätigen</h2>
-          <p className="mt-0.5 text-sm text-ink-3">Für die Nutzung brauchen wir deine Zustimmung zu den aktuellen Texten.</p>
+    <div className="animate-fade fixed inset-0 z-[80] flex items-end justify-center bg-ink/40 sm:items-center sm:p-6">
+      <div className="animate-up sm:animate-in flex max-h-[92dvh] w-full max-w-2xl flex-col rounded-t-2xl bg-surface shadow-pop sm:rounded-2xl" role="dialog" aria-modal aria-label="Rechtstexte bestätigen">
+        <div className="flex flex-col gap-3 border-b border-line px-5 pt-5 pb-4">
+          <div>
+            <h2 className="text-h3 font-semibold tracking-tight">Neue Fassung bestätigen</h2>
+            <p className="mt-0.5 text-meta text-ink-3">Damit du Prüfkompass weiter nutzen kannst, brauchen wir deine Zustimmung.</p>
+          </div>
+          {docs.length > 1 && <Segmented value={open} onChange={setOpen} options={docs.map((d) => ({ value: d.key, label: d.title }))} />}
         </div>
-        <div className="flex gap-2 overflow-x-auto border-b border-line px-5 py-2">
-          {docs.map((d) => (
-            <button
-              key={d.key}
-              onClick={() => setOpen(d.key)}
-              className={`shrink-0 rounded-md px-3 py-1.5 text-[13px] font-medium ${open === d.key ? 'bg-ink text-white' : 'text-ink-2 hover:bg-sunken'}`}
-            >
-              {d.title}
-            </button>
-          ))}
+        <div className="scroll-thin flex-1 overflow-y-auto px-5 py-4">
+          {doc && (
+            <>
+              <p className="mb-3 flex items-center gap-2 text-body font-medium">
+                <FileText className="size-4 text-ink-3" /> {doc.title}
+                <span className="text-meta font-normal text-ink-3">· Version {doc.version}</span>
+              </p>
+              <div className="text-body leading-relaxed whitespace-pre-line text-ink-2">{doc.body}</div>
+            </>
+          )}
         </div>
-        <div className="flex-1 overflow-y-auto px-5 py-4 text-sm leading-relaxed whitespace-pre-line text-ink-2">
-          {docs.find((d) => d.key === open)?.body}
-          <p className="mt-4 text-xs text-ink-3">Version {docs.find((d) => d.key === open)?.version}</p>
-        </div>
-        <div className="flex flex-col gap-3 border-t border-line px-5 py-4">
+        <div className="flex flex-col gap-3 border-t border-line px-5 py-4 pb-[max(1rem,env(safe-area-inset-bottom))]">
           {!!error && <ErrorBox error={error} />}
-          <label className="flex items-start gap-3 text-sm">
-            <input type="checkbox" className="mt-0.5 size-4 accent-[var(--color-brand)]" checked={checked} onChange={(e) => setChecked(e.target.checked)} />
+          <label className="flex cursor-pointer items-start gap-3 text-body">
+            <input type="checkbox" className="mt-0.5 size-[18px] shrink-0 rounded accent-ink" checked={checked} onChange={(e) => setChecked(e.target.checked)} />
             <span>Ich habe {docs.map((d) => d.title).join(', ')} gelesen und stimme zu.</span>
           </label>
           <Button
+            size="lg"
+            className="w-full sm:h-10 sm:w-auto sm:self-end sm:text-body"
             disabled={!checked}
             loading={busy}
             onClick={async () => {
@@ -69,26 +72,32 @@ export function LegalPage() {
   const { doc } = useParams();
   const d = LEGAL_DOCS.find((x) => x.key === doc) ?? LEGAL_DOCS[0];
   return (
-    <div className="min-h-dvh bg-canvas px-4 py-8">
-      <div className="mx-auto max-w-2xl">
-        <Link to="/">
+    <div className="min-h-dvh bg-canvas">
+      <PublicHeader>
+        <Link to="/" aria-label="Zur Startseite">
           <Logo />
         </Link>
-        <nav className="mt-6 flex flex-wrap gap-2">
+      </PublicHeader>
+      <main className="mx-auto max-w-2xl px-4 py-8 sm:py-10">
+        <nav aria-label="Rechtstexte" className="no-scrollbar -mx-4 mb-6 flex gap-5 overflow-x-auto border-b border-line px-4 sm:mx-0 sm:px-0">
           {LEGAL_DOCS.map((x) => (
-            <Link key={x.key} to={`/rechtliches/${x.key}`} className={`rounded-md px-3 py-1.5 text-[13px] font-medium ${x.key === d.key ? 'bg-ink text-white' : 'bg-surface text-ink-2'}`}>
+            <Link
+              key={x.key}
+              to={`/rechtliches/${x.key}`}
+              aria-current={x.key === d.key ? 'page' : undefined}
+              className={`relative flex h-11 shrink-0 items-center text-body font-medium whitespace-nowrap ${x.key === d.key ? 'text-ink' : 'text-ink-3 hover:text-ink-2'}`}
+            >
               {x.title}
+              {x.key === d.key && <span className="absolute inset-x-0 -bottom-px h-0.5 rounded-full bg-ink" />}
             </Link>
           ))}
         </nav>
-        <article className="mt-6 rounded-xl border border-line bg-surface p-6 shadow-card">
-          <h1 className="flex items-center gap-2 text-xl font-semibold">
-            <FileText className="size-5 text-ink-3" /> {d.title}
-          </h1>
-          <p className="mt-1 text-xs text-ink-3">Version {d.version}</p>
-          <div className="mt-5 text-sm leading-relaxed whitespace-pre-line text-ink-2">{d.body}</div>
+        <article>
+          <h1 className="text-h1 font-semibold tracking-[-0.02em]">{d.title}</h1>
+          <p className="mt-1 text-meta text-ink-3">Version {d.version}</p>
+          <div className="mt-6 rounded-xl bg-surface p-5 text-body leading-relaxed whitespace-pre-line text-ink-2 shadow-card sm:p-6">{d.body}</div>
         </article>
-      </div>
+      </main>
     </div>
   );
 }

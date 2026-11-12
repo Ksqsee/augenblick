@@ -149,7 +149,7 @@ async function checkDevice(c: Ctx, userId: string, tenantId: string) {
       userIds: [userId],
       type: 'account_security',
       title: 'Anmeldung von einem neuen Gerät',
-      body: `${deviceLabel(ua)}${country ? ` · ${country}` : ''} · ${when}. Warst du das nicht? Unter Einstellungen → Profil die Sitzung beenden und das Passwort ändern lassen.`,
+      body: `${deviceLabel(ua)}${country ? ` · ${country}` : ''} · ${when}. Warst du das nicht? Unter Einstellungen → Konto die Sitzung beenden und das Passwort ändern lassen.`,
       link: '/einstellungen?tab=profile',
     },
     c.executionCtx,
