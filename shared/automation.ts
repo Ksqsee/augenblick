@@ -1,64 +1,72 @@
-// Autopilot: Regeln, Stufen und reine Fachlogik (ohne Datenbank), geteilt von Worker und Oberfläche.
+// Autopilot: ein Kreislauf aus sechs Schritten (Stufe je Schritt, Hauptschalter) und reine Fachlogik (ohne Datenbank),
+// geteilt von Worker und Oberfläche. Wiederholung ist eine Eigenschaft der Aufgabe, kein Schritt.
 import { addMonths, DAY } from './logic';
 
 export const AUTOMATION_MODES = { off: 'Aus', suggest: 'Vorschlagen', auto: 'Automatisch' } as const;
 export type AutomationMode = keyof typeof AUTOMATION_MODES;
 
-export type AutomationKey = 'plan_week' | 'assign_defect_tasks' | 'escalate_sla' | 'recurring_tasks' | 'close_stale' | 'monthly_report' | 'adapt_intervals';
+/** Die sechs Schritte des Kreislaufs (gespeicherte Schlüssel bleiben die der früheren Regeln). */
+export type AutomationKey = 'plan_week' | 'assign_defect_tasks' | 'escalate_sla' | 'verify_repairs' | 'adapt_intervals' | 'monthly_report';
+/** Frühere Regeln, die in einem Schritt aufgegangen sind: nur noch als Schlüssel im Protokoll. */
+export type LegacyKey = 'close_stale' | 'recurring_tasks';
+export type LogKey = AutomationKey | LegacyKey;
 
 export interface AutomationDef {
   key: AutomationKey;
+  /** Nummer im Kreislauf (1–6) */
+  step: number;
+  /** kurzer Name des Schritts: Planen, Zuweisen … */
   title: string;
+  /** ein Satz */
   description: string;
   defaultMode: AutomationMode;
   /** Nur Inhaber/Admins sehen Vorschläge und dürfen sie ausführen */
   adminOnly?: boolean;
 }
 
-/** Alle Regeln in Anzeigereihenfolge. */
+/** Der Kreislauf in Reihenfolge. */
 export const AUTOMATIONS: readonly AutomationDef[] = [
   {
     key: 'plan_week',
-    title: 'Woche planen',
-    description: 'Montags je Gebäude mit Fälligkeiten in den nächsten 14 Tagen einen Prüfauftrag „Rundgang“ anlegen. Zuständig ist, wer dort zuletzt geprüft hat und Zugriff hat.',
-    defaultMode: 'suggest',
+    step: 1,
+    title: 'Planen',
+    description: 'Montags bekommt jedes Gebäude mit Fälligkeiten in den nächsten 14 Tagen einen Rundgang-Auftrag – an die Person, die dort zuletzt geprüft hat.',
+    defaultMode: 'auto',
   },
   {
     key: 'assign_defect_tasks',
-    title: 'Mängel zuweisen',
-    description: 'Für schwere Mängel sofort eine Aufgabe anlegen und sie nach den Zuweisungsregeln an eine Person oder einen Subunternehmer geben.',
+    step: 2,
+    title: 'Zuweisen',
+    description: 'Ein schwerer Mangel aus Prüfung, Begehung oder Erfassen wird sofort zur Aufgabe – nach den Zuweisungsregeln an eine Person oder einen Partner, mit Link.',
     defaultMode: 'auto',
   },
   {
     key: 'escalate_sla',
-    title: 'Fristen eskalieren',
-    description: 'Ist eine offene Aufgabe über ihrer Frist, steigt die Priorität auf „Hoch“ und die Admins werden benachrichtigt.',
-    defaultMode: 'suggest',
-  },
-  {
-    key: 'recurring_tasks',
-    title: 'Wiederkehrende Aufgaben',
-    description: 'Wird eine Aufgabe mit Wiederholung erledigt, entsteht die nächste mit neuem Termin.',
+    step: 3,
+    title: 'Nachhalten',
+    description: 'Ist eine Frist überschritten, steigt die Priorität auf „Hoch“ und die Admins erfahren es; bleibt ein Mangel nach der Behebung liegen, folgt eine Erinnerung.',
     defaultMode: 'auto',
   },
   {
-    key: 'close_stale',
-    title: 'Offene Mängel nachhalten',
-    description: 'Ist eine Mängelbehebung seit 14 Tagen erledigt, der Mangel aber noch offen, wird die zuständige Person erinnert.',
-    defaultMode: 'suggest',
+    key: 'verify_repairs',
+    step: 4,
+    title: 'Nachprüfen',
+    description: 'Ist eine Mängelbehebung erledigt, bekommt die Person, die den Mangel festgestellt hat, einen Nachprüf-Auftrag. Ist der Punkt in Ordnung, gilt der Mangel als behoben.',
+    defaultMode: 'auto',
   },
   {
-    key: 'monthly_report',
-    title: 'Monatsberichte',
-    description: 'Zum Monatsanfang je Objekt den Objektbericht erzeugen und im Berichtsarchiv ablegen. Die PDFs entstehen im Browser einer Admin-Person.',
+    key: 'adapt_intervals',
+    step: 5,
+    title: 'Lernen',
+    description: 'Nach zwei Prüfungen in Folge mit Mängeln wird das Intervall kürzer, nach vier mängelfreien gilt wieder der Standard – nie länger als der Standard.',
     defaultMode: 'suggest',
     adminOnly: true,
   },
   {
-    key: 'adapt_intervals',
-    title: 'Prüfintervalle anpassen',
-    description:
-      'Nach zwei Prüfungen in Folge mit Mängeln das Intervall verkürzen, nach vier mängelfreien zurück zum Standard. „Automatisch“ wendet es beim Abschluss der Prüfung an, nie länger als der Standard.',
+    key: 'monthly_report',
+    step: 6,
+    title: 'Nachweisen',
+    description: 'Zum Monatsanfang entsteht je Objekt der Objektbericht im Archiv; der Kunden-Link zeigt den Stand. Die PDFs erzeugt der Browser einer Admin-Person.',
     defaultMode: 'suggest',
     adminOnly: true,
   },
@@ -67,11 +75,41 @@ export const AUTOMATIONS: readonly AutomationDef[] = [
 export const AUTOMATION_KEYS = AUTOMATIONS.map((a) => a.key) as [AutomationKey, ...AutomationKey[]];
 export const automationDef = (key: string): AutomationDef | undefined => AUTOMATIONS.find((a) => a.key === key);
 
+/** Frühere Schlüssel → Schritt, in dem sie aufgegangen sind (null = kein Schritt mehr, z. B. Wiederholung). */
+export const LEGACY_KEYS: Record<LegacyKey, AutomationKey | null> = { close_stale: 'escalate_sla', recurring_tasks: null };
+
+/** Schritt eines Protokolleintrags (auch für frühere Schlüssel). */
+export function stepOf(key: string): AutomationDef | undefined {
+  if (key in LEGACY_KEYS) {
+    const k = LEGACY_KEYS[key as LegacyKey];
+    return k ? automationDef(k) : undefined;
+  }
+  return automationDef(key);
+}
+
+/** Bezeichnung eines Protokolleintrags: Name des Schritts, Wiederholungen als „Wiederholung“. */
+export const logTitle = (key: string) => stepOf(key)?.title ?? (key === 'recurring_tasks' ? 'Wiederholung' : key);
+
+/** Gültige Schlüssel im Protokoll-Filter. */
+export const isLogKey = (key: string): key is LogKey => !!automationDef(key) || key in LEGACY_KEYS;
+
+/** Zähler je Schritt für die Wochenzusammenfassung. */
+export type WeekCounts = Partial<Record<AutomationKey, number>>;
+
+/**
+ * Text der Montagsmeldung „Autopilot: letzte Woche“: Anzahl der Protokolleinträge je Schritt in Kreislauf-Reihenfolge,
+ * z. B. „Planen 3 · Zuweisen 5 · Nachprüfen 2“. null, wenn nichts geschah.
+ */
+export function weekSummary(c: WeekCounts): string | null {
+  const parts = AUTOMATIONS.filter((d) => (c[d.key] ?? 0) > 0).map((d) => `${d.title} ${c[d.key]}`);
+  return parts.length ? parts.join(' · ') : null;
+}
+
 /** Rückgängig nur innerhalb dieser Frist. */
 export const UNDO_DAYS = 7;
 /** plan_week: Vorschau in Tagen */
 export const PLAN_HORIZON_DAYS = 14;
-/** close_stale: Tage nach Erledigung */
+/** Nachhalten: Erinnerung, wenn ein Mangel so viele Tage nach erledigter Behebung noch offen ist */
 export const STALE_DAYS = 14;
 
 export const SEVERITY_KEYS = ['low', 'medium', 'high', 'critical'] as const;

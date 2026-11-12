@@ -48,7 +48,7 @@ Für API-Schlüssel gelten diese Regeln:
 | `GET /walkthroughs`, `GET /walkthroughs/:id` | Brandschutzbegehungen |
 | `GET /defects?status=open\|resolved\|all&hidden=1` | Mängel aus Prüfungen und Begehungen, mit Behebung (`resolutionNote`, `resolutionPhotoKey`, `resolvedByName`). Ausgeblendete fehlen, außer mit `hidden=1` (dann nur sie) |
 | `GET /defects/:id` | Mangel-Detail: alle Angaben, Fotos vorher/nachher, verknüpfte Aufgaben (`tasks`) und Verlauf (`history`) |
-| `GET /smart/action-required` (auch `GET /defects/action-required`) | Handlungsbedarf: kritische/hohe offene Mängel ohne offene Aufgabe, überfällige Aufgaben und überfällige Elemente, nach `urgency` absteigend; je Eintrag `kind` (`defect`/`task`/`asset`), `id`, `title`, `subtitle`, `reason`, `level`, `at` |
+| `GET /smart/action-required` (auch `GET /defects/action-required`) | Alt-Pfad (Quellen wie `GET /now`; die Oberfläche nutzt ihn nicht mehr): kritische/hohe offene Mängel ohne offene Aufgabe, überfällige Aufgaben und überfällige Elemente, nach `urgency` absteigend; je Eintrag `kind` (`defect`/`task`/`asset`), `id`, `title`, `subtitle`, `reason`, `level`, `at` |
 | `GET /tasks`, `GET /tasks/:id/comments`, `GET /tasks/stats?days=30` | Aufgaben (mit `kind`: `inspection` = Prüfauftrag, `defect` = Mängelbehebung, `other`; `createdBy`, `watchers`, `watching`, `defectStatus`), Kommentare (mit `mentions`), Statistik |
 | `GET /tasks/:id/watchers` | Beobachter einer Aufgabe |
 | `GET /categories` | Elementarten mit Prüfarten und Prüfpunkten |
@@ -69,7 +69,7 @@ Für API-Schlüssel gelten diese Regeln:
 | `POST /inspections/:id/correct` | Berichtigung einer abgeschlossenen Prüfung anlegen (eigene Prüfung oder Admin); liefert den Entwurf |
 | `PATCH /defects/:id` | Mangel als behoben markieren / wieder öffnen: `{ status: "resolved"\|"open", note?, photoKey? }` – Notiz und Nachher-Foto (vorher über `POST /files`), wer/wann wird gespeichert; Wiederöffnen löscht die Behebung |
 | `POST /defects/:id/hide`, `POST /defects/:id/unhide` | Ausblenden mit `{ reason }` (Duplikat, nicht relevant …) bzw. wieder einblenden – nur Admins, daher nicht mit API-Schlüsseln |
-| `POST /tasks`, `PATCH /tasks/:id` | Aufgaben anlegen und ändern; `kind` optional (ohne Angabe: mit `defectId` Mängelbehebung, sonst Sonstiges), Prüfauftrag braucht `assetId` oder `buildingId` (Rundgang eines Gebäudes), Mängelbehebung `defectId`. `recurrence: "monthly"\|"quarterly"\|"yearly"\|null` – beim Erledigen entsteht die nächste Aufgabe (Autopilot), Antwort dann mit `nextCreated: true`; ohne Angabe bleiben `recurrence`/`buildingId` beim Ändern unverändert. `resolveDefect: false` lässt den Mangel beim Erledigen offen (Standard `true`). Anlegende und Zuständige beobachten automatisch; ein abgeschlossener Prüfungsabschluss erledigt offene Prüfaufträge des Elements |
+| `POST /tasks`, `PATCH /tasks/:id` | Aufgaben anlegen und ändern; `kind` optional (ohne Angabe: mit `defectId` Mängelbehebung, sonst Sonstiges), Prüfauftrag braucht `assetId` oder `buildingId` (Rundgang eines Gebäudes), Mängelbehebung `defectId`. `recurrence: "monthly"\|"quarterly"\|"yearly"\|null` – beim Erledigen entsteht immer die nächste Aufgabe, Antwort dann mit `nextCreated: true`; ohne Angabe bleiben `recurrence`/`buildingId` beim Ändern unverändert. `resolveDefect: false` lässt den Mangel beim Erledigen offen (Standard `true`) – dann folgt ein Nachprüf-Auftrag (Autopilot „Nachprüfen“). Anlegende und Zuständige beobachten automatisch; ein abgeschlossener Prüfungsabschluss erledigt offene Prüfaufträge des Elements |
 | `POST /tasks/bulk` | Mehrfachbearbeitung: `{ ids, status?, assigneeId? (null = niemand), priority?, dueAt? (null = ohne), resolveDefects? }` → `{ updated, skipped }`; nur Aufgaben im eigenen Bereich |
 | `POST /tasks/:id/watch`, `DELETE /tasks/:id/watch` | Aufgabe beobachten / nicht mehr beobachten (auch Lesezugriff) |
 | `POST /tasks/:id/comments` | Interne Notiz: `{ body, mentions? }` – `mentions` sind Nutzer-IDs von Mitgliedern, die die Aufgabe sehen dürfen (sonst 400); Erwähnte werden benachrichtigt und beobachten die Aufgabe. Notizen erscheinen nie im Link für Subunternehmer |
@@ -83,25 +83,44 @@ Für API-Schlüssel gelten diese Regeln:
 
 ## Autopilot
 
-Regeln: `plan_week`, `assign_defect_tasks`, `escalate_sla`, `recurring_tasks`, `close_stale`, `monthly_report`, `adapt_intervals`; Stufen `off`, `suggest`, `auto`.
-`adapt_intervals` (selbstanpassende Prüfintervalle) speichert die Stufe in `tenants.adapt_intervals_mode` – dieselbe wie `adaptIntervalsMode` im Firmenprofil;
-automatisch angewendete (beim Prüfungsabschluss) und übernommene (`POST /smart/intervals/apply`) Intervalle stehen im Protokoll, Rückgängig setzt das vorherige Intervall,
-sofern es nicht inzwischen geändert wurde. `POST /automation/adapt_intervals/run` → `400` (Vorschläge einzeln übernehmen).
-Standard: `assign_defect_tasks` und `recurring_tasks` automatisch (bisheriges Verhalten bzw. ausdrücklich gesetzte Wiederholung), sonst vorschlagen.
-`assign_defect_tasks` folgt dem Schalter `autoTasks` im Firmenprofil (beide bleiben gleich). Der tägliche Cron führt Regeln in Stufe `auto`
-aus (`plan_week` nur montags in der Zeitzone des Workspaces); in Stufe `suggest` liefert `GET /smart/suggestions` Einträge mit
-`kind: "automation"`, `automation: <Schlüssel>` und `action.endpoint` (einmal ausführen).
+Ein Kreislauf aus sechs Schritten (`key` · Standardstufe): 1 `plan_week` Planen · `auto`, 2 `assign_defect_tasks` Zuweisen · `auto`,
+3 `escalate_sla` Nachhalten · `auto`, 4 `verify_repairs` Nachprüfen · `auto`, 5 `adapt_intervals` Lernen · `suggest`,
+6 `monthly_report` Nachweisen · `suggest`; Stufen `off`, `suggest`, `auto`. Ausdrücklich gespeicherte Stufen bleiben, nur nie
+geänderte folgen dem Standard. Frühere Schlüssel bleiben gültig: `close_stale` (Erinnerung bei nach der Behebung offenem Mangel)
+gehört zu Nachhalten (`PUT`/`run` mit `close_stale` wirken auf `escalate_sla`, Protokolleinträge behalten ihren Schlüssel);
+`recurring_tasks` ist kein Schritt mehr – Wiederholung ist eine Eigenschaft der Aufgabe und läuft immer (`PUT` → `400`,
+`run` holt Folgeaufgaben nach). **Hauptschalter** `GET/PUT /automation/autopilot`: aus → kein Schritt läuft oder schlägt vor
+(`effectiveMode: "off"`, `run` → `409`), Stufen bleiben gespeichert. `adapt_intervals` speichert die Stufe in
+`tenants.adapt_intervals_mode` (`adaptIntervalsMode` im Firmenprofil bleibt per API lesbar/schreibbar, die Oberfläche hat nur noch
+die Automatik); `assign_defect_tasks` hält `autoTasks` im Gleichklang. Der tägliche Cron führt Schritte in Stufe `auto` aus
+(`plan_week` nur montags in der Zeitzone des Workspaces) und schickt montags Inhabern/Admins **eine** Meldung
+„Autopilot: letzte Woche“ (Typ `automation`, Einträge je Schritt der letzten 7 Tage, einmal je Tag). In Stufe `suggest`
+erscheint der Schritt in `GET /now` als Zeile `kind: "automation"`, `automation: <Schlüssel>` mit `action.endpoint`.
+
+**Nachprüfen:** Wird eine Mängelbehebung erledigt (`PATCH /tasks/:id` mit `resolveDefect: false`, `POST /tasks/bulk` mit
+`resolveDefects: false`, Partner-Link `POST /public/tasks/:token`, Partner-Seite) und ist ihr Mangel (mit Element) noch offen, entsteht
+ein Prüfauftrag „Nachprüfung <Code>“ (`kind: "inspection"`, `assetId`, `defectId`) an die Person, die den Mangel festgestellt hat
+(Prüfer der Prüfung bzw. meldende Person; nur wenn noch Mitglied mit Zugriff, sonst ohne Zuständige), Frist laut SLA. Je Erledigung
+höchstens ein Auftrag (auch nach „Rückgängig“). `POST /assets/:id/inspections { taskId }` mit diesem Auftrag startet die Nachprüfung
+(`purpose: "follow_up"`, nur die betroffenen Prüfpunkten). Der Abschluss erledigt den Auftrag; Mangel behoben → Protokoll
+„… behoben, Auftrag geschlossen“; besteht weiter → letzte Mängelbehebung wieder `open` (ohne `externalDoneAt`, erscheint wieder beim
+Partner), Kommentar „Autopilot“, Meldung an die Zuständigen (bei Partner-Aufträgen Beobachter und Admins). Wird der Mangel anders
+behoben (`PATCH /defects/:id`, Aufgabe mit `resolveDefect`), schließt sich ein offener Nachprüf-Auftrag. Solange der Schritt
+wirkt, behebt „erledigt“ eines Partners den Mangel nicht mehr selbst. Wird ein Nachprüf-Auftrag von Hand erledigt
+(`resolveDefect` Standard `true`), gilt der Mangel als behoben.
 `assign_defect_tasks` wirkt auch auf Feststellungen einer abgeschlossenen Begehung (`POST /walkthroughs/:id/submit`; gleiche Regeln, Bereich und Protokoll).
 Ein von `plan_week` angelegter Prüfauftrag „Rundgang <Gebäude>“ wird beim Prüfungsabschluss erledigt, sobald kein Element des Gebäudes mehr
 vor Ablauf des Planungsfensters (14 Tage ab Anlage des Auftrags) fällig ist; Protokolleintrag „Rundgang … abgeschlossen“ (`plan_week`, ohne Rückgängig).
 
 | Endpunkt | Beschreibung |
 |----------|--------------|
-| `GET /automation` | Regeln: `[{ key, title, description, mode, defaultMode, adminOnly, lastRunAt, config? }]` – `config` (Zuweisungsregeln) nur für Admins |
+| `GET /automation` | Die sechs Schritte in Reihenfolge: `[{ key, step, title, description, mode, effectiveMode, defaultMode, adminOnly, lastRunAt, config? }]` – `config` (Zuweisungsregeln) nur für Admins; `lastRunAt` schließt frühere Schlüssel des Schritts ein |
+| `GET /automation/autopilot` | Hauptschalter: `{ enabled, lastWeek: { <Schritt>: Anzahl } }` (Protokolleinträge der letzten 7 Tage) |
+| `PUT /automation/autopilot` | Nur Admins: `{ enabled: boolean }` |
 | `PUT /automation` | Nur Admins (also nicht per API-Schlüssel): `{ key, mode?, config? }`; `config` nur für `assign_defect_tasks`: `{ rules: [{ category\|null, severities[], assigneeId\|null, subcontractorId\|null, days\|null }] }` – je Regel genau eine Person (mind. Prüfer) oder ein Subunternehmer, erste passende Regel gilt |
-| `GET /automation/log?limit=50&key=&before=` | Protokoll, neueste zuerst: `[{ id, key, title, at, summary, link?, actorName, undoable, undoneAt }]`; eingeschränkte Mitglieder sehen nur Einträge zu Gebäuden/Objekten im Bereich und eigene Zuweisungen |
+| `GET /automation/log?limit=50&key=&before=` | Protokoll, neueste zuerst: `[{ id, key, step, title, at, summary, link?, actorName, undoable, undoneAt }]` (`title` = Name des Schritts, Wiederholungen „Wiederholung“; `key=` filtert nach Schritt inkl. früherer Schlüssel); eingeschränkte Mitglieder sehen nur Einträge zu Gebäuden/Objekten im Bereich und eigene Zuweisungen |
 | `POST /automation/log/:id/undo` | Rückgängig (7 Tage; Admins oder die zugewiesene Person): löscht angelegte, noch unbearbeitete Aufgaben, setzt Prioritäten zurück, löscht archivierte Monatsberichte, beendet bei Folgeaufgaben die Reihe → `{ reverted, kept }`; zweites Mal `409` |
-| `POST /automation/:key/run` | Regel einmal ausführen (ab Prüfer, im eigenen Bereich; `off` → `409`) → `{ key, done, created? }` |
+| `POST /automation/:key/run` | Schritt einmal ausführen (ab Prüfer, im eigenen Bereich; Stufe `off` oder Autopilot aus → `409`; `adapt_intervals`/`monthly_report` → `400`) → `{ key, done, created? }` |
 | `GET /automation/monthly-report` | Admins ohne Einschränkung: `{ mode, period, label, properties, due }` (Berichtsmonat = Vormonat) |
 | `POST /automation/monthly-report/claim`, `POST /automation/monthly-report/:id/complete` | Monatsberichte reservieren (`409`, wenn schon erledigt oder in Arbeit; Reservierung verfällt nach 30 min) → `{ logId, period, label, properties }`; der Browser erzeugt je Objekt das PDF, legt es über `POST /reports` ab und meldet `{ reportIds }` |
 
@@ -134,7 +153,8 @@ Ungültige oder widerrufene Codes liefern `404` und werden je IP gedrosselt (`to
 
 | Endpunkt | Beschreibung |
 |----------|--------------|
-| `GET /smart/suggestions` | Priorisierte Vorschläge (Rundgänge, Mängel ohne Aufgabe, fällige Begehungen, liegengebliebene Entwürfe, überfällige Aufgaben), Autopilot-Regeln in Stufe „Vorschlagen“ (`kind: "automation"`) und – für Admins im Modus „Vorschlagen“ ein Intervall-Vorschlag `kind: "interval"` mit `action` → `POST /smart/intervals/apply` |
+| `GET /now?limit=12` | **Jetzt** – was die angemeldete Person entscheiden oder tun sollte, im Zugriffsbereich, nach Dringlichkeit, höchstens `limit` (Standard 12, max. 50): `{ items, more, total }`. Je Zeile `id`, `kind` (`sign` Prüfungen warten auf Unterschrift · `offline_failures` · `defects_without_task` · `overdue_tasks` (eigene oder ohne Zuständige; ab 4 eine Sammelzeile) · `round` · `walkthrough_due` · `automation` (Schritt in „Vorschlagen“, mit `automation`) · `stale_drafts` · `interval`), `tone`, `title`, `text`, `count`, `at?`, `urgency` und **genau eine** `action: { verb, label, link \| endpoint, body? }` (`verb`: `sign`, `start`, `run`, `create`, `open`, `continue`, `apply`; `endpoint` per POST mit `body`). Lesezugriff: leer. Rangfolge in `shared/now.ts` |
+| `GET /smart/suggestions` | Alt-Pfad: dieselben Zeilen wie `GET /now`, ungekürzt, im früheren Format (`link` oder `action: { label, endpoint, body? }`) |
 | `GET /smart/intervals?assetId=` | Selbstanpassende Prüfintervalle: `{ mode: "off"\|"suggest"\|"auto", suggestions }` – je Vorschlag `assetId`, `schedule`, `kind` (`shorten`/`restore`), `from`, `to`, `standard`, `text`. Das angepasste Intervall steht am Element unter `schedules.<Prüfart>.intervalMonths` |
 | `POST /smart/intervals/apply` | Vorschlag übernehmen (Admin): `{ assetId, schedule, months }` – `months` muss dem aktuellen Vorschlag entsprechen (sonst 409); der nächste Termin wird ab der letzten Prüfung neu berechnet; Eintrag im Autopilot-Protokoll (`adapt_intervals`, rückgängig zu machen) |
 | `POST /smart/intervals/reset` | Angepasstes Intervall auf den Standard zurücksetzen (Admin): `{ assetId, schedule }` |

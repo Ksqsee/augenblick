@@ -1,25 +1,17 @@
-// „Heute“ (Design v3, Vorzeigeseite): Datum + Lage in einem Satz, Kennzahlen ohne Kasten, „Jetzt“, Rundgänge,
-// „Erledigt für dich“ (Autopilot-Protokoll). Rechte Spalte auf dem Grund: Objekte und offene Aufgaben.
+// „Heute“ (Design v3, Vorzeigeseite): Datum + Lage in einem Satz, Kennzahlen ohne Kasten, „Jetzt“ (GET /now: was du
+// entscheiden oder tun solltest, eine Aktion je Zeile), Rundgänge, „Erledigt für dich“ (Autopilot-Protokoll).
+// Rechte Spalte auf dem Grund: Objekte und offene Aufgaben.
 // Aufbau: docs/plan/v3.md 2.5, Regeln: docs/design.md
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import clsx from 'clsx';
 import { Plus, ScanLine } from 'lucide-react';
 import { type ReactNode, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { api, useAutomationLog, useDashboard, useMe } from '../api';
+import type { NowItem } from '../../shared/now';
+import { api, useAutomationLog, useDashboard, useMe, useNow } from '../api';
 import { Button, ButtonLink, Empty, ErrorBox, List, ListRow, PageSkeleton, Section, SectionLink, StatTile, StatusDot, StatusText, Surface, useToast } from '../components/ui';
 import { defectsLabel, fmtDate, fmtRelative, type Tone } from '../format';
 
-export interface Suggestion {
-  id: string;
-  kind: string;
-  tone: 'bad' | 'warn' | 'info';
-  title: string;
-  text: string;
-  link?: string;
-  action?: { label: string; endpoint: string; body?: unknown };
-  count: number;
-}
 export interface Round {
   buildingId: string;
   buildingName: string;
@@ -39,11 +31,6 @@ export interface Round {
   }[];
 }
 
-export const useSuggestions = () =>
-  useQuery({
-    queryKey: ['smart', 'suggestions'],
-    queryFn: () => api<Suggestion[]>('/smart/suggestions'),
-  });
 export const useRounds = (days = 30) =>
   useQuery({
     queryKey: ['smart', 'rounds', days],
@@ -113,24 +100,24 @@ function Situation({ assets, overdue, critical, soon, never, nextDue }: { assets
 }
 
 /** Abhak-Kreis vor einem Eintrag unter „Jetzt“ – Zinnober nur, wenn es brennt. */
-function Ring({ tone }: { tone: Suggestion['tone'] }) {
+function Ring({ tone }: { tone: NowItem['tone'] }) {
   return <span aria-hidden className={clsx('mt-[3px] size-3.5 shrink-0 rounded-full border-[1.5px]', tone === 'bad' ? 'border-shu' : 'border-ink-4')} />;
 }
 
-function SuggestionRow({ s }: { s: Suggestion }) {
+/** Eine Zeile unter „Jetzt“: Titel, Erklärung und genau eine Aktion (Endpunkt ausführen oder Ziel öffnen). */
+function NowRow({ s }: { s: NowItem }) {
   const qc = useQueryClient();
   const toast = useToast();
   const navigate = useNavigate();
   const [busy, setBusy] = useState(false);
+  const { endpoint, link, label, body } = s.action;
   const run = async () => {
-    if (!s.action) return;
+    if (!endpoint) return;
     setBusy(true);
     try {
-      const r = await api<{ created?: number }>(s.action.endpoint, {
-        body: s.action.body ?? {},
-      });
-      toast(r.created != null ? `${r.created} Aufgaben angelegt` : 'Erledigt');
-      for (const k of ['smart', 'tasks', 'dashboard', 'automation']) qc.invalidateQueries({ queryKey: [k] });
+      const r = await api<{ created?: number }>(endpoint, { body: body ?? {} });
+      toast(r.created != null ? `${r.created} ${r.created === 1 ? 'Aufgabe' : 'Aufgaben'} angelegt` : 'Erledigt');
+      for (const k of ['now', 'smart', 'tasks', 'dashboard', 'automation', 'asset', 'assets']) qc.invalidateQueries({ queryKey: [k] });
     } catch (e) {
       toast(e instanceof Error ? e.message : 'Fehlgeschlagen', 'bad');
     } finally {
@@ -138,22 +125,22 @@ function SuggestionRow({ s }: { s: Suggestion }) {
     }
   };
   return (
-    <li className="animate-pop flex min-h-[52px] items-start gap-3 px-(--row-px) py-3 sm:items-center">
+    <li data-now={s.kind} className="animate-pop flex min-h-[52px] items-start gap-3 px-(--row-px) py-3 sm:items-center">
       <Ring tone={s.tone} />
       <div className="flex min-w-0 flex-1 flex-col items-start gap-2 sm:flex-row sm:items-center sm:gap-3">
         <div className="min-w-0 flex-1">
           <p className="text-body text-ink">{s.title}</p>
           <p className="mt-0.5 text-meta text-ink-3">{s.text}</p>
         </div>
-        {s.action ? (
+        {endpoint ? (
           <Button size="sm" variant="secondary" loading={busy} onClick={run}>
-            {s.action.label}
+            {label}
           </Button>
-        ) : s.link ? (
-          <Button size="sm" variant="ghost" className="text-ink max-sm:-ml-3" onClick={() => navigate(s.link!)} aria-label={`${s.title} öffnen`}>
-            {s.kind === 'round' ? 'Starten' : 'Öffnen'}
+        ) : (
+          <Button size="sm" variant="ghost" className="text-ink max-sm:-ml-3" onClick={() => navigate(link!)} aria-label={`${s.title}: ${label}`}>
+            {label}
           </Button>
-        ) : null}
+        )}
       </div>
     </li>
   );
@@ -249,15 +236,18 @@ function AsideHead({ title, to }: { title: string; to: string }) {
 export function Dashboard() {
   const { data: me } = useMe();
   const { data, isLoading, error, refetch } = useDashboard();
-  const sugg = useSuggestions();
+  const [allNow, setAllNow] = useState(false);
+  const now = useNow(allNow);
   const rounds = useRounds(30);
   if (isLoading) return <PageSkeleton />;
   if (error || !data) return <ErrorBox error={error} onRetry={() => refetch()} />;
   const c = data.counts;
   const canWrite = me?.user.role !== 'viewer';
   const topRound = rounds.data?.find((r) => r.overdue + r.due > 0);
-  // Rundgänge stehen in eigener Liste – unter „Jetzt“ nur das Übrige
-  const next = (sugg.data ?? []).filter((s) => s.kind !== 'round');
+  // „Jetzt“ zeigt die dringendsten Rundgänge; die Liste „Rundgänge“ darunter nur die übrigen
+  const next = now.data?.items ?? [];
+  const inNow = new Set(next.filter((s) => s.kind === 'round').map((s) => s.id.replace(/^round-/, '')));
+  const moreRounds = (rounds.data ?? []).filter((r) => !inNow.has(r.buildingId));
   const nextDue = (rounds.data ?? []).reduce<number | null>((m, r) => (r.earliest && (!m || r.earliest < m) ? r.earliest : m), null);
   const defects = c.openDefects + c.openWalkDefects;
   const stats: { to: string; tone: Tone; label: string; value: number }[] = [
@@ -345,22 +335,29 @@ export function Dashboard() {
         )}
 
         {next.length > 0 && (
-          <Section title="Jetzt" count={next.length} flush>
+          <Section title="Jetzt" count={next.length + (now.data?.more ?? 0)} flush>
             <ul className="pk-list" aria-label="Jetzt">
               {next.map((s) => (
-                <SuggestionRow key={s.id} s={s} />
+                <NowRow key={s.id} s={s} />
               ))}
             </ul>
+            {!!now.data?.more && (
+              <p className="px-(--row-px) pt-1 pb-3 text-meta text-ink-3">
+                <button type="button" onClick={() => setAllNow(true)} className="min-h-8 font-medium text-ink-2 underline-offset-4 hover:text-ink hover:underline">
+                  Alle {next.length + now.data.more} anzeigen
+                </button>
+              </p>
+            )}
           </Section>
         )}
 
         {c.assets > 0 && (
           <Section title="Rundgänge" action={<span className="text-meta text-ink-3">fällig in 30 Tagen</span>} flush>
-            {rounds.data && rounds.data.length === 0 ? (
-              <p className="px-(--row-px) pb-3 text-body text-ink-2">In den nächsten 30 Tagen ist nichts fällig.</p>
+            {rounds.data && moreRounds.length === 0 ? (
+              <p className="px-(--row-px) pb-3 text-body text-ink-2">{rounds.data.length ? 'Alle fälligen Rundgänge stehen unter „Jetzt“.' : 'In den nächsten 30 Tagen ist nichts fällig.'}</p>
             ) : (
               <List plain aria-label="Rundgänge">
-                {(rounds.data ?? []).slice(0, 6).map((r) => {
+                {moreRounds.slice(0, 6).map((r) => {
                   const st = roundStatus(r);
                   return (
                     <ListRow

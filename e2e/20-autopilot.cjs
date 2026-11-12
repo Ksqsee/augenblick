@@ -1,6 +1,8 @@
-// E2E 20-autopilot: Regeln mit Stufen (aus/vorschlagen/automatisch), Zuweisungsregeln für Mängel, wiederkehrende Aufgaben,
-// Woche planen (Cron am Montag und auf Knopfdruck), Fristen eskalieren, offene Mängel nachhalten, Monatsberichte im Browser,
-// Protokoll mit Rückgängig (Rechte, Bereich), Einstellungen → Automatik, Aufgabenformular, MCP, 390 px. Nur lokal.
+// E2E 20-autopilot: der Kreislauf aus sechs Schritten (Planen · Zuweisen · Nachhalten · Nachprüfen · Lernen · Nachweisen)
+// mit Stufen und Hauptschalter, Zuweisungsregeln, Wiederholung als Eigenschaft der Aufgabe, Planen (Cron am Montag),
+// Wochenzusammenfassung, Nachhalten, der geschlossene Kreis (Partner „erledigt“ → Nachprüf-Auftrag → Nachprüfung → behoben
+// bzw. Behebung wieder offen), „Jetzt“ (GET /now, eine Aktion je Zeile, Bereich), Monatsberichte im Browser, Protokoll mit
+// Rückgängig (Rechte, Bereich), Einstellungen → Automatik als Ablauf, Aufgabenformular, MCP, 390 px. Nur lokal.
 const { chromium } = require('playwright');
 if (!process.env.DEMO_PASSWORD) throw new Error('DEMO_PASSWORD fehlt');
 const fs = require('fs');
@@ -78,23 +80,34 @@ const MONTHS = ['Januar', 'Februar', 'März', 'April', 'Mai', 'Juni', 'Juli', 'A
     return r.status;
   };
 
-  step('Regeln und Standardstufen');
+  step('Kreislauf: sechs Schritte, Standardstufen, Hauptschalter');
   let rules = (await api('/automation')).json;
   const mode = (k) => rules.find((r) => r.key === k)?.mode;
-  check(rules.length === 7, `7 Regeln (${rules.length})`);
+  check(rules.length === 6, `6 Schritte (${rules.length})`);
   check(
-    mode('plan_week') === 'suggest' && mode('assign_defect_tasks') === 'auto' && mode('escalate_sla') === 'suggest' && mode('recurring_tasks') === 'auto' && mode('close_stale') === 'suggest' && mode('monthly_report') === 'suggest' && mode('adapt_intervals') === 'suggest',
-    `Standardstufen (${rules.map((r) => `${r.key}=${r.mode}`)})`,
+    rules.map((r) => `${r.step}:${r.key}:${r.title}`).join() ===
+      '1:plan_week:Planen,2:assign_defect_tasks:Zuweisen,3:escalate_sla:Nachhalten,4:verify_repairs:Nachprüfen,5:adapt_intervals:Lernen,6:monthly_report:Nachweisen',
+    `Reihenfolge und Namen (${rules.map((r) => `${r.step}:${r.title}`)})`,
   );
-  check(rules.every((r) => r.lastRunAt === null && r.title && r.description), 'Titel, Beschreibung, noch nicht ausgeführt');
+  check(
+    mode('plan_week') === 'auto' && mode('assign_defect_tasks') === 'auto' && mode('escalate_sla') === 'auto' && mode('verify_repairs') === 'auto' && mode('adapt_intervals') === 'suggest' && mode('monthly_report') === 'suggest',
+    `Standardstufen laut Plan (${rules.map((r) => `${r.key}=${r.mode}`)})`,
+  );
+  check(rules.every((r) => r.lastRunAt === null && r.title && r.description && r.effectiveMode === r.mode), 'Titel, Satz, noch nie, wirksam = gespeichert');
   check(Array.isArray(rules.find((r) => r.key === 'assign_defect_tasks').config.rules), 'Admin sieht Zuweisungsregeln');
+  check((await api('/automation/autopilot')).json.enabled === true, 'Autopilot ist standardmäßig an');
   const vRules = (await viewer.api('/automation')).json;
-  check(vRules.length === 7 && vRules.every((r) => !('config' in r)), 'Lesezugriff sieht Stufen, keine Einstellungen');
+  check(vRules.length === 6 && vRules.every((r) => !('config' in r)), 'Lesezugriff sieht Stufen, keine Einstellungen');
   check((await viewer.api('/automation', { method: 'PUT', data: { key: 'plan_week', mode: 'auto' } })).status === 403, 'Lesezugriff ändert nichts');
   check((await insp.api('/automation', { method: 'PUT', data: { key: 'plan_week', mode: 'auto' } })).status === 403, 'Prüfer ändert nichts');
   check((await api('/automation', { method: 'PUT', data: { key: 'plan_week', mode: 'immer' } })).status === 400, 'ungültige Stufe → 400');
+  // Frühere Schlüssel bleiben gültig: close_stale ist in „Nachhalten“ aufgegangen, Wiederholung ist kein Schritt mehr
+  check((await setMode('close_stale', 'suggest')).json?.key === 'escalate_sla' && (await api('/automation')).json.find((r) => r.key === 'escalate_sla').mode === 'suggest', 'close_stale → Nachhalten');
+  check((await setMode('recurring_tasks', 'off')).status === 400, 'Wiederholung lässt sich nicht abschalten (400)');
+  await setMode('escalate_sla', 'auto');
 
   step('Vorschläge in Stufe „Vorschlagen“');
+  await setMode('plan_week', 'suggest');
   let sugg = (await api('/smart/suggestions')).json;
   const planS = sugg.find((s) => s.automation === 'plan_week');
   check(planS?.kind === 'automation' && planS.action?.endpoint === '/automation/plan_week/run', `Vorschlag „Woche planen“ mit Aktion (${sugg.map((s) => s.id)})`);
@@ -162,7 +175,7 @@ const MONTHS = ['Januar', 'Februar', 'März', 'April', 'Mai', 'Juni', 'Juli', 'A
   check((await insp.api(`/automation/log/${eP1.id}/undo`, { data: {} })).status === 409, 'zweimal rückgängig → 409');
   check((await log()).find((e) => e.id === eP1.id)?.undoneAt > 0, 'Eintrag als rückgängig markiert');
 
-  step('Stufe „Aus“ und Schalter im Firmenprofil bleiben gleich');
+  step('Stufe „Aus“; früherer Schalter autoTasks (API) bleibt im Gleichklang');
   check((await setMode('assign_defect_tasks', 'off')).status === 200, 'auf Aus gestellt');
   check((await api('/account/me')).json.tenant.autoTasks === false, 'Firmenprofil: Schalter aus');
   r = await api('/defects', { data: { assetId: aDoor.id, title: 'Glas gesprungen Autopilot', severity: 'high', force: true } });
@@ -173,7 +186,7 @@ const MONTHS = ['Januar', 'Februar', 'März', 'April', 'Mai', 'Juni', 'Juli', 'A
   rules = (await api('/automation')).json;
   check(mode('assign_defect_tasks') === 'auto', `Schalter im Firmenprofil setzt Automatisch (${mode('assign_defect_tasks')})`);
 
-  step('Wiederkehrende Aufgaben (Automatisch)');
+  step('Wiederholung: Eigenschaft der Aufgabe, läuft immer');
   const due = Date.UTC(2030, 0, 31, 9);
   r = await api('/tasks', { data: { title: 'Notbeleuchtung Sichtprüfung', recurrence: 'monthly', dueAt: due, assigneeId: P2.id } });
   check(r.status === 200, 'Aufgabe mit Wiederholung angelegt');
@@ -196,19 +209,14 @@ const MONTHS = ['Januar', 'Februar', 'März', 'April', 'Mai', 'Juni', 'Juli', 'A
   check(r.status === 200 && r.json.kept === 1, `in Arbeit befindliche Folgeaufgabe bleibt (${r.text})`);
   check((await tasks()).find((t) => t.id === recId).recurrence === null, 'Reihe endet nach Rückgängig');
 
-  step('Wiederkehrende Aufgaben (Vorschlagen) und Mehrfachbearbeitung');
-  await setMode('recurring_tasks', 'suggest');
+  step('Wiederholung über die Mehrfachbearbeitung – auch bei ausgeschaltetem Autopiloten');
+  check((await api('/automation/autopilot', { method: 'PUT', data: { enabled: false } })).status === 200, 'Autopilot aus');
   r = await api('/tasks', { data: { title: 'Rauchschutztüren Funktionstest', recurrence: 'quarterly', dueAt: due } });
   const rec2 = r.json.id;
   await api('/tasks/bulk', { data: { ids: [rec2], status: 'done' } });
-  check(!(await tasks()).some((t) => t.recursFrom === rec2), 'Vorschlagen: keine Folgeaufgabe von selbst');
-  sugg = (await api('/smart/suggestions')).json;
-  const recS = sugg.find((s) => s.automation === 'recurring_tasks');
-  check(recS?.count === 1 && recS.action?.label, 'Vorschlag „wiederkehrende Aufgaben erledigt“');
-  r = await api(recS.action.endpoint, { data: recS.action.body ?? {} });
-  check(r.status === 200 && r.json.created === 1, `Aktion legt Folgeaufgabe an (${r.text})`);
-  check(new Date((await tasks()).find((t) => t.recursFrom === rec2)?.dueAt).toISOString().slice(0, 10) === '2030-04-30', 'vierteljährlich');
-  await setMode('recurring_tasks', 'auto');
+  check(new Date((await tasks()).find((t) => t.recursFrom === rec2)?.dueAt).toISOString().slice(0, 10) === '2030-04-30', 'Folgeaufgabe vierteljährlich, ohne Schritt');
+  check(!(await api('/smart/suggestions')).json.some((s) => s.kind === 'automation'), 'kein Vorschlag mehr für Wiederholungen');
+  await api('/automation/autopilot', { method: 'PUT', data: { enabled: true } });
 
   step('Woche planen: Cron am Montag (Automatisch)');
   await setMode('plan_week', 'auto');
@@ -232,6 +240,14 @@ const MONTHS = ['Januar', 'Februar', 'März', 'April', 'Mai', 'Juni', 'Juli', 'A
     check((await tasks()).filter((t) => t.buildingId && /^Rundgang /.test(t.title)).length === rounds.length, 'keine Dopplung bei offenem Auftrag');
     rules = (await api('/automation')).json;
     check(rules.find((x) => x.key === 'plan_week').lastRunAt > 0, '„Zuletzt ausgeführt“ gesetzt');
+    // Montags eine Meldung „Autopilot: letzte Woche“ statt Einzelmeldungen, einmal je Tag, nur an Inhaber/Admins
+    const weekly = (s) => s.api('/notifications').then((x) => x.json.items.filter((n) => n.title === 'Autopilot: letzte Woche'));
+    const w1 = await weekly(owner);
+    check(w1.length === 1 && /Zuweisen \d+/.test(w1[0].body) && w1[0].link === '/einstellungen?tab=automation', `Wochenzusammenfassung (${JSON.stringify(w1[0])})`);
+    check((await weekly(insp)).length === 0, 'Prüfer bekommt keine Zusammenfassung');
+    check((await weekly(owner)).length === 1, 'zweiter Lauf am selben Montag: keine zweite Meldung');
+    await cron(tuesday + DAY);
+    check((await weekly(owner)).length === 1, 'nicht an anderen Tagen');
   }
   await setMode('plan_week', 'suggest');
   r = await api('/automation/plan_week/run', { data: {} });
@@ -258,6 +274,7 @@ const MONTHS = ['Januar', 'Februar', 'März', 'April', 'Mai', 'Juni', 'Juli', 'A
   await api(`/account/members/${P2.id}/access`, { method: 'PUT', data: { scope: null, canCreate: true } });
 
   step('Fristen eskalieren (Cron, Automatisch)');
+  await setMode('escalate_sla', 'suggest');
   r = await api('/tasks', { data: { title: 'Wartungsprotokoll anfordern', priority: 'low', dueAt: Date.now() - 2 * DAY, assigneeId: P1.id } });
   const lateId = r.json.id;
   sugg = (await api('/smart/suggestions')).json;
@@ -275,7 +292,8 @@ const MONTHS = ['Januar', 'Februar', 'März', 'April', 'Mai', 'Juni', 'Juli', 'A
   }
   await setMode('escalate_sla', 'suggest');
 
-  step('Offene Mängel nachhalten (Cron in 15 Tagen)');
+  step('Nachhalten: Erinnerung, wenn ein Mangel nach der Behebung offen bleibt (ohne Nachprüfen, Cron in 15 Tagen)');
+  await setMode('verify_repairs', 'off');
   r = await api('/defects', { data: { assetId: aExt.id, title: 'Halterung lose Autopilot', severity: 'high', force: true } });
   const stale = (await tasks()).find((t) => t.defectId === r.json.id);
   await api(`/tasks/${stale.id}`, { method: 'PATCH', data: { ...stale, assigneeId: P1.id, status: 'done', resolveDefect: false } });
@@ -287,8 +305,10 @@ const MONTHS = ['Januar', 'Februar', 'März', 'April', 'Mai', 'Juni', 'Juli', 'A
     check(eStale && !eStale.undoable, 'Erinnerung im Protokoll, nicht rückgängig');
     await cron(Date.now() + 16 * DAY);
     check((await log()).filter((e) => e.key === 'close_stale' && e.summary.includes('Halterung')).length === 1, 'nur einmal erinnert');
+    check((await api('/automation/log?key=escalate_sla&limit=200')).json.some((e) => e.id === eStale.id && e.title === 'Nachhalten'), 'Erinnerung gehört zum Schritt „Nachhalten“');
   }
   await setMode('close_stale', 'suggest');
+  await setMode('verify_repairs', 'auto');
 
   step('Monatsberichte (Vorschlagen): ein Klick erzeugt und archiviert alle');
   let ms = (await api('/automation/monthly-report')).json;
@@ -323,7 +343,7 @@ const MONTHS = ['Januar', 'Februar', 'März', 'April', 'Mai', 'Juni', 'Juli', 'A
   await p2.close();
   await setMode('monthly_report', 'suggest');
 
-  step('Prüfintervalle anpassen: Regel im Autopiloten (eine Quelle mit dem Firmenprofil), Protokoll, Rückgängig');
+  step('Lernen (Prüfintervalle): Schritt 5 im Autopiloten (eine Quelle mit tenants.adapt_intervals_mode), Protokoll, Rückgängig');
   const cps = (await api('/categories')).json.find((c) => c.key === 'smoke_alarm').checkpoints;
   const smoke = (await api('/assets?category=smoke_alarm')).json;
   const calm = [];
@@ -346,7 +366,7 @@ const MONTHS = ['Januar', 'Februar', 'März', 'April', 'Mai', 'Juni', 'Juli', 'A
   const sched = async (id) => (await api(`/assets/${id}`)).json.schedules.main;
   rules = (await api('/automation')).json;
   const adapt = rules.find((x) => x.key === 'adapt_intervals');
-  check(adapt?.mode === 'suggest' && adapt.adminOnly && adapt.title === 'Prüfintervalle anpassen', `Regel registriert (${JSON.stringify(adapt)})`);
+  check(adapt?.mode === 'suggest' && adapt.adminOnly && adapt.title === 'Lernen' && adapt.step === 5, `Schritt registriert (${JSON.stringify(adapt)})`);
   check((await insp.api('/automation', { method: 'PUT', data: { key: 'adapt_intervals', mode: 'auto' } })).status === 403, 'Prüfer ändert die Stufe nicht');
   check((await setMode('adapt_intervals', 'off')).status === 200 && (await api('/account/me')).json.tenant.adaptIntervalsMode === 'off', 'Automatik schreibt tenants.adapt_intervals_mode');
   const tn = (await api('/account/me')).json.tenant;
@@ -359,7 +379,7 @@ const MONTHS = ['Januar', 'Februar', 'März', 'April', 'Mai', 'Juni', 'Juli', 'A
   await inspectSmoke(I1.id, true);
   check((await sched(I1.id)).intervalMonths === 6, 'automatisch auf 6 Monate verkürzt');
   const eAuto = (await log()).find((e) => e.key === 'adapt_intervals' && e.summary.startsWith(I1.code));
-  check(eAuto?.undoable && /automatisch/.test(eAuto.summary) && eAuto.actorName === 'Autopilot' && eAuto.link === `/elemente/${I1.id}` && eAuto.title === 'Prüfintervalle anpassen', `Protokolleintrag automatisch (${JSON.stringify(eAuto)})`);
+  check(eAuto?.undoable && /automatisch/.test(eAuto.summary) && eAuto.actorName === 'Autopilot' && eAuto.link === `/elemente/${I1.id}` && eAuto.title === 'Lernen', `Protokolleintrag automatisch (${JSON.stringify(eAuto)})`);
   check(!(await log(insp)).find((e) => e.id === eAuto.id)?.undoable, 'Prüfer nimmt Intervall nicht zurück');
   r = await api(`/automation/log/${eAuto.id}/undo`, { data: {} });
   let ist = await sched(I1.id);
@@ -378,6 +398,11 @@ const MONTHS = ['Januar', 'Februar', 'März', 'April', 'Mai', 'Juni', 'Juli', 'A
   await p.goto(BASE + '/');
   const done = p.locator('#erledigt');
   await done.getByRole('heading', { name: 'Erledigt für dich' }).waitFor();
+  // „Jetzt“ liest GET /now: dieselben Zeilen, je Zeile genau ein Knopf
+  const nowRows = p.getByRole('list', { name: 'Jetzt' }).locator(':scope > li');
+  const apiNow = (await api('/now')).json;
+  check((await nowRows.count()) === apiNow.items.length, `„Jetzt“ zeigt /now (${await nowRows.count()}/${apiNow.items.length})`);
+  for (let i = 0; i < (await nowRows.count()); i++) check((await nowRows.nth(i).getByRole('button').count()) === 1, `Jetzt-Zeile ${i + 1}: genau eine Aktion`);
   const doneItems = done.getByRole('list', { name: 'Erledigt für dich' }).locator('li');
   const latest = (await api('/automation/log?limit=5')).json;
   check((await doneItems.count()) === latest.length && latest.length > 0, `zeigt die letzten Einträge (${await doneItems.count()}/${latest.length})`);
@@ -404,14 +429,29 @@ const MONTHS = ['Januar', 'Februar', 'März', 'April', 'Mai', 'Juni', 'Juli', 'A
   step('Einstellungen → Automatik');
   await p.goto(BASE + '/einstellungen?tab=automation');
   await p.getByRole('tab', { name: 'Automatik', selected: true }).waitFor();
-  const row = p.locator('[data-automation="close_stale"]');
-  await row.getByText('Offene Mängel nachhalten').waitFor();
+  const cycle = p.getByRole('list', { name: 'Kreislauf' });
+  await cycle.waitFor();
+  check((await cycle.locator(':scope > li').count()) === 6, 'Kreislauf mit sechs Schritten');
+  check((await cycle.locator(':scope > li h3').allTextContents()).join() === 'Planen,Zuweisen,Nachhalten,Nachprüfen,Lernen,Nachweisen', 'Schritte in Reihenfolge');
+  check((await cycle.locator('[data-automation="assign_defect_tasks"]').getByRole('list', { name: 'Zuweisungsregeln' }).count()) === 1, 'Zuweisungsregeln in Schritt 2');
+  const row = p.locator('[data-automation="escalate_sla"]');
+  await row.getByText('Nachhalten', { exact: true }).waitFor();
   check(await row.getByRole('tab', { name: 'Vorschlagen', selected: true }).isVisible(), 'Stufe als Segmented');
   await row.getByRole('tab', { name: 'Automatisch' }).click();
-  await p.getByText('Offene Mängel nachhalten: Automatisch').first().waitFor();
+  await p.getByText('Nachhalten: Automatisch').first().waitFor();
   rules = (await api('/automation')).json;
-  check(mode('close_stale') === 'auto', 'Stufe per Klick gespeichert');
-  check((await p.locator('[data-automation="plan_week"]').getByText(/Zuletzt ausgeführt/).count()) === 1, '„Zuletzt ausgeführt“ sichtbar');
+  check(mode('escalate_sla') === 'auto', 'Stufe per Klick gespeichert');
+  check((await p.locator('[data-automation="plan_week"]').getByText(/^zuletzt /).count()) === 1, '„zuletzt …“ sichtbar');
+  // Hauptschalter: aus → Schritte ruhen, Stufen bleiben gemerkt; wieder an
+  const master = p.getByRole('region', { name: 'Autopilot' }).getByRole('switch');
+  await master.click();
+  await p.getByText('Autopilot aus').first().waitFor();
+  check((await api('/automation/autopilot')).json.enabled === false, 'Hauptschalter über die Oberfläche aus');
+  await p.locator('[data-automation="plan_week"]').getByText('ruht').waitFor();
+  check((await api('/automation')).json.every((x) => x.effectiveMode === 'off') && (await api('/automation')).json.find((x) => x.key === 'escalate_sla').mode === 'auto', 'Stufen gemerkt, wirksam „Aus“');
+  await master.click();
+  await p.getByText('Autopilot an').first().waitFor();
+  check((await api('/automation/autopilot')).json.enabled === true, 'wieder an');
   // Zuweisungsregeln bearbeiten
   const ruleList = p.getByRole('list', { name: 'Zuweisungsregeln' });
   await ruleList.waitFor();
@@ -525,6 +565,151 @@ const MONTHS = ['Januar', 'Februar', 'März', 'April', 'Mai', 'Juni', 'Juli', 'A
     check(!(await tasks()).some((t) => t.buildingId === round.buildingId && t.id !== round.id && /^Rundgang /.test(t.title) && t.status === 'open'), 'kein neuer Rundgang ohne Fälliges');
   }
 
+  step('Kreislauf geschlossen: Mangel → Aufgabe → Partner „erledigt“ → Nachprüf-Auftrag → Nachprüfung i. O. → Mangel behoben');
+  rules = (await api('/automation')).json;
+  check(mode('verify_repairs') === 'auto' && mode('assign_defect_tasks') === 'auto', 'Nachprüfen und Zuweisen automatisch');
+  // Prüfer stellt an einer Feuerschutztür einen kritischen Mangel fest (Regel: Feuerschutztür kritisch → Subunternehmer)
+  const doors = (await api('/assets?category=fire_door')).json.filter((a) => !(a.openDefects > 0));
+  const submitAs = async (s, assetId, { taskId, defectAt = [], severity = 'critical', title = 'Türschließer schließt nicht' } = {}) => {
+    const iid = (await s.api(`/assets/${assetId}/inspections`, { data: taskId ? { taskId } : {} })).json.id;
+    const draft = (await s.api(`/inspections/${iid}`)).json;
+    const res = await s.api(`/inspections/${iid}/submit`, {
+      data: {
+        kinds: [draft.kind ?? 'periodic'],
+        answers: Object.fromEntries(draft.checkpoints.map((cp, i) => [cp.id, defectAt.includes(i) ? 'defect' : 'ok'])),
+        defects: defectAt.map((i) => ({ checkpointId: draft.checkpoints[i].id, title, note: '', measure: '', severity })),
+        signature: SIG,
+        signerName: 'E2E',
+      },
+    });
+    if (res.status !== 200) throw new Error(`Abschluss ${res.status} ${res.text}`);
+    return draft;
+  };
+  const D1 = doors[0];
+  const D2 = doors.find((a) => a.id !== D1.id && a.buildingId !== D1.buildingId) ?? doors[1];
+  await submitAs(insp, D1.id, { defectAt: [0], title: 'Kreislauf: Schließer defekt' });
+  const loopDefect = (await api(`/assets/${D1.id}`)).json.defects.find((d) => d.title === 'Kreislauf: Schließer defekt' && d.status === 'open');
+  check(!!loopDefect, 'Mangel aus der Prüfung offen');
+  let repair = (await tasks()).find((t) => t.defectId === loopDefect?.id && t.kind === 'defect');
+  check(repair?.subcontractorId === sub.id && !!repair.shareToken, 'Mängelbehebung beim Partner, mit Link');
+  // Partner meldet über den Einzel-Link „erledigt“
+  let pr = await fetch(`${BASE}/api/public/tasks/${repair.shareToken}`, { method: 'POST', headers: { 'x-pk': '1', 'content-type': 'application/json' }, body: JSON.stringify({ status: 'done', note: 'Schließer getauscht' }) });
+  check(pr.status === 200, `Partner meldet erledigt (${pr.status})`);
+  check((await api(`/defects/${loopDefect.id}`)).json.status === 'open', 'Mangel bleibt offen bis zur Nachprüfung');
+  all = await tasks();
+  let verify = all.filter((t) => t.defectId === loopDefect.id && t.kind === 'inspection');
+  check(verify.length === 1, `genau ein Nachprüf-Auftrag (${verify.length})`);
+  let V1 = verify[0];
+  check(V1?.title === `Nachprüfung ${D1.code}` && V1.assetId === D1.id && V1.status === 'open' && V1.assigneeId === P1.id && V1.dueAt > Date.now(), `an die feststellende Person, mit Frist (${V1?.title}, ${V1?.assigneeName})`);
+  check((await insp.api('/notifications')).json.items.some((n) => n.type === 'task_assigned' && n.title === `Neue Aufgabe: Nachprüfung ${D1.code}`), 'Prüfer benachrichtigt');
+  const eV = (await log()).find((e) => e.key === 'verify_repairs' && e.link === `/aufgaben?id=${V1?.id}`);
+  check(eV?.undoable && eV.title === 'Nachprüfen' && eV.step === 4 && eV.summary.includes(P1.name), `Protokoll „Nachprüfen“ (${eV?.summary})`);
+  // Keine Dopplung: Knopf, Cron, erneutes Erledigen
+  check((await api('/automation/verify_repairs/run', { data: {} })).status === 200 && (await tasks()).filter((t) => t.defectId === loopDefect.id && t.kind === 'inspection').length === 1, 'Ausführen legt nichts doppelt an');
+  if (cronOk) await cron(Date.now());
+  check((await tasks()).filter((t) => t.defectId === loopDefect.id && t.kind === 'inspection').length === 1, 'Cron legt nichts doppelt an');
+  // Starten öffnet die Nachprüfung, nur mit dem betroffenen Prüfpunkt
+  const vStart = (await insp.api(`/assets/${D1.id}/inspections`, { data: { taskId: V1.id } })).json.id;
+  const vDraft = (await insp.api(`/inspections/${vStart}`)).json;
+  check(vDraft.purpose === 'follow_up' && vDraft.checkpoints.length === 1, `Nachprüfung mit einem Prüfpunkt (${vDraft.purpose}, ${vDraft.checkpoints.length})`);
+  await submitAs(insp, D1.id, { taskId: V1.id });
+  check((await api(`/defects/${loopDefect.id}`)).json.status === 'resolved', 'Nachprüfung i. O. → Mangel behoben');
+  V1 = (await tasks()).find((t) => t.id === V1.id);
+  check(V1?.status === 'done', 'Nachprüf-Auftrag schließt sich');
+  check((await log()).some((e) => e.key === 'verify_repairs' && e.summary === `Nachprüfung ${D1.code}: Mangel „Kreislauf: Schließer defekt“ behoben, Auftrag geschlossen`), 'Protokoll: behoben, geschlossen');
+
+  step('Mangel besteht weiter: Partner-Seite → Nachprüfung → Behebung wieder offen, Zuständige benachrichtigt');
+  await submitAs(insp, D2.id, { defectAt: [0], title: 'Kreislauf: Dichtung fehlt' });
+  const keepDefect = (await api(`/assets/${D2.id}`)).json.defects.find((d) => d.title === 'Kreislauf: Dichtung fehlt' && d.status === 'open');
+  repair = (await tasks()).find((t) => t.defectId === keepDefect?.id && t.kind === 'defect');
+  const pcode = (await api(`/subcontractors/${sub.id}/partner-code`, { data: {} })).json.code;
+  const plist = await (await fetch(`${BASE}/api/public/partner/${pcode}`)).json();
+  const pref = plist.tasks.find((x) => x.title === repair?.title)?.ref;
+  pr = await fetch(`${BASE}/api/public/partner/${pcode}/tasks/${pref}`, { method: 'POST', headers: { 'x-pk': '1', 'content-type': 'application/json' }, body: JSON.stringify({ status: 'done' }) });
+  check(pr.status === 200, `Partner-Seite meldet erledigt (${pr.status})`);
+  const V2 = (await tasks()).find((t) => t.defectId === keepDefect.id && t.kind === 'inspection' && t.status === 'open');
+  check(V2?.assigneeId === P1.id, 'Nachprüf-Auftrag auch über die Partner-Seite');
+  await submitAs(insp, D2.id, { taskId: V2.id, defectAt: [0], title: 'Kreislauf: Dichtung fehlt' });
+  check((await api(`/defects/${keepDefect.id}`)).json.status === 'open', 'Mangel bleibt offen (kein Duplikat)');
+  check((await api(`/assets/${D2.id}`)).json.defects.filter((d) => d.title === 'Kreislauf: Dichtung fehlt' && d.status === 'open').length === 1, 'kein zweiter Mangel');
+  all = await tasks();
+  check(all.find((t) => t.id === V2.id)?.status === 'done', 'Nachprüf-Auftrag ist erledigt');
+  const reopened = all.find((t) => t.id === repair.id);
+  check(reopened?.status === 'open' && !reopened.externalDoneAt && !reopened.closedAt, `Mängelbehebung wieder offen (${reopened?.status})`);
+  check((await api(`/tasks/${repair.id}/comments`)).json.some((x) => x.authorName === 'Autopilot' && /besteht weiter/.test(x.body)), 'Kommentar des Autopiloten');
+  // Behebung liegt beim Partner: Admins erfahren es (die nachprüfende Person selbst nicht)
+  check((await api('/notifications')).json.items.some((n) => n.title === `Wieder offen: ${repair.title}` && /besteht weiter/.test(n.body)), 'Admins benachrichtigt');
+  check((await (await fetch(`${BASE}/api/public/partner/${pcode}`)).json()).tasks.some((x) => x.ref === pref), 'Auftrag steht wieder auf der Partner-Seite');
+  check((await log()).some((e) => e.key === 'verify_repairs' && /besteht weiter, Behebung wieder geöffnet/.test(e.summary)), 'Protokoll: besteht weiter');
+
+  step('Mehrfachbearbeitung erledigt → Nachprüf-Auftrag; Mangel anders behoben → Auftrag entfällt');
+  r = await api('/tasks/bulk', { data: { ids: [repair.id], status: 'done', resolveDefects: false } });
+  const V3 = (await tasks()).find((t) => t.defectId === keepDefect.id && t.kind === 'inspection' && t.status === 'open');
+  check(r.status === 200 && !!V3, 'neue Erledigung → neuer Nachprüf-Auftrag');
+  await api(`/defects/${keepDefect.id}`, { method: 'PATCH', data: { status: 'resolved', note: 'vor Ort bestätigt' } });
+  check((await tasks()).find((t) => t.id === V3?.id)?.status === 'done', 'Mangel behoben → Nachprüf-Auftrag schließt sich');
+
+  step('Nachprüfen in Stufe „Vorschlagen“: eine Zeile in „Jetzt“, eine Aktion, Rückgängig ohne Neuanlage');
+  await setMode('verify_repairs', 'suggest');
+  r = await api('/defects', { data: { assetId: aExt.id, title: 'Kreislauf: Plombe gebrochen', severity: 'high', force: true } });
+  const sugDefect = r.json.id;
+  const sugRepair = (await tasks()).find((t) => t.defectId === sugDefect && t.kind === 'defect');
+  await api(`/tasks/${sugRepair.id}`, { method: 'PATCH', data: { ...sugRepair, status: 'done', resolveDefect: false } });
+  check(!(await tasks()).some((t) => t.defectId === sugDefect && t.kind === 'inspection'), 'Vorschlagen: kein Auftrag von selbst');
+  let nowQ = (await api('/now?limit=50')).json;
+  const vRow = nowQ.items.find((x) => x.automation === 'verify_repairs');
+  check(vRow?.kind === 'automation' && vRow.action.endpoint === '/automation/verify_repairs/run' && !vRow.action.link && vRow.count >= 1, `Zeile mit genau einer Aktion (${JSON.stringify(vRow?.action)})`);
+  r = await api(vRow.action.endpoint, { data: vRow.action.body ?? {} });
+  const sugV = (await tasks()).find((t) => t.defectId === sugDefect && t.kind === 'inspection');
+  check(r.status === 200 && r.json.created >= 1 && sugV?.assigneeId === byMail('demo@example.com').id, `Aktion legt an, an die meldende Person (${r.text})`);
+  const eSugV = (await log()).find((e) => e.key === 'verify_repairs' && e.link === `/aufgaben?id=${sugV?.id}`);
+  check((await api(`/automation/log/${eSugV.id}/undo`, { data: {} })).json.reverted === 1, 'Rückgängig entfernt den Auftrag');
+  check((await api('/automation/verify_repairs/run', { data: {} })).json.created === 0, 'nach Rückgängig keine Neuanlage für dieselbe Erledigung');
+  await setMode('verify_repairs', 'auto');
+
+  step('„Jetzt“ (GET /now): eine Aktion je Zeile, nach Dringlichkeit, höchstens 12, Bereich');
+  nowQ = (await api('/now')).json;
+  check(nowQ.items.length > 0 && nowQ.items.length <= 12 && typeof nowQ.more === 'number' && nowQ.total === nowQ.items.length + nowQ.more, `Länge und Rest (${nowQ.items.length} + ${nowQ.more})`);
+  check(nowQ.items.every((x) => x.action && x.action.label && !!x.action.link !== !!x.action.endpoint), 'jede Zeile genau eine Aktion');
+  check(nowQ.items.every((x, i) => i === 0 || nowQ.items[i - 1].urgency >= x.urgency), 'nach Dringlichkeit sortiert');
+  check(['start', 'run', 'create', 'open', 'continue', 'apply', 'sign'].includes(nowQ.items[0].action.verb), 'Aktion mit Verb');
+  check(!nowQ.items.some((x) => x.kind === 'sign'), 'ohne bereitstehende Prüfungen keine Unterschriften-Zeile');
+  const legacy = (await api('/smart/suggestions')).json;
+  check(legacy.length === nowQ.total && legacy.every((x) => !!x.link !== !!x.action), `Alt-Pfad /smart/suggestions = dieselbe Quelle (${legacy.length}/${nowQ.total})`);
+  check(Array.isArray((await api('/smart/action-required')).json), 'Alt-Pfad /smart/action-required');
+  check((await viewer.api('/now')).json.items.length === 0, 'Lesezugriff: nichts zu tun');
+  // Bereich: eingeschränkte Prüferin sieht nur Ziele in ihrem Objekt
+  await api(`/account/members/${P2.id}/access`, { method: 'PUT', data: { scope: { propertyIds: [S.id], buildingIds: [] }, canCreate: true } });
+  const allBuildings = (await api('/buildings')).json;
+  const foreign = [...allBuildings.filter((x) => x.propertyId !== S.id).map((x) => x.id), ...props.filter((x) => x.id !== S.id).map((x) => x.id)];
+  const scopedNow = (await insp2.api('/now?limit=50')).json.items;
+  check(scopedNow.every((x) => !foreign.some((fid) => (x.action.link ?? '').includes(fid) || JSON.stringify(x.action.body ?? {}).includes(fid))), `nur Ziele im Bereich (${scopedNow.map((x) => x.action.link ?? x.action.endpoint)})`);
+  await api(`/account/members/${P2.id}/access`, { method: 'PUT', data: { scope: null, canCreate: true } });
+
+  step('Hauptschalter aus: kein Schritt läuft oder schlägt vor, Stufen bleiben');
+  check((await insp.api('/automation/autopilot', { method: 'PUT', data: { enabled: false } })).status === 403, 'Prüfer schaltet nicht');
+  check((await api('/automation/autopilot', { method: 'PUT', data: { enabled: false } })).json.enabled === false, 'aus');
+  await setMode('plan_week', 'suggest');
+  check(!(await api('/now?limit=50')).json.items.some((x) => x.kind === 'automation' || x.kind === 'interval'), 'keine Autopilot-Vorschläge');
+  check((await api('/automation/plan_week/run', { data: {} })).status === 409, 'Ausführen → 409');
+  r = await api('/defects', { data: { assetId: aDoor.id, title: 'Kreislauf: aus', severity: 'critical', force: true } });
+  check(r.json?.taskCreated === false, 'kein Zuweisen');
+  // Ohne Nachprüfen gilt die Rückmeldung des Partners wieder als Behebung
+  await api('/tasks', { data: { title: 'Kreislauf aus: Behebung', defectId: r.json.id, assetId: aDoor.id, subcontractorId: sub.id } });
+  const offTask = (await tasks()).find((t) => t.title === 'Kreislauf aus: Behebung');
+  const offTok = (await api(`/tasks/${offTask.id}/share`, { method: 'POST' })).json.token;
+  await fetch(`${BASE}/api/public/tasks/${offTok}`, { method: 'POST', headers: { 'x-pk': '1', 'content-type': 'application/json' }, body: JSON.stringify({ status: 'done' }) });
+  check((await api(`/defects/${r.json.id}`)).json.status === 'resolved' && !(await tasks()).some((t) => t.defectId === r.json.id && t.kind === 'inspection'), 'Partner „erledigt“ behebt, kein Nachprüf-Auftrag');
+  rules = (await api('/automation')).json;
+  check(mode('verify_repairs') === 'auto' && rules.every((x) => x.effectiveMode === 'off'), 'Stufen gemerkt');
+  if (cronOk) {
+    const before = (await tasks()).length;
+    await cron(monday.getTime() + 7 * DAY);
+    check((await tasks()).length === before, 'Cron am Montag plant nichts');
+  }
+  await api('/automation/autopilot', { method: 'PUT', data: { enabled: true } });
+  check((await api('/automation')).json.find((x) => x.key === 'verify_repairs').effectiveMode === 'auto', 'wieder an, Stufen wie vorher');
+
   step('MCP-Werkzeuge');
   const key = (await api('/account/api-keys', { data: { name: 'Autopilot MCP', scope: 'write', expiresInDays: 1 } })).json.key;
   const mcp = async (name, args = {}) => {
@@ -538,7 +723,7 @@ const MONTHS = ['Januar', 'Februar', 'März', 'April', 'Mai', 'Juni', 'Juli', 'A
     return { isError: out?.isError, data: out && !out.isError ? JSON.parse(out.content[0].text) : null, text: out?.content?.[0]?.text };
   };
   let t = await mcp('autopilot', { action: 'view', limit: 5 });
-  check(Array.isArray(t.data?.steps) && t.data.steps.length === 7 && t.data.log.length <= 5, `autopilot view (${t.text?.slice(0, 80)})`);
+  check(Array.isArray(t.data?.steps) && t.data.steps.length === 6 && t.data.log.length <= 5, `autopilot view (${t.text?.slice(0, 80)})`);
   t = await mcp('autopilot', { action: 'run', step: 'plan_week' });
   check(!t.isError && typeof t.data?.done === 'number', `autopilot run plan_week (${t.text?.slice(0, 80)})`);
   // Stufen ändern gibt es über MCP nicht (nur Admins in der App)

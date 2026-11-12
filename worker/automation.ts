@@ -1,5 +1,7 @@
-// Autopilot: Regeln mit drei Stufen (aus · vorschlagen · automatisch), Protokoll mit „Rückgängig“ und die Regeln selbst.
-// Läuft aus Anfragen (Mangel erfasst, Aufgabe erledigt), aus dem täglichen Cron und auf Knopfdruck aus einem Vorschlag.
+// Autopilot: ein Kreislauf aus sechs Schritten (Planen · Zuweisen · Nachhalten · Nachprüfen · Lernen · Nachweisen), je Schritt
+// eine Stufe (aus · vorschlagen · automatisch), ein Hauptschalter je Workspace, Protokoll mit „Rückgängig“ und die Schritte selbst.
+// Läuft aus Anfragen (Mangel erfasst, Aufgabe erledigt, Prüfung abgeschlossen), aus dem täglichen Cron und auf Knopfdruck
+// aus der „Jetzt“-Liste. Wiederholung ist eine Eigenschaft der Aufgabe und läuft immer (auch bei ausgeschaltetem Autopiloten).
 import { Hono } from 'hono';
 import { HTTPException } from 'hono/http-exception';
 import { z } from 'zod';
@@ -13,6 +15,11 @@ import {
   automationDef,
   autoSeverities,
   canUndo,
+  isLogKey,
+  LEGACY_KEYS,
+  type LegacyKey,
+  type LogKey,
+  logTitle,
   matchRule,
   nextRecurrence,
   PLAN_HORIZON_DAYS,
@@ -22,6 +29,9 @@ import {
   reportPeriod,
   SEVERITY_KEYS,
   STALE_DAYS,
+  stepOf,
+  type WeekCounts,
+  weekSummary,
 } from '../shared/automation';
 import type { Role } from '../shared/catalog';
 import { zonedDay } from '../shared/i18n';
@@ -30,20 +40,32 @@ import { DEFAULT_SLA, HOUR } from '../shared/sla';
 import { defectScope, taskScope, tid } from './data';
 import { type AppEnv, type Ctx, type Env, id, logActivity, notFound, now, parseJson, RANK, requireRole, type ScopeSetting, scopeSql, type SessionUser, token } from './lib';
 import { type IntervalUndo, revertIntervals } from './intervals';
-import { notify } from './notify';
+import { notify, notifyTenant } from './notify';
 
 export const automation = new Hono<AppEnv>();
 
 // ---------- Einstellungen ----------
 export interface AutomationSetting {
+  /** gespeicherte Stufe (bleibt gemerkt, auch wenn der Autopilot aus ist) */
   mode: AutomationMode;
+  /** wirksame Stufe: „off“, solange der Hauptschalter aus ist */
+  effective: AutomationMode;
   config: Record<string, unknown>;
   /** ausdrücklich gespeichert (sonst Standard) */
   custom: boolean;
 }
-export type AutomationSettings = Record<AutomationKey, AutomationSetting>;
+export type AutomationSettings = Record<AutomationKey, AutomationSetting> & { enabled: boolean };
 
-/** Stufen und Einstellungen aller Regeln eines Workspaces (fehlende = Standard). */
+/** Schlüssel des Hauptschalters in automation_settings (mode 'off' = aus, sonst an). */
+const MASTER = 'autopilot';
+
+/** Hauptschalter: an, solange nicht ausdrücklich ausgeschaltet. */
+export async function autopilotEnabled(env: Env, tenantId: string): Promise<boolean> {
+  const m = await env.DB.prepare('SELECT mode FROM automation_settings WHERE tenant_id = ? AND key = ?').bind(tenantId, MASTER).first<string>('mode');
+  return m !== 'off';
+}
+
+/** Stufen und Einstellungen aller Schritte eines Workspaces (fehlende = Standard) und der Hauptschalter. */
 export async function loadSettings(env: Env, tenantId: string): Promise<AutomationSettings> {
   const [rows, tenant] = await env.DB.batch([
     env.DB.prepare('SELECT key, mode, config FROM automation_settings WHERE tenant_id = ?').bind(tenantId),
@@ -52,18 +74,21 @@ export async function loadSettings(env: Env, tenantId: string): Promise<Automati
   const saved = rows.results as { key: string; mode: AutomationMode; config: string }[];
   const tr = tenant.results[0] as { auto_tasks?: number; adapt_intervals_mode?: string } | undefined;
   const autoTasks = !!tr?.auto_tasks;
-  const out = {} as AutomationSettings;
+  const enabled = saved.find((r) => r.key === MASTER)?.mode !== 'off';
+  const out = { enabled } as AutomationSettings;
+  const put = (key: AutomationKey, mode: AutomationMode, config: Record<string, unknown>, custom: boolean) =>
+    (out[key] = { mode, effective: enabled ? mode : 'off', config, custom });
   for (const def of AUTOMATIONS) {
-    // Selbstanpassende Intervalle: einzige Quelle ist tenants.adapt_intervals_mode (auch im Firmenprofil einstellbar)
+    // Lernen (selbstanpassende Intervalle): einzige Quelle ist tenants.adapt_intervals_mode
     if (def.key === 'adapt_intervals') {
       const m = tr?.adapt_intervals_mode;
-      out[def.key] = { mode: m === 'off' || m === 'auto' ? m : 'suggest', config: {}, custom: m != null && m !== def.defaultMode };
+      put(def.key, m === 'off' || m === 'auto' ? m : 'suggest', {}, m != null && m !== def.defaultMode);
       continue;
     }
-    const r = saved.find((s) => s.key === def.key);
-    // „Aufgaben für schwere Mängel“ (Schalter im Firmenprofil) bestimmt die Stufe, solange nichts gespeichert ist
+    const r = saved.find((x) => x.key === def.key);
+    // Zuweisen: früherer Schalter „Aufgaben für schwere Mängel“ (tenants.auto_tasks) bestimmt die Stufe, solange nichts gespeichert ist
     const fallback: AutomationMode = def.key === 'assign_defect_tasks' ? (autoTasks ? 'auto' : 'suggest') : def.defaultMode;
-    out[def.key] = { mode: r?.mode ?? fallback, config: parseJson<Record<string, unknown>>(r?.config, {}), custom: !!r };
+    put(def.key, r?.mode ?? fallback, parseJson<Record<string, unknown>>(r?.config, {}), !!r);
   }
   return out;
 }
@@ -99,7 +124,7 @@ interface Undo {
   intervals?: IntervalUndo[];
 }
 export interface LogEntry {
-  key: AutomationKey;
+  key: LogKey;
   summary: string;
   entityType?: string | null;
   entityId?: string | null;
@@ -241,7 +266,7 @@ async function taskPlaces(c: Ctx, ids: string[]) {
 
 const plural = (n: number, one: string, many: string) => (n === 1 ? one : `${n} ${many}`);
 
-// ---------- Regel: Mängel zuweisen (assign_defect_tasks) ----------
+// ---------- Schritt 2: Zuweisen (assign_defect_tasks) ----------
 /**
  * Für offene Mängel ohne Aufgabe je eine Aufgabe anlegen. Zuweisungsregeln bestimmen Person/Subunternehmer und Frist,
  * sonst gilt die SLA-Lösungsfrist. Schreibt das Protokoll (ein Eintrag je Ort und Zuständigen).
@@ -338,11 +363,11 @@ export async function createDefectTasks(c: Ctx, opts: { severities: string[]; in
 /** Nach dem Erfassen von Mängeln (Prüfung, Meldung, Begehung): in Stufe „Automatisch“ sofort Aufgaben anlegen. */
 export async function autoDefectTasks(c: Ctx, opts: { inspectionId?: string; walkthroughId?: string; defectId?: string }) {
   const s = (await loadSettings(c.env, tid(c))).assign_defect_tasks;
-  if (s.mode !== 'auto') return 0;
+  if (s.effective !== 'auto') return 0;
   return createDefectTasks(c, { severities: autoSeverities(rulesOf(s.config)), ...opts });
 }
 
-// ---------- Regel: Woche planen (plan_week) ----------
+// ---------- Schritt 1: Planen (plan_week) ----------
 function planCandidates(c: Ctx, n: number) {
   return c.env.DB.prepare(
     `SELECT b.id, b.name, b.property_id AS propertyId, MIN(a.next_due_at) AS earliest, COUNT(*) AS assets
@@ -462,19 +487,20 @@ export async function closeFinishedRounds(c: Ctx, assetId: string, n = now()) {
   return closed.length;
 }
 
-// ---------- Regel: Fristen eskalieren (escalate_sla) ----------
+// ---------- Schritt 3: Nachhalten (escalate_sla, dazu die Erinnerung close_stale) ----------
 function escalateCandidates(c: Ctx, n: number) {
   return c.env.DB.prepare(
-    `SELECT k.id, k.title, k.priority, k.assignee_id AS assigneeId FROM tasks k
+    `SELECT k.id, k.title, k.priority, k.assignee_id AS assigneeId, s.company AS partner, k.first_response_at AS respondedAt
+       FROM tasks k LEFT JOIN subcontractors s ON s.id = k.subcontractor_id
       WHERE k.tenant_id = ?1 AND k.status IN ('open','in_progress') AND k.due_at < ?2 AND k.priority != 'high' AND ${taskScope(c, 'k')}
         AND NOT EXISTS (SELECT 1 FROM automation_log l WHERE l.tenant_id = ?1 AND l.key = 'escalate_sla' AND l.entity_id = k.id)
       ORDER BY k.due_at LIMIT 50`,
   )
     .bind(tid(c), n)
-    .all<{ id: string; title: string; priority: string; assigneeId: string | null }>();
+    .all<{ id: string; title: string; priority: string; assigneeId: string | null; partner: string | null; respondedAt: number | null }>();
 }
 
-/** Überfällige Aufgaben: Priorität „hoch“, Admins (und Zuständige) benachrichtigen. Je Aufgabe nur einmal. */
+/** Nachhalten: überfällige Aufgaben: Priorität „hoch“, Admins (und Zuständige) benachrichtigen. Je Aufgabe nur einmal. */
 export async function escalateSla(c: Ctx, n = now()) {
   const rows = (await escalateCandidates(c, n)).results;
   if (!rows.length) return 0;
@@ -488,7 +514,8 @@ export async function escalateSla(c: Ctx, n = now()) {
       roles: ['owner', 'admin'],
       type: 'sla_breach',
       title: `Frist überschritten: ${r.title}`,
-      body: 'Priorität auf „Hoch“ gesetzt',
+      // Partner ohne Rückmeldung: Erinnerung, beim Partner nachzufassen (E-Mail-Versand gibt es bewusst nicht)
+      body: r.partner && !r.respondedAt ? `Priorität auf „Hoch“ gesetzt – ${r.partner} hat sich noch nicht gemeldet` : 'Priorität auf „Hoch“ gesetzt',
       link: `/aufgaben?id=${r.id}`,
       dedupe: `esc-${r.id}`,
     });
@@ -511,19 +538,20 @@ export async function escalateSla(c: Ctx, n = now()) {
   return rows.length;
 }
 
-// ---------- Regel: Offene Mängel nachhalten (close_stale) ----------
+// ---------- Schritt 3: Nachhalten – Erinnerung (Protokollschlüssel close_stale) ----------
 function staleCandidates(c: Ctx, n: number) {
   return c.env.DB.prepare(
     `SELECT k.id, k.title, k.assignee_id AS assigneeId, k.created_by AS createdBy, k.defect_id AS defectId FROM tasks k JOIN defects d ON d.id = k.defect_id
       WHERE k.tenant_id = ?1 AND k.kind = 'defect' AND k.status = 'done' AND k.closed_at < ?2 AND d.status = 'open' AND d.hidden_at IS NULL AND ${taskScope(c, 'k')}
         AND NOT EXISTS (SELECT 1 FROM automation_log l WHERE l.tenant_id = ?1 AND l.key = 'close_stale' AND l.entity_id = k.id)
+        AND NOT EXISTS (SELECT 1 FROM tasks v WHERE v.tenant_id = ?1 AND v.defect_id = d.id AND v.kind = 'inspection' AND v.created_at >= k.closed_at)
       ORDER BY k.closed_at LIMIT 50`,
   )
     .bind(tid(c), n - STALE_DAYS * DAY)
     .all<{ id: string; title: string; assigneeId: string | null; createdBy: string; defectId: string }>();
 }
 
-/** Behebung seit 14 Tagen erledigt, Mangel noch offen → Zuständige (sonst Anlegende, sonst Admins) erinnern. */
+/** Nachhalten: Behebung seit 14 Tagen erledigt, Mangel noch offen, keine Nachprüfung → Zuständige (sonst Anlegende, sonst Admins) erinnern. */
 export async function closeStale(c: Ctx, n = now()) {
   const rows = (await staleCandidates(c, n)).results;
   if (!rows.length) return 0;
@@ -559,7 +587,7 @@ export async function closeStale(c: Ctx, n = now()) {
   return rows.length;
 }
 
-// ---------- Regel: Wiederkehrende Aufgaben (recurring_tasks) ----------
+// ---------- Wiederholung (Eigenschaft der Aufgabe, kein Schritt; Protokollschlüssel recurring_tasks) ----------
 function recurringCandidates(c: Ctx, ids: string[] | null) {
   return c.env.DB.prepare(
     `SELECT k.id, k.title, k.description, k.kind, k.priority, k.due_at AS dueAt, k.closed_at AS closedAt, k.assignee_id AS assigneeId, k.subcontractor_id AS subcontractorId,
@@ -644,18 +672,212 @@ export async function createRecurrences(c: Ctx, ids: string[] | null, n = now())
   return items.length;
 }
 
-/** Nach dem Erledigen von Aufgaben: in Stufe „Automatisch“ Folgeaufgaben anlegen. */
+/**
+ * Nach dem Erledigen von Aufgaben (Person, Mehrfachbearbeitung, Partner-Link, Partner-Seite, Prüfungsabschluss):
+ * Folgeaufgaben für wiederkehrende Aufgaben (immer) und – Schritt „Nachprüfen“ in Stufe „Automatisch“ – Nachprüf-Aufträge
+ * für erledigte Mängelbehebungen, deren Mangel noch offen ist. Liefert die Zahl der Folgeaufgaben.
+ */
 export async function afterTasksDone(c: Ctx, ids: string[]) {
   if (!ids.length) return 0;
-  const has = await c.env.DB.prepare("SELECT 1 FROM tasks WHERE tenant_id = ? AND recurrence IS NOT NULL AND status = 'done' AND id IN (SELECT value FROM json_each(?)) LIMIT 1")
-    .bind(tid(c), JSON.stringify(ids))
-    .first();
-  if (!has) return 0;
-  if ((await loadSettings(c.env, tid(c))).recurring_tasks.mode !== 'auto') return 0;
-  return createRecurrences(c, ids);
+  const t = tid(c);
+  const [rec, rep] = await c.env.DB.batch([
+    c.env.DB.prepare("SELECT 1 FROM tasks WHERE tenant_id = ? AND recurrence IS NOT NULL AND status = 'done' AND id IN (SELECT value FROM json_each(?)) LIMIT 1").bind(t, JSON.stringify(ids)),
+    c.env.DB.prepare("SELECT 1 FROM tasks WHERE tenant_id = ? AND kind = 'defect' AND status = 'done' AND id IN (SELECT value FROM json_each(?)) LIMIT 1").bind(t, JSON.stringify(ids)),
+  ]);
+  const next = rec.results.length ? await createRecurrences(c, ids) : 0;
+  if (rep.results.length && (await loadSettings(c.env, t)).verify_repairs.effective === 'auto') await createVerifications(c, ids);
+  return next;
 }
 
-// ---------- Regel: Monatsberichte (monthly_report) ----------
+// ---------- Schritt 4: Nachprüfen (verify_repairs) ----------
+// Ein Nachprüf-Auftrag ist ein Prüfauftrag (kind 'inspection') für das Element, verknüpft mit dem Mangel (defect_id).
+// Gestartet öffnet er die Nachprüfung der Ausgangsprüfung (nur die betroffenen Prüfpunkte, worker/inspections.ts).
+// Protokoll: entity_type 'repair', entity_id = erledigte Mängelbehebung – je Erledigung höchstens ein Auftrag, auch nach „Rückgängig“.
+
+/** Ist „Nachprüfen“ wirksam (Hauptschalter an, Stufe nicht „Aus“)? Dann bestätigt erst die Nachprüfung den Mangel als behoben. */
+export async function verifyActive(env: Env, tenantId: string) {
+  return (await loadSettings(env, tenantId)).verify_repairs.effective !== 'off';
+}
+
+interface VerifyCandidate {
+  repairId: string;
+  repairTitle: string;
+  defectId: string;
+  defectTitle: string;
+  severity: string;
+  assetId: string;
+  code: string;
+  propertyId: string;
+  buildingId: string;
+  recorder: string | null;
+}
+
+function verifyCandidates(c: Ctx, ids: string[] | null) {
+  return c.env.DB.prepare(
+    `SELECT k.id AS repairId, k.title AS repairTitle, d.id AS defectId, d.title AS defectTitle, d.severity, a.id AS assetId, a.code, d.property_id AS propertyId,
+            a.building_id AS buildingId,
+            COALESCE(i.inspector_id, (SELECT x.user_id FROM activity x WHERE x.tenant_id = d.tenant_id AND x.entity = 'defect' AND x.entity_id = d.id AND x.action = 'create'
+                                       ORDER BY x.created_at LIMIT 1)) AS recorder
+       FROM tasks k JOIN defects d ON d.id = k.defect_id AND d.tenant_id = k.tenant_id
+       JOIN assets a ON a.id = d.asset_id AND a.deleted_at IS NULL LEFT JOIN inspections i ON i.id = d.inspection_id
+      WHERE k.tenant_id = ?1 AND k.kind = 'defect' AND k.status = 'done' AND k.closed_at IS NOT NULL AND d.status = 'open' AND d.hidden_at IS NULL
+        AND (?2 IS NULL OR k.id IN (SELECT value FROM json_each(?2))) AND ${taskScope(c, 'k')}
+        AND NOT EXISTS (SELECT 1 FROM tasks v WHERE v.tenant_id = ?1 AND v.defect_id = d.id AND v.kind = 'inspection' AND v.status IN ('open','in_progress'))
+        AND NOT EXISTS (SELECT 1 FROM automation_log l WHERE l.tenant_id = ?1 AND l.key = 'verify_repairs' AND l.entity_type = 'repair' AND l.entity_id = k.id AND l.at >= k.closed_at)
+      ORDER BY k.closed_at LIMIT 100`,
+  )
+    .bind(tid(c), ids ? JSON.stringify(ids) : null)
+    .all<VerifyCandidate>();
+}
+
+/** Nachprüf-Aufträge „Nachprüfung <Code>“ anlegen – an die Person, die den Mangel festgestellt hat (wenn sie dort noch arbeiten darf). */
+export async function createVerifications(c: Ctx, ids: string[] | null, n = now()) {
+  const t = tid(c);
+  const all = (await verifyCandidates(c, ids)).results;
+  // je Mangel ein Auftrag, auch wenn mehrere Behebungen erledigt wurden
+  const rows = [...new Map(all.map((r) => [r.defectId, r])).values()];
+  if (!rows.length) return 0;
+  const sla = (await c.env.DB.prepare('SELECT priority, resolution_hours FROM sla_policies WHERE tenant_id = ?').bind(t).all<{ priority: string; resolution_hours: number }>()).results;
+  const hours = (p: 'high' | 'medium') => sla.find((x) => x.priority === p)?.resolution_hours ?? DEFAULT_SLA[p].resolutionHours;
+  const access = await memberAccess(c.env, t, rows.map((r) => r.recorder));
+  const items = rows.map((r) => {
+    const priority = r.severity === 'critical' || r.severity === 'high' ? 'high' : 'medium';
+    const place = { buildingId: r.buildingId, propertyId: r.propertyId };
+    return {
+      id: id(),
+      repairId: r.repairId,
+      title: `Nachprüfung ${r.code}`,
+      description: `Die Behebung „${r.repairTitle}“ ist erledigt. Vor Ort prüfen, ob der Mangel „${r.defectTitle}“ behoben ist – die Nachprüfung zeigt nur die betroffenen Prüfpunkte. Vom Autopiloten angelegt.`,
+      priority,
+      due: n + hours(priority) * HOUR,
+      asset: r.assetId,
+      defect: r.defectId,
+      property: r.propertyId,
+      assignee: r.recorder && canWorkAt(access.get(r.recorder), place) ? r.recorder : null,
+      ...place,
+    };
+  });
+  const j = (k: string) => `json_extract(value, '$.${k}')`;
+  await c.env.DB.prepare(
+    `INSERT INTO tasks (id, tenant_id, title, description, kind, status, priority, due_at, asset_id, defect_id, property_id, assignee_id, labels, created_by, created_at, updated_at)
+     SELECT ${j('id')}, ?1, ${j('title')}, ${j('description')}, 'inspection', 'open', ${j('priority')}, ${j('due')}, ${j('asset')}, ${j('defect')}, ${j('property')},
+            ${j('assignee')}, '[]', ?2, ?3, ?3 FROM json_each(?4)`,
+  )
+    .bind(t, c.get('user').userId, n, JSON.stringify(items))
+    .run();
+  await watch(c, items.flatMap((i) => [{ taskId: i.id, userId: c.get('user').userId }, { taskId: i.id, userId: i.assignee }]), n);
+  await notifyAssigned(c, items.map((i) => ({ assigneeId: i.assignee, id: i.id, title: i.title })));
+  await writeLogs(
+    c,
+    items.map((i) => ({
+      key: 'verify_repairs' as const,
+      summary: `Nachprüf-Auftrag „${i.title}“ angelegt${i.assignee ? `, an ${access.get(i.assignee)?.name}` : ''}`,
+      entityType: 'repair',
+      entityId: i.repairId,
+      buildingId: i.buildingId,
+      propertyId: i.propertyId,
+      assigneeId: i.assignee,
+      link: `/aufgaben?id=${i.id}`,
+      undo: { deleteTasks: [i.id] },
+    })),
+    n,
+  );
+  return items.length;
+}
+
+/**
+ * Eine Prüfung hat Prüfaufträge erledigt (worker/inspections.ts → finalize). Für Nachprüf-Aufträge darunter:
+ * Mangel behoben → protokollieren (Auftrag ist schon zu); Mangel besteht weiter → letzte Mängelbehebung wieder öffnen,
+ * mit Kommentar, und die Zuständigen benachrichtigen.
+ */
+export async function afterVerification(c: Ctx, closedTaskIds: string[], code: string, n = now()) {
+  if (!closedTaskIds.length) return;
+  const t = tid(c);
+  const rows = (
+    await c.env.DB.prepare(
+      `SELECT v.id, v.title, v.defect_id AS defectId, v.property_id AS propertyId, v.assignee_id AS assigneeId, d.status AS defectStatus, d.title AS defectTitle,
+              a.building_id AS buildingId
+         FROM tasks v JOIN defects d ON d.id = v.defect_id LEFT JOIN assets a ON a.id = v.asset_id
+        WHERE v.tenant_id = ? AND v.kind = 'inspection' AND v.defect_id IS NOT NULL AND v.id IN (SELECT value FROM json_each(?))`,
+    )
+      .bind(t, JSON.stringify(closedTaskIds))
+      .all<{ id: string; title: string; defectId: string; propertyId: string | null; assigneeId: string | null; defectStatus: string; defectTitle: string; buildingId: string | null }>()
+  ).results;
+  if (!rows.length || !(await verifyActive(c.env, t))) return;
+  const day = new Intl.DateTimeFormat('de-DE', { day: '2-digit', month: '2-digit', year: 'numeric', timeZone: 'Europe/Berlin' }).format(n);
+  for (const v of rows) {
+    const place = { buildingId: v.buildingId, propertyId: v.propertyId };
+    if (v.defectStatus !== 'open') {
+      await logStatement(c.env, t, c.get('user').userId, {
+        key: 'verify_repairs',
+        summary: `${v.title}: Mangel „${v.defectTitle}“ behoben, Auftrag geschlossen`,
+        entityType: 'task',
+        entityId: v.id,
+        ...place,
+        assigneeId: v.assigneeId,
+        link: `/maengel?id=${v.defectId}`,
+      }, n).stmt.run();
+      continue;
+    }
+    const repair = await c.env.DB.prepare(
+      `UPDATE tasks SET status = 'open', closed_at = NULL, external_done_at = NULL, updated_at = ?1
+        WHERE id = (SELECT id FROM tasks WHERE tenant_id = ?2 AND defect_id = ?3 AND kind = 'defect' AND status = 'done' ORDER BY closed_at DESC LIMIT 1)
+        RETURNING id, title, assignee_id AS assigneeId`,
+    )
+      .bind(n, t, v.defectId)
+      .first<{ id: string; title: string; assigneeId: string | null }>();
+    if (!repair) continue;
+    await c.env.DB.prepare('INSERT INTO task_comments (id, tenant_id, task_id, user_id, author_name, body, created_at) VALUES (?,?,?,NULL,?,?,?)')
+      .bind(id(), t, repair.id, 'Autopilot', `Nachprüfung ${code} am ${day}: Der Mangel „${v.defectTitle}“ besteht weiter. Bitte erneut beheben.`, n)
+      .run();
+    const watchers = (
+      await c.env.DB.prepare('SELECT w.user_id FROM task_watchers w JOIN memberships m ON m.user_id = w.user_id AND m.tenant_id = w.tenant_id WHERE w.tenant_id = ? AND w.task_id = ?')
+        .bind(t, repair.id)
+        .all<{ user_id: string }>()
+    ).results.map((w) => w.user_id);
+    // Zuständige Person; liegt die Behebung bei einem Partner, die Beobachter und die Admins (sie halten den Kontakt)
+    await notify(c, {
+      userIds: repair.assigneeId ? [repair.assigneeId] : watchers,
+      roles: repair.assigneeId ? [] : ['owner', 'admin'],
+      type: 'task_assigned',
+      title: `Wieder offen: ${repair.title}`,
+      body: `Nachprüfung ${code}: Mangel besteht weiter`,
+      link: `/aufgaben?id=${repair.id}`,
+    });
+    await logStatement(c.env, t, c.get('user').userId, {
+      key: 'verify_repairs',
+      summary: `${v.title}: Mangel „${v.defectTitle}“ besteht weiter, Behebung wieder geöffnet`,
+      entityType: 'task',
+      entityId: v.id,
+      ...place,
+      assigneeId: repair.assigneeId,
+      link: `/aufgaben?id=${repair.id}`,
+    }, n).stmt.run();
+  }
+}
+
+/** Mangel auf anderem Weg behoben (Dialog, Mangelseite, Aufgabe): offene Nachprüf-Aufträge dazu schließen sich. */
+export async function closeVerificationsOf(c: Ctx, defectIds: string[], n = now()) {
+  if (!defectIds.length) return 0;
+  const t = tid(c);
+  const done = await c.env.DB.prepare(
+    `UPDATE tasks SET status = 'done', closed_at = ?1, updated_at = ?1, first_response_at = COALESCE(first_response_at, ?1)
+      WHERE tenant_id = ?2 AND kind = 'inspection' AND status IN ('open','in_progress') AND defect_id IN (SELECT value FROM json_each(?3))
+        AND defect_id IN (SELECT id FROM defects WHERE tenant_id = ?2 AND status = 'resolved') RETURNING id`,
+  )
+    .bind(n, t, JSON.stringify(defectIds))
+    .all<{ id: string }>();
+  if (!done.results.length) return 0;
+  await c.env.DB.prepare(
+    `INSERT INTO task_comments (id, tenant_id, task_id, user_id, author_name, body, created_at)
+     SELECT lower(hex(randomblob(8))), ?1, value, NULL, 'Autopilot', ?2, ?3 FROM json_each(?4)`,
+  )
+    .bind(t, 'Der Mangel wurde als behoben markiert – die Nachprüfung entfällt.', n, JSON.stringify(done.results.map((r) => r.id)))
+    .run();
+  return done.results.length;
+}
+
+// ---------- Schritt 6: Nachweisen – Monatsberichte (monthly_report) ----------
 /** Stand der Monatsberichte: Berichtsmonat (Vormonat), schon erledigt/in Arbeit? Fertige Einträge zählen, laufende bis 30 Min. */
 async function monthlyState(env: Env, tenantId: string, n: number) {
   const tz = (await env.DB.prepare('SELECT timezone FROM tenants WHERE id = ?').bind(tenantId).first<string>('timezone')) ?? 'Europe/Berlin';
@@ -671,30 +893,75 @@ async function monthlyState(env: Env, tenantId: string, n: number) {
 }
 
 // ---------- Ausführung (Cron) ----------
-/** Täglicher Lauf je Workspace: Regeln in Stufe „Automatisch“ (plan_week nur montags in der Zeitzone des Workspaces). */
+/**
+ * Täglicher Lauf je Workspace. Wiederholungen immer; bei eingeschaltetem Autopiloten die Schritte in Stufe „Automatisch“
+ * (Planen nur montags in der Zeitzone des Workspaces) und montags die Zusammenfassung „Autopilot: letzte Woche“.
+ */
 export async function runScheduled(env: Env, tenant: { id: string; timezone: string }, n: number) {
   const s = await loadSettings(env, tenant.id);
   const pending: Promise<unknown>[] = [];
   const c = systemCtx(env, tenant.id, pending);
-  const steps: [AutomationKey, () => Promise<number>][] = [
-    ['escalate_sla', () => escalateSla(c, n)],
-    ['close_stale', () => closeStale(c, n)],
-    // Nachholen, falls Aufgaben erledigt wurden, während die Regel nicht automatisch lief
-    ['recurring_tasks', () => createRecurrences(c, null, n)],
-    ['plan_week', () => (zonedDay(n, tenant.timezone).weekday === 1 ? planWeek(c, n) : Promise.resolve(0))],
+  const monday = zonedDay(n, tenant.timezone).weekday === 1;
+  // Zusammenfassung vor dem Lauf: sie beschreibt die vergangene Woche, nicht das, was heute früh geschieht
+  if (s.enabled && monday) {
+    try {
+      await weeklySummary(env, tenant, n);
+    } catch (e) {
+      console.error('automation summary', tenant.id, e);
+    }
+  }
+  const steps: [AutomationKey | null, () => Promise<unknown>][] = [
+    // Wiederholung ist eine Eigenschaft der Aufgabe: nachholen, falls etwas liegen blieb
+    [null, () => createRecurrences(c, null, n)],
+    ['escalate_sla', async () => (await escalateSla(c, n)) + (await closeStale(c, n))],
+    // Nachholen, falls Behebungen erledigt wurden, während der Schritt nicht automatisch lief
+    ['verify_repairs', () => createVerifications(c, null, n)],
+    ['plan_week', () => (monday ? planWeek(c, n) : Promise.resolve(0))],
   ];
   for (const [key, fn] of steps) {
-    if (s[key].mode !== 'auto') continue;
+    if (key && s[key].effective !== 'auto') continue;
     try {
       await fn();
     } catch (e) {
-      console.error('automation', tenant.id, key, e);
+      console.error('automation', tenant.id, key ?? 'recurrence', e);
     }
   }
   await Promise.allSettled(pending);
 }
 
-// ---------- Vorschläge (Stufe „Vorschlagen“) ----------
+/** Zähler je Schritt aus dem Protokoll (nicht zurückgenommene Einträge) im Zeitraum [from, to). */
+export async function weekCounts(env: Env, tenantId: string, from: number, to: number): Promise<WeekCounts> {
+  const rows = (
+    await env.DB.prepare(
+      `SELECT key, COUNT(*) AS n FROM automation_log WHERE tenant_id = ? AND at >= ? AND at < ? AND undone_at IS NULL
+          AND COALESCE(json_extract(undo, '$.pending'), 0) != 1 GROUP BY key`,
+    )
+      .bind(tenantId, from, to)
+      .all<{ key: string; n: number }>()
+  ).results;
+  const out: WeekCounts = {};
+  for (const r of rows) {
+    const k = stepOf(r.key)?.key;
+    if (k) out[k] = (out[k] ?? 0) + r.n;
+  }
+  return out;
+}
+
+/** Montags eine Meldung an Inhaber und Admins statt Einzelmeldungen für Routine (einmal je Tag, dedupe). */
+async function weeklySummary(env: Env, tenant: { id: string; timezone: string }, n: number) {
+  const text = weekSummary(await weekCounts(env, tenant.id, n - 7 * DAY, n));
+  if (!text) return;
+  await notifyTenant(env, tenant.id, {
+    roles: ['owner', 'admin'],
+    type: 'automation',
+    title: 'Autopilot: letzte Woche',
+    body: text,
+    link: '/einstellungen?tab=automation',
+    dedupe: `autopilot-week-${zonedDay(n, tenant.timezone).ymd}`,
+  });
+}
+
+// ---------- Vorschläge (Stufe „Vorschlagen“) – erscheinen in GET /now ----------
 export interface AutomationSuggestion {
   id: string;
   kind: 'automation';
@@ -702,6 +969,7 @@ export interface AutomationSuggestion {
   tone: 'bad' | 'warn' | 'info';
   title: string;
   text: string;
+  /** genau eins von beiden: Link oder Aktion */
   link?: string;
   action?: { label: string; endpoint: string; body?: unknown };
   count: number;
@@ -711,10 +979,11 @@ export async function automationSuggestions(c: Ctx): Promise<AutomationSuggestio
   const u = c.get('user');
   if (RANK[u.role] < RANK.inspector) return [];
   const s = await loadSettings(c.env, tid(c));
+  if (!s.enabled) return [];
   const n = now();
   const out: AutomationSuggestion[] = [];
   const run = (key: AutomationKey, label: string) => ({ label, endpoint: `/automation/${key}/run` });
-  if (s.plan_week.mode === 'suggest') {
+  if (s.plan_week.effective === 'suggest') {
     const k = (await planCandidates(c, n)).results.length;
     if (k)
       out.push({
@@ -722,59 +991,42 @@ export async function automationSuggestions(c: Ctx): Promise<AutomationSuggestio
         kind: 'automation',
         automation: 'plan_week',
         tone: 'info',
-        title: `Prüfaufträge für ${plural(k, 'ein Gebäude', 'Gebäude')} anlegen`,
-        text: `Rundgänge mit Fälligkeiten in den nächsten ${PLAN_HORIZON_DAYS} Tagen als Aufträge planen.`,
-        action: run('plan_week', 'Aufträge anlegen'),
-        link: '/aufgaben',
+        title: `Rundgänge für ${plural(k, 'ein Gebäude', 'Gebäude')} planen`,
+        text: `Fälligkeiten in den nächsten ${PLAN_HORIZON_DAYS} Tagen als Rundgang-Aufträge anlegen.`,
+        action: run('plan_week', 'Planen'),
         count: k,
       });
   }
-  if (s.escalate_sla.mode === 'suggest') {
-    const k = (await escalateCandidates(c, n)).results.length;
-    if (k)
+  if (s.escalate_sla.effective === 'suggest') {
+    const late = (await escalateCandidates(c, n)).results.length;
+    const stale = (await staleCandidates(c, n)).results.length;
+    if (late + stale)
       out.push({
         id: 'auto-escalate_sla',
         kind: 'automation',
         automation: 'escalate_sla',
         tone: 'warn',
-        title: `${plural(k, 'Eine Aufgabe', 'Aufgaben')} über der Frist`,
-        text: 'Priorität auf „Hoch“ setzen und die Admins benachrichtigen.',
-        action: run('escalate_sla', 'Eskalieren'),
-        link: '/aufgaben',
-        count: k,
+        title: late ? `${plural(late, 'Eine Aufgabe', 'Aufgaben')} über der Frist` : `${plural(stale, 'Ein Mangel', 'Mängel')} nach der Behebung offen`,
+        text: late ? 'Priorität auf „Hoch“ setzen und die Admins benachrichtigen.' : 'Die Zuständigen an den offenen Mangel erinnern.',
+        action: run('escalate_sla', 'Nachhalten'),
+        count: late + stale,
       });
   }
-  if (s.recurring_tasks.mode === 'suggest') {
-    const k = (await recurringCandidates(c, null)).results.length;
+  if (s.verify_repairs.effective === 'suggest') {
+    const k = new Set((await verifyCandidates(c, null)).results.map((r) => r.defectId)).size;
     if (k)
       out.push({
-        id: 'auto-recurring_tasks',
+        id: 'auto-verify_repairs',
         kind: 'automation',
-        automation: 'recurring_tasks',
-        tone: 'info',
-        title: `${plural(k, 'Eine wiederkehrende Aufgabe', 'wiederkehrende Aufgaben')} erledigt`,
-        text: 'Die nächsten Termine als Aufgaben anlegen.',
-        action: run('recurring_tasks', 'Folgeaufgaben anlegen'),
-        link: '/aufgaben',
+        automation: 'verify_repairs',
+        tone: 'warn',
+        title: `${plural(k, 'Eine Behebung', 'Behebungen')} nachprüfen`,
+        text: 'Erledigt gemeldet, Mangel noch offen: Nachprüf-Aufträge an die Personen, die die Mängel festgestellt haben.',
+        action: run('verify_repairs', 'Aufträge anlegen'),
         count: k,
       });
   }
-  if (s.close_stale.mode === 'suggest') {
-    const k = (await staleCandidates(c, n)).results.length;
-    if (k)
-      out.push({
-        id: 'auto-close_stale',
-        kind: 'automation',
-        automation: 'close_stale',
-        tone: 'info',
-        title: `${plural(k, 'Ein Mangel', 'Mängel')} nach erledigter Behebung noch offen`,
-        text: 'Die Zuständigen an das Schließen erinnern.',
-        action: run('close_stale', 'Erinnern'),
-        link: '/maengel',
-        count: k,
-      });
-  }
-  if (s.monthly_report.mode === 'suggest' && RANK[u.role] >= RANK.admin && !u.scope) {
+  if (s.monthly_report.effective === 'suggest' && RANK[u.role] >= RANK.admin && !u.scope) {
     const m = await monthlyState(c.env, tid(c), n);
     if (!m.done && m.properties)
       out.push({
@@ -793,47 +1045,77 @@ export async function automationSuggestions(c: Ctx): Promise<AutomationSuggestio
 }
 
 // ---------- Routen ----------
-const keyParam = (c: Ctx) => {
+/** Schritt aus der URL; frühere Schlüssel zeigen auf ihren Schritt (close_stale → Nachhalten). */
+const keyParam = (c: Ctx): AutomationKey | 'recurring_tasks' => {
   const k = c.req.param('key') ?? '';
-  if (!automationDef(k)) notFound('Regel');
+  if (k === 'recurring_tasks') return k;
+  if (k in LEGACY_KEYS) return LEGACY_KEYS[k as LegacyKey]!;
+  if (!automationDef(k)) notFound('Schritt');
   return k as AutomationKey;
 };
 
-/** Regeln mit Stufe und „zuletzt ausgeführt“. Einstellungen (Zuweisungsregeln) nur für Admins. */
+/** Die sechs Schritte mit Stufe und „zuletzt“. Einstellungen (Zuweisungsregeln) nur für Admins. */
 automation.get('/automation', async (c) => {
   const s = await loadSettings(c.env, tid(c));
   const last = (await c.env.DB.prepare('SELECT key, MAX(at) AS at FROM automation_log WHERE tenant_id = ? GROUP BY key').bind(tid(c)).all<{ key: string; at: number }>()).results;
+  const lastOf = (k: AutomationKey) => last.filter((l) => stepOf(l.key)?.key === k).reduce<number | null>((m, l) => (m == null || l.at > m ? l.at : m), null);
   const admin = RANK[c.get('user').role] >= RANK.admin;
   return c.json(
     AUTOMATIONS.map((d) => ({
       key: d.key,
+      step: d.step,
       title: d.title,
       description: d.description,
       mode: s[d.key].mode,
+      effectiveMode: s[d.key].effective,
       defaultMode: d.defaultMode,
       adminOnly: !!d.adminOnly,
-      lastRunAt: last.find((l) => l.key === d.key)?.at ?? null,
+      lastRunAt: lastOf(d.key),
       ...(admin ? { config: d.key === 'assign_defect_tasks' ? { rules: rulesOf(s[d.key].config) } : {} } : {}),
     })),
   );
 });
 
-/** Stufe und/oder Einstellungen einer Regel ändern (nur Admins). */
+/** Hauptschalter und Lage für die Kopfzeile der Automatik-Seite. */
+automation.get('/automation/autopilot', async (c) => {
+  const n = now();
+  const enabled = await autopilotEnabled(c.env, tid(c));
+  return c.json({ enabled, lastWeek: await weekCounts(c.env, tid(c), n - 7 * DAY, n) });
+});
+
+/** Autopilot an/aus (nur Admins). Aus = kein Schritt läuft oder schlägt vor; die Stufen bleiben gemerkt. */
+automation.put('/automation/autopilot', async (c) => {
+  requireRole(c, 'admin');
+  const { enabled } = z.object({ enabled: z.boolean() }).parse(await c.req.json());
+  const before = await autopilotEnabled(c.env, tid(c));
+  await c.env.DB.prepare(
+    `INSERT INTO automation_settings (tenant_id, key, mode, config, updated_at, updated_by) VALUES (?,?,?,'{}',?,?)
+     ON CONFLICT (tenant_id, key) DO UPDATE SET mode = excluded.mode, updated_at = excluded.updated_at, updated_by = excluded.updated_by`,
+  )
+    .bind(tid(c), MASTER, enabled ? 'auto' : 'off', now(), c.get('user').userId)
+    .run();
+  if (before !== enabled) await logActivity(c, 'update', 'automation', null, `Autopilot ${enabled ? 'eingeschaltet' : 'ausgeschaltet'}`);
+  return c.json({ enabled });
+});
+
+/** Stufe und/oder Einstellungen eines Schritts ändern (nur Admins). Frühere Schlüssel: close_stale → Nachhalten. */
 automation.put('/automation', async (c) => {
   requireRole(c, 'admin');
-  const b = z
+  const raw = z
     .object({
-      key: z.enum(AUTOMATION_KEYS),
+      key: z.enum([...AUTOMATION_KEYS, 'close_stale', 'recurring_tasks']),
       mode: z.enum(Object.keys(AUTOMATION_MODES) as [AutomationMode, ...AutomationMode[]]).optional(),
       config: z.record(z.string(), z.unknown()).optional(),
     })
     .refine((x) => x.mode !== undefined || x.config !== undefined, 'Nichts zu ändern')
     .parse(await c.req.json());
+  if (raw.key === 'recurring_tasks') throw new HTTPException(400, { message: 'Wiederholung ist eine Eigenschaft der Aufgabe und läuft immer' });
+  const b = { ...raw, key: (raw.key === 'close_stale' ? 'escalate_sla' : raw.key) as AutomationKey };
   const t = tid(c);
   const current = (await loadSettings(c.env, t))[b.key];
   let config = current.config;
   if (b.config !== undefined) {
-    if (b.key !== 'assign_defect_tasks') throw new HTTPException(400, { message: 'Diese Regel hat keine Einstellungen' });
+    if (b.key !== 'assign_defect_tasks') throw new HTTPException(400, { message: 'Dieser Schritt hat keine Einstellungen' });
     const parsed = assignConfig.parse(b.config);
     for (const r of parsed.rules) {
       if (!!r.assigneeId === !!r.subcontractorId) throw new HTTPException(400, { message: 'Je Regel genau eine Person oder einen Subunternehmer wählen' });
@@ -848,7 +1130,7 @@ automation.put('/automation', async (c) => {
     config = parsed;
   }
   const mode = b.mode ?? current.mode;
-  // adapt_intervals: Stufe liegt nur in tenants.adapt_intervals_mode (auch im Firmenprofil einstellbar)
+  // Lernen: Stufe liegt nur in tenants.adapt_intervals_mode
   const stmts =
     b.key === 'adapt_intervals'
       ? [c.env.DB.prepare('UPDATE tenants SET adapt_intervals_mode = ? WHERE id = ?').bind(mode, t)]
@@ -858,7 +1140,7 @@ automation.put('/automation', async (c) => {
              ON CONFLICT (tenant_id, key) DO UPDATE SET mode = excluded.mode, config = excluded.config, updated_at = excluded.updated_at, updated_by = excluded.updated_by`,
           ).bind(t, b.key, mode, JSON.stringify(config), now(), c.get('user').userId),
         ];
-  // Schalter „Aufgaben für schwere Mängel“ im Firmenprofil bleibt im Gleichklang
+  // Früherer Schalter tenants.auto_tasks bleibt im Gleichklang (Fremdsysteme lesen ihn noch über /account/me)
   if (b.key === 'assign_defect_tasks') stmts.push(c.env.DB.prepare('UPDATE tenants SET auto_tasks = ? WHERE id = ?').bind(mode === 'auto' ? 1 : 0, t));
   await c.env.DB.batch(stmts);
   const def = automationDef(b.key)!;
@@ -871,7 +1153,9 @@ automation.put('/automation', async (c) => {
 automation.get('/automation/log', async (c) => {
   const limit = Math.min(200, Math.max(1, Number(c.req.query('limit') ?? 50) || 50));
   const key = c.req.query('key');
-  if (key && !automationDef(key)) throw new HTTPException(400, { message: 'Unbekannte Regel' });
+  if (key && !isLogKey(key)) throw new HTTPException(400, { message: 'Unbekannter Schritt' });
+  // Filter nach Schritt schließt frühere Schlüssel ein (Nachhalten = escalate_sla + close_stale)
+  const keys = key ? [key, ...Object.entries(LEGACY_KEYS).filter(([, v]) => v === key).map(([k]) => k)] : null;
   const before = Number(c.req.query('before') ?? 0) || null;
   const u = c.get('user');
   const rows = (
@@ -879,11 +1163,11 @@ automation.get('/automation/log', async (c) => {
       `SELECT l.id, l.key, l.at, l.summary, l.link, l.undo, l.undone_at AS undoneAt, l.assignee_id AS assigneeId, l.actor,
               CASE WHEN l.actor = 'system' THEN 'Autopilot' ELSE u.name END AS actorName
          FROM automation_log l LEFT JOIN users u ON u.id = l.actor
-        WHERE l.tenant_id = ?1 AND (?2 IS NULL OR l.key = ?2) AND (?3 IS NULL OR l.at < ?3) AND ${logScope(c)}
+        WHERE l.tenant_id = ?1 AND (?2 IS NULL OR l.key IN (SELECT value FROM json_each(?2))) AND (?3 IS NULL OR l.at < ?3) AND ${logScope(c)}
           AND NOT (COALESCE(json_extract(l.undo, '$.pending'), 0) = 1 AND l.undone_at IS NULL)
         ORDER BY l.at DESC LIMIT ?4`,
     )
-      .bind(tid(c), key ?? null, before, limit)
+      .bind(tid(c), keys ? JSON.stringify(keys) : null, before, limit)
       .all<{ id: string; key: string; at: number; summary: string; link: string | null; undo: string | null; undoneAt: number | null; assigneeId: string | null; actor: string; actorName: string | null }>()
   ).results;
   const n = now();
@@ -892,7 +1176,8 @@ automation.get('/automation/log', async (c) => {
     rows.map((r) => ({
       id: r.id,
       key: r.key,
-      title: automationDef(r.key)?.title ?? r.key,
+      title: logTitle(r.key),
+      step: stepOf(r.key)?.step ?? null,
       at: r.at,
       summary: r.summary,
       ...(r.link ? { link: r.link } : {}),
@@ -969,23 +1254,29 @@ automation.post('/automation/log/:id/undo', async (c) => {
   return c.json({ ok: true, reverted: removed, kept });
 });
 
-/** Regel einmal ausführen (Knopf eines Vorschlags). Stufe „Aus“ → 409. */
+/** Schritt einmal ausführen (Knopf in „Jetzt“). Stufe „Aus“ oder Autopilot aus → 409. */
 automation.post('/automation/:key/run', async (c) => {
   const key = keyParam(c);
+  // Wiederholungen nachholen (früherer Schritt, z. B. aus älteren Integrationen): kein Schritt, keine Stufe
+  if (key === 'recurring_tasks') {
+    requireRole(c, 'inspector');
+    const created = await createRecurrences(c, null);
+    return c.json({ key, done: created, created });
+  }
   const def = automationDef(key)!;
   requireRole(c, def.adminOnly ? 'admin' : 'inspector');
   const s = await loadSettings(c.env, tid(c));
-  if (s[key].mode === 'off') throw new HTTPException(409, { message: 'Diese Regel ist ausgeschaltet' });
+  if (!s.enabled) throw new HTTPException(409, { message: 'Der Autopilot ist ausgeschaltet' });
+  if (s[key].mode === 'off') throw new HTTPException(409, { message: 'Dieser Schritt ist ausgeschaltet' });
   let done = 0;
   if (key === 'plan_week') done = await planWeek(c);
-  else if (key === 'escalate_sla') done = await escalateSla(c);
-  else if (key === 'close_stale') done = await closeStale(c);
-  else if (key === 'recurring_tasks') done = await createRecurrences(c, null);
+  else if (key === 'escalate_sla') done = (await escalateSla(c)) + (await closeStale(c));
+  else if (key === 'verify_repairs') done = await createVerifications(c, null);
   else if (key === 'assign_defect_tasks') done = await createDefectTasks(c, { severities: autoSeverities(rulesOf(s[key].config)) });
   else if (key === 'adapt_intervals') throw new HTTPException(400, { message: 'Intervall-Vorschläge einzeln übernehmen: auf „Heute“ oder auf der Elementseite' });
   else throw new HTTPException(400, { message: 'Monatsberichte entstehen im Browser: Berichte öffnen und „Monatsberichte erzeugen“ wählen' });
   // created: Anzahl angelegter Aufgaben (wie /smart/tasks-from-defects), nur bei Regeln, die Aufgaben anlegen
-  return c.json({ key, done, ...(key === 'escalate_sla' || key === 'close_stale' ? {} : { created: done }) });
+  return c.json({ key, done, ...(key === 'escalate_sla' ? {} : { created: done }) });
 });
 
 // Monatsberichte: der Browser einer Admin-Person erzeugt die PDFs. Ablauf: Status → Platz reservieren → PDFs archivieren → abschließen.
@@ -996,7 +1287,7 @@ const requireMonthly = (c: Ctx) => {
 
 automation.get('/automation/monthly-report', async (c) => {
   requireMonthly(c);
-  const mode = (await loadSettings(c.env, tid(c))).monthly_report.mode;
+  const mode = (await loadSettings(c.env, tid(c))).monthly_report.effective;
   const m = await monthlyState(c.env, tid(c), now());
   return c.json({ mode, period: m.period, label: m.label, properties: m.properties, due: mode !== 'off' && !m.done && m.properties > 0 });
 });
@@ -1004,7 +1295,7 @@ automation.get('/automation/monthly-report', async (c) => {
 automation.post('/automation/monthly-report/claim', async (c) => {
   requireMonthly(c);
   const t = tid(c);
-  if ((await loadSettings(c.env, t)).monthly_report.mode === 'off') throw new HTTPException(409, { message: 'Diese Regel ist ausgeschaltet' });
+  if ((await loadSettings(c.env, t)).monthly_report.effective === 'off') throw new HTTPException(409, { message: 'Dieser Schritt ist ausgeschaltet' });
   const n = now();
   const m = await monthlyState(c.env, t, n);
   // Liegengebliebene Reservierung (Browser geschlossen) freigeben

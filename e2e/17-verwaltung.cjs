@@ -43,14 +43,14 @@ const check = (ok, m) => {
   await p.getByRole('button', { name: 'Verwerfen' }).click();
   check((await p.getByLabel('Website').inputValue()) === before, 'Verwerfen stellt den Wert wieder her');
   check((await p.getByText('Ungespeicherte Änderungen').count()) === 0, 'Leiste nach Verwerfen weg');
-  await p.getByRole('switch', { name: /Aufgaben für schwere Mängel/ }).click();
-  await p.getByRole('button', { name: 'Speichern', exact: true }).click();
-  await p.getByText('Gespeichert').first().waitFor();
-  check((await api('/account/me')).json.tenant.autoTasks === false, 'Automatisierung per Schalter gespeichert');
-  await p.getByRole('switch', { name: /Aufgaben für schwere Mängel/ }).click();
+  // Automatik nur noch an einer Stelle (Einstellungen → Automatik), nicht doppelt im Firmenprofil
+  check((await p.getByRole('switch', { name: /Aufgaben für schwere Mängel/ }).count()) === 0, 'kein Automatik-Schalter im Firmenprofil');
+  check((await p.getByText('Prüfintervalle selbst anpassen').count()) === 0, 'keine Intervall-Stufe im Firmenprofil');
+  await p.getByLabel('Website').fill('https://e2e.example.com');
   await p.getByRole('button', { name: 'Speichern', exact: true }).click();
   await p.getByText('Ungespeicherte Änderungen').waitFor({ state: 'detached' });
-  check((await api('/account/me')).json.tenant.autoTasks === true, 'Automatisierung wieder an');
+  const t17 = (await api('/account/me')).json.tenant;
+  check(t17.website === 'https://e2e.example.com' && t17.autoTasks === true && t17.adaptIntervalsMode === 'suggest', 'Speichern lässt die Automatik unberührt');
 
   step('Alter Link ?tab=privacy zeigt Konto mit Datenschutz');
   await p.goto(BASE + '/einstellungen?tab=privacy');

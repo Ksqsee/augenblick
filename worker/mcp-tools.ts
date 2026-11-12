@@ -196,28 +196,10 @@ const photoRef = (key: unknown) => (key ? `foto:${s(key)}` : null);
 const planRef = (id: unknown) => (id ? `plan:${s(id)}` : null);
 
 // ---------- „Jetzt“-Liste ----------
-/**
- * Die „Jetzt“-Warteschlange. Gibt es GET /now (Paket L), wird sie genommen; sonst aus Vorschlägen und
- * Handlungsbedarf zusammengesetzt. Umstellen = diese Funktion auf den ersten Aufruf kürzen.
- */
+/** Die „Jetzt“-Warteschlange der App (GET /now): je Zeile eine Aktion, nach Dringlichkeit. */
 async function nowQueue(x: Ctx, max = 12): Promise<Json[]> {
-  try {
-    const n = (await x.api({ method: 'GET', path: '/now' })) as unknown;
-    const items = Array.isArray(n) ? n : ((n as { items?: unknown[] })?.items ?? []);
-    return (items as Json[]).slice(0, max);
-  } catch (e) {
-    if (!(e instanceof ApiError && e.status === 404)) throw e;
-  }
-  const [sug, act] = await Promise.all([
-    x.api({ method: 'GET', path: '/smart/suggestions' }) as Promise<Json[]>,
-    x.api({ method: 'GET', path: '/smart/action-required' }) as Promise<Json[]>,
-  ]);
-  const out: Json[] = sug.map((g) => compact({ what: g.kind === 'automation' ? 'autopilot_suggestion' : s(g.kind), title: g.title, detail: g.text, count: g.count, step: g.automation }));
-  for (const a of act) {
-    if (out.length >= max) break;
-    out.push(compact({ what: a.kind, title: a.title, detail: [a.reason, a.subtitle].filter(Boolean).join(' · '), ...(a.kind === 'defect' ? { defectId: a.id } : a.kind === 'task' ? { taskId: a.id } : {}) }));
-  }
-  return out.slice(0, max);
+  const n = (await x.api({ method: 'GET', path: '/now' })) as { items?: Json[] };
+  return (n.items ?? []).slice(0, max);
 }
 
 // ---------- Darstellung ----------

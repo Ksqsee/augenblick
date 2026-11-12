@@ -138,7 +138,7 @@ export function TaskForm({ initial, onClose, onCreated }: { initial?: Partial<Ta
             </Select>
           )}
         </Field>
-        <Field label="Wiederholen" hint="Beim Erledigen entsteht die nächste Aufgabe (Autopilot)">
+        <Field label="Wiederholen" hint="Beim Erledigen entsteht die nächste Aufgabe">
           {(id) => (
             <Select id={id} value={f.recurrence} onChange={(e) => setF({ ...f, recurrence: e.target.value as Recurrence | '' })}>
               <option value="">Nie</option>

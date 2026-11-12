@@ -10,7 +10,7 @@ import { assetQuery, mapAsset, severityEnum, str, tid } from './data';
 import { type AppEnv, assertInScope, type Ctx, id, logActivity, notFound, now, parseJson, requireRole, scopeSql } from './lib';
 import { adaptMode, intervalHistory, logIntervalChange, writeSchedules } from './intervals';
 import { notify } from './notify';
-import { afterTasksDone, autoDefectTasks, closeFinishedRounds } from './automation';
+import { afterTasksDone, afterVerification, autoDefectTasks, closeFinishedRounds } from './automation';
 
 export const inspections = new Hono<AppEnv>();
 
@@ -211,12 +211,13 @@ inspections.post('/assets/:id/inspections', async (c) => {
     .parse(await c.req.json().catch(() => ({})));
   if (body.taskId && body.purpose === 'regular') {
     const task = await c.env.DB.prepare(
-      `SELECT t.kind, d.inspection_id AS inspectionId FROM tasks t LEFT JOIN defects d ON d.id = t.defect_id AND d.tenant_id = t.tenant_id
+      `SELECT t.kind, t.defect_id AS defectId, d.inspection_id AS inspectionId FROM tasks t LEFT JOIN defects d ON d.id = t.defect_id AND d.tenant_id = t.tenant_id
         WHERE t.id = ? AND t.tenant_id = ? AND t.asset_id = ?`,
     )
       .bind(body.taskId, tid(c), a.id)
-      .first<{ kind: string; inspectionId: string | null }>();
-    if (task?.kind === 'defect') {
+      .first<{ kind: string; defectId: string | null; inspectionId: string | null }>();
+    // Mängelbehebung und Nachprüf-Auftrag des Autopiloten (Prüfauftrag mit Mangel) starten die Nachprüfung
+    if (task?.kind === 'defect' || (task?.kind === 'inspection' && task.defectId)) {
       const from = task.inspectionId
         ? await c.env.DB.prepare("SELECT id FROM inspections WHERE id = ? AND tenant_id = ? AND status = 'submitted' AND superseded_at IS NULL").bind(task.inspectionId, tid(c)).first()
         : null;
@@ -594,8 +595,10 @@ async function finalize(
       .bind(tid(c), c.get('user').userId, c.get('user').name, `Mit der Prüfung ${opts.code} erledigt.`, t, JSON.stringify(done.results.map((r) => r.id)))
       .run();
   }
-  // Wiederkehrende Prüfaufträge: Folgeauftrag anlegen (Autopilot recurring_tasks)
+  // Wiederkehrende Prüfaufträge: Folgeauftrag anlegen
   if (done.results.length) await afterTasksDone(c, done.results.map((r) => r.id));
+  // Autopilot „Nachprüfen“: Mangel behoben → protokollieren; besteht weiter → Mängelbehebung wieder öffnen
+  if (done.results.length) await afterVerification(c, done.results.map((r) => r.id), opts.code);
   // Rundgang des Gebäudes (Woche planen) erledigt sich, wenn dort nichts mehr im Planungsfenster fällig ist
   await closeFinishedRounds(c, opts.assetId);
   // Autopilot (assign_defect_tasks): schwere Mängel bekommen sofort eine Aufgabe, ggf. mit Zuweisung nach Regeln

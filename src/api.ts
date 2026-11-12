@@ -1,5 +1,6 @@
 import { keepPreviousData, QueryClient, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import type { AssignRule, AutomationKey, AutomationMode, Recurrence } from '../shared/automation';
+import type { NowItem } from '../shared/now';
 import type { AttributeField, Category, CategoryDef, Checkpoint, CustomKind, InspectionKind, InspectionPurpose, Role, Severity, WalkPurpose } from '../shared/catalog';
 import type { Answer, Result, ResultOverride, Schedules } from '../shared/logic';
 import type { TaskKind } from '../shared/tasks';
@@ -723,11 +724,15 @@ export async function archiveReport(me: Me, bytes: Uint8Array, meta: { kind: Rep
 }
 
 // ---------- Autopilot ----------
+/** Ein Schritt des Autopilot-Kreislaufs (GET /automation, in Reihenfolge 1–6). */
 export interface AutomationRule {
   key: AutomationKey;
+  step: number;
   title: string;
   description: string;
   mode: AutomationMode;
+  /** „off“, solange der Autopilot ausgeschaltet ist */
+  effectiveMode: AutomationMode;
   defaultMode: AutomationMode;
   adminOnly: boolean;
   lastRunAt: number | null;
@@ -736,7 +741,9 @@ export interface AutomationRule {
 }
 export interface AutomationLogEntry {
   id: string;
-  key: AutomationKey;
+  /** Schritt oder früherer Schlüssel (close_stale, recurring_tasks) */
+  key: string;
+  step: number | null;
   title: string;
   at: number;
   summary: string;
@@ -746,4 +753,13 @@ export interface AutomationLogEntry {
   undoneAt: number | null;
 }
 export const useAutomations = () => useQuery({ queryKey: ['automation'], queryFn: () => api<AutomationRule[]>('/automation') });
+export interface Autopilot {
+  enabled: boolean;
+  /** Protokolleinträge der letzten 7 Tage je Schritt */
+  lastWeek: Partial<Record<AutomationKey, number>>;
+}
+export const useAutopilot = () => useQuery({ queryKey: ['automation', 'autopilot'], queryFn: () => api<Autopilot>('/automation/autopilot') });
+/** „Jetzt“: was die angemeldete Person entscheiden oder tun sollte (GET /now). */
+export const useNow = (all = false) =>
+  useQuery({ queryKey: ['now', all], queryFn: () => api<{ items: (NowItem & { urgency: number })[]; more: number; total: number }>(all ? '/now?limit=50' : '/now') });
 export const useAutomationLog = (limit = 50) => useQuery({ queryKey: ['automation', 'log', limit], queryFn: () => api<AutomationLogEntry[]>(`/automation/log?limit=${limit}`) });
