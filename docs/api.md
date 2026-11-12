@@ -84,11 +84,21 @@ KI-Aufrufe laufen über Cloudflare Workers AI (keine Daten an weitere Anbieter) 
 
 Prüfkompass spricht das Model Context Protocol (Streamable HTTP, zustandslos, JSON-Antworten).
 
-- **URL:** `https://<instanz>/api/mcp` mit Header `Authorization: Bearer pk_…`
+- **URL:** `https://<instanz>/api/mcp`
+- **Anmeldung per OAuth 2.1** (empfohlen, z. B. eigener Connector in claude.ai/Claude Desktop oder `claude mcp add` ohne Header):
+  der Client findet über `401` + `WWW-Authenticate: Bearer resource_metadata=…` die Metadaten
+  (`/.well-known/oauth-protected-resource/api/mcp`, `/.well-known/oauth-authorization-server`), registriert sich
+  dynamisch (`POST /api/oauth/register`, nur https- oder Loopback-Rücksprungadressen) und öffnet die Freigabeseite
+  `/oauth/authorize` (Code-Flow mit PKCE S256). Dort gibt man entweder **einen vorhandenen API-Schlüssel** ein oder
+  erstellt als Admin mit Anmeldung **eine neue Verbindung** (nur lesen / lesen und schreiben). Tokens: Access `pko_…`
+  (1 Stunde), Refresh `pkr_…` (90 Tage, wird bei jeder Nutzung erneuert). Rechte = Rechte des zugehörigen Schlüssels;
+  Schlüssel widerrufen trennt die Verbindung sofort. `POST /api/oauth/token`, `POST /api/oauth/revoke`.
+- **Mit Schlüssel:** Header `Authorization: Bearer pk_…`
 - **Ohne eigene Header** (z. B. Connector in Claude Desktop/claude.ai): `https://<instanz>/api/mcp/k/pk_…` – die Adresse wie ein Passwort behandeln.
 - Rechte wie der Schlüssel: Lese-Schlüssel sehen nur lesende Werkzeuge erfolgreich, schreibende liefern `isError`.
 
 ```bash
+claude mcp add --transport http pruefkompass https://<instanz>/api/mcp          # OAuth im Browser
 claude mcp add --transport http pruefkompass https://<instanz>/api/mcp --header "Authorization: Bearer pk_…"
 ```
 

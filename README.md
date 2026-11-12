@@ -19,7 +19,7 @@ API: [`docs/api.md`](docs/api.md)
   Vorschläge für Maßnahme und Schweregrad; Workers AI (Whisper/Llama), ohne KI Spracherkennung des Browsers und Regeln
 - **Rundgang**: fällige Elemente eines Gebäudes in Laufreihenfolge, nach jeder Prüfung direkt weiter zum nächsten
 - **Automatische Aufgaben** für schwere Mängel (SLA-Frist), abschaltbar; **Typenschild-Foto** füllt Hersteller/Modell
-- **MCP-Server** im Worker (`/api/mcp`): Prüfkompass als Werkzeugkasten für Claude – siehe `docs/api.md`
+- **MCP-Server** im Worker (`/api/mcp`) mit **OAuth-Anmeldung** (Freigabe mit API-Schlüssel oder neuer Verbindung): Prüfkompass als Werkzeugkasten für Claude – siehe `docs/api.md`
 
 **Prüfen**
 - Prüfung je Element mit Prüfpunkten (i. O. / Mangel / n. z.), Wartungsarbeiten, Fotos, Bemerkungen und Unterschrift

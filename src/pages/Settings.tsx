@@ -870,9 +870,14 @@ function ApiKeys() {
             Prüfkompass hat einen eingebauten MCP-Server. Damit kann Claude Fälligkeiten abfragen, Rundgänge planen, Mängel auswerten, Aufgaben anlegen und Diktate
             strukturieren – mit genau den Rechten des Schlüssels (Nur lesen oder Lesen + Schreiben).
           </p>
+          <p className="font-medium text-ink">Claude (claude.ai / Desktop): eigener Connector</p>
+          <p>
+            URL <span className="font-mono text-xs break-all">{`${origin}/api/mcp`}</span> eintragen und auf „Verbinden“ klicken. Es öffnet sich eine Freigabeseite: dort als
+            Admin eine neue Verbindung erlauben oder einen vorhandenen API-Schlüssel einfügen. Jede Verbindung erscheint oben als Schlüssel und lässt sich dort trennen.
+          </p>
           <p className="font-medium text-ink">Claude Code</p>
-          <pre className="overflow-x-auto rounded-lg bg-sunken p-3 font-mono text-xs text-ink">{`claude mcp add --transport http pruefkompass ${origin}/api/mcp \\\n  --header "Authorization: Bearer pk_…"`}</pre>
-          <p className="font-medium text-ink">Claude Desktop / claude.ai (eigener Connector)</p>
+          <pre className="overflow-x-auto rounded-lg bg-sunken p-3 font-mono text-xs text-ink">{`claude mcp add --transport http pruefkompass ${origin}/api/mcp\n# Anmeldung per OAuth im Browser – oder mit Schlüssel:\n#   --header "Authorization: Bearer pk_…"`}</pre>
+          <p className="font-medium text-ink">Clients ohne OAuth</p>
           <p>
             Als URL <span className="font-mono text-xs break-all">{`${origin}/api/mcp/k/pk_…`}</span> eintragen – der Schlüssel steckt dann in der Adresse. Diese Adresse wie ein Passwort
             behandeln und einen eigenen Schlüssel dafür anlegen, der sich jederzeit widerrufen lässt.

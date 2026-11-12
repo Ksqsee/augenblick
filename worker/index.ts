@@ -3,6 +3,7 @@ import { HTTPException } from 'hono/http-exception';
 import { ZodError } from 'zod';
 import { ai } from './ai';
 import { mcpRoutes } from './mcp';
+import { cleanupOAuth, oauthPublic, oauthSession, wellKnown } from './oauth';
 import { smart } from './smart';
 import { account, auth } from './auth';
 import { categories } from './categories';
@@ -39,6 +40,9 @@ app.route('/auth', auth);
 app.route('/public', publicApi);
 app.route('/account', account);
 // MCP für Claude & Co.: eigene Authentifizierung per API-Schlüssel, Werkzeuge rufen intern die API auf
+// OAuth für MCP-Clients (Registrierung, Token ohne Sitzung; Freigabe mit neuem Schlüssel nur angemeldet)
+app.route('/', oauthPublic);
+app.route('/', oauthSession);
 app.route('/', mcpRoutes((req, c) => Promise.resolve(app.fetch(req, c.env, c.executionCtx))));
 
 // Alles Weitere nur mit gültiger Sitzung (einmalige Prüfung)
@@ -68,8 +72,13 @@ app.onError((err, c) => {
 });
 
 export default {
-  fetch: app.fetch,
+  fetch(req: Request, env: Env, ctx: ExecutionContext) {
+    // OAuth-Metadaten liegen außerhalb von /api (Standardpfade)
+    if (new URL(req.url).pathname.startsWith('/.well-known/')) return wellKnown(req) ?? new Response('Not found', { status: 404 });
+    return app.fetch(req, env, ctx);
+  },
   async scheduled(_event: ScheduledController, env: Env, ctx: ExecutionContext) {
     ctx.waitUntil(runDaily(env));
+    ctx.waitUntil(cleanupOAuth(env.DB));
   },
 } satisfies ExportedHandler<Env>;

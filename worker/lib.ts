@@ -136,13 +136,23 @@ export const requireAuth: MiddlewareHandler<AppEnv> = async (c, next) => {
     await recordFailure(c, 'token-ip', clientIp(c));
     throw new HTTPException(401, { message });
   };
-  if (!key.startsWith(API_KEY_PREFIX)) return reject('Ungültiger API-Schlüssel');
+  // OAuth-Access-Token (MCP-Verbindung) → zugehöriger API-Schlüssel; gleiche Rechte wie dieser
+  let where = 'k.key_hash = ?';
+  let arg = await sha256Hex(key);
+  if (key.startsWith('pko_')) {
+    const t = await c.env.DB.prepare("SELECT api_key_id FROM oauth_tokens WHERE token_hash = ? AND kind = 'access' AND revoked_at IS NULL AND expires_at > ?")
+      .bind(arg, now())
+      .first<string>('api_key_id');
+    if (!t) return reject('Zugriffstoken ungültig oder abgelaufen');
+    where = 'k.id = ?';
+    arg = t;
+  } else if (!key.startsWith(API_KEY_PREFIX)) return reject('Ungültiger API-Schlüssel');
   const row = await c.env.DB.prepare(
     `SELECT k.id, k.tenant_id, k.scope, k.name, k.expires_at, k.revoked_at, k.last_used_at, k.created_by, m.role, m.scope AS rawScope, m.can_create AS canCreate
        FROM api_keys k JOIN memberships m ON m.user_id = k.created_by AND m.tenant_id = k.tenant_id
-      WHERE k.key_hash = ?`,
+      WHERE ${where}`,
   )
-    .bind(await sha256Hex(key))
+    .bind(arg)
     .first<{ id: string; tenant_id: string; scope: 'read' | 'write'; name: string; expires_at: number | null; revoked_at: number | null; last_used_at: number | null; created_by: string; role: Role; rawScope: string | null; canCreate: number }>();
   if (!row || row.revoked_at || (row.expires_at && row.expires_at < now())) return reject('Ungültiger oder widerrufener API-Schlüssel');
   const cap: Role = row.scope === 'write' ? 'inspector' : 'viewer';
@@ -173,6 +183,9 @@ export const csrfGuard: MiddlewareHandler<AppEnv> = async (c, next) => {
   // Mit API-Schlüssel (Authorization-Header) gibt es kein Cookie-Risiko
   // MCP nutzt keine Cookies (nur API-Schlüssel) – CSRF ist dort kein Thema
   const mcpKeyPath = c.req.path === '/api/mcp' || c.req.path.startsWith('/api/mcp/');
+  // OAuth-Token/Registrierung/Widerruf: Clients sind keine Browser-Sitzungen, Cookies werden dort nie gelesen
+  const oauthPublicPath = ['/api/oauth/token', '/api/oauth/register', '/api/oauth/revoke'].includes(c.req.path);
+  if (oauthPublicPath) return next();
   if (!['GET', 'HEAD', 'OPTIONS'].includes(c.req.method) && c.req.header('x-pk') !== '1' && !c.req.header('authorization')?.startsWith('Bearer ') && !mcpKeyPath) {
     throw new HTTPException(403, { message: 'Ungültige Anfrage' });
   }

@@ -23,6 +23,7 @@ import { Protocol } from './pages/Protocol';
 import { PropertiesPage } from './pages/Properties';
 import { PropertyPage } from './pages/Property';
 import { ComplianceReport, DefectReport, LabelSheet, ReportsPage } from './pages/Reports';
+import { OAuthAuthorize } from './pages/OAuthAuthorize';
 import { RoundPage } from './pages/Round';
 import { ScanPage } from './pages/Scan';
 import { SettingsPage } from './pages/Settings';
@@ -61,6 +62,7 @@ export function App() {
         <Route path="/einladung/:token" element={<InviteAccept />} />
         <Route path="/extern/:token" element={<ExternalTaskPage />} />
         <Route path="/passwort/:token" element={<ResetPassword />} />
+        <Route path="/oauth/authorize" element={<OAuthAuthorize />} />
         <Route path="/rechtliches" element={<LegalPage />} />
         <Route path="/rechtliches/:doc" element={<LegalPage />} />
         <Route

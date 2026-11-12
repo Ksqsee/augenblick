@@ -3,6 +3,7 @@
 // Rollen, Lese-/Schreibrechte des Schlüssels und Validierung gelten dadurch unverändert.
 import { Hono } from 'hono';
 import type { AppEnv, Ctx } from './lib';
+import { resourceMetadataUrl } from './oauth';
 
 export const MCP_PROTOCOL = '2025-06-18';
 const SERVER_INFO = { name: 'pruefkompass', title: 'Prüfkompass', version: '1.0.0' };
@@ -293,6 +294,9 @@ export const TOOLS: Tool[] = [
   },
 ];
 
+/** Browser-basierte MCP-Clients (z. B. Inspector) – nur Bearer-Token, keine Cookies. */
+const MCP_CORS = { 'access-control-allow-origin': '*', 'access-control-expose-headers': 'www-authenticate, mcp-session-id' };
+
 const rpcError = (id: unknown, code: number, message: string) => ({ jsonrpc: '2.0', id: id ?? null, error: { code, message } });
 const rpcResult = (id: unknown, result: unknown) => ({ jsonrpc: '2.0', id, result });
 
@@ -303,8 +307,9 @@ const rpcResult = (id: unknown, result: unknown) => ({ jsonrpc: '2.0', id, resul
 export function mcpRoutes(dispatch: (req: Request, c: Ctx) => Promise<Response>) {
   const r = new Hono<AppEnv>();
   const handle = async (c: Ctx, key: string | null) => {
-    if (!key?.startsWith('pk_')) {
-      return c.json(rpcError(null, -32001, 'API-Schlüssel fehlt (Authorization: Bearer pk_…)'), 401, { 'www-authenticate': 'Bearer realm="pruefkompass"' });
+    const challenge = { 'www-authenticate': `Bearer realm="pruefkompass", resource_metadata="${resourceMetadataUrl(c)}"`, ...MCP_CORS };
+    if (!key?.startsWith('pk_') && !key?.startsWith('pko_')) {
+      return c.json(rpcError(null, -32001, 'Anmeldung erforderlich (OAuth oder Authorization: Bearer pk_…)'), 401, challenge);
     }
     const origin = new URL(c.req.url).origin;
     const api = async ({ method, path, body }: Call) => {
@@ -335,7 +340,7 @@ export function mcpRoutes(dispatch: (req: Request, c: Ctx) => Promise<Response>)
       await api({ method: 'GET', path: '/categories' });
     } catch (e) {
       const status = (e as { status?: number }).status ?? 401;
-      return c.json(rpcError(null, -32001, (e as Error).message), status === 429 ? 429 : 401);
+      return c.json(rpcError(null, -32001, (e as Error).message), status === 429 ? 429 : 401, status === 429 ? MCP_CORS : challenge);
     }
     let msg: unknown;
     try {
@@ -381,10 +386,10 @@ export function mcpRoutes(dispatch: (req: Request, c: Ctx) => Promise<Response>)
     };
     if (Array.isArray(msg)) {
       const out = (await Promise.all(msg.map((m) => one(m as Json)))).filter(Boolean);
-      return out.length ? c.json(out) : c.body(null, 202);
+      return out.length ? c.json(out, 200, MCP_CORS) : c.body(null, 202, MCP_CORS);
     }
     const out = await one(msg as Json);
-    return out ? c.json(out, 200, { 'mcp-protocol-version': MCP_PROTOCOL }) : c.body(null, 202);
+    return out ? c.json(out, 200, { 'mcp-protocol-version': MCP_PROTOCOL, ...MCP_CORS }) : c.body(null, 202, MCP_CORS);
   };
   const bearer = (c: Ctx) => {
     const h = c.req.header('authorization') ?? '';
@@ -396,5 +401,8 @@ export function mcpRoutes(dispatch: (req: Request, c: Ctx) => Promise<Response>)
   r.get('/mcp', (c) => c.body(null, 405, { allow: 'POST' }));
   r.get('/mcp/k/:key', (c) => c.body(null, 405, { allow: 'POST' }));
   r.delete('/mcp', (c) => c.body(null, 405, { allow: 'POST' }));
+  r.options('/mcp', (c) =>
+    c.body(null, 204, { ...MCP_CORS, 'access-control-allow-headers': 'authorization, content-type, mcp-protocol-version, mcp-session-id', 'access-control-allow-methods': 'POST, OPTIONS' }),
+  );
   return r;
 }

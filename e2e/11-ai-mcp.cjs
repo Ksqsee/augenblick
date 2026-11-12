@@ -59,7 +59,8 @@ const call = async (key, name, args = {}, opts) => {
   check(tools.length >= 21 && tools.includes('create_task') && tools.includes('plan_rounds'), `Werkzeuge (${tools.length})`);
   check(r.json.result.tools.every((t) => t.inputSchema?.type === 'object' && t.description), 'Schemas und Beschreibungen vollständig');
   check((await mcp('pk_falsch_' + 'x'.repeat(40), 'tools/list')).status === 401, 'falscher Schlüssel → 401');
-  check((await fetch(BASE + '/api/mcp', { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' })).status === 401, 'ohne Schlüssel → 401');
+  r = await fetch(BASE + '/api/mcp', { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' });
+  check(r.status === 401, `ohne Schlüssel → 401 (${r.status})`);
   check((await mcp(write, 'gibt/es/nicht')).json.error?.code === -32601, 'unbekannte Methode → -32601');
 
   step('MCP: Werkzeuge');

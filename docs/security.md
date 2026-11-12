@@ -29,6 +29,7 @@ nachvollzogen und – soweit behoben – mit einem automatisierten Angriffstest 
 | 17 | info | Klick auf Push-Nachricht öffnete beliebige URL | nur Ziele innerhalb der App |
 | 18 | mittel | KI-Funktionen (Diktat, Strukturierung, Typenschild) verursachen Kosten je Aufruf | Drossel 150 Aufrufe je Person/Stunde (`ai-user`), Audio max. 8 MB, nur Prüfer-Rolle; Typenschild nur mit Dateien des eigenen Workspaces |
 | 19 | mittel | MCP-Endpunkt ohne CSRF-Header (Clients sind keine Browser) | `/api/mcp*` nimmt ausschließlich API-Schlüssel an (keine Sitzungs-Cookies), alle Werkzeuge laufen über die normale API mit Rolle und Scope des Schlüssels; Freigabe-Tokens und Unterschriften werden nicht ausgegeben (`e2e/11-ai-mcp.cjs`) |
+| 21 | hoch | OAuth für MCP (neue Angriffsfläche) | Nur Code-Flow mit PKCE S256 und öffentlichen Clients; Rücksprungadressen bei Registrierung auf https/Loopback beschränkt und bei Freigabe exakt geprüft; Codes einmalig (atomar verbraucht, auch nach falschem Verifier), 10 min gültig; Refresh-Rotation, Wiederverwendung abgelehnt; nur SHA-256-Hashes gespeichert; Tokens an API-Schlüssel gebunden (Widerruf trennt sofort, Rechte nie höher als der Schlüssel); neue Verbindung ohne Schlüssel nur für Admins mit Sitzung + CSRF-Header; Fehlversuche gedrosselt (`token-ip`), Registrierungen je IP begrenzt; CORS nur auf Bearer-Endpunkten ohne Cookies (`e2e/15-oauth.cjs`) |
 | 20 | niedrig | Mangel ohne Prüfung (`POST /defects`) mit fremdem Element/Foto | Element und Objekt werden auf den Workspace geprüft, Foto-Schlüssel nur mit eigenem Präfix (`e2e/12-overhaul.cjs`) |
 
 ## Offen / bewusst akzeptiert
@@ -45,6 +46,7 @@ nachvollzogen und – soweit behoben – mit einem automatisierten Angriffstest 
 | Admins können andere Admins herabstufen/entfernen | Designentscheidung |
 | MCP-Variante mit Schlüssel im Pfad (`/api/mcp/k/pk_…`) | niedrig – nötig für Connectoren ohne eigene Header; der Schlüssel kann in Logs von Proxys landen. Empfehlung in der App: eigenen, widerrufbaren Schlüssel nur dafür anlegen |
 | Mikrofon-Freigabe (`Permissions-Policy: microphone=(self)`) | info – nur für das Diktat; Aufnahmen werden nicht gespeichert, nur zur Umwandlung an Workers AI geschickt |
+| OAuth-Clients registrieren sich ohne Freigabe (dynamische Registrierung) | info – Registrierung allein gewährt nichts; erst die Freigabe durch eine Person mit Schlüssel bzw. Admin-Sitzung. Der Anwendungsname auf der Freigabeseite ist vom Client gewählt – deshalb wird die Rücksprung-Domain deutlich angezeigt |
 | Keine Drosselung der API je Schlüssel | niedrig – ungültige Schlüssel werden gedrosselt; gültige nur durch Admins vergeben |
 
 ## Geprüft und in Ordnung
