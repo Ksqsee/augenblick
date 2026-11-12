@@ -236,7 +236,10 @@ export function InspectionForm({
   offline,
   banner,
   knownDefects = [],
+  submitLabel,
 }: {
+  /** eigene Beschriftung des Abschlussknopfs (z. B. im Offline-Rundgang) */
+  submitLabel?: string;
   subject: InspectionSubject;
   scheduleLabel?: string;
   /** Hinweis oben, z. B. bei Berichtigung oder Nachprüfung */
@@ -353,7 +356,7 @@ export function InspectionForm({
       error={error}
       submitting={submitting}
       onSubmit={onSubmit}
-      submitLabel={offline ? 'Abschließen (offline)' : 'Abschließen'}
+      submitLabel={submitLabel ?? (offline ? 'Abschließen (offline)' : 'Abschließen')}
     >
       {confirmEl}
       {(offline || banner) && (
@@ -380,7 +383,7 @@ export function InspectionForm({
         </div>
       </Section>
 
-      {!d.notInspectable && !offline && (
+      {!d.notInspectable && (
         <VoicePanel
           checkpoints={checkpoints}
           onApply={(items: CaptureItem[]) => {

@@ -194,16 +194,133 @@ export function syncOutbox() {
   return syncing;
 }
 
-/** Hook: Anzahl wartender Prüfungen + automatische Synchronisation bei Verbindung. */
+/** Hook: Anzahl wartender Prüfungen + automatische Synchronisation bei Verbindung (auch Erfasstes). */
 export function useOutbox() {
   const v = useOfflineVersion();
   const online = useOnline();
   const [items, setItems] = useState<OutboxItem[]>([]);
+  const [captures, setCaptures] = useState<CaptureOp[]>([]);
   useEffect(() => {
     getOutbox().then(setItems);
+    getCaptures().then(setCaptures);
   }, [v]);
   useEffect(() => {
     if (online && items.some((i) => !i.error)) void syncOutbox();
   }, [online, items]);
+  useEffect(() => {
+    if (online && captures.some((i) => !i.error && !i.duplicate)) void syncCaptures();
+  }, [online, captures]);
   return items;
+}
+
+// ---------- Erfasstes (Mängel, Aufgaben, Elemente) ohne Netz ----------
+/** Ein vorbereiteter Aufruf aus „Erfassen“: wird bei Verbindung an den bestehenden Endpunkt gesendet. */
+export interface CaptureOp {
+  clientId: string;
+  kind: 'defect' | 'task' | 'asset';
+  /** Anzeige in der Warteschlange */
+  title: string;
+  path: '/defects' | '/tasks' | '/assets';
+  body: Record<string, unknown>;
+  createdAt: number;
+  /** vom Server abgelehnt (nicht 409) */
+  error?: string;
+  /** ähnlicher offener Mangel vorhanden (409) – „Trotzdem anlegen“ oder verwerfen */
+  duplicate?: string;
+}
+
+export async function getCaptures(): Promise<CaptureOp[]> {
+  return (await get<CaptureOp[]>('captures', store)) ?? [];
+}
+
+export async function enqueueCaptures(ops: CaptureOp[]) {
+  if (!ops.length) return;
+  const box = await getCaptures();
+  await set('captures', [...box.filter((x) => !ops.some((o) => o.clientId === x.clientId)), ...ops], store);
+  bump();
+}
+
+export async function removeCapture(clientId: string) {
+  await set('captures', (await getCaptures()).filter((x) => x.clientId !== clientId), store);
+  bump();
+}
+
+async function patchCapture(clientId: string, patch: Partial<CaptureOp>) {
+  await set('captures', (await getCaptures()).map((x) => (x.clientId === clientId ? { ...x, ...patch } : x)), store);
+  bump();
+}
+
+/** Ein Eintrag senden; `force` legt einen als Duplikat gemeldeten Mangel trotzdem an. */
+export async function sendCapture(op: CaptureOp, force = false): Promise<'sent' | 'duplicate' | 'failed' | 'offline'> {
+  try {
+    await api(op.path, { body: force ? { ...op.body, force: true } : op.body });
+    await removeCapture(op.clientId);
+    return 'sent';
+  } catch (e) {
+    if (!(e instanceof ApiError)) return 'offline';
+    if (e.status === 409 && op.kind === 'defect') {
+      await patchCapture(op.clientId, { duplicate: e.message, error: undefined });
+      return 'duplicate';
+    }
+    await patchCapture(op.clientId, { error: e.message });
+    return 'failed';
+  }
+}
+
+let syncingCaptures: Promise<{ sent: number; duplicates: number; failed: number }> | null = null;
+
+/** Wartendes Erfasstes übertragen; Duplikate (409) bleiben zur Entscheidung auf der Offline-Seite stehen. */
+export function syncCaptures() {
+  syncingCaptures ??= (async () => {
+    let sent = 0;
+    let duplicates = 0;
+    let failed = 0;
+    for (const op of await getCaptures()) {
+      if (op.error || op.duplicate) continue;
+      const r = await sendCapture(op);
+      if (r === 'offline') break;
+      if (r === 'sent') sent++;
+      else if (r === 'duplicate') duplicates++;
+      else failed++;
+    }
+    if (sent) for (const k of ['defects', 'tasks', 'dashboard', 'smart', 'asset', 'assets', 'now']) void queryClient.invalidateQueries({ queryKey: [k] });
+    return { sent, duplicates, failed };
+  })().finally(() => {
+    syncingCaptures = null;
+  });
+  return syncingCaptures;
+}
+
+export function useCaptureQueue() {
+  const v = useOfflineVersion();
+  const [items, setItems] = useState<CaptureOp[]>([]);
+  useEffect(() => {
+    getCaptures().then(setItems);
+  }, [v]);
+  return items;
+}
+
+/** Elemente aller geladenen Gebäude – Ortswahl in „Erfassen“, wenn die Elementliste ohne Netz fehlt. */
+export function useLocalAssets(enabled: boolean) {
+  const v = useOfflineVersion();
+  const [assets, setAssets] = useState<Asset[] | undefined>(undefined);
+  useEffect(() => {
+    if (enabled) listBundles().then((bs) => setAssets(bs.flatMap((b) => b.assets)));
+  }, [v, enabled]);
+  return assets;
+}
+
+/** Ist der Fehler „kein Netz“ (statt einer Antwort des Servers)? */
+export const isNetworkError = (e: unknown) => !(e instanceof ApiError);
+
+// ---------- Rundgang ohne Netz ----------
+const DAY = 86_400_000;
+/** Fällige Elemente eines geladenen Gebäudes (überfällig, nie geprüft oder in 14 Tagen fällig) in Laufreihenfolge: Etage, Standort, Code. */
+export function walkOrder(bundle: Bundle, now = Date.now()): Asset[] {
+  const s = (v: string | null | undefined) => v ?? '';
+  // wie die Datenbank (binär), damit App und Claude (tour) dieselbe Reihenfolge haben
+  const cmp = (x: string, y: string) => (x < y ? -1 : x > y ? 1 : 0);
+  return bundle.assets
+    .filter((a) => a.nextDueAt == null || a.nextDueAt < now + 14 * DAY)
+    .sort((a, b) => cmp(s(a.floor), s(b.floor)) || cmp(s(a.location), s(b.location)) || cmp(a.code, b.code));
 }

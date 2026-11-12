@@ -2,7 +2,7 @@
 // Ablauf: sprechen → Live-Vorschau → „Auswerten“ → Karten prüfen → „übernehmen“ → Bestätigung.
 import { useQueryClient } from '@tanstack/react-query';
 import clsx from 'clsx';
-import { AlertTriangle, ArrowLeft, Check, MapPin, PackagePlus, ScanLine, Trash2, X } from 'lucide-react';
+import { AlertTriangle, ArrowLeft, Check, CloudOff, MapPin, PackagePlus, ScanLine, Trash2, X } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { SEVERITIES, type Severity } from '../../shared/catalog';
@@ -10,6 +10,7 @@ import { type CaptureCategory, type CaptureItem, MAX_BULK_ASSETS, parseCapture }
 import { allCategories } from '../categories';
 import { api, ApiError, type Asset, useAssets, useMe, useProperties } from '../api';
 import { useDictation } from '../dictate';
+import { type CaptureOp, enqueueCaptures, isNetworkError, useLocalAssets, useOnline } from '../offline';
 import { categoryLabel } from '../format';
 import { BigMic } from './Dictate';
 import { BuildingPicker } from './forms';
@@ -49,12 +50,19 @@ const captureCategories = (): CaptureCategory[] => allCategories().map((c) => ({
 const assetCount = (i: CaptureItem) => Math.min(Math.max(Math.round(i.count ?? 1), 1), MAX_BULK_ASSETS);
 const sevDot = (s: Severity) => (s === 'low' ? 'bg-ink-4' : s === 'medium' ? 'bg-warn' : 'bg-shu');
 
+/** Elemente für Ortswahl und Code-Erkennung: vom Server, ohne Netz aus den geladenen Gebäuden. */
+function useCaptureAssets(): Asset[] | undefined {
+  const q = useAssets();
+  const local = useLocalAssets(!q.data);
+  return q.data ?? local;
+}
+
 type Where = { kind: 'asset'; asset: Asset } | { kind: 'property'; id: string; name: string } | null;
 
 function WherePicker({ where, onChange }: { where: Where; onChange: (w: Where) => void }) {
   const [q, setQ] = useState('');
   const [open, setOpen] = useState(false);
-  const assets = useAssets();
+  const assets = { data: useCaptureAssets() };
   const props = useProperties();
   const hits = useMemo(() => {
     const s = q.trim().toLowerCase();
@@ -263,7 +271,7 @@ export function CaptureSheet({ initial, onClose }: { initial: { assetId?: string
   const qc = useQueryClient();
   const toast = useToast();
   const navigate = useNavigate();
-  const assets = useAssets();
+  const assets = { data: useCaptureAssets() };
   const props = useProperties();
   const [text, setText] = useState('');
   const [where, setWhere] = useState<Where>(null);
@@ -271,7 +279,8 @@ export function CaptureSheet({ initial, onClose }: { initial: { assetId?: string
   const { data: me } = useMe();
   const canCreate = me?.user.role !== 'viewer' && me?.user.canCreate !== false;
   const [busy, setBusy] = useState(false);
-  const [done, setDone] = useState<{ defects: number; tasks: number; assets: number; auto: number; dupes: { title: string; message: string; body: unknown }[] } | null>(null);
+  const [done, setDone] = useState<{ defects: number; tasks: number; assets: number; auto: number; dupes: { title: string; message: string; body: unknown }[]; queued: number } | null>(null);
+  const online = useOnline();
   const d = useDictation((t, final) => setText((prev) => (final ? (prev.trim() && !t.startsWith(prev.trim()) ? `${prev.trim()} ${t}` : t) : t)));
 
   // Kontext aus der aktuellen Seite übernehmen
@@ -289,7 +298,15 @@ export function CaptureSheet({ initial, onClose }: { initial: { assetId?: string
   async function analyse() {
     setBusy(true);
     try {
-      const r = await api<{ items: CaptureItem[] }>('/ai/parse', { body: { text, checkpoints: [], categories: captureCategories() } });
+      // ohne Netz (oder bei Netzfehler) dieselben Regeln auf dem Gerät
+      let r: { items: CaptureItem[] };
+      try {
+        if (!navigator.onLine) throw new TypeError('offline');
+        r = await api<{ items: CaptureItem[] }>('/ai/parse', { body: { text, checkpoints: [], categories: captureCategories() } });
+      } catch (e) {
+        if (e instanceof ApiError) throw e;
+        r = { items: parseCapture(text, { categories: captureCategories() }) };
+      }
       // Sammelanlagen starten im Gebäude des gewählten Elements bzw. im zuletzt benutzten
       const last = readLastPlace();
       const place = where?.kind === 'asset' ? { buildingId: where.asset.buildingId, propertyId: where.asset.propertyId } : where?.kind === 'property' ? { propertyId: where.id } : { buildingId: last.buildingId, propertyId: last.propertyId };
@@ -315,47 +332,61 @@ export function CaptureSheet({ initial, onClose }: { initial: { assetId?: string
     let assetsMade = 0;
     let auto = 0;
     const dupes: { title: string; message: string; body: unknown }[] = [];
+    // Erst alle Aufrufe vorbereiten – ohne Netz landen sie (ab dem ersten Netzfehler) in der Warteschlange
+    const ops: CaptureOp[] = [];
+    const op = (kind: CaptureOp['kind'], title: string, path: CaptureOp['path'], body: Record<string, unknown>) =>
+      ops.push({ clientId: crypto.randomUUID(), kind, title, path, body, createdAt: Date.now() });
+    for (const i of items) {
+      if (i.kind === 'asset') {
+        // Sammelanlage: n Elemente nacheinander anlegen (Codes vergibt der Server)
+        if (!canCreate || !i.buildingId || !i.category) continue;
+        for (let n = 0; n < assetCount(i); n++)
+          op('asset', `${categoryLabel(i.category)}${i.location ? ` · ${i.location}` : ''}`, '/assets', { buildingId: i.buildingId, category: i.category, floor: i.floor ?? '', location: i.location ?? '' });
+        rememberPlace({ propertyId: i.propertyId, buildingId: i.buildingId, floor: i.floor ?? '' });
+        continue;
+      }
+      if (!i.title.trim()) continue;
+      const a = byCode(i.assetCode) ?? (where?.kind === 'asset' ? where.asset : undefined);
+      const propertyId = a?.propertyId ?? (where?.kind === 'property' ? where.id : null);
+      if (i.kind === 'defect') op('defect', i.title, '/defects', { assetId: a?.id ?? null, propertyId, title: i.title, note: i.note, measure: i.measure, severity: i.severity });
+      else
+        op('task', i.kind === 'note' ? `Notiz: ${i.title}` : i.title, '/tasks', {
+          title: i.kind === 'note' ? `Notiz: ${i.title}` : i.title,
+          description: i.note,
+          priority: i.kind === 'note' ? 'low' : 'medium',
+          dueAt: i.dueInDays != null ? Math.round(Date.now() + i.dueInDays * 86_400_000) : undefined,
+          assetId: a?.id ?? null,
+          propertyId,
+        });
+    }
+    let queued = 0;
     try {
-      for (const i of items) {
-        if (i.kind === 'asset') {
-          // Sammelanlage: n Elemente nacheinander anlegen (Codes vergibt der Server)
-          if (!canCreate || !i.buildingId || !i.category) continue;
-          for (let n = 0; n < assetCount(i); n++) {
-            await api('/assets', { body: { buildingId: i.buildingId, category: i.category, floor: i.floor ?? '', location: i.location ?? '' } });
-            assetsMade++;
-          }
-          rememberPlace({ propertyId: i.propertyId, buildingId: i.buildingId, floor: i.floor ?? '' });
-          continue;
+      for (let n = 0; n < ops.length; n++) {
+        const o = ops[n]!;
+        if (!navigator.onLine) {
+          queued = ops.length - n;
+          await enqueueCaptures(ops.slice(n));
+          break;
         }
-        if (!i.title.trim()) continue;
-        const a = byCode(i.assetCode) ?? (where?.kind === 'asset' ? where.asset : undefined);
-        const propertyId = a?.propertyId ?? (where?.kind === 'property' ? where.id : null);
-        if (i.kind === 'defect') {
-          const body = { assetId: a?.id ?? null, propertyId, title: i.title, note: i.note, measure: i.measure, severity: i.severity };
-          try {
-            const r = await api<{ taskCreated: boolean }>('/defects', { body });
+        try {
+          const r = await api<{ taskCreated?: boolean }>(o.path, { body: o.body });
+          if (o.kind === 'defect') {
             defects++;
             if (r.taskCreated) auto++;
-          } catch (e) {
-            if (!(e instanceof ApiError && e.status === 409)) throw e;
-            dupes.push({ title: i.title, message: e.message, body });
+          } else if (o.kind === 'task') tasks++;
+          else assetsMade++;
+        } catch (e) {
+          if (isNetworkError(e)) {
+            queued = ops.length - n;
+            await enqueueCaptures(ops.slice(n));
+            break;
           }
-        } else {
-          await api('/tasks', {
-            body: {
-              title: i.kind === 'note' ? `Notiz: ${i.title}` : i.title,
-              description: i.note,
-              priority: i.kind === 'note' ? 'low' : 'medium',
-              dueAt: i.dueInDays != null ? Math.round(Date.now() + i.dueInDays * 86_400_000) : undefined,
-              assetId: a?.id ?? null,
-              propertyId,
-            },
-          });
-          tasks++;
+          if (!(e instanceof ApiError && e.status === 409 && o.kind === 'defect')) throw e;
+          dupes.push({ title: o.title, message: e.message, body: o.body });
         }
       }
       for (const k of ['defects', 'tasks', 'dashboard', 'smart', 'asset', 'assets']) qc.invalidateQueries({ queryKey: [k] });
-      setDone({ defects, tasks, assets: assetsMade, auto, dupes });
+      setDone({ defects, tasks, assets: assetsMade, auto, dupes, queued });
     } catch (e) {
       toast(e instanceof Error ? e.message : 'Speichern fehlgeschlagen', 'bad');
     } finally {
@@ -372,7 +403,7 @@ export function CaptureSheet({ initial, onClose }: { initial: { assetId?: string
     const n = done.defects + done.tasks + done.assets;
     return (
       <Modal
-        title="Gespeichert"
+        title={n === 0 && done.queued ? 'Auf dem Gerät gespeichert' : 'Gespeichert'}
         onClose={onClose}
         footer={
           <>
@@ -386,7 +417,7 @@ export function CaptureSheet({ initial, onClose }: { initial: { assetId?: string
             >
               Weiter erfassen
             </Button>
-            <Button onClick={() => go(done.defects ? '/maengel' : done.tasks ? '/aufgaben' : '/elemente')}>Ansehen</Button>
+            <Button onClick={() => go(n === 0 && done.queued ? '/offline' : done.defects ? '/maengel' : done.tasks ? '/aufgaben' : '/elemente')}>Ansehen</Button>
           </>
         }
       >
@@ -395,7 +426,9 @@ export function CaptureSheet({ initial, onClose }: { initial: { assetId?: string
             <p className="flex items-center gap-2 text-title text-ink">
               <Check className="size-4 shrink-0" strokeWidth={2.25} />
               {n === 0
-                ? 'Nichts Neues angelegt'
+                ? done.queued
+                  ? `${done.queued} ${done.queued === 1 ? 'Eintrag' : 'Einträge'} in der Warteschlange`
+                  : 'Nichts Neues angelegt'
                 : `${[
                     done.defects && `${done.defects} ${done.defects === 1 ? 'Mangel' : 'Mängel'}`,
                     done.tasks && `${done.tasks} ${done.tasks === 1 ? 'Aufgabe' : 'Aufgaben'}`,
@@ -406,6 +439,11 @@ export function CaptureSheet({ initial, onClose }: { initial: { assetId?: string
             </p>
             {done.auto > 0 && <p className="text-meta text-ink-3">Für {done.auto} schwere Mängel gibt es automatisch eine Aufgabe mit Frist.</p>}
           </div>
+          {done.queued > 0 && (
+            <Notice tone="info" icon={<CloudOff />} title="Offline gespeichert – wird übertragen, sobald Netz da ist">
+              {done.queued} {done.queued === 1 ? 'Eintrag wartet' : 'Einträge warten'} auf diesem Gerät. Ähnliche, schon vorhandene Mängel erscheinen danach unter „Offline-Modus“ zur Entscheidung.
+            </Notice>
+          )}
           {done.dupes.length > 0 && (
             <Notice
               tone="warn"
@@ -452,7 +490,7 @@ export function CaptureSheet({ initial, onClose }: { initial: { assetId?: string
         onClose={onClose}
         footer={
           <Button size="lg" className="w-full" loading={busy} disabled={!items.length || needsPlace || needsBuilding} onClick={save}>
-            {needsPlace ? 'Erst Ort wählen' : needsBuilding ? 'Erst Art und Gebäude wählen' : items.length > 1 ? `Alle ${items.length} übernehmen` : 'Übernehmen'}
+            {needsPlace ? 'Erst Ort wählen' : needsBuilding ? 'Erst Art und Gebäude wählen' : !online ? 'Auf dem Gerät speichern' : items.length > 1 ? `Alle ${items.length} übernehmen` : 'Übernehmen'}
           </Button>
         }
       >
@@ -494,7 +532,13 @@ export function CaptureSheet({ initial, onClose }: { initial: { assetId?: string
       }
     >
       <div className="flex flex-col gap-4">
-        <BigMic dictation={d} label="Sag einfach, was dir auffällt" hint="Element-Code, Schwere oder Frist („bis Freitag“) gleich mitsagen." />
+        {online ? (
+          <BigMic dictation={d} label="Sag einfach, was dir auffällt" hint="Element-Code, Schwere oder Frist („bis Freitag“) gleich mitsagen." />
+        ) : (
+          <Notice tone="info" icon={<CloudOff />} title="Kein Netz">
+            Mikrofon der Tastatur nutzen. Ausgewertet wird auf dem Gerät, übertragen sobald Netz da ist.
+          </Notice>
+        )}
         <Textarea
           dictate={false}
           aria-label="Erfasster Text"

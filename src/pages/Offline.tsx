@@ -1,6 +1,6 @@
 import { getCategory } from '../categories';
 import { useQuery } from '@tanstack/react-query';
-import { CloudDownload, CloudOff, Loader2, RefreshCw, Trash2 } from 'lucide-react';
+import { Check, CloudDownload, CloudOff, Footprints, Loader2, RefreshCw, Trash2 } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { summarizeSchedules } from '../../shared/logic';
@@ -13,14 +13,21 @@ import { RunSkeleton } from './InspectionRun';
 import { assetDue, fmtDateTime } from '../format';
 import {
   type Bundle,
+  type CaptureOp,
   enqueue,
   findAsset,
   getDraft,
+  getOutbox,
   listBundles,
   localPhotoSrc,
   prepareBuilding,
   removeBuilding,
+  removeCapture,
   removeFromOutbox,
+  sendCapture,
+  syncCaptures,
+  useCaptureQueue,
+  walkOrder,
   saveDraft,
   dropDraft,
   storePhoto,
@@ -43,9 +50,12 @@ export function OfflinePage() {
   const online = useOnline();
   const bundles = useBundles();
   const outbox = useOutbox();
+  const captures = useCaptureQueue();
   const toast = useToast();
   const [busy, setBusy] = useState<string | null>(null);
   const [confirm, confirmEl] = useConfirm();
+  const [params] = useSearchParams();
+  const roundFinished = params.get('rundgang') === 'fertig';
 
   const refresh = async (id: string) => {
     setBusy(id);
@@ -70,6 +80,11 @@ export function OfflinePage() {
 
       <div className="grid grid-cols-1 items-start gap-10 lg:grid-cols-[minmax(0,1fr)_280px]">
         <div className="flex min-w-0 flex-col gap-6">
+          {roundFinished && (
+            <Notice tone="ok" icon={<Check />} title="Rundgang fertig">
+              Alle fälligen Elemente des Gebäudes sind geprüft{online ? '' : ' und warten auf dem Gerät auf die Übertragung'}.
+            </Notice>
+          )}
           {!online && (
             <Notice tone="warn" icon={<CloudOff />} title="Kein Netz">
               Du kannst alle Gebäude unten prüfen. Die Ergebnisse werden übertragen, sobald du wieder verbunden bist.
@@ -110,6 +125,18 @@ export function OfflinePage() {
                           <IconButton label="Vom Gerät entfernen" icon={<Trash2 />} size="sm" onClick={() => removeBuilding(b.building.id)} />
                         </span>
                     </div>
+                    {(() => {
+                      const gone = roundDone(b.building.id);
+                      const walk = walkOrder(b).filter((a) => !outbox.some((o) => o.assetId === a.id) && !gone.includes(a.id));
+                      return walk.length ? (
+                        <div className="flex flex-wrap items-center gap-x-3 gap-y-1 px-(--row-px) pt-1 pb-2">
+                          <ButtonLink to={`/offline/pruefen/${walk[0]!.id}?rundgang=${b.building.id}`} size="sm" variant="secondary" icon={<Footprints />}>
+                            Rundgang starten
+                          </ButtonLink>
+                          <span className="text-meta text-ink-3">{walk.length} fällig, nach Etage und Standort</span>
+                        </div>
+                      ) : null;
+                    })()}
                     <List plain aria-label={b.building.name}>
                     {b.assets.map((a) => {
                       const queued = outbox.some((o) => o.assetId === a.id);
@@ -149,7 +176,7 @@ export function OfflinePage() {
         <aside className="min-w-0">
           <div className="mb-1 flex h-7 items-center justify-between">
             <h2 className="text-meta font-medium text-ink-3">
-              Warteschlange {n > 0 && <span className="font-normal tabular-nums">{n}</span>}
+              Warteschlange {n + captures.length > 0 && <span className="font-normal tabular-nums">{n + captures.length}</span>}
             </h2>
           </div>
           <div className="border-t border-line">
@@ -203,10 +230,94 @@ export function OfflinePage() {
               </ul>
             )}
           </div>
+          <CaptureQueue items={captures} online={online} />
           {confirmEl}
         </aside>
       </div>
     </>
+  );
+}
+
+// ---------- Erfasstes ohne Netz (Mängel, Aufgaben, Elemente) ----------
+const CAPTURE_KIND = { defect: 'Mangel', task: 'Aufgabe', asset: 'Element' } as const;
+
+/** Warteschlange aus „Erfassen“: wartet, abgelehnt oder als ähnlicher Mangel gemeldet (409) – nichts geht verloren. */
+function CaptureQueue({ items, online }: { items: CaptureOp[]; online: boolean }) {
+  const toast = useToast();
+  const [busy, setBusy] = useState<string | null>(null);
+  const [confirm, confirmEl] = useConfirm();
+  if (!items.length) return null;
+  const waiting = items.filter((i) => !i.error && !i.duplicate).length;
+  return (
+    <div className="mt-6">
+      {confirmEl}
+      <div className="mb-1 flex h-7 items-center justify-between">
+        <h2 className="text-meta font-medium text-ink-3">
+          Erfasst <span className="font-normal tabular-nums">{items.length}</span>
+        </h2>
+        {waiting > 0 && online && (
+          <Button
+            size="sm"
+            variant="ghost"
+            className="-mr-2"
+            onClick={async () => {
+              const r = await syncCaptures();
+              toast(r.sent ? `${r.sent} übertragen` : r.duplicates ? 'Ähnliche Mängel gefunden' : 'Nichts übertragen', r.failed ? 'bad' : 'ok');
+            }}
+          >
+            Senden
+          </Button>
+        )}
+      </div>
+      <ul className="divide-y divide-line border-y border-line" aria-label="Erfasst, noch nicht übertragen">
+        {items.map((o) => (
+          <li key={o.clientId} className="flex flex-col gap-2 py-2.5" data-capture={o.clientId}>
+            <div className="flex items-start gap-3">
+              <div className="min-w-0 flex-1">
+                <p className="text-body break-words text-ink">{o.title}</p>
+                <p className="text-meta text-ink-3">
+                  {CAPTURE_KIND[o.kind]} · erfasst {fmtDateTime(o.createdAt)}
+                </p>
+                {o.duplicate ? (
+                  <p className="text-meta text-warn">{o.duplicate}</p>
+                ) : o.error ? (
+                  <p className="text-meta text-shu">{o.error}</p>
+                ) : (
+                  <p className="text-meta text-ink-3">{online ? 'Wird übertragen …' : 'Wartet auf Netz'}</p>
+                )}
+              </div>
+              {(o.error || o.duplicate) && (
+                <IconButton
+                  label="Verwerfen"
+                  icon={<Trash2 />}
+                  size="sm"
+                  disabled={busy === o.clientId}
+                  onClick={async () => {
+                    if (await confirm({ title: 'Eintrag verwerfen?', text: 'Er wurde nicht übertragen und geht verloren.', confirmLabel: 'Verwerfen', danger: true })) removeCapture(o.clientId);
+                  }}
+                />
+              )}
+            </div>
+            {o.duplicate && online && (
+              <Button
+                size="sm"
+                variant="secondary"
+                className="self-start"
+                loading={busy === o.clientId}
+                onClick={async () => {
+                  setBusy(o.clientId);
+                  const r = await sendCapture(o, true);
+                  setBusy(null);
+                  toast(r === 'sent' ? 'Mangel angelegt' : 'Fehlgeschlagen', r === 'sent' ? 'ok' : 'bad');
+                }}
+              >
+                Trotzdem anlegen
+              </Button>
+            )}
+          </li>
+        ))}
+      </ul>
+    </div>
   );
 }
 
@@ -459,6 +570,25 @@ function PrepareCard() {
   );
 }
 
+// Im Rundgang erledigte Elemente (auch schon übertragene, deren Termin im geladenen Gebäude noch alt ist)
+const roundKey = (buildingId: string) => `pk:offline-round:${buildingId}`;
+function roundDone(buildingId: string | null): string[] {
+  if (!buildingId) return [];
+  try {
+    const v = JSON.parse(sessionStorage.getItem(roundKey(buildingId)) ?? '[]');
+    return Array.isArray(v) ? v.filter((x) => typeof x === 'string') : [];
+  } catch {
+    return [];
+  }
+}
+function markRoundDone(buildingId: string, assetId: string) {
+  try {
+    sessionStorage.setItem(roundKey(buildingId), JSON.stringify([...new Set([...roundDone(buildingId), assetId])]));
+  } catch {
+    /* ohne Speicher */
+  }
+}
+
 export function OfflineRun() {
   const { assetId = '' } = useParams();
   const navigate = useNavigate();
@@ -466,14 +596,21 @@ export function OfflineRun() {
   const { data: me } = useMe();
   useOfflineVersion(); // für lokale Fotos neu rendern
   const [params] = useSearchParams();
-  const [state, setState] = useState<{ found: Awaited<ReturnType<typeof findAsset>>; draft: InspectionDraft | undefined; schedule: string } | null>(null);
+  const round = params.get('rundgang');
+  const [state, setState] = useState<{ found: Awaited<ReturnType<typeof findAsset>>; draft: InspectionDraft | undefined; schedule: string; done: string[] } | null>(null);
   useEffect(() => {
+    let alive = true;
     (async () => {
       const found = await findAsset(assetId);
       if (found?.bundle.categories) registerCategories(found.bundle.categories);
       const schedule = params.get('pruefart') ?? (found ? (summarizeSchedules(found.asset.schedules ?? {}).nextKey ?? 'main') : 'main');
-      setState({ found, draft: await getDraft(assetId, schedule), schedule });
+      const done = [...(await getOutbox()).map((o) => o.assetId), ...roundDone(params.get('rundgang'))];
+      const draft = await getDraft(assetId, schedule);
+      if (alive) setState({ found, draft, schedule, done });
     })();
+    return () => {
+      alive = false;
+    };
   }, [assetId, params]);
 
   if (!state) return <RunSkeleton />;
@@ -482,10 +619,38 @@ export function OfflineRun() {
   const cat = bundle.categories?.find((t) => t.key === asset.category);
   const sched = cat?.schedulesEffective.find((s) => s.key === state.schedule) ?? cat?.schedulesEffective[0];
   if (!cat || !sched) return <NotOnDevice title="Offline-Daten veraltet" text="Lade das Gebäude bei bestehender Verbindung neu." />;
+  // Offline-Rundgang: fällige Elemente des Gebäudes in Laufreihenfolge, lokal Erledigtes (Warteschlange) fällt heraus
+  const walk = round === bundle.building.id ? walkOrder(bundle) : null;
+  const nextIn = (done: string[]) => {
+    if (!walk) return null;
+    const at = walk.findIndex((a) => a.id === asset.id);
+    return [...walk.slice(at + 1), ...walk.slice(0, Math.max(at, 0))].find((a) => a.id !== asset.id && !done.includes(a.id)) ?? null;
+  };
+  const next = nextIn(state.done);
+  const go = (to: string) => navigate(to, { replace: true });
+  const roundUrl = (id: string) => `/offline/pruefen/${id}?rundgang=${bundle.building.id}`;
+  const position = walk ? walk.filter((a) => state.done.includes(a.id) && a.id !== asset.id).length + 1 : 0;
   return (
     <PhotoCtx.Provider value={{ upload: storePhoto, src: (k) => (k.startsWith('local:') ? localPhotoSrc(k) : `/api/files/${k}`) }}>
       <InspectionForm
+        key={asset.id}
         offline
+        submitLabel={walk ? (next ? 'Abschließen, weiter' : 'Abschließen, fertig') : undefined}
+        banner={
+          walk ? (
+            <div className="flex min-h-10 items-center gap-3" aria-label="Offline-Rundgang">
+              <p className="min-w-0 flex-1 truncate text-meta text-ink-2">
+                Rundgang {bundle.building.name} · <span className="tabular-nums">{Math.min(position, walk.length)} von {walk.length}</span>
+                {next && <span className="text-ink-3"> · danach {next.code}</span>}
+              </p>
+              {next && (
+                <Button size="sm" variant="ghost" className="-mr-2" onClick={() => go(roundUrl(next.id))}>
+                  Überspringen
+                </Button>
+              )}
+            </div>
+          ) : undefined
+        }
         subject={{ ...asset, buildingName: bundle.building.name, propertyName: bundle.building.propertyName }}
         scheduleLabel={sched.label}
         checkpoints={sched.checkpoints}
@@ -519,9 +684,17 @@ export function OfflineRun() {
             draft: d,
             inspectedAt: Date.now(),
           });
-          toast(navigator.onLine ? 'Gespeichert – wird übertragen' : 'Offline gespeichert');
           if (navigator.onLine) void syncOutbox();
-          navigate('/offline', { replace: true });
+          if (walk) {
+            // automatisch zum nächsten fälligen Element
+            markRoundDone(bundle.building.id, asset.id);
+            const after = nextIn([...state.done, asset.id]);
+            toast(after ? `Gespeichert – weiter mit ${after.code}` : 'Rundgang fertig');
+            go(after ? roundUrl(after.id) : '/offline?rundgang=fertig');
+            return;
+          }
+          toast(navigator.onLine ? 'Gespeichert – wird übertragen' : 'Offline gespeichert');
+          go('/offline');
         }}
         discard={async () => {
           await dropDraft(asset.id, sched.key);
