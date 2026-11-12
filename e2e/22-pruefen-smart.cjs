@@ -1,6 +1,6 @@
 // E2E 22-pruefen-smart: Bekannte Mängel im Prüfablauf (weiterhin vorhanden / behoben, keine Doppel – auch offline),
 // Vorbelegung der Prüfungsart (nie geprüft, wiederkehrend, aus Aufgabe), gemerkte Unterschrift (nur auf dem Gerät),
-// Foto zuerst beim Anlegen (ohne KI: still zurück zur Auswahl), Sammelanlage per Diktat, Handybreite 390 px. Nur lokal.
+// optionales Foto beim Anlegen (ohne Bilderkennung – die gibt es nur über Claude), Sammelanlage per Diktat, Handybreite 390 px. Nur lokal.
 const { chromium } = require('playwright');
 if (!process.env.DEMO_PASSWORD) throw new Error('DEMO_PASSWORD fehlt');
 const fs = require('fs');
@@ -198,15 +198,14 @@ const check = (ok, m) => {
   await p.getByText('Keine Unterschrift gemerkt', { exact: false }).waitFor();
   check((await p.evaluate((k) => localStorage.getItem(k), `pk:signature:${userId}`)) === null, 'aus dem Gerätespeicher entfernt');
 
-  step('Foto zuerst beim Anlegen (ohne KI: Auswahl bleibt)');
-  r = await p.request.post(BASE + '/api/files', { data: PNG, headers: { 'x-pk': '1', 'content-type': 'image/png' } });
-  const key = (await r.json()).key;
-  r = await api('/ai/identify', { data: { key } });
-  check(r.status === 503, `/ai/identify ohne KI → 503 (${r.status})`);
-  check((await api('/ai/identify', { data: {} })).status === 400 || (await api('/ai/identify', { data: {} })).status === 503, 'ungültiger Aufruf abgelehnt');
+  step('Optionales Foto beim Anlegen (keine Bilderkennung im Worker)');
+  r = await api('/ai/identify', { data: { key: 'x/y' } });
+  check(r.status === 404, `/ai/identify entfernt → 404 (${r.status})`);
+  check((await api('/ai/typeplate', { data: { key: 'x/y' } })).status === 404, '/ai/typeplate entfernt → 404');
   await p.goto(BASE + '/elemente?neu=1');
   const dlg = p.getByRole('dialog');
-  await dlg.getByRole('button', { name: /Foto aufnehmen/ }).waitFor();
+  await dlg.getByRole('button', { name: /Foto hinzufügen/ }).waitFor();
+  check((await dlg.getByText(/erkannt/i).count()) === 0, 'kein Versprechen einer Erkennung');
   await dlg.locator('input[type=file][aria-label="Foto des Elements"]').setInputFiles([{ name: 'tuer.png', mimeType: 'image/png', buffer: PNG }]);
   await dlg.getByText('Foto übernommen – bitte die Art unten wählen.').waitFor();
   await dlg.getByRole('button', { name: /Feuerlöscher/ }).click();
@@ -273,8 +272,8 @@ const check = (ok, m) => {
   await wide('Prüfablauf mit bekanntem Mangel');
   await mp.screenshot({ path: OUT + 'm1-run.png', fullPage: true });
   await mp.goto(BASE + '/elemente?neu=1');
-  await mp.getByRole('dialog').getByRole('button', { name: /Foto aufnehmen/ }).waitFor();
-  await wide('Neues Element (Foto zuerst)');
+  await mp.getByRole('dialog').getByRole('button', { name: /Foto hinzufügen/ }).waitFor();
+  await wide('Neues Element (mit optionalem Foto)');
   await mp.goto(BASE + '/');
   await mp.getByRole('navigation', { name: 'Hauptnavigation' }).getByRole('button', { name: 'Erfassen' }).click();
   await mp.getByRole('dialog').getByLabel('Erfasster Text').fill('fünf Feuerlöscher im 2. OG Treppenhaus Nord');

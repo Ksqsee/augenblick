@@ -270,7 +270,6 @@ export function CaptureSheet({ initial, onClose }: { initial: { assetId?: string
   const [items, setItems] = useState<Item[] | null>(null);
   const { data: me } = useMe();
   const canCreate = me?.user.role !== 'viewer' && me?.user.canCreate !== false;
-  const [source, setSource] = useState<'ai' | 'rules'>('rules');
   const [busy, setBusy] = useState(false);
   const [done, setDone] = useState<{ defects: number; tasks: number; assets: number; auto: number; dupes: { title: string; message: string; body: unknown }[] } | null>(null);
   const d = useDictation((t, final) => setText((prev) => (final ? (prev.trim() && !t.startsWith(prev.trim()) ? `${prev.trim()} ${t}` : t) : t)));
@@ -290,13 +289,12 @@ export function CaptureSheet({ initial, onClose }: { initial: { assetId?: string
   async function analyse() {
     setBusy(true);
     try {
-      const r = await api<{ items: CaptureItem[]; source: 'ai' | 'rules' }>('/ai/parse', { body: { text, checkpoints: [], categories: captureCategories() } });
+      const r = await api<{ items: CaptureItem[] }>('/ai/parse', { body: { text, checkpoints: [], categories: captureCategories() } });
       // Sammelanlagen starten im Gebäude des gewählten Elements bzw. im zuletzt benutzten
       const last = readLastPlace();
       const place = where?.kind === 'asset' ? { buildingId: where.asset.buildingId, propertyId: where.asset.propertyId } : where?.kind === 'property' ? { propertyId: where.id } : { buildingId: last.buildingId, propertyId: last.propertyId };
       const list: Item[] = r.items.map((i) => (i.kind === 'asset' ? { ...i, ...place } : i));
       setItems(list.length ? list : [{ kind: 'note', title: text.slice(0, 200), note: '', severity: 'medium', measure: '', assetCode: null, checkpointId: null, dueInDays: null }]);
-      setSource(r.source);
     } catch (e) {
       toast(e instanceof Error ? e.message : 'Auswerten fehlgeschlagen', 'bad');
     } finally {
@@ -450,7 +448,7 @@ export function CaptureSheet({ initial, onClose }: { initial: { assetId?: string
             {items.length} {items.length === 1 ? 'Eintrag' : 'Einträge'} erkannt
           </span>
         }
-        description={source === 'ai' ? 'Von der KI vorsortiert – Art, Schwere und Text bei Bedarf anpassen.' : 'Automatisch vorsortiert – Art, Schwere und Text bei Bedarf anpassen.'}
+        description="Automatisch vorsortiert – Art, Schwere und Text bei Bedarf anpassen."
         onClose={onClose}
         footer={
           <Button size="lg" className="w-full" loading={busy} disabled={!items.length || needsPlace || needsBuilding} onClick={save}>

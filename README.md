@@ -16,7 +16,8 @@ API: [`docs/api.md`](docs/api.md)
 - **Erfassen per Sprache** (zentraler Mikrofon-Knopf): einsprechen oder tippen, Prüfkompass zerlegt den Text in
   Mängel (Schwere, Maßnahme), Aufgaben (Frist) und Notizen; Element-Codes werden erkannt, die aktuelle Seite gibt den Ort vor
 - **Diktat in jedem Textfeld** und „Befund einsprechen“ im Prüfablauf (Mängel landen beim passenden Prüfpunkt);
-  Vorschläge für Maßnahme und Schweregrad; Workers AI (Whisper/Llama), ohne KI Spracherkennung des Browsers und Regeln
+  Vorschläge für Maßnahme und Schweregrad; Spracherkennung des Browsers und Regel-Parser (`shared/smart.ts`) – der Worker
+  ruft **keine KI** auf (keine KI-Kosten bei Cloudflare); Hören, Lesen und Sehen übernimmt Claude über den MCP-Server
 - **Suche in normaler Sprache** (Strg+K): „überfällige Feuerlöscher Grundschule“ öffnet die passend gefilterte Liste
 - **Rundgang**: fällige Elemente eines Gebäudes in Laufreihenfolge, nach jeder Prüfung direkt weiter zum nächsten
 - **Autopilot** (Einstellungen → Automatik): Regeln je Workspace mit drei Stufen *Aus* · *Vorschlagen* (Vorschlag mit Knopf auf
@@ -28,12 +29,16 @@ API: [`docs/api.md`](docs/api.md)
   vierteljährlich, jährlich), **offene Mängel nachhalten** (Erinnerung 14 Tage nach erledigter Behebung),
   **Monatsberichte** (Objektberichte des Vormonats im Archiv, erzeugt im Browser einer Admin-Person),
   **Prüfintervalle anpassen** (selbstanpassende Intervalle, siehe „Prüfen“);
-  Protokoll mit „Rückgängig“ im Zugriffsbereich; **Typenschild-Foto** füllt Hersteller/Modell
-- **Foto zuerst beim Anlegen**: „Foto aufnehmen“ erkennt Art, Hersteller, Modell und Baujahr (Workers AI) und schlägt sie vor;
-  ohne KI bleibt es bei der Auswahl, das Foto wird am Element gespeichert
+  Protokoll mit „Rückgängig“ im Zugriffsbereich
+- **Foto beim Anlegen** (optional, z. B. vom Typenschild): wird am Element gespeichert; Claude liest es über `get_photo`
+  und trägt Stammdaten mit `update_asset` nach
 - **Sammelanlage per Diktat** unter „Erfassen“: „fünf Feuerlöscher im Erdgeschoss Flur“ → Anzahl, Art, Etage, Standort prüfen,
   Gebäude wählen, anlegen (Zahlwörter eins–zwanzig und Ziffern; Regel-Parser als Rückfall)
-- **MCP-Server** im Worker (`/api/mcp`) mit **OAuth-Anmeldung** (Freigabe mit API-Schlüssel oder neuer Verbindung): Prüfkompass als Werkzeugkasten für Claude – siehe `docs/api.md`
+- **MCP-Server** im Worker (`/api/mcp`) mit **OAuth-Anmeldung** (Freigabe mit API-Schlüssel oder neuer Verbindung): 15 Werkzeuge
+  nach Absicht (`briefing`, `tour`, `inspect`, `capture`, `get_photo` …) und sieben fertige Befehle – Claude ist die Oberfläche
+  für Sprache: Rundgang führen, Befund eintragen, Typenschilder lesen, Plan einrichten – siehe `docs/api.md`
+- **Bereit zur Unterschrift**: von Claude ausgefüllte Prüfungen warten als Entwurf; die prüfende Person unterschreibt alle
+  mit einer Unterschrift (`POST /api/inspections/sign`, nur mit Browser-Sitzung) – Claude schließt nie selbst ab
 
 **Prüfen**
 - Prüfung je Element mit Prüfpunkten (i. O. / Mangel / n. z.), Wartungsarbeiten, Fotos, Bemerkungen und Unterschrift
@@ -119,7 +124,7 @@ worker/       API: auth (Login, Konto, API-Schlüssel, Speicher), data, inspecti
               offline (Offline-Übertragung, abgelehnte Übertragungen), intervals (selbstanpassende Intervalle),
               partners (Partner-Zugang für Subunternehmer)
 shared/       Code für Browser und Worker
-migrations/   D1-Schema (0001 … 0019)
+migrations/   D1-Schema (0001 … 0022)
 e2e/          Browser-Tests und Runner
 .github/      CI
 scripts/      seed.ts – Demodaten
@@ -138,7 +143,7 @@ npm run check              # Typprüfung + Unit-Tests + Build
 ## Tests
 
 - **Unit-Tests** (`npm test`, Vitest): Fachlogik, Autopilot-Regeln, Import/Export, Übersetzungen, Ruhezeiten, Web Push.
-- **Browser-Tests** (`e2e/`, Playwright): Reihen von der Registrierung über Sicherheitskorrekturen und Massenoperationen bis zu Berichtigung, Nachprüfung sowie Aufgaben und Mängeln (`14-tasks-defects`), dem Autopiloten (`20-autopilot`) und den offenen Punkten aus der Analyse (`21-offene-punkte`: Offline-Fehlliste, Intervalle, Partner-Zugang).
+- **Browser-Tests** (`e2e/`, Playwright): Reihen von der Registrierung über Sicherheitskorrekturen und Massenoperationen bis zu Berichtigung, Nachprüfung sowie Aufgaben und Mängeln (`14-tasks-defects`), dem Autopiloten (`20-autopilot`) und den offenen Punkten aus der Analyse (`21-offene-punkte`: Offline-Fehlliste, Intervalle, Partner-Zugang), dem MCP-Server (`11-ai-mcp`) und „Sprache zuerst“ (`23-sprache`: Rundgang über Claude, Unterschrift mit einem Tipp).
   Vor jeder Reihe wird die lokale D1 geleert und mit Demodaten befüllt.
 
 ```bash

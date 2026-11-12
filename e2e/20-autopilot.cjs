@@ -537,12 +537,13 @@ const MONTHS = ['Januar', 'Februar', 'März', 'April', 'Mai', 'Juni', 'Juli', 'A
     const out = j.result;
     return { isError: out?.isError, data: out && !out.isError ? JSON.parse(out.content[0].text) : null, text: out?.content?.[0]?.text };
   };
-  let t = await mcp('list_automations');
-  check(Array.isArray(t.data) && t.data.length === 7, 'list_automations');
-  t = await mcp('list_automation_log', { key: 'plan_week', limit: 5 });
-  check(Array.isArray(t.data) && t.data.length <= 5 && t.data.every((e) => e.key === 'plan_week'), `list_automation_log (${t.text?.slice(0, 80)})`);
+  let t = await mcp('autopilot', { action: 'view', limit: 5 });
+  check(Array.isArray(t.data?.steps) && t.data.steps.length === 7 && t.data.log.length <= 5, `autopilot view (${t.text?.slice(0, 80)})`);
+  t = await mcp('autopilot', { action: 'run', step: 'plan_week' });
+  check(!t.isError && typeof t.data?.done === 'number', `autopilot run plan_week (${t.text?.slice(0, 80)})`);
+  // Stufen ändern gibt es über MCP nicht (nur Admins in der App)
   t = await mcp('set_automation', { key: 'plan_week', mode: 'auto' });
-  check(t.isError === true && /Berechtigung/.test(t.text), `set_automation mit Schlüssel → keine Berechtigung (${t.text})`);
+  check(t.isError === undefined && t.data === null, 'kein Werkzeug zum Ändern der Stufen');
 
   step('Handybreite 390 px');
   const m = await b.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 2, isMobile: true, hasTouch: true, storageState: await owner.ctx.storageState() });

@@ -190,7 +190,7 @@ const check = (ok, m) => {
   const vAct = (await viewer.api('/smart/action-required')).json;
   check(Array.isArray(vAct), 'Lesezugriff sieht Handlungsbedarf');
 
-  step('MCP: list_action_required, resolve_defect mit Notiz, get_defect');
+  step('MCP: briefing, update_defect mit Notiz, get, update_tasks');
   const key = (await api('/account/api-keys', { data: { name: 'E2E 14', scope: 'write', expiresInDays: 1 } })).json.key;
   let rpc = 0;
   const tool = async (name, args = {}) => {
@@ -201,14 +201,14 @@ const check = (ok, m) => {
     }).then((x) => x.json());
     return res.result?.isError ? { error: res.result.content[0].text } : JSON.parse(res.result.content[0].text);
   };
-  const mAct = await tool('list_action_required', { limit: 5 });
-  check(Array.isArray(mAct) && mAct.length <= 5 && mAct[0].urgency != null, 'list_action_required');
+  const brief = await tool('briefing');
+  check(Array.isArray(brief.now) && brief.now.length > 0 && brief.now.length <= 12, 'briefing: „Jetzt“-Liste');
   const mDefect = (await api('/defects')).json.find((d) => d.id !== freeDefect.id);
-  await tool('resolve_defect', { defectId: mDefect.id, note: 'per MCP behoben' });
-  const mDet = await tool('get_defect', { defectId: mDefect.id });
-  check(mDet.status === 'resolved' && mDet.resolutionNote === 'per MCP behoben', `resolve_defect mit Notiz (${mDet.status})`);
-  const bulk = await tool('bulk_update_tasks', { taskIds: [otherId], priority: 'low' });
-  check(bulk.updated === 1, `bulk_update_tasks (${JSON.stringify(bulk).slice(0, 80)})`);
+  await tool('update_defect', { defectId: mDefect.id, action: 'resolve', note: 'per MCP behoben' });
+  const mDet = await tool('get', { kind: 'defect', ref: mDefect.id });
+  check(mDet.status === 'behoben' && mDet.resolution?.note === 'per MCP behoben', `update_defect mit Notiz (${mDet.status})`);
+  const bulk = await tool('update_tasks', { taskIds: [otherId], priority: 'low' });
+  check(bulk.updated === 1, `update_tasks (${JSON.stringify(bulk).slice(0, 80)})`);
 
   step('Oberfläche: Gruppen, „Meine“ und Filter-Menü');
   await api('/tasks', { data: { title: 'E2E heute fällig', dueAt: new Date(new Date().setHours(18, 0, 0, 0)).getTime(), assigneeId: me.id } });

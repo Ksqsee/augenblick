@@ -6,6 +6,7 @@ import { api, queryClient, useAction } from '../../api';
 import { CodeBlock, CopyField, SettingsSection, Steps } from '../../components/admin';
 import { Button, ErrorBox, Field, Input, Menu, Modal, Select, Skeleton, Surface, useConfirm, useToast } from '../../components/ui';
 import { fmtDate, fmtRelative } from '../../format';
+import { MCP_PROMPTS, MCP_TOOLS } from '../../../shared/mcp';
 
 interface ApiKeyRow {
   id: string;
@@ -19,36 +20,11 @@ interface ApiKeyRow {
   createdBy: string;
 }
 
-/** Werkzeuge des MCP-Servers (Anzeige). Neue Werkzeuge nur hier ergänzen. */
-export const MCP_TOOLS = [
-  'dashboard',
-  'search',
-  'list_properties',
-  'get_property',
-  'list_assets',
-  'get_asset',
-  'list_inspections',
-  'get_inspection',
-  'list_defects',
-  'get_defect',
-  'resolve_defect',
-  'report_defect',
-  'list_action_required',
-  'list_tasks',
-  'create_task',
-  'update_task_status',
-  'bulk_update_tasks',
-  'add_task_comment',
-  'list_categories',
-  'create_asset',
-  'list_walkthroughs',
-  'plan_rounds',
-  'get_suggestions',
-  'create_tasks_from_defects',
-  'list_automations',
-  'set_automation',
-  'list_automation_log',
-  'structure_dictation',
+/** Was man Claude nach dem Verbinden sagen kann. */
+const EXAMPLES = [
+  'Was steht heute an?',
+  'Los, Rundgang Haupthaus – Tür ist in Ordnung, nur der Schließer zieht nicht ganz zu, mittel.',
+  'Lies die Typenschilder im Rathaus und trag Hersteller und Baujahr nach.',
 ];
 
 /** Kurzreferenz der REST-Endpunkte: [Methode + Pfad, Beschreibung]. */
@@ -244,22 +220,34 @@ function McpSection() {
   return (
     <SettingsSection
       title="Mit Claude verbinden (MCP)"
-      description="Claude kann dann Fälligkeiten abfragen, Rundgänge planen, Mängel auswerten und Aufgaben anlegen – mit genau den Rechten, die du freigibst."
+      description="Claude hört zu, liest und sieht – Prüfkompass liefert die Werkzeuge: Lage abfragen, Rundgänge führen, Befunde eintragen, Typenschilder nachtragen. Unterschreiben bleibt immer bei dir in der App."
     >
       <Steps
         items={[
           {
             title: 'Adresse in Claude eintragen',
-            text: 'In Claude (Web oder Desktop) unter Einstellungen → Connectors einen eigenen Connector hinzufügen und diese Adresse einfügen.',
+            text: 'In Claude (Web, Desktop oder Handy) unter Einstellungen → Connectors einen eigenen Connector hinzufügen und diese Adresse einfügen.',
             children: <CopyField label="MCP-Adresse" value={url} />,
           },
           {
             title: 'Verbinden und freigeben',
             text: (
               <>
-                In Claude auf „Verbinden“ klicken. Es öffnet sich die Freigabeseite von Prüfkompass: dort die Rechte wählen (Nur lesen oder Lesen und schreiben) und erlauben – als Admin
-                direkt, sonst mit einem API-Schlüssel. Die Verbindung erscheint danach oben als Schlüssel und lässt sich dort trennen.
+                In Claude auf „Verbinden“ tippen. Es öffnet sich die Freigabeseite von Prüfkompass: Rechte wählen (Nur lesen oder Lesen und schreiben) und erlauben – als Admin direkt,
+                sonst mit einem API-Schlüssel. Die Verbindung erscheint danach oben als Schlüssel und lässt sich dort jederzeit trennen.
               </>
+            ),
+          },
+          {
+            title: 'Einfach sagen, was du brauchst',
+            text: (
+              <ul className="mt-1 flex flex-col gap-1" aria-label="Beispiele">
+                {EXAMPLES.map((e) => (
+                  <li key={e} className="text-ink-2">
+                    „{e}“
+                  </li>
+                ))}
+              </ul>
             ),
           },
         ]}
@@ -267,28 +255,28 @@ function McpSection() {
       <details className="group border-t border-line pt-4">
         <summary className="cursor-pointer list-none text-meta font-medium text-ink-2 hover:text-ink [&::-webkit-details-marker]:hidden">
           <span className="mr-1.5 inline-block transition-transform group-open:rotate-90">›</span>
-          Claude Code und andere Programme
+          Werkzeuge, Befehle und Claude Code
         </summary>
-        <div className="mt-4 flex flex-col gap-4 text-meta text-ink-3">
-          <div className="flex flex-col gap-2">
-            <p className="font-medium text-ink-2">Claude Code</p>
-            <CodeBlock code={`claude mcp add --transport http pruefkompass ${url}`} />
-            <p>Die Anmeldung läuft im Browser. Alternativ mit Schlüssel: --header "Authorization: Bearer pk_…"</p>
-          </div>
-          <div className="flex flex-col gap-2">
-            <p className="font-medium text-ink-2">Programme ohne Anmeldung im Browser</p>
-            <CodeBlock code={`${url}/k/pk_…`} label="Adresse kopieren" />
-            <p>Der Schlüssel steckt dann in der Adresse – behandle sie wie ein Passwort und lege dafür einen eigenen Schlüssel an.</p>
-          </div>
+        <div className="mt-4 flex flex-col gap-5 text-meta text-ink-3">
           <div>
             <p className="mb-2 font-medium text-ink-2">Werkzeuge</p>
-            <ul className="flex flex-wrap gap-1.5" aria-label="MCP-Werkzeuge">
-              {MCP_TOOLS.map((t) => (
-                <li key={t} className="rounded-sm bg-sunken px-1.5 py-0.5 font-mono text-caption text-ink-2">
-                  {t}
+            <ul className="flex flex-col divide-y divide-line" aria-label="MCP-Werkzeuge">
+              {MCP_TOOLS.map(([name, purpose]) => (
+                <li key={name} className="flex min-w-0 flex-col gap-0.5 py-1.5 sm:flex-row sm:gap-3">
+                  <span className="shrink-0 font-mono text-caption text-ink sm:w-32">{name}</span>
+                  <span className="min-w-0">{purpose}</span>
                 </li>
               ))}
             </ul>
+          </div>
+          <div>
+            <p className="mb-2 font-medium text-ink-2">Fertige Befehle in Claude</p>
+            <p>{MCP_PROMPTS.join(' · ')}</p>
+          </div>
+          <div className="flex flex-col gap-2">
+            <p className="font-medium text-ink-2">Claude Code</p>
+            <CodeBlock code={`claude mcp add --transport http pruefkompass ${url}`} />
+            <p>Die Anmeldung läuft im Browser. Für Programme ohne Browser-Anmeldung: Schlüssel als Header mitschicken – Authorization: Bearer pk_…</p>
           </div>
         </div>
       </details>

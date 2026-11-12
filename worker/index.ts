@@ -39,6 +39,8 @@ app.use('*', async (c, next) => {
   }
   if (!c.res.headers.get('cache-control')) c.header('cache-control', 'no-store');
 });
+// Frühere MCP-Variante mit Schlüssel in der Adresse gibt es nicht mehr (vor dem CSRF-Schutz, damit sie klar 404 meldet)
+app.all('/mcp/k/*', (c) => c.json({ error: 'Diese MCP-Adresse gibt es nicht mehr. Bitte /api/mcp mit Anmeldung über Claude (OAuth) oder Authorization: Bearer pk_… nutzen.' }, 404));
 app.use('*', csrfGuard);
 
 app.get('/health', (c) => c.json({ ok: true }));
