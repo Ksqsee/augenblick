@@ -1,11 +1,36 @@
-# Objekte & Elemente – Umsetzung Designsystem v2
+# Objekte & Elemente – Designsystem v3
 
 Bereich: `src/pages/Properties.tsx`, `Property.tsx`, `Assets.tsx`, `Asset.tsx`, `FloorPlan.tsx`,
-`src/components/AssetList.tsx`, `AssetDrawer.tsx`, `ShareProperty.tsx`, `forms.tsx` und neue Bausteine in
-`src/components/objects/`. Vertrag: `docs/design.md`. Bilder: `docs/design/objekte-elemente/`
-(`d-*` = 1360 px, `m-*` = 390 px). Browser-Test: `e2e/19-objekte-elemente.cjs`.
+`src/components/AssetList.tsx`, `AssetDrawer.tsx`, `CategoryIcon.tsx`, `ShareProperty.tsx`, `forms.tsx` und Bausteine in
+`src/components/objects/`. Vertrag: `docs/design.md` (v3), Abnahmeregeln: `docs/plan/v3.md` Abschnitt 5.
+Bilder: `docs/design/v3/objekte-elemente/` (`d-*` = 1360 px, `m-*` = 390 px, Maßstab 1). Browser-Test: `e2e/19-objekte-elemente.cjs`.
 
-## Was sich geändert hat
+## v3 (Phase 2, Paket E)
+
+Vorbild ist „Heute“: Beton-Grund, **eine** weiße `Surface` je Seite aus `Section`s, Seitenspalten als Text mit
+Haarlinien auf dem Grund, Status als Punkt + Wort.
+
+| Seite | v3 |
+|---|---|
+| Objekte | Filter auf dem Grund, eine Surface mit Section „4 Objekte“ (rechts Summe Elemente/Mängel). Tabelle ohne eigenen Kasten (`PlainTable`), kein Verteilungsbalken mehr; Status-Spalte = ein Wort mit Punkt („7 überfällig“), Mängel als schlichte Zahl |
+| Objekt | Kopf mit einer Hauptaktion (Bericht und Freigabe als `ghost`), Meta als Textzeile („● 6 überfällig · 5 bald fällig · 3 Mängel offen · 23 Elemente“). Reiter auf dem Grund, darunter die Surface: je Gebäude eine Section (Titel klein grau, ⋯ + „Element“), Grundrisse als Vorschaubilder ohne Karten, Begehungen als Zeilen. Rechte Spalte (280 px) auf dem Grund: Prüfstatus als Zahlenliste mit Sprung in die gefilterte Elementliste, „Am dringendsten“, Brandschutzbegehung, Brandschutzbeauftragte/r, Vor Ort |
+| Elemente | Eine Surface, Section „74 Elemente“, Gruppen Überfällig · Bald fällig · … als 13-px-Titel. Zeile: 16-px-Liniensymbol · Code · Art / Ort · Prüfart · „1 Mangel“ / rechts **ein** Statuswort („● seit 5 Monaten überfällig“). Auf dem Handy steht das Statuswort vorn in der Meta-Zeile. Filter-Auswahl wie Chip (Tinte auf `selected`) |
+| Element | Kein Symbol im Titel; Meta „● Überfällig seit 5 Monaten · Innere Prüfung“. Surface mit Prüfintervall, Prüfarten, Offene Mängel, Verlauf, Fotos & Dokumente. Rechts auf dem Grund: Eigenschaften, Stammdaten, „Als Nächstes in …“, QR-Code (Abschnitt statt Karte) mit Etikett, Grundriss |
+| Grundriss | Plan und Legende in einer Surface, Ebenen als Chips, „Nicht platziert“ als Liste auf dem Grund, Marker ohne Hover-Skalierung |
+| Drawer, Formulare, Freigabe | Keine Karten im Drawer; Abschnittstitel 13 px `ink-3`; „Foto aufnehmen“ ohne schwarze Kachel; Freigabe-Link mit Tintenlinie statt grüner Fläche, „ohne Mängel“ als Text |
+| Überall | `CategoryIcon` = 16-px-Linie in `ink-3` (Props unverändert), kein Orange, Zinnober nur für überfällig/kritisch; `public/icon.svg` = Bildmarke v3, Manifest- und `theme-color` Beton |
+
+Bausteine in `src/components/objects/`: `status.tsx` (`dueInfo` mit `phrase`, `DuePhrase`, `AssetRow`, `summaryWord`,
+`DUE_ORDER`; `StatusBar` entfällt), `Aside.tsx` (`AsideSection`, `AsideList`, `AsideRow`, `AsideAction` – Seitenspalte
+wie auf „Heute“), `PlainTable.tsx` (Tabelle für eine Section, da `DataTable` eine eigene Karte mitbringt),
+`FilterSelect.tsx`, `memory.ts`.
+
+Hinweis: In den lokalen Demodaten fehlen die Plan-Dateien im Speicher, daher zeigen die Grundriss-Bilder nur den
+Platzhalter; Marker und Aufbau sind sichtbar.
+
+## v2 (Vorgänger, zur Herleitung)
+
+### Was sich in v2 geändert hat
 
 | Seite | Vorher | Jetzt |
 |---|---|---|
@@ -20,7 +45,7 @@ Bereich: `src/pages/Properties.tsx`, `Property.tsx`, `Assets.tsx`, `Asset.tsx`, 
 
 Alle `window.confirm` im Bereich sind durch `useConfirm()` ersetzt.
 
-## Kleine, nützliche Extras
+### Kleine, nützliche Extras (gelten weiter)
 
 - **„Speichern & neu“** beim Anlegen: gleiche Art, gleiches Gebäude, gleiche Etage; nur Standort und
   Kennungen werden geleert, der Fokus springt in „Standort“. Die Beschreibung zeigt „Schon angelegt: …“.
@@ -35,7 +60,7 @@ Alle `window.confirm` im Bereich sind durch `useConfirm()` ersetzt.
 - **Suche im Objekt** ab mehr als zehn Elementen, über alle Gebäude.
 - „Alle Elemente ›“ im Prüfstatus öffnet die Elementliste mit `objekt=` vorgefiltert.
 
-## Neue Bausteine (`src/components/objects/`)
+### Bausteine v2
 
 | Datei | Inhalt |
 |---|---|

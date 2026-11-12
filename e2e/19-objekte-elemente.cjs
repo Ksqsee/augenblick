@@ -1,4 +1,4 @@
-// E2E 19-objekte-elemente: Objekte & Elemente nach Designsystem v2 – Filter in der URL, Prüfstatus am Objekt,
+// E2E 19-objekte-elemente: Objekte & Elemente nach Designsystem v3 – Filter in der URL, Prüfstatus am Objekt,
 // „Speichern & neu“ mit gemerktem Gebäude/Etage, Status-Erklärung und „Als Nächstes“ am Element,
 // Bestätigungsdialoge statt window.confirm, 390 px ohne Überlauf. Nur lokal.
 const { chromium } = require('playwright');
@@ -50,7 +50,7 @@ const check = (ok, m) => {
   step('Objekt: Prüfstatus und dringendstes Element');
   await p.goto(`${BASE}/objekte/${prop.id}`);
   await p.getByRole('heading', { name: 'Prüfstatus' }).waitFor();
-  check(await p.getByRole('img', { name: /Prüfstatus: \d+ Überfällig/ }).isVisible(), 'Verteilungsbalken mit Beschriftung');
+  check(await p.getByRole('list', { name: /Prüfstatus: \d+ Überfällig/ }).isVisible(), 'Prüfstatus als Zahlenliste mit Beschriftung');
   await p.getByText('Am dringendsten').click();
   await p.waitForURL(/\/elemente\//);
   await p.getByText(/seit \d+ (Tag|Tagen|Monat|Monaten|Jahr|Jahren)/).first().waitFor();
@@ -106,6 +106,10 @@ const check = (ok, m) => {
   const list = await api(`/assets?category=extinguisher&propertyId=${prop.id}`);
   await p.getByText(`${list.length} Elemente`).waitFor();
   check((await p.getByLabel('Nach Art filtern').inputValue()) === 'extinguisher', 'Art aus der URL');
+  // v3: je Zeile genau ein Statuswort, keine Symbolkachel
+  const firstRow = p.getByRole('list', { name: /^Überfällig \d+$/ }).getByRole('listitem').nth(1);
+  check(((await firstRow.innerText()).match(/überfällig/gi) ?? []).length === 1, 'ein Statuswort je Elementzeile');
+  check((await firstRow.locator('[class*="bg-"][class*="size-8"], [class*="bg-"][class*="size-10"]').count()) === 0, 'keine Symbolkachel in der Zeile');
   await p.getByRole('button', { name: 'Überfällig', exact: true }).click();
   await p.waitForURL((u) => u.searchParams.get('status') === 'overdue' && u.searchParams.get('kategorie') === 'extinguisher');
   await p.getByRole('searchbox').fill('Reihe');

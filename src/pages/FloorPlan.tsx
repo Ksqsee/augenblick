@@ -1,13 +1,15 @@
 // Grundriss: Plan mit Markern je Element, Platzieren per Tippen, Liste der noch nicht platzierten Elemente.
+// Design v3: eine Surface mit dem Plan und der Legende, „Nicht platziert“ als Liste auf dem Grund.
 // Belege: docs/design/objekte-elemente.md
 import clsx from 'clsx';
-import { Check, Crosshair, Minus, MoveDiagonal, Plus, Trash2, Upload, X } from 'lucide-react';
+import { Crosshair, Minus, MoveDiagonal, Plus, Trash2, Upload, X } from 'lucide-react';
 import { useRef, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { api, type Asset, downscale, fileUrl, uploadBlob, useAction, useFloorPlan, useMe } from '../api';
 import { AssetDrawer } from '../components/AssetDrawer';
 import { CategoryIcon } from '../components/CategoryIcon';
-import { Button, Card, Empty, ErrorBox, Field, Input, ListRow, Menu, Modal, PageHeader, PageSkeleton, SectionHeader, Select, toneDot, useConfirm, useToast } from '../components/ui';
+import { AsideSection } from '../components/objects/Aside';
+import { Button, ErrorBox, Field, Input, ListRow, Menu, Modal, PageHeader, PageSkeleton, Select, StatusDot, Surface, toneDot, useConfirm, useToast } from '../components/ui';
 import { assetDue, DUE_META, type Tone } from '../format';
 
 /** PDF (erste Seite) oder Bild in ein PNG/JPEG für den Grundriss umwandeln. */
@@ -207,8 +209,8 @@ export function FloorPlanPage() {
               to={`/grundrisse/${s.id}`}
               aria-current={s.id === plan.id ? 'page' : undefined}
               className={clsx(
-                'inline-flex h-9 shrink-0 items-center rounded-lg border px-3 text-meta font-medium whitespace-nowrap transition-colors sm:h-8',
-                s.id === plan.id ? 'border-ink bg-ink text-white' : 'border-line bg-surface text-ink-2 hover:border-line-strong hover:text-ink',
+                'inline-flex h-9 shrink-0 items-center rounded-md border px-3 text-meta font-medium whitespace-nowrap transition-colors sm:h-8',
+                s.id === plan.id ? 'border-line-strong bg-selected text-ink' : 'border-line bg-surface text-ink-2 hover:border-line-strong hover:text-ink',
               )}
             >
               {s.name}
@@ -247,16 +249,16 @@ export function FloorPlanPage() {
         </AssetDrawer>
       )}
 
-      <div className="grid grid-cols-1 gap-6 lg:grid-cols-[minmax(0,1fr)_18rem]">
-        <div className="flex min-w-0 flex-col gap-3">
-          <Card className="relative overflow-hidden">
+      <div className="grid grid-cols-1 gap-8 lg:grid-cols-[minmax(0,1fr)_280px] lg:gap-10">
+        <Surface className="min-w-0 overflow-hidden">
+          <div className="relative">
             {placing && (
-              <div className="animate-in absolute inset-x-3 top-3 z-20 flex items-center gap-2 rounded-xl bg-ink py-1.5 pr-1.5 pl-3 text-body text-white shadow-pop sm:inset-x-auto sm:left-1/2 sm:-translate-x-1/2">
+              <div className="animate-in absolute inset-x-3 top-3 z-20 flex items-center gap-2 rounded-lg bg-ink py-1.5 pr-1.5 pl-3 text-body text-white shadow-pop sm:inset-x-auto sm:left-1/2 sm:-translate-x-1/2">
                 <Crosshair className="size-4 shrink-0" />
                 <span className="min-w-0 flex-1">
                   Tippe auf die Position von <b>{placing.code}</b>
                 </span>
-                <button type="button" onClick={() => setPlacing(null)} className="grid size-8 place-items-center rounded-lg hover:bg-white/10" aria-label="Platzieren abbrechen">
+                <button type="button" onClick={() => setPlacing(null)} className="grid size-8 place-items-center rounded-md hover:bg-white/10" aria-label="Platzieren abbrechen">
                   <X className="size-4" />
                 </button>
               </div>
@@ -297,7 +299,7 @@ export function FloorPlanPage() {
                       className={clsx('group absolute -translate-x-1/2 -translate-y-1/2 p-1.5', placing && 'pointer-events-none opacity-50')}
                       style={{ left: `${a.markerX! * 100}%`, top: `${a.markerY! * 100}%` }}
                     >
-                      <span className={clsx('grid size-6 place-items-center rounded-full border-2 border-white shadow-pop transition-transform group-hover:scale-110', toneDot[tone])}>
+                      <span className={clsx('grid size-6 place-items-center rounded-full border-2 border-white shadow-pop', toneDot[tone])}>
                         <span className="size-1.5 rounded-full bg-white" />
                       </span>
                       <span className="pointer-events-none absolute top-full left-1/2 -mt-0.5 -translate-x-1/2 rounded-md bg-ink px-1.5 py-0.5 font-mono text-[10px] whitespace-nowrap text-white opacity-0 transition-opacity group-hover:opacity-100 sm:opacity-80">
@@ -308,43 +310,40 @@ export function FloorPlanPage() {
                 })}
               </div>
             </div>
-          </Card>
-          <ul className="flex flex-wrap gap-x-4 gap-y-1.5 text-meta text-ink-2" aria-label="Legende">
+          </div>
+          <ul className="flex flex-wrap gap-x-5 gap-y-1.5 border-t border-line px-(--row-px) py-3 text-meta text-ink-2" aria-label="Legende">
             {LEGEND.map(([t, l]) => (
               <li key={t} className="flex items-center gap-1.5">
-                <span className={clsx('size-2.5 rounded-full', toneDot[t])} /> {l}
+                <StatusDot tone={t} /> {l}
               </li>
             ))}
           </ul>
-        </div>
+        </Surface>
 
         {canEdit && (
-          <aside className="min-w-0">
-            <SectionHeader title="Nicht platziert" count={unplaced.length} />
-            {unplaced.length === 0 ? (
-              <Card>
-                <Empty compact icon={<Check />} title="Alles platziert" text="Alle Elemente dieses Gebäudes sind auf einem Plan." />
-              </Card>
-            ) : (
-              <>
-                <p className="mb-2.5 text-meta text-ink-3">Element wählen, dann auf den Plan tippen.</p>
-                <Card className="scroll-thin max-h-[60dvh] overflow-y-auto">
-                  <ul className="divide-y divide-line">
+          <aside className="min-w-0" aria-label="Nicht platziert">
+            <AsideSection title={`Nicht platziert${unplaced.length ? ` ${unplaced.length}` : ''}`}>
+              {unplaced.length === 0 ? (
+                <p className="border-t border-line py-3 text-body text-ink-2">Alles platziert. Alle Elemente dieses Gebäudes sind auf einem Plan.</p>
+              ) : (
+                <>
+                  <p className="mb-2 text-meta text-ink-3">Element wählen, dann auf den Plan tippen.</p>
+                  <ul className="pk-list scroll-thin max-h-[60dvh] overflow-y-auto border-y border-line [--row-px:0px]">
                     {unplaced.map((a) => (
                       <ListRow
                         key={a.id}
                         onClick={() => setPlacing(placing?.id === a.id ? null : a)}
                         selected={placing?.id === a.id}
                         leading={<CategoryIcon category={a.category} size="sm" />}
-                        title={a.code}
+                        title={<span className="font-medium">{a.code}</span>}
                         subtitle={[a.location, a.floor].filter(Boolean).join(' · ') || 'Ohne Standort'}
                         trailing={<Crosshair className={clsx('size-4', placing?.id === a.id ? 'text-ink' : 'text-ink-4')} />}
                       />
                     ))}
                   </ul>
-                </Card>
-              </>
-            )}
+                </>
+              )}
+            </AsideSection>
           </aside>
         )}
       </div>
@@ -355,15 +354,12 @@ export function FloorPlanPage() {
 /** Kleine Planansicht mit einem hervorgehobenen Element (Elementseite). */
 export function MiniPlan({ plan, x, y }: { plan: { id: string; name: string; width: number; height: number; fileKey: string }; x: number; y: number }) {
   return (
-    <Link to={`/grundrisse/${plan.id}`} className="block overflow-hidden rounded-lg ring-1 ring-line transition-shadow hover:shadow-lift">
-      <div className="relative bg-sunken" style={{ aspectRatio: `${plan.width} / ${plan.height}` }}>
-        <img src={fileUrl(plan.fileKey)} alt={plan.name} className="absolute inset-0 size-full" />
-        <span
-          className="absolute size-4 -translate-x-1/2 -translate-y-1/2 animate-pulse rounded-full border-2 border-white bg-brand shadow-pop"
-          style={{ left: `${x * 100}%`, top: `${y * 100}%` }}
-        />
+    <Link to={`/grundrisse/${plan.id}`} className="group block">
+      <div className="relative overflow-hidden rounded-md bg-sunken" style={{ aspectRatio: `${plan.width} / ${plan.height}` }}>
+        <img src={fileUrl(plan.fileKey)} alt={plan.name} className="absolute inset-0 size-full mix-blend-multiply" />
+        <span className="absolute size-3.5 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-white bg-ink shadow-pop" style={{ left: `${x * 100}%`, top: `${y * 100}%` }} />
       </div>
-      <p className="bg-sunken px-3 py-1.5 text-meta text-ink-2">{plan.name}</p>
+      <p className="mt-1.5 text-meta text-ink-2 group-hover:text-ink group-hover:underline group-hover:decoration-line-strong group-hover:underline-offset-4">{plan.name}</p>
     </Link>
   );
 }

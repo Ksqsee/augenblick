@@ -10,11 +10,11 @@ import { CategoryIcon } from './CategoryIcon';
 import { lastFloor, readLastPlace, rememberPlace } from './objects/memory';
 import { Button, ErrorBox, Field, Input, Modal, Notice, Select, Textarea, useToast } from './ui';
 
-/** Abschnittstitel innerhalb eines Formulars (docs/design.md 5.3). */
+/** Abschnitt innerhalb eines Formulars (docs/design.md 5.4): Titel 13 px ink-3, nicht fett. */
 function FormSection({ title, children, className }: { title: string; children: ReactNode; className?: string }) {
   return (
     <fieldset className={className}>
-      <legend className="mb-3 text-meta font-semibold text-ink-2">{title}</legend>
+      <legend className="mb-3 text-meta font-medium text-ink-3">{title}</legend>
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">{children}</div>
     </fieldset>
   );
@@ -218,7 +218,7 @@ function TypePlateButton({ onRead }: { onRead: (r: PlateResult) => void }) {
   const [msg, setMsg] = useState('');
   if (!status.data?.vision) return null;
   return (
-    <div className="flex flex-wrap items-center gap-3 rounded-lg bg-sunken px-3 py-2.5 sm:col-span-2">
+    <div className="flex flex-wrap items-center gap-3 rounded-md bg-sunken px-3 py-2.5 sm:col-span-2">
       <input
         ref={ref}
         type="file"
@@ -303,15 +303,15 @@ function PhotoFirst({ onDone, photo }: { onDone: (p: FirstPhoto) => void; photo:
         type="button"
         disabled={busy}
         onClick={() => ref.current?.click()}
-        className="flex min-h-16 w-full items-center gap-3 rounded-xl border border-line-strong bg-surface px-3 py-2.5 text-left transition-colors hover:bg-hover"
+        className="flex min-h-16 w-full items-center gap-3 rounded-md border border-line px-3 py-2.5 text-left transition-colors hover:border-line-strong hover:bg-hover"
       >
         {photo ? (
-          <img src={photo.preview} alt="Foto des Elements" className="size-11 shrink-0 rounded-lg object-cover" />
+          <img src={photo.preview} alt="Foto des Elements" className="size-11 shrink-0 rounded-md object-cover" />
         ) : (
-          <span className="grid size-11 shrink-0 place-items-center rounded-lg bg-ink text-white">{busy ? <Loader2 className="size-5 animate-spin" /> : <Camera className="size-5" />}</span>
+          <span className="grid size-5 shrink-0 place-items-center text-ink">{busy ? <Loader2 className="size-5 animate-spin" /> : <Camera className="size-5" strokeWidth={1.75} />}</span>
         )}
         <span className="min-w-0 flex-1">
-          <span className="block text-body font-semibold">{busy ? 'Wird erkannt …' : photo ? 'Anderes Foto aufnehmen' : 'Foto aufnehmen'}</span>
+          <span className="block text-body font-medium text-ink">{busy ? 'Wird erkannt …' : photo ? 'Anderes Foto aufnehmen' : 'Foto aufnehmen'}</span>
           <span className="block text-meta text-ink-3">
             {photo ? 'Foto übernommen – bitte die Art unten wählen.' : 'Art und Typenschild werden erkannt, du bestätigst nur noch.'}
           </span>
@@ -327,14 +327,14 @@ function CategoryPicker({ onPick, onClose, photo, onPhoto }: { onPick: (c: Categ
   return (
     <Modal title="Neues Element" description="Foto aufnehmen oder Art wählen" onClose={onClose}>
       <PhotoFirst photo={photo} onDone={onPhoto} />
-      <p className="mt-5 mb-1 text-meta font-medium text-ink-3">Art wählen</p>
+      <p className="mt-6 mb-1 text-meta font-medium text-ink-3">Art wählen</p>
       <ul className="-mx-2 flex flex-col">
         {allCategories().map((c) => (
           <li key={c.key}>
-            <button type="button" onClick={() => onPick(c.key)} className="group flex min-h-14 w-full items-center gap-3 rounded-lg px-2 py-2 text-left transition-colors hover:bg-hover">
+            <button type="button" onClick={() => onPick(c.key)} className="group flex min-h-13 w-full items-center gap-3 rounded-md px-2 py-2 text-left transition-colors hover:bg-hover">
               <CategoryIcon category={c.key} />
               <span className="min-w-0 flex-1">
-                <span className="block text-body font-medium">{c.label}</span>
+                <span className="block text-body text-ink">{c.label}</span>
                 <span className="block truncate text-meta text-ink-3">{[c.norm, `alle ${c.intervalMonths} Monate`].filter(Boolean).join(' · ')}</span>
               </span>
               <ChevronRight className="size-4 shrink-0 text-ink-4 transition-transform group-hover:translate-x-0.5" />
@@ -438,7 +438,7 @@ export function AssetForm({
     <Modal
       wide
       title={
-        <span className="flex items-center gap-3">
+        <span className="flex items-center gap-2.5">
           <CategoryIcon category={category} size="sm" />
           {initial ? `${initial.code} bearbeiten` : `${def.label} anlegen`}
         </span>
@@ -487,7 +487,7 @@ export function AssetForm({
             tone="info"
             icon={<Sparkles />}
             title={photo.result?.category === category ? `Erkannt: ${def.label}` : 'Foto übernommen'}
-            action={<img src={photo.preview} alt="Foto des Elements" className="size-12 rounded-lg object-cover" />}
+            action={<img src={photo.preview} alt="Foto des Elements" className="size-12 rounded-md object-cover" />}
           >
             {photo.result?.category === category
               ? 'Art und Angaben vom Foto vorgeschlagen – bitte prüfen. Falsche Art? Zurück zur Auswahl.'

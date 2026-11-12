@@ -1,12 +1,11 @@
-// Bausteine für Objekte & Elemente: Status-Erklärung, Elementzeile, Verteilungsbalken.
-// Regeln: docs/design.md (Farbe = Status), Mobbin-Belege: docs/design/objekte-elemente.md
-import clsx from 'clsx';
+// Bausteine für Objekte & Elemente (Design v3): Status in Worten, Elementzeile, Zählung.
+// Regeln: docs/design.md (Status = Punkt + Wort, eine Aussage pro Zeile), Belege: docs/design/objekte-elemente.md
 import type { Asset } from '../../api';
 import { summarizeSchedules } from '../../../shared/logic';
 import { scheduleLabel } from '../../categories';
-import { assetDue, categoryLabel, DUE_META, fmtDate, type Tone } from '../../format';
+import { assetDue, categoryLabel, DUE_META, defectsLabel, fmtDate, type Tone } from '../../format';
 import { CategoryIcon } from '../CategoryIcon';
-import { Badge, ListRow, toneDot } from '../ui';
+import { Badge, ListRow, StatusText } from '../ui';
 
 const DAY = 86_400_000;
 
@@ -25,33 +24,54 @@ export interface DueInfo {
   label: string;
   /** Erklärung in einem Satzteil: „Überfällig seit 3 Monaten“, „Fällig in 12 Tagen“ */
   detail: string;
-  /** Ergänzung neben dem Badge: „seit 3 Monaten“, „in 12 Tagen“, „am 12.03.2027“ ('' = nichts) */
+  /** Ergänzung neben dem Wort: „seit 3 Monaten“, „in 12 Tagen“, „bis 12.03.2027“ ('' = nichts) */
   short: string;
+  /** Das eine Statuswort einer Listenzeile: „seit 3 Monaten überfällig“, „in 12 Tagen fällig“, „nie geprüft“ */
+  phrase: string;
 }
 
 /** Prüfstatus eines Elements in Worten (für Kopf, Zeilen, Drawer). */
 export function dueInfo(a: Pick<Asset, 'nextDueAt' | 'lastResult'>, now = Date.now()): DueInfo {
-  if (a.lastResult === 'not_inspectable') return { tone: 'muted', label: 'Nicht prüfbar', detail: 'Zuletzt nicht prüfbar', short: '' };
+  if (a.lastResult === 'not_inspectable') return { tone: 'muted', label: 'Nicht prüfbar', detail: 'Zuletzt nicht prüfbar', short: '', phrase: 'nicht prüfbar' };
   const state = assetDue(a.nextDueAt);
   const m = DUE_META[state];
-  const r = (detail: string, short: string): DueInfo => ({ tone: m.tone, label: m.label, detail, short });
-  if (state === 'never' || a.nextDueAt == null) return r('Noch nie geprüft', '');
+  const r = (detail: string, short: string, phrase: string): DueInfo => ({ tone: m.tone, label: m.label, detail, short, phrase });
+  if (state === 'never' || a.nextDueAt == null) return r('Noch nie geprüft', '', 'nie geprüft');
   const diff = a.nextDueAt - now;
-  if (state === 'overdue') return r(`Überfällig seit ${spanText(diff)}`, `seit ${spanText(diff)}`);
+  if (state === 'overdue') return r(`Überfällig seit ${spanText(diff)}`, `seit ${spanText(diff)}`, `seit ${spanText(diff)} überfällig`);
   const days = Math.round(diff / DAY);
-  if (days <= 0) return r('Heute fällig', 'heute');
-  if (days === 1) return r('Morgen fällig', 'morgen');
-  if (state === 'soon') return r(`Fällig in ${spanText(diff)}`, `in ${spanText(diff)}`);
-  return r(`Fällig am ${fmtDate(a.nextDueAt)}`, `bis ${fmtDate(a.nextDueAt)}`);
+  if (days <= 0) return r('Heute fällig', 'heute', 'heute fällig');
+  if (days === 1) return r('Morgen fällig', 'morgen', 'morgen fällig');
+  if (state === 'soon') return r(`Fällig in ${spanText(diff)}`, `in ${spanText(diff)}`, `in ${spanText(diff)} fällig`);
+  return r(`Fällig am ${fmtDate(a.nextDueAt)}`, `bis ${fmtDate(a.nextDueAt)}`, `bis ${fmtDate(a.nextDueAt)}`);
 }
 
-/** Statusbadge eines Elements (inkl. „Nicht prüfbar“). */
-export function AssetStatusBadge({ asset, className }: { asset: Pick<Asset, 'nextDueAt' | 'lastResult'>; className?: string }) {
+/**
+ * Prüfstatus eines Elements (inkl. „Nicht prüfbar“). Standard: Punkt + Wort (Listen, Fließtext).
+ * variant="pill" nur im Seitenkopf oder in einer Tabellenspalte „Status“.
+ */
+export function AssetStatusBadge({ asset, className, variant = 'text' }: { asset: Pick<Asset, 'nextDueAt' | 'lastResult'>; className?: string; variant?: 'text' | 'pill' }) {
+  const d = dueInfo(asset);
+  if (variant === 'pill')
+    return (
+      <Badge tone={d.tone} dot className={className}>
+        {d.label}
+      </Badge>
+    );
+  return (
+    <StatusText tone={d.tone} className={className}>
+      {d.label}
+    </StatusText>
+  );
+}
+
+/** Das eine Statuswort einer Zeile: „● seit 3 Monaten überfällig“ (nur überfällig in Zinnober). */
+export function DuePhrase({ asset, className }: { asset: Pick<Asset, 'nextDueAt' | 'lastResult'>; className?: string }) {
   const d = dueInfo(asset);
   return (
-    <Badge tone={d.tone} dot className={className}>
-      {d.label}
-    </Badge>
+    <StatusText tone={d.tone} className={className}>
+      {d.phrase}
+    </StatusText>
   );
 }
 
@@ -64,10 +84,13 @@ export function nextScheduleName(a: Pick<Asset, 'schedules' | 'category'>) {
 export const placeText = (a: Pick<Asset, 'location' | 'floor' | 'buildingName' | 'propertyName'>, showPlace = true) =>
   [a.location, a.floor, showPlace ? a.buildingName : null, showPlace ? a.propertyName : null].filter(Boolean).join(' · ') || 'Ohne Standort';
 
-/** Standardzeile für ein Element: Art-Symbol · Code + Art · Ort · Fälligkeit · Status. */
+/**
+ * Standardzeile für ein Element (v3): 16-px-Symbol der Art · Code + Art · graue Meta-Zeile (Ort, Prüfart, „1 Mangel“)
+ * · rechts das eine Statuswort · Chevron. Auf dem Handy steht das Statuswort vorn in der Meta-Zeile.
+ */
 export function AssetRow({ asset: a, onClick, to, showPlace = true }: { asset: Asset; onClick?: () => void; to?: string; showPlace?: boolean }) {
-  const d = dueInfo(a);
   const sched = nextScheduleName(a);
+  const meta = [placeText(a, showPlace), sched, a.openDefects > 0 ? defectsLabel(a.openDefects) : null].filter(Boolean).join(' · ');
   return (
     <ListRow
       onClick={onClick}
@@ -75,29 +98,20 @@ export function AssetRow({ asset: a, onClick, to, showPlace = true }: { asset: A
       leading={<CategoryIcon category={a.category} size="sm" />}
       title={
         <>
-          {a.code}
-          <span className="ml-2 font-normal text-ink-3 max-sm:hidden">{categoryLabel(a.category)}</span>
+          <span className="font-medium">{a.code}</span>
+          <span className="text-ink-3"> · {categoryLabel(a.category)}</span>
         </>
       }
-      subtitle={placeText(a, showPlace)}
-      meta={
-        d.short || sched ? (
-          <span className="block w-36 text-right">
-            {d.short && <span className="block">{d.short}</span>}
-            {sched && <span className="block truncate text-caption text-ink-4">{sched}</span>}
+      subtitle={
+        <span className="flex min-w-0 items-center gap-1.5">
+          <DuePhrase asset={a} className="shrink-0 sm:hidden" />
+          <span aria-hidden className="sm:hidden">
+            ·
           </span>
-        ) : undefined
+          <span className="truncate">{meta}</span>
+        </span>
       }
-      trailing={
-        <>
-          {a.openDefects > 0 && (
-            <Badge tone="brand" size="sm" className="max-sm:hidden">
-              {a.openDefects} {a.openDefects === 1 ? 'Mangel' : 'Mängel'}
-            </Badge>
-          )}
-          <AssetStatusBadge asset={a} />
-        </>
-      }
+      trailing={<DuePhrase asset={a} className="max-sm:hidden" />}
       chevron
     />
   );
@@ -120,7 +134,8 @@ export function countDue(assets: Pick<Asset, 'nextDueAt' | 'lastResult'>[]): Due
   return c;
 }
 
-const ORDER: { key: keyof DueCounts; tone: Tone; label: string }[] = [
+/** Reihenfolge und Wörter der Statusgruppen (dringendes zuerst). */
+export const DUE_ORDER: { key: keyof DueCounts; tone: Tone; label: string }[] = [
   { key: 'overdue', tone: 'bad', label: 'Überfällig' },
   { key: 'soon', tone: 'warn', label: 'Bald fällig' },
   { key: 'never', tone: 'info', label: 'Nie geprüft' },
@@ -128,29 +143,11 @@ const ORDER: { key: keyof DueCounts; tone: Tone; label: string }[] = [
   { key: 'muted', tone: 'muted', label: 'Nicht prüfbar' },
 ];
 
-/** Verteilungsbalken des Prüfstatus (dünn, Segmente in Statusfarben), optional mit Legende. */
-export function StatusBar({ counts, legend, className }: { counts: DueCounts; legend?: boolean; className?: string }) {
-  const parts = ORDER.map((o) => ({ ...o, n: counts[o.key] ?? 0 })).filter((p) => p.n > 0);
-  const total = parts.reduce((s, p) => s + p.n, 0);
-  const summary = parts.map((p) => `${p.n} ${p.label}`).join(', ');
-  return (
-    <div className={className}>
-      <div className="flex h-1.5 w-full gap-0.5 overflow-hidden rounded-full bg-sunken" role="img" aria-label={total ? `Prüfstatus: ${summary}` : 'Keine Elemente'}>
-        {parts.map((p) => (
-          <span key={p.key} className={clsx('h-full first:rounded-l-full last:rounded-r-full', toneDot[p.tone])} style={{ width: `${(p.n / total) * 100}%` }} />
-        ))}
-      </div>
-      {legend && total > 0 && (
-        <ul className="mt-3 grid grid-cols-2 gap-x-4 gap-y-1.5 text-meta">
-          {parts.map((p) => (
-            <li key={p.key} className="flex items-center gap-2 text-ink-2">
-              <span className={clsx('size-2 rounded-full', toneDot[p.tone])} />
-              <span className="flex-1">{p.label}</span>
-              <span className="font-medium text-ink tabular-nums">{p.n}</span>
-            </li>
-          ))}
-        </ul>
-      )}
-    </div>
-  );
+/** Dringendster Zustand mehrerer Elemente als ein Wort: „7 überfällig“, „3 bald fällig“, „aktuell“. */
+export function summaryWord(c: DueCounts, total: number): { tone: Tone; label: string } {
+  if (!total) return { tone: 'muted', label: 'leer' };
+  if (c.overdue) return { tone: 'bad', label: `${c.overdue} überfällig` };
+  if (c.soon) return { tone: 'warn', label: `${c.soon} bald fällig` };
+  if (c.never) return { tone: 'info', label: `${c.never} ungeprüft` };
+  return { tone: 'ok', label: 'aktuell' };
 }

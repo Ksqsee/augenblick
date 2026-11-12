@@ -1,6 +1,7 @@
-// Objekt: Gebäude mit Elementen, Grundrisse, Begehungen; rechts Prüfstatus und Stammdaten.
-// Vorlage „Detail“ (docs/design.md 5.2), Belege: docs/design/objekte-elemente.md
-import { Building2, ChevronRight, CloudDownload, Footprints, Mail, Map, Package, Pencil, Phone, Plus, ShieldCheck, Trash2, Upload, User } from 'lucide-react';
+// Objekt (Design v3, Vorlage „Detail“ docs/design.md 5.3): Kopf mit einer Hauptaktion, Reiter auf dem Grund,
+// eine Surface mit Sections (je Gebäude, Grundrisse, Begehungen); rechts Prüfstatus, Begehung,
+// Brandschutzbeauftragte/r und „Vor Ort“ als Text auf dem Grund. Belege: docs/design/objekte-elemente.md
+import { Building2, CloudDownload, Footprints, Mail, Pencil, Phone, Plus, Trash2, Upload, User } from 'lucide-react';
 import { type ReactNode, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { BUILDING_TYPES } from '../../shared/walkthrough';
@@ -8,13 +9,12 @@ import { api, type Asset, type FireOfficer, fileUrl, type PropertyDetail, useAct
 import { AssetDrawer } from '../components/AssetDrawer';
 import { AssetList } from '../components/AssetList';
 import { AssetForm, BuildingForm, PropertyForm } from '../components/forms';
-import { countDue, dueInfo, StatusBar } from '../components/objects/status';
+import { AsideAction, AsideList, AsideRow, AsideSection } from '../components/objects/Aside';
+import { countDue, DUE_ORDER, DuePhrase } from '../components/objects/status';
 import { PropertyReportButton } from '../components/PropertyReportButton';
 import { SharePropertyButton } from '../components/ShareProperty';
 import {
-  Badge,
   Button,
-  Card,
   Empty,
   ErrorBox,
   Field,
@@ -26,15 +26,15 @@ import {
   Modal,
   PageHeader,
   PageSkeleton,
-  PropertyList,
   ResultBadge,
-  RowIcon,
   SearchField,
-  SectionHeader,
+  Section,
   SectionLink,
+  StatusDot,
+  StatusText,
+  Surface,
   Tabs,
   Textarea,
-  toneText,
   useConfirm,
   useToast,
   useUrlTab,
@@ -47,18 +47,7 @@ import { StartWalkthrough } from './Walkthroughs';
 const TABS = ['elemente', 'grundrisse', 'begehungen'] as const;
 type Tab = (typeof TABS)[number];
 
-/** Karte im Seitenpanel: kleiner Titel, optional Aktion. */
-function SideCard({ title, action, children, className }: { title: string; action?: ReactNode; children: ReactNode; className?: string }) {
-  return (
-    <Card className={`p-4 sm:p-5 ${className ?? ''}`}>
-      <div className="mb-3 flex min-h-6 items-center justify-between gap-2">
-        <h2 className="text-meta font-semibold text-ink-2">{title}</h2>
-        {action}
-      </div>
-      {children}
-    </Card>
-  );
-}
+const matches = (a: Asset, needle: string) => [a.code, a.location, a.floor, categoryLabel(a.category), a.manufacturer].join(' ').toLowerCase().includes(needle);
 
 export function PropertyPage() {
   const { id = '' } = useParams();
@@ -106,6 +95,7 @@ export function PropertyPage() {
 
   const due = countDue(p.assets);
   const openDefects = p.assets.reduce((s, a) => s + a.openDefects, 0);
+  const needle = q.trim().toLowerCase();
   const menu: MenuItem[] = [];
   if (isAdmin) {
     menu.push({ label: 'Objekt bearbeiten', icon: <Pencil />, onClick: () => setEdit(true) });
@@ -122,27 +112,25 @@ export function PropertyPage() {
     });
   }
 
-  const status = (
-    <SideCard title="Prüfstatus" action={p.assets.length > 0 && <SectionLink to={`/elemente?objekt=${p.id}`}>Alle Elemente</SectionLink>}>
-      {p.assets.length ? (
+  // Kopfzeile: ein Satz zur Lage – das Dringendste mit Punkt, der Rest als grauer Text
+  const metaParts = [due.overdue > 0 && `${due.overdue} überfällig`, due.soon > 0 && `${due.soon} bald fällig`, openDefects > 0 && `${defectsLabel(openDefects)} offen`].filter(
+    Boolean,
+  ) as string[];
+  const meta = p.assets.length ? (
+    <span className="flex min-w-0 flex-wrap items-center gap-x-1.5">
+      {metaParts.length ? (
         <>
-          <p className="mb-3 text-body text-ink-2">
-            <span className="font-semibold text-ink tabular-nums">{p.assets.length}</span> Elemente
-            {openDefects > 0 && (
-              <>
-                {' · '}
-                <span className="font-semibold text-warn tabular-nums">{openDefects}</span> {openDefects === 1 ? 'offener Mangel' : 'offene Mängel'}
-              </>
-            )}
-          </p>
-          <StatusBar counts={due} legend />
-          {nextDue(p)}
+          <StatusText tone={due.overdue ? 'bad' : due.soon ? 'warn' : 'brand'}>{metaParts[0]}</StatusText>
+          {metaParts.slice(1).map((t) => (
+            <span key={t}>· {t}</span>
+          ))}
         </>
       ) : (
-        <p className="text-body text-ink-3">Noch keine Elemente erfasst.</p>
+        <StatusText tone={due.never ? 'info' : 'ok'}>{due.never ? `${due.never} nie geprüft` : 'Alles aktuell'}</StatusText>
       )}
-    </SideCard>
-  );
+      <span>· {p.assets.length === 1 ? '1 Element' : `${p.assets.length} Elemente`}</span>
+    </span>
+  ) : undefined;
 
   return (
     <>
@@ -151,28 +139,12 @@ export function PropertyPage() {
         breadcrumbs={[{ label: 'Objekte', to: '/objekte' }, { label: p.name }]}
         title={p.name}
         subtitle={[p.address.split('\n').join(', '), BUILDING_TYPES[p.buildingType]].filter(Boolean).join(' · ')}
-        meta={
-          (due.overdue > 0 || due.soon > 0 || openDefects > 0) && (
-            <>
-              {due.overdue > 0 && (
-                <Badge tone="bad" dot>
-                  {due.overdue} überfällig
-                </Badge>
-              )}
-              {due.soon > 0 && (
-                <Badge tone="warn" dot>
-                  {due.soon} bald fällig
-                </Badge>
-              )}
-              {openDefects > 0 && <Badge tone="brand">{defectsLabel(openDefects)} offen</Badge>}
-            </>
-          )
-        }
+        meta={meta}
         actions={
           <>
-            {/* Handy: nur Symbol (Name bleibt für Screenreader), damit die Hauptaktion in die Zeile passt */}
+            {/* Handy: Bericht nur als Symbol (Name bleibt für Screenreader), damit die Hauptaktion in die Zeile passt */}
             <span className="contents max-sm:[&_button]:gap-0 max-sm:[&_button]:px-3 max-sm:[&_button]:text-[0px]">
-              <PropertyReportButton propertyId={p.id} />
+              <PropertyReportButton propertyId={p.id} variant="ghost" />
             </span>
             {isAdmin && <SharePropertyButton propertyId={p.id} propertyName={p.name} />}
             {menu.length > 0 && <Menu items={menu} label="Weitere Aktionen zum Objekt" />}
@@ -191,11 +163,13 @@ export function PropertyPage() {
       {upload && <FloorPlanUpload buildings={p.buildings} onClose={() => setUpload(false)} />}
       {walk && <StartWalkthrough propertyId={p.id} onClose={() => setWalk(false)} />}
 
-      <div className="grid grid-cols-1 gap-6 lg:grid-cols-[minmax(0,1fr)_20rem] lg:grid-rows-[auto_1fr]">
-        {/* Handy: Prüfstatus direkt unter dem Titel, der Rest des Panels nach dem Inhalt */}
-        <div className="lg:col-start-2 lg:row-start-1">{status}</div>
+      <div className="grid grid-cols-1 gap-8 lg:grid-cols-[minmax(0,1fr)_280px] lg:grid-rows-[auto_1fr] lg:gap-x-10 lg:gap-y-8">
+        {/* Handy: Prüfstatus direkt unter dem Kopf, der Rest der Seitenspalte nach dem Inhalt */}
+        <div className="min-w-0 lg:col-start-2 lg:row-start-1">
+          <StatusAside p={p} />
+        </div>
 
-        <div className="flex min-w-0 flex-col gap-6 lg:col-start-1 lg:row-span-2 lg:row-start-1">
+        <div className="flex min-w-0 flex-col gap-4 lg:col-start-1 lg:row-span-2 lg:row-start-1">
           <Tabs
             value={tab}
             onChange={setTab}
@@ -206,327 +180,349 @@ export function PropertyPage() {
             ]}
           />
 
-          {tab === 'elemente' &&
-            (p.buildings.length === 0 ? (
-              <Card>
-                <Empty
-                  icon={<Building2 />}
-                  title="Noch kein Gebäude"
-                  text="Lege mindestens ein Gebäude an. Darin erfasst du Türen, Klappen, Löscher und Melder."
-                  action={
-                    isAdmin && (
-                      <Button icon={<Plus className="size-4" />} onClick={() => setBuilding('new')}>
-                        Gebäude anlegen
-                      </Button>
-                    )
-                  }
-                />
-              </Card>
-            ) : (
-              <>
-                {p.assets.length > 10 && <SearchField value={q} onChange={setQ} placeholder="Code, Standort, Art …" label="In diesem Objekt suchen" />}
-                {p.buildings.map((b) => {
-                  const inBuilding = p.assets.filter((a) => a.buildingId === b.id);
-                  const needle = q.trim().toLowerCase();
-                  const assets = needle
-                    ? inBuilding.filter((a) => [a.code, a.location, a.floor, categoryLabel(a.category), a.manufacturer].join(' ').toLowerCase().includes(needle))
-                    : inBuilding;
-                  if (needle && !assets.length) return null;
-                  const bMenu: MenuItem[] = [{ label: preparing === b.id ? 'Wird gespeichert …' : 'Für offline speichern', icon: <CloudDownload />, disabled: preparing === b.id, onClick: () => offline(b.id) }];
-                  if (isAdmin)
-                    bMenu.push({ label: 'Gebäude bearbeiten', icon: <Pencil />, onClick: () => setBuilding(b) }, 'separator', {
-                      label: 'Gebäude löschen',
-                      icon: <Trash2 />,
-                      danger: true,
-                      onClick: async () => {
-                        if (await confirm({ title: `Gebäude „${b.name}“ löschen?`, text: `Die ${inBuilding.length} Elemente darin werden mit gelöscht.`, confirmLabel: 'Löschen', danger: true }))
-                          delBuilding.mutate(b.id);
-                      },
-                    });
-                  return (
-                    <section key={b.id} aria-label={b.name}>
-                      <SectionHeader
-                        title={
-                          <span className="flex min-w-0 items-center gap-2">
-                            <Building2 className="size-4 shrink-0 text-ink-3" />
-                            <span className="truncate">{b.name}</span>
-                          </span>
-                        }
+          <Surface>
+            {tab === 'elemente' &&
+              (p.buildings.length === 0 ? (
+                <Section>
+                  <Empty
+                    title="Noch kein Gebäude"
+                    text="Lege mindestens ein Gebäude an. Darin erfasst du Türen, Klappen, Löscher und Melder."
+                    action={
+                      isAdmin && (
+                        <Button variant="secondary" icon={<Plus className="size-4" />} onClick={() => setBuilding('new')}>
+                          Gebäude anlegen
+                        </Button>
+                      )
+                    }
+                  />
+                </Section>
+              ) : (
+                <>
+                  {p.assets.length > 10 && (
+                    <Section className="py-4 sm:py-4">
+                      <SearchField value={q} onChange={setQ} placeholder="Code, Standort, Art …" label="In diesem Objekt suchen" className="sm:max-w-none" />
+                    </Section>
+                  )}
+                  {p.buildings.map((b) => {
+                    const inBuilding = p.assets.filter((a) => a.buildingId === b.id);
+                    const assets = needle ? inBuilding.filter((a) => matches(a, needle)) : inBuilding;
+                    if (needle && !assets.length) return null;
+                    const bMenu: MenuItem[] = [
+                      { label: preparing === b.id ? 'Wird gespeichert …' : 'Für offline speichern', icon: <CloudDownload />, disabled: preparing === b.id, onClick: () => offline(b.id) },
+                    ];
+                    if (isAdmin)
+                      bMenu.push({ label: 'Gebäude bearbeiten', icon: <Pencil />, onClick: () => setBuilding(b) }, 'separator', {
+                        label: 'Gebäude löschen',
+                        icon: <Trash2 />,
+                        danger: true,
+                        onClick: async () => {
+                          if (await confirm({ title: `Gebäude „${b.name}“ löschen?`, text: `Die ${inBuilding.length} Elemente darin werden mit gelöscht.`, confirmLabel: 'Löschen', danger: true }))
+                            delBuilding.mutate(b.id);
+                        },
+                      });
+                    return (
+                      <Section
+                        key={b.id}
+                        aria-label={b.name}
+                        flush
+                        title={<span className="truncate">{b.name}</span>}
                         count={inBuilding.length}
                         action={
-                          <div className="flex shrink-0 items-center gap-1">
+                          <>
                             <Menu items={bMenu} label={`Weitere Aktionen zu ${b.name}`} />
                             {canCreate && (
-                              <Button size="sm" variant="secondary" icon={<Plus />} onClick={() => setAssetFor(b.id)}>
+                              <Button size="sm" variant="ghost" icon={<Plus />} onClick={() => setAssetFor(b.id)}>
                                 Element
                               </Button>
                             )}
-                          </div>
+                          </>
+                        }
+                      >
+                        {b.address && <p className="-mt-1 mb-2 px-(--row-px) text-meta text-ink-3">{b.address.split('\n').join(', ')}</p>}
+                        {assets.length === 0 ? (
+                          <p className="px-(--row-px) pb-3 text-body text-ink-2">Keine Elemente in diesem Gebäude. Lege Türen, Klappen, Löscher oder Melder an.</p>
+                        ) : (
+                          <AssetList assets={assets} onSelect={setSelected} showPlace={false} aria-label={`Elemente in ${b.name}`} />
+                        )}
+                      </Section>
+                    );
+                  })}
+                  {needle && !p.assets.some((a) => matches(a, needle)) && (
+                    <Section>
+                      <Empty
+                        compact
+                        title="Keine Treffer"
+                        text={`Kein Element passt zu „${q.trim()}“.`}
+                        action={
+                          <Button variant="ghost" onClick={() => setQ('')}>
+                            Suche leeren
+                          </Button>
                         }
                       />
-                      {b.address && <p className="-mt-1.5 mb-2.5 text-meta text-ink-3">{b.address.split('\n').join(', ')}</p>}
-                      <Card className="overflow-hidden">
-                        {assets.length === 0 ? (
-                          <Empty compact icon={<Package />} title="Keine Elemente in diesem Gebäude" text="Lege Türen, Klappen, Löscher oder Melder an." />
-                        ) : (
-                          <AssetList assets={assets} onSelect={setSelected} showPlace={false} />
-                        )}
-                      </Card>
-                    </section>
-                  );
-                })}
-                {q.trim() && !p.assets.some((a) => [a.code, a.location, a.floor, categoryLabel(a.category), a.manufacturer].join(' ').toLowerCase().includes(q.trim().toLowerCase())) && (
-                  <Card>
-                    <Empty compact title="Keine Treffer" text={`Kein Element passt zu „${q.trim()}“.`} action={<Button variant="secondary" onClick={() => setQ('')}>Suche leeren</Button>} />
-                  </Card>
-                )}
-                {isAdmin && !q.trim() && (
-                  <Button variant="ghost" className="self-start" icon={<Plus className="size-4" />} onClick={() => setBuilding('new')}>
-                    Gebäude hinzufügen
-                  </Button>
-                )}
-              </>
-            ))}
-
-          {tab === 'grundrisse' && <PlansTab p={p} canUpload={isAdmin} onUpload={() => setUpload(true)} />}
-
-          {tab === 'begehungen' &&
-            (p.walkthroughs.length === 0 ? (
-              <Card>
-                <Empty
-                  icon={<Footprints />}
-                  title="Noch keine Begehung"
-                  text="Eine Begehung prüft das ganze Objekt: Fluchtwege, Beschilderung, Brandlasten."
-                  action={
-                    canInspect && (
-                      <Button variant="secondary" icon={<Plus className="size-4" />} onClick={() => setWalk(true)}>
-                        Erste Begehung
+                    </Section>
+                  )}
+                  {isAdmin && !needle && (
+                    <Section className="py-3 sm:py-3">
+                      <Button variant="ghost" size="sm" className="-ml-3" icon={<Plus />} onClick={() => setBuilding('new')}>
+                        Gebäude hinzufügen
                       </Button>
-                    )
-                  }
-                />
-              </Card>
-            ) : (
-              <List aria-label="Begehungen">
-                {p.walkthroughs.map((w) => (
-                  <ListRow
-                    key={w.id}
-                    to={w.status === 'draft' ? `/begehung/${w.id}` : `/druck/begehung/${w.id}`}
-                    leading={
-                      <RowIcon>
-                        <Footprints />
-                      </RowIcon>
+                    </Section>
+                  )}
+                </>
+              ))}
+
+            {tab === 'grundrisse' && <PlansSection p={p} canUpload={isAdmin} onUpload={() => setUpload(true)} />}
+
+            {tab === 'begehungen' &&
+              (p.walkthroughs.length === 0 ? (
+                <Section>
+                  <Empty
+                    title="Noch keine Begehung"
+                    text="Eine Begehung prüft das ganze Objekt: Fluchtwege, Beschilderung, Brandlasten."
+                    action={
+                      canInspect && (
+                        <Button variant="secondary" icon={<Plus className="size-4" />} onClick={() => setWalk(true)}>
+                          Erste Begehung
+                        </Button>
+                      )
                     }
-                    title={fmtDateTime(w.inspectedAt ?? w.createdAt)}
-                    subtitle={[w.inspector, w.buildingName].filter(Boolean).join(' · ')}
-                    trailing={
-                      <>
-                        {w.openDefects > 0 && (
-                          <Badge tone="brand" className="max-sm:hidden">
-                            {defectsLabel(w.openDefects)}
-                          </Badge>
-                        )}
-                        {w.status === 'draft' ? <Badge tone="info">Entwurf</Badge> : w.result && <ResultBadge result={w.result} />}
-                      </>
-                    }
-                    chevron
                   />
-                ))}
-              </List>
-            ))}
+                </Section>
+              ) : (
+                <Section title="Begehungen" count={p.walkthroughs.length} flush>
+                  <List plain aria-label="Begehungen">
+                    {p.walkthroughs.map((w) => (
+                      <ListRow
+                        key={w.id}
+                        to={w.status === 'draft' ? `/begehung/${w.id}` : `/druck/begehung/${w.id}`}
+                        title={fmtDateTime(w.inspectedAt ?? w.createdAt)}
+                        subtitle={[w.inspector, w.buildingName, w.openDefects > 0 ? `${defectsLabel(w.openDefects)} offen` : null].filter(Boolean).join(' · ')}
+                        trailing={w.status === 'draft' ? <StatusText tone="info">Entwurf</StatusText> : w.result && <ResultBadge result={w.result} />}
+                        chevron
+                      />
+                    ))}
+                  </List>
+                </Section>
+              ))}
+          </Surface>
         </div>
 
-        <aside className="flex flex-col gap-4 lg:col-start-2 lg:row-start-2">
-          <WalkCard p={p} />
-          <FireOfficersCard propertyId={p.id} officers={p.fireOfficers ?? []} canEdit={isAdmin} />
-          <SideCard
-            title="Vor Ort"
-            action={
-              isAdmin && (
-                <Button size="xs" variant="ghost" icon={<Pencil />} onClick={() => setEdit(true)}>
-                  Bearbeiten
-                </Button>
-              )
-            }
-          >
+        <aside className="flex min-w-0 flex-col gap-8 lg:col-start-2 lg:row-start-2" aria-label="Zum Objekt">
+          <WalkAside p={p} />
+          <FireOfficersAside propertyId={p.id} officers={p.fireOfficers ?? []} canEdit={isAdmin} />
+          <AsideSection title="Vor Ort" action={isAdmin && <AsideAction onClick={() => setEdit(true)}>Bearbeiten</AsideAction>}>
             {p.contactName || p.contactPhone || p.contactEmail ? (
-              <ul className="flex flex-col gap-2.5 text-body">
+              <ul className="border-t border-line text-body">
                 {p.contactName && (
-                  <li className="flex items-center gap-2.5" title="Ansprechperson">
-                    <User className="size-4 shrink-0 text-ink-3" />
-                    <span className="min-w-0">{p.contactName}</span>
-                  </li>
+                  <ContactRow icon={<User />} title="Ansprechperson">
+                    {p.contactName}
+                  </ContactRow>
                 )}
                 {p.contactPhone && (
-                  <li>
-                    <a href={`tel:${p.contactPhone}`} className="flex items-center gap-2.5 hover:underline">
-                      <Phone className="size-4 shrink-0 text-ink-3" /> {p.contactPhone}
-                    </a>
-                  </li>
+                  <ContactRow icon={<Phone />} href={`tel:${p.contactPhone}`}>
+                    {p.contactPhone}
+                  </ContactRow>
                 )}
                 {p.contactEmail && (
-                  <li>
-                    <a href={`mailto:${p.contactEmail}`} className="flex min-w-0 items-center gap-2.5 hover:underline">
-                      <Mail className="size-4 shrink-0 text-ink-3" /> <span className="truncate">{p.contactEmail}</span>
-                    </a>
-                  </li>
+                  <ContactRow icon={<Mail />} href={`mailto:${p.contactEmail}`}>
+                    {p.contactEmail}
+                  </ContactRow>
                 )}
               </ul>
             ) : (
-              <p className="text-body text-ink-3">Keine Ansprechperson hinterlegt.</p>
+              <p className="border-t border-line py-3 text-body text-ink-2">Keine Ansprechperson hinterlegt.</p>
             )}
-            {p.description && <p className="mt-4 border-t border-line pt-4 text-body whitespace-pre-line text-ink-2">{p.description}</p>}
-          </SideCard>
+            {p.description && <p className="pt-3 text-body whitespace-pre-line text-ink-2">{p.description}</p>}
+          </AsideSection>
         </aside>
       </div>
     </>
   );
 }
 
-/** Das dringendste Element (frühester Termin) als Sprungziel. */
-function nextDue(p: PropertyDetail) {
-  const next = p.assets.reduce<Asset | null>((m, a) => (a.nextDueAt != null && a.lastResult !== 'not_inspectable' && (!m || a.nextDueAt < (m.nextDueAt ?? Infinity)) ? a : m), null);
-  if (!next) return null;
-  const d = dueInfo(next);
-  return (
-    <Link to={`/elemente/${next.id}`} className="group mt-4 flex items-center gap-3 border-t border-line pt-4">
-      <span className="min-w-0 flex-1">
-        <span className="block text-caption text-ink-3">Am dringendsten</span>
-        <span className="block truncate text-body font-medium group-hover:underline">
-          {next.code} <span className="font-normal text-ink-3">{next.location}</span>
-        </span>
-        <span className={`block text-meta ${d.tone === 'bad' || d.tone === 'warn' ? toneText[d.tone] : 'text-ink-3'}`}>{d.detail}</span>
-      </span>
-      <ChevronRight className="size-4 shrink-0 text-ink-4 transition-transform group-hover:translate-x-0.5" />
-    </Link>
+function ContactRow({ icon, href, title, children }: { icon: ReactNode; href?: string; title?: string; children: ReactNode }) {
+  const inner = (
+    <>
+      <span className="shrink-0 text-ink-3 [&>svg]:size-4">{icon}</span>
+      <span className="min-w-0 truncate">{children}</span>
+    </>
   );
-}
-
-function WalkCard({ p }: { p: PropertyDetail }) {
-  const last = p.walkthroughs.find((w) => w.status === 'submitted');
-  const d = last?.nextDueAt ? dueInfo({ nextDueAt: last.nextDueAt, lastResult: null }) : null;
   return (
-    <SideCard title="Brandschutzbegehung">
-      {last ? (
-        <PropertyList
-          items={[
-            { label: 'Zuletzt', value: fmtDate(last.inspectedAt) },
-            {
-              label: 'Nächste',
-              value: last.nextDueAt && (
-                <>
-                  {fmtDate(last.nextDueAt)}
-                  {d && (d.tone === 'bad' || d.tone === 'warn') && <span className={`block text-meta font-normal ${toneText[d.tone]}`}>{d.detail}</span>}
-                </>
-              ),
-            },
-          ]}
-        />
+    <li className="border-b border-line" title={title}>
+      {href ? (
+        <a href={href} className="flex min-h-11 items-center gap-2.5 py-2 text-ink hover:underline hover:decoration-line-strong hover:underline-offset-4">
+          {inner}
+        </a>
       ) : (
-        <p className="text-body text-ink-3">Noch nicht durchgeführt.</p>
+        <span className="flex min-h-11 items-center gap-2.5 py-2 text-ink">{inner}</span>
       )}
-    </SideCard>
+    </li>
   );
 }
 
-function PlansTab({ p, canUpload, onUpload }: { p: PropertyDetail; canUpload: boolean; onUpload: () => void }) {
+/** Prüfstatus des Objekts als Zahlenliste auf dem Grund (wie „Heute“) und das dringendste Element. */
+function StatusAside({ p }: { p: PropertyDetail }) {
+  const due = countDue(p.assets);
+  const openDefects = p.assets.reduce((s, a) => s + a.openDefects, 0);
+  const parts = DUE_ORDER.map((o) => ({ ...o, n: due[o.key] ?? 0 })).filter((x) => x.n > 0);
+  const filter: Partial<Record<string, string>> = { overdue: 'overdue', soon: 'soon', never: 'never' };
+  const next = p.assets.reduce<Asset | null>((m, a) => (a.nextDueAt != null && a.lastResult !== 'not_inspectable' && (!m || a.nextDueAt < (m.nextDueAt ?? Infinity)) ? a : m), null);
+  return (
+    <AsideSection title="Prüfstatus" action={p.assets.length > 0 && <SectionLink to={`/elemente?objekt=${p.id}`}>Alle Elemente</SectionLink>}>
+      {p.assets.length === 0 ? (
+        <p className="border-t border-line py-3 text-body text-ink-2">Noch keine Elemente erfasst.</p>
+      ) : (
+        <>
+          <AsideList aria-label={`Prüfstatus: ${parts.map((x) => `${x.n} ${x.label}`).join(', ')}`}>
+            {parts.map((x) => (
+              <AsideRow
+                key={x.key}
+                to={`/elemente?objekt=${p.id}${filter[x.key] ? `&status=${filter[x.key]}` : ''}`}
+                value={<span className="text-body text-ink">{x.n}</span>}
+              >
+                <span className="inline-flex items-center gap-2">
+                  <StatusDot tone={x.tone} />
+                  {x.label}
+                </span>
+              </AsideRow>
+            ))}
+            {openDefects > 0 && (
+              <AsideRow to="/maengel" value={<span className="text-body text-ink">{openDefects}</span>}>
+                <span className="inline-flex items-center gap-2">
+                  <StatusDot tone="brand" />
+                  {openDefects === 1 ? 'Offener Mangel' : 'Offene Mängel'}
+                </span>
+              </AsideRow>
+            )}
+          </AsideList>
+          {next && (
+            <Link to={`/elemente/${next.id}`} className="group mt-4 block">
+              <span className="block text-meta text-ink-3">Am dringendsten</span>
+              <span className="mt-0.5 block truncate text-body text-ink group-hover:underline group-hover:decoration-line-strong group-hover:underline-offset-4">
+                <span className="font-medium">{next.code}</span>
+                {next.location && <span className="text-ink-3"> · {next.location}</span>}
+              </span>
+              <DuePhrase asset={next} />
+            </Link>
+          )}
+        </>
+      )}
+    </AsideSection>
+  );
+}
+
+function WalkAside({ p }: { p: PropertyDetail }) {
+  const last = p.walkthroughs.find((w) => w.status === 'submitted');
+  return (
+    <AsideSection title="Brandschutzbegehung">
+      {last ? (
+        <AsideList>
+          <AsideRow value={fmtDate(last.inspectedAt)}>Zuletzt</AsideRow>
+          <AsideRow value={last.nextDueAt ? <DueDate at={last.nextDueAt} /> : '–'}>Nächste</AsideRow>
+        </AsideList>
+      ) : (
+        <p className="border-t border-line py-3 text-body text-ink-2">Noch nicht durchgeführt.</p>
+      )}
+    </AsideSection>
+  );
+}
+
+/** Datum, Zinnober nur wenn überschritten. */
+function DueDate({ at }: { at: number }) {
+  return <span className={at < Date.now() ? 'text-shu' : undefined}>{fmtDate(at)}</span>;
+}
+
+function PlansSection({ p, canUpload, onUpload }: { p: PropertyDetail; canUpload: boolean; onUpload: () => void }) {
   if (!p.floorPlans.length)
     return (
-      <Card>
+      <Section>
         <Empty
-          icon={<Map />}
           title="Noch keine Grundrisse"
           text={p.buildings.length ? 'Lade Pläne als Bild oder PDF hoch und markiere darauf, wo die Elemente sind.' : 'Lege zuerst ein Gebäude an.'}
           action={
             canUpload &&
             p.buildings.length > 0 && (
-              <Button icon={<Upload className="size-4" />} onClick={onUpload}>
+              <Button variant="secondary" icon={<Upload className="size-4" />} onClick={onUpload}>
                 Grundriss hochladen
               </Button>
             )
           }
         />
-      </Card>
+      </Section>
     );
   const placed = (bid: string) => p.assets.filter((a) => a.buildingId === bid && a.floorPlanId).length;
   return (
-    <section>
-      <SectionHeader
-        title="Grundrisse"
-        count={p.floorPlans.length}
-        action={
-          canUpload && (
-            <Button size="sm" variant="secondary" icon={<Upload />} onClick={onUpload}>
-              Grundriss hochladen
-            </Button>
-          )
-        }
-      />
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+    <Section
+      title="Grundrisse"
+      count={p.floorPlans.length}
+      action={
+        canUpload && (
+          <Button size="sm" variant="ghost" icon={<Upload />} onClick={onUpload}>
+            Grundriss hochladen
+          </Button>
+        )
+      }
+    >
+      <ul className="grid grid-cols-1 gap-x-6 gap-y-6 pt-2 sm:grid-cols-2">
         {p.floorPlans.map((f) => {
           const b = p.buildings.find((x) => x.id === f.buildingId);
           const total = p.assets.filter((a) => a.buildingId === f.buildingId).length;
           return (
-            <Link key={f.id} to={`/grundrisse/${f.id}`} className="group overflow-hidden rounded-xl bg-surface shadow-card transition-shadow hover:shadow-lift">
-              <div className="relative bg-sunken" style={{ aspectRatio: '4 / 3' }}>
-                <img src={fileUrl(f.fileKey)} alt={f.name} className="absolute inset-0 size-full object-contain p-3" loading="lazy" />
-              </div>
-              <div className="flex items-center justify-between gap-3 border-t border-line px-4 py-3">
-                <span className="min-w-0">
-                  <span className="block truncate text-body font-medium">{f.name}</span>
-                  <span className="block truncate text-meta text-ink-3">{b?.name}</span>
-                </span>
-                <span className="shrink-0 text-meta text-ink-3 tabular-nums" title={`${placed(f.buildingId)} von ${total} Elementen des Gebäudes auf einem Plan`}>
-                  {f.markers} {f.markers === 1 ? 'Marker' : 'Marker'}
-                </span>
-              </div>
-            </Link>
+            <li key={f.id}>
+              <Link to={`/grundrisse/${f.id}`} className="group block">
+                <div className="relative overflow-hidden rounded-md bg-sunken" style={{ aspectRatio: '4 / 3' }}>
+                  <img src={fileUrl(f.fileKey)} alt={f.name} className="absolute inset-0 size-full object-contain p-3 mix-blend-multiply" loading="lazy" />
+                </div>
+                <div className="mt-2.5 flex items-baseline justify-between gap-3">
+                  <span className="min-w-0">
+                    <span className="block truncate text-body text-ink group-hover:underline group-hover:decoration-line-strong group-hover:underline-offset-4">{f.name}</span>
+                    <span className="block truncate text-meta text-ink-3">{b?.name}</span>
+                  </span>
+                  <span className="shrink-0 text-meta text-ink-3 tabular-nums" title={`${placed(f.buildingId)} von ${total} Elementen des Gebäudes auf einem Plan`}>
+                    {f.markers} Marker
+                  </span>
+                </div>
+              </Link>
+            </li>
           );
         })}
-      </div>
-    </section>
+      </ul>
+    </Section>
   );
 }
 
-function FireOfficersCard({ propertyId, officers, canEdit }: { propertyId: string; officers: FireOfficer[]; canEdit: boolean }) {
+function FireOfficersAside({ propertyId, officers, canEdit }: { propertyId: string; officers: FireOfficer[]; canEdit: boolean }) {
   const [edit, setEdit] = useState<Partial<FireOfficer> | null>(null);
   const now = Date.now();
   const current = officers.find((o) => o.appointedFrom <= now && (!o.appointedTo || o.appointedTo > now));
   const history = officers.filter((o) => o !== current);
   return (
-    <SideCard
-      title="Brandschutzbeauftragte/r"
-      action={
-        canEdit && (
-          <Button size="xs" variant="ghost" icon={<Plus />} onClick={() => setEdit({})}>
-            Bestellen
-          </Button>
-        )
-      }
-    >
+    <AsideSection title="Brandschutzbeauftragte/r" action={canEdit && <AsideAction onClick={() => setEdit({})}>Bestellen</AsideAction>}>
       {edit && <FireOfficerForm propertyId={propertyId} initial={edit} onClose={() => setEdit(null)} />}
       {current ? (
-        <button type="button" className="flex w-full items-start gap-3 rounded-lg text-left disabled:cursor-default" disabled={!canEdit} onClick={() => setEdit(current)}>
-          <span className="grid size-8 shrink-0 place-items-center rounded-full bg-ok-soft text-ok">
-            <ShieldCheck className="size-4" />
+        <button
+          type="button"
+          className="group block w-full border-y border-line py-3 text-left disabled:cursor-default"
+          disabled={!canEdit}
+          onClick={() => setEdit(current)}
+        >
+          <span className="block text-body text-ink group-enabled:group-hover:underline group-enabled:group-hover:decoration-line-strong group-enabled:group-hover:underline-offset-4">
+            {current.name}
           </span>
-          <span className="min-w-0 flex-1">
-            <span className="block text-body font-medium">{current.name}</span>
-            <span className="block text-meta text-ink-3">{[current.company, current.qualification].filter(Boolean).join(' · ')}</span>
-            <span className="block text-meta text-ink-3">
-              seit {fmtDate(current.appointedFrom)}
-              {current.appointedTo && ` · bis ${fmtDate(current.appointedTo)}`}
-            </span>
-            {current.phone && <span className="mt-1 block text-meta text-ink-2">{current.phone}</span>}
-            {current.email && <span className="block truncate text-meta text-ink-2">{current.email}</span>}
+          {(current.company || current.qualification) && <span className="mt-0.5 block text-meta text-ink-3">{[current.company, current.qualification].filter(Boolean).join(' · ')}</span>}
+          <span className="block text-meta text-ink-3">
+            seit {fmtDate(current.appointedFrom)}
+            {current.appointedTo && ` · bis ${fmtDate(current.appointedTo)}`}
           </span>
+          {current.phone && <span className="mt-1 block text-meta text-ink-2">{current.phone}</span>}
+          {current.email && <span className="block truncate text-meta text-ink-2">{current.email}</span>}
         </button>
       ) : (
-        <p className="text-body text-ink-3">Niemand bestellt.</p>
+        <p className="border-t border-line py-3 text-body text-ink-2">Niemand bestellt.</p>
       )}
       {history.length > 0 && (
-        <details className="mt-3 border-t border-line pt-3 text-meta">
-          <summary className="cursor-pointer text-ink-2">Frühere ({history.length})</summary>
+        <details className="mt-3 text-meta">
+          <summary className="cursor-pointer text-ink-3 hover:text-ink-2">Frühere {history.length}</summary>
           <ul className="mt-2 space-y-1.5">
             {history.map((o) => (
               <li key={o.id}>
@@ -539,7 +535,7 @@ function FireOfficersCard({ propertyId, officers, canEdit }: { propertyId: strin
           </ul>
         </details>
       )}
-    </SideCard>
+    </AsideSection>
   );
 }
 
@@ -579,7 +575,7 @@ function FireOfficerForm({ propertyId, initial, onClose }: { propertyId: string;
           {initial.id && (
             <Button
               variant="ghost"
-              className="text-bad sm:mr-auto"
+              className="sm:mr-auto"
               onClick={async () => (await confirm({ title: 'Eintrag löschen?', confirmLabel: 'Löschen', danger: true })) && del.mutate(undefined)}
             >
               Löschen
