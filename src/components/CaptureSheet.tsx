@@ -1,7 +1,8 @@
 // „Erfassen“: einmal sprechen (oder tippen), daraus werden Mängel, Aufgaben und Notizen.
+// Ablauf: sprechen → Live-Vorschau → „Auswerten“ → Karten prüfen → „übernehmen“ → Bestätigung.
 import { useQueryClient } from '@tanstack/react-query';
 import clsx from 'clsx';
-import { AlertTriangle, ArrowLeft, Check, ListTodo, MapPin, PackagePlus, ScanLine, Sparkles, StickyNote, Trash2, X } from 'lucide-react';
+import { AlertTriangle, ArrowLeft, Check, CheckCircle2, ListTodo, MapPin, PackagePlus, ScanLine, Sparkles, StickyNote, Trash2, X } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { SEVERITIES, type Severity } from '../../shared/catalog';
@@ -10,7 +11,8 @@ import { api, ApiError, type Asset, useAssets, useProperties } from '../api';
 import { useDictation } from '../dictate';
 import { categoryLabel } from '../format';
 import { BigMic } from './Dictate';
-import { Button, Input, Modal, Textarea, useToast } from './ui';
+import { RadioChips } from './inspect/Choice';
+import { Button, Input, Modal, Notice, SEVERITY_TONE, Textarea, toneDot, useToast } from './ui';
 
 const OPEN_EVENT = 'pk:capture';
 /** Erfassen von überall öffnen, optional mit vorgewähltem Element oder Objekt. */
@@ -26,12 +28,13 @@ export function useCaptureListener() {
   return [ctx, () => setCtx(null)] as const;
 }
 
+/** Art eines Eintrags: Mangel = Bernstein, Aufgabe = Blau, Notiz = neutral. */
 const KIND_META = {
-  defect: { label: 'Mangel', icon: AlertTriangle, cls: 'text-bad' },
-  task: { label: 'Aufgabe', icon: ListTodo, cls: 'text-info' },
-  note: { label: 'Notiz', icon: StickyNote, cls: 'text-ink-3' },
+  defect: { label: 'Mangel', icon: AlertTriangle, box: 'bg-warn-soft text-warn' },
+  task: { label: 'Aufgabe', icon: ListTodo, box: 'bg-info-soft text-info' },
+  note: { label: 'Notiz', icon: StickyNote, box: 'bg-sunken text-ink-2' },
 } as const;
-const SEV_CLS: Record<Severity, string> = { low: 'bg-ink-3', medium: 'bg-warn', high: 'bg-brand', critical: 'bg-bad' };
+const sevDot = (s: Severity) => (s === 'low' ? 'bg-ink-4' : toneDot[SEVERITY_TONE[s]]);
 
 type Where = { kind: 'asset'; asset: Asset } | { kind: 'property'; id: string; name: string } | null;
 
@@ -50,29 +53,35 @@ function WherePicker({ where, onChange }: { where: Where; onChange: (w: Where) =
   }, [q, assets.data, props.data]);
   if (where)
     return (
-      <div className="flex items-center gap-2 rounded-xl bg-sunken px-3 py-2 text-sm">
-        <MapPin className="size-4 shrink-0 text-brand" />
+      <div className="flex min-h-12 items-center gap-3 rounded-lg border border-line bg-surface px-3 text-body">
+        <MapPin className="size-4 shrink-0 text-ink-3" />
         <span className="min-w-0 flex-1 truncate">
           {where.kind === 'asset' ? (
             <>
-              <b>{where.asset.code}</b> · {categoryLabel(where.asset.category)} · {where.asset.location || where.asset.buildingName}
+              <span className="font-semibold">{where.asset.code}</span>
+              <span className="text-ink-3">
+                {' '}
+                · {categoryLabel(where.asset.category)} · {where.asset.location || where.asset.buildingName}
+              </span>
             </>
           ) : (
             <>
-              Objekt <b>{where.name}</b>
+              <span className="text-ink-3">Objekt </span>
+              <span className="font-semibold">{where.name}</span>
             </>
           )}
         </span>
-        <button type="button" className="rounded p-1 text-ink-3 hover:text-ink" aria-label="Ort ändern" onClick={() => onChange(null)}>
+        <button type="button" className="grid size-8 place-items-center rounded-md text-ink-3 hover:bg-sunken hover:text-ink" aria-label="Ort ändern" onClick={() => onChange(null)}>
           <X className="size-4" />
         </button>
       </div>
     );
   return (
     <div className="relative">
-      <MapPin className="pointer-events-none absolute top-3.5 left-3 size-4 text-ink-3" />
+      <MapPin className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-ink-3" />
       <Input
         className="pl-9"
+        aria-label="Ort"
         placeholder="Wo? Element-Code, Standort oder Objekt"
         value={q}
         onChange={(e) => {
@@ -82,14 +91,14 @@ function WherePicker({ where, onChange }: { where: Where; onChange: (w: Where) =
         onFocus={() => setOpen(true)}
       />
       {open && (hits.a.length > 0 || hits.p.length > 0) && (
-        <ul className="absolute inset-x-0 top-full z-10 mt-1 overflow-hidden rounded-xl bg-surface shadow-pop">
+        <ul className="animate-menu absolute inset-x-0 top-full z-10 mt-1 overflow-hidden rounded-xl bg-surface py-1 shadow-pop">
           {hits.a.map((a) => (
             <li key={a.id}>
-              <button type="button" className="flex w-full flex-col px-3 py-2 text-left text-sm hover:bg-sunken" onClick={() => onChange({ kind: 'asset', asset: a })}>
-                <span className="font-medium">
+              <button type="button" className="flex w-full flex-col px-3 py-2 text-left hover:bg-hover" onClick={() => onChange({ kind: 'asset', asset: a })}>
+                <span className="text-body font-medium">
                   {a.code} <span className="font-normal text-ink-3">· {categoryLabel(a.category)}</span>
                 </span>
-                <span className="truncate text-xs text-ink-3">
+                <span className="truncate text-meta text-ink-3">
                   {a.propertyName} · {a.buildingName} · {[a.floor, a.location].filter(Boolean).join(', ')}
                 </span>
               </button>
@@ -97,8 +106,9 @@ function WherePicker({ where, onChange }: { where: Where; onChange: (w: Where) =
           ))}
           {hits.p.map((p) => (
             <li key={p.id}>
-              <button type="button" className="w-full px-3 py-2 text-left text-sm hover:bg-sunken" onClick={() => onChange({ kind: 'property', id: p.id, name: p.name })}>
-                Objekt <b>{p.name}</b>
+              <button type="button" className="w-full px-3 py-2.5 text-left text-body hover:bg-hover" onClick={() => onChange({ kind: 'property', id: p.id, name: p.name })}>
+                <span className="text-ink-3">Objekt </span>
+                <span className="font-medium">{p.name}</span>
               </button>
             </li>
           ))}
@@ -108,49 +118,58 @@ function WherePicker({ where, onChange }: { where: Where; onChange: (w: Where) =
   );
 }
 
+function KindIcon({ kind, className }: { kind: CaptureItem['kind']; className?: string }) {
+  const K = KIND_META[kind];
+  return (
+    <span className={clsx('grid size-8 shrink-0 place-items-center rounded-lg', K.box, className)}>
+      <K.icon className="size-4" />
+    </span>
+  );
+}
+
+/** Eine erkannte Zeile zum Prüfen: Art umschalten, Titel, bei Mängeln Schwere und Maßnahme. */
 function ItemCard({ item, onChange, onRemove }: { item: CaptureItem; onChange: (i: CaptureItem) => void; onRemove: () => void }) {
   const M = KIND_META[item.kind];
   return (
-    <div className="animate-pop flex flex-col gap-3 rounded-2xl bg-sunken/60 p-3">
-      <div className="flex items-center gap-1">
-        {(Object.keys(KIND_META) as CaptureItem['kind'][]).map((k) => {
-          const K = KIND_META[k];
-          return (
+    <div className="animate-pop flex flex-col gap-3 rounded-xl border border-line bg-surface p-3 sm:p-4">
+      <div className="flex items-center gap-2">
+        <KindIcon kind={item.kind} />
+        <div className="flex rounded-lg bg-sunken p-0.5" role="group" aria-label="Art">
+          {(Object.keys(KIND_META) as CaptureItem['kind'][]).map((k) => (
             <button
               key={k}
               type="button"
+              aria-pressed={item.kind === k}
               onClick={() => onChange({ ...item, kind: k })}
-              className={clsx('inline-flex h-8 items-center gap-1.5 rounded-full px-3 text-xs font-medium transition', item.kind === k ? 'bg-surface shadow-card' : 'text-ink-3 hover:text-ink')}
+              className={clsx('h-9 rounded-md px-2.5 text-meta font-medium transition sm:h-8', item.kind === k ? 'bg-surface text-ink shadow-card' : 'text-ink-3 hover:text-ink')}
             >
-              <K.icon className={clsx('size-3.5', item.kind === k && K.cls)} />
-              {K.label}
+              {KIND_META[k].label}
             </button>
-          );
-        })}
-        <button type="button" onClick={onRemove} className="ml-auto rounded-full p-2 text-ink-3 hover:bg-surface hover:text-bad" aria-label="Eintrag entfernen">
+          ))}
+        </div>
+        <button type="button" onClick={onRemove} className="ml-auto grid size-9 place-items-center rounded-lg text-ink-3 hover:bg-bad-soft hover:text-bad" aria-label="Eintrag entfernen">
           <Trash2 className="size-4" />
         </button>
       </div>
       <Input aria-label={`${M.label}: Titel`} value={item.title} onChange={(e) => onChange({ ...item, title: e.target.value })} />
       {item.kind === 'defect' && (
         <>
-          <div className="flex flex-wrap gap-1.5">
-            {(Object.keys(SEVERITIES) as Severity[]).map((s) => (
-              <button
-                key={s}
-                type="button"
-                onClick={() => onChange({ ...item, severity: s })}
-                className={clsx('inline-flex h-8 items-center gap-1.5 rounded-full px-3 text-xs font-medium', item.severity === s ? 'bg-ink text-white' : 'bg-surface text-ink-2')}
-              >
-                <span className={clsx('size-2 rounded-full', SEV_CLS[s])} />
-                {SEVERITIES[s]}
-              </button>
-            ))}
-          </div>
-          <Input aria-label="Maßnahme" placeholder="Maßnahme" value={item.measure} onChange={(e) => onChange({ ...item, measure: e.target.value })} />
+          <RadioChips
+            label="Schweregrad"
+            value={item.severity}
+            onChange={(severity) => onChange({ ...item, severity })}
+            fill
+            options={(Object.keys(SEVERITIES) as Severity[]).map((s) => ({ value: s, label: SEVERITIES[s], leading: <span className={clsx('size-2 rounded-full', sevDot(s))} /> }))}
+          />
+          <Input aria-label="Maßnahme" placeholder="Maßnahme (optional)" value={item.measure} onChange={(e) => onChange({ ...item, measure: e.target.value })} />
         </>
       )}
-      {item.assetCode && <p className="text-xs text-ink-3">Element {item.assetCode}</p>}
+      {(item.assetCode || item.dueInDays != null) && (
+        <p className="flex flex-wrap gap-x-3 text-meta text-ink-3">
+          {item.assetCode && <span>Element {item.assetCode}</span>}
+          {item.dueInDays != null && <span>Frist in {item.dueInDays} Tagen</span>}
+        </p>
+      )}
     </div>
   );
 }
@@ -160,24 +179,26 @@ function LivePreview({ text }: { text: string }) {
   const items = useMemo(() => (text.trim().length > 6 ? parseCapture(text) : []), [text]);
   if (!items.length) return null;
   return (
-    <ul className="flex flex-col gap-1.5" aria-label="Erkannt">
-      {items.slice(0, 6).map((i, n) => {
-        const K = KIND_META[i.kind];
-        return (
-          <li key={n} className="animate-pop flex items-center gap-2 rounded-xl bg-sunken/70 px-3 py-2 text-[13px]">
-            <K.icon className={clsx('size-4 shrink-0', K.cls)} />
+    <div>
+      <p className="mb-1.5 flex items-center gap-1.5 text-caption font-medium text-ink-3">
+        <Sparkles className="size-3.5" /> Wird erkannt
+      </p>
+      <ul className="flex flex-col divide-y divide-line rounded-xl border border-line" aria-label="Erkannt">
+        {items.slice(0, 6).map((i, n) => (
+          <li key={n} className="animate-pop flex min-h-11 items-center gap-2.5 px-3 py-1.5 text-body">
+            <KindIcon kind={i.kind} className="size-7" />
             <span className="min-w-0 flex-1 truncate">{i.title}</span>
             {i.kind === 'defect' && (
-              <span className="inline-flex shrink-0 items-center gap-1 text-xs text-ink-3">
-                <span className={clsx('size-2 rounded-full', SEV_CLS[i.severity])} />
+              <span className="inline-flex shrink-0 items-center gap-1.5 text-meta text-ink-3">
+                <span className={clsx('size-2 rounded-full', sevDot(i.severity))} />
                 {SEVERITIES[i.severity]}
               </span>
             )}
-            {i.dueInDays != null && <span className="shrink-0 text-xs text-ink-3">in {i.dueInDays} T.</span>}
+            {i.dueInDays != null && <span className="shrink-0 text-meta text-ink-3 tabular-nums">in {i.dueInDays} T.</span>}
           </li>
-        );
-      })}
-    </ul>
+        ))}
+      </ul>
+    </div>
   );
 }
 
@@ -278,44 +299,16 @@ export function CaptureSheet({ initial, onClose }: { initial: { assetId?: string
     navigate(to);
   };
 
-  if (done)
+  if (done) {
+    const n = done.defects + done.tasks;
     return (
-      <Modal title="Gespeichert" onClose={onClose}>
-        <div className="flex flex-col items-center gap-4 py-4 text-center">
-          <span className="grid size-16 place-items-center rounded-full bg-ok/15 text-ok">
-            <Check className="size-8" />
-          </span>
-          <p className="text-[15px]">
-            {done.defects + done.tasks === 0
-              ? 'Nichts Neues angelegt.'
-              : `${[done.defects && `${done.defects} ${done.defects === 1 ? 'Mangel' : 'Mängel'}`, done.tasks && `${done.tasks} ${done.tasks === 1 ? 'Aufgabe' : 'Aufgaben'}`].filter(Boolean).join(' und ')} angelegt.`}
-            {done.auto > 0 && <span className="mt-1 block text-sm text-ink-3">Für {done.auto} schwere Mängel wurde automatisch eine Aufgabe mit Frist erstellt.</span>}
-          </p>
-          {done.dupes.length > 0 && (
-            <div className="w-full rounded-xl bg-warn-soft p-3 text-left text-sm">
-              <p className="font-medium text-warn">Nicht doppelt angelegt:</p>
-              <ul className="mt-1 list-disc pl-5 text-ink-2">
-                {done.dupes.map((x) => (
-                  <li key={x.title}>{x.message}</li>
-                ))}
-              </ul>
-              <button
-                type="button"
-                className="mt-2 text-[13px] font-medium text-warn underline underline-offset-4"
-                onClick={async () => {
-                  for (const x of done.dupes) await api('/defects', { body: { ...(x.body as object), force: true } });
-                  qc.invalidateQueries({ queryKey: ['defects'] });
-                  setDone({ ...done, defects: done.defects + done.dupes.length, dupes: [] });
-                }}
-              >
-                Trotzdem anlegen
-              </button>
-            </div>
-          )}
-          <div className="flex w-full flex-col gap-2 sm:flex-row">
+      <Modal
+        title="Gespeichert"
+        onClose={onClose}
+        footer={
+          <>
             <Button
               variant="secondary"
-              className="flex-1"
               onClick={() => {
                 setDone(null);
                 setItems(null);
@@ -324,41 +317,76 @@ export function CaptureSheet({ initial, onClose }: { initial: { assetId?: string
             >
               Weiter erfassen
             </Button>
-            <Button className="flex-1" onClick={() => go(done.defects ? '/maengel' : '/aufgaben')}>
-              Ansehen
-            </Button>
+            <Button onClick={() => go(done.defects ? '/maengel' : '/aufgaben')}>Ansehen</Button>
+          </>
+        }
+      >
+        <div className="flex flex-col gap-4">
+          <div className="flex flex-col items-center gap-2 py-3 text-center">
+            <CheckCircle2 className="size-10 text-ok" strokeWidth={1.75} />
+            <p className="text-title font-semibold">
+              {n === 0
+                ? 'Nichts Neues angelegt'
+                : `${[done.defects && `${done.defects} ${done.defects === 1 ? 'Mangel' : 'Mängel'}`, done.tasks && `${done.tasks} ${done.tasks === 1 ? 'Aufgabe' : 'Aufgaben'}`].filter(Boolean).join(' und ')} angelegt`}
+            </p>
+            {done.auto > 0 && <p className="max-w-xs text-meta text-ink-3">Für {done.auto} schwere Mängel gibt es automatisch eine Aufgabe mit Frist.</p>}
           </div>
+          {done.dupes.length > 0 && (
+            <Notice
+              tone="warn"
+              icon={<AlertTriangle />}
+              title={done.dupes.length === 1 ? 'Gibt es schon' : `${done.dupes.length} gibt es schon`}
+              action={
+                <Button
+                  size="sm"
+                  variant="secondary"
+                  onClick={async () => {
+                    for (const x of done.dupes) await api('/defects', { body: { ...(x.body as object), force: true } });
+                    qc.invalidateQueries({ queryKey: ['defects'] });
+                    setDone({ ...done, defects: done.defects + done.dupes.length, dupes: [] });
+                  }}
+                >
+                  Trotzdem anlegen
+                </Button>
+              }
+            >
+              <ul className="mt-0.5 flex flex-col gap-0.5">
+                {done.dupes.map((x) => (
+                  <li key={x.title}>{x.message}</li>
+                ))}
+              </ul>
+            </Notice>
+          )}
         </div>
       </Modal>
     );
+  }
 
   if (items)
     return (
       <Modal
         title={
-          <span className="flex items-center gap-2">
-            <button type="button" onClick={() => setItems(null)} className="-ml-1 rounded-full p-1 text-ink-3 hover:bg-sunken hover:text-ink" aria-label="Zurück">
+          <span className="flex items-center gap-1.5">
+            <button type="button" onClick={() => setItems(null)} className="-ml-1.5 grid size-8 place-items-center rounded-lg text-ink-3 hover:bg-sunken hover:text-ink" aria-label="Zurück">
               <ArrowLeft className="size-5" />
             </button>
             {items.length} {items.length === 1 ? 'Eintrag' : 'Einträge'} erkannt
           </span>
         }
+        description={source === 'ai' ? 'Von der KI vorsortiert – Art, Schwere und Text bei Bedarf anpassen.' : 'Automatisch vorsortiert – Art, Schwere und Text bei Bedarf anpassen.'}
         onClose={onClose}
         footer={
-          <Button size="lg" className="w-full" loading={busy} disabled={!items.length || needsPlace} onClick={save} icon={<Check className="size-5" />}>
+          <Button size="lg" className="w-full" loading={busy} disabled={!items.length || needsPlace} onClick={save} icon={<Check />}>
             {needsPlace ? 'Erst Ort wählen' : items.length > 1 ? `Alle ${items.length} übernehmen` : 'Übernehmen'}
           </Button>
         }
       >
         <div className="flex flex-col gap-3">
           <WherePicker where={where} onChange={setWhere} />
-          <p className="flex items-center gap-1.5 text-xs text-ink-3">
-            <Sparkles className="size-3.5" />
-            {source === 'ai' ? 'Von der KI vorsortiert' : 'Automatisch vorsortiert'} – Art, Schwere und Text bei Bedarf anpassen.
-          </p>
           {items.map((it, n) => (
             <ItemCard key={n} item={it} onChange={(v) => setItems(items.map((x, j) => (j === n ? v : x)))} onRemove={() => setItems(items.filter((_, j) => j !== n))} />
           ))}
+          {!items.length && <p className="py-6 text-center text-body text-ink-3">Alle Einträge entfernt. Geh zurück, um neu zu sprechen.</p>}
         </div>
       </Modal>
     );
@@ -368,26 +396,31 @@ export function CaptureSheet({ initial, onClose }: { initial: { assetId?: string
       title="Erfassen"
       onClose={onClose}
       footer={
-        <Button size="lg" className="w-full" loading={busy} disabled={!text.trim() || d.state !== 'idle'} onClick={analyse} icon={<Sparkles className="size-5" />}>
+        <Button size="lg" className="w-full" loading={busy} disabled={!text.trim() || d.state !== 'idle'} onClick={analyse} icon={<Sparkles />}>
           Auswerten
         </Button>
       }
     >
       <div className="flex flex-col gap-4">
-        <BigMic dictation={d} label="Sag einfach, was dir auffällt" hint="Tipp: Element-Code, Schwere oder Frist („bis Freitag“) gleich mitsagen" />
+        <BigMic dictation={d} label="Sag einfach, was dir auffällt" hint="Element-Code, Schwere oder Frist („bis Freitag“) gleich mitsagen." />
         <Textarea
           dictate={false}
           aria-label="Erfasster Text"
-          placeholder="z. B. „Tür im 2. OG schließt nicht, Dichtung fehlt. Hausmeister bis Freitag informieren.“"
+          placeholder="Oder tippen, z. B. „Tür im 2. OG schließt nicht, Dichtung fehlt. Hausmeister bis Freitag informieren.“"
           value={text}
           onChange={(e) => setText(e.target.value)}
-          className="min-h-28"
+          className="min-h-24"
         />
         <LivePreview text={text} />
         <WherePicker where={where} onChange={setWhere} />
         <div className="grid grid-cols-2 gap-2">
           {QUICK.map((q) => (
-            <Link key={q.to} to={q.to} onClick={onClose} className="flex h-12 items-center justify-center gap-2 rounded-xl bg-sunken text-sm font-medium text-ink-2 hover:text-ink">
+            <Link
+              key={q.to}
+              to={q.to}
+              onClick={onClose}
+              className="flex h-11 items-center justify-center gap-2 rounded-lg border border-line text-meta font-medium text-ink-2 transition-colors hover:bg-hover hover:text-ink"
+            >
               <q.icon className="size-4" /> {q.label}
             </Link>
           ))}

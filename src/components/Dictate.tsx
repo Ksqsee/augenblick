@@ -47,52 +47,44 @@ export function FieldMic({ target, className }: { target: RefObject<HTMLInputEle
 }
 
 /** Wellenform aus den letzten Pegelwerten (Live-Anzeige während der Aufnahme). */
-function Wave({ level, active }: { level: number; active: boolean }) {
-  const [bars, setBars] = useState<number[]>(() => Array(28).fill(0.08));
+export function Wave({ level, active, bars: count = 28, className }: { level: number; active: boolean; bars?: number; className?: string }) {
+  const [bars, setBars] = useState<number[]>(() => Array(count).fill(0.08));
   useEffect(() => {
-    if (!active) return setBars(Array(28).fill(0.08));
+    if (!active) return setBars(Array(count).fill(0.08));
     setBars((b) => [...b.slice(1), Math.max(0.08, level)]);
-  }, [level, active]);
+  }, [level, active, count]);
   return (
-    <div className="flex h-10 items-center gap-[3px]" aria-hidden>
+    <div className={clsx('flex h-10 items-center gap-[3px]', className)} aria-hidden>
       {bars.map((v, i) => (
-        <span key={i} className={clsx('w-[3px] rounded-full transition-[height] duration-75', active ? 'bg-bad' : 'bg-line-strong')} style={{ height: `${Math.round(8 + v * 32)}px` }} />
+        <span key={i} className={clsx('w-[3px] rounded-full transition-[height] duration-75', active ? 'bg-ink' : 'bg-line-strong')} style={{ height: `${Math.round(6 + v * 30)}px` }} />
       ))}
     </div>
   );
 }
 
-/** Großer Aufnahmeknopf mit Wellenform und Zeit. */
+/** Großer Aufnahmeknopf mit Wellenform und Zeit (Erfassen). */
 export function BigMic({ dictation: d, label = 'Tippen und sprechen', hint }: { dictation: ReturnType<typeof useDictation>; label?: string; hint?: string }) {
   const rec = d.state === 'recording';
   const busy = d.state === 'transcribing';
   return (
-    <div className="flex flex-col items-center gap-3">
-      <div className="flex w-full items-center justify-center gap-4">
-        <div className="hidden min-w-0 flex-1 justify-end sm:flex">{rec && <Wave level={d.level} active />}</div>
-        <button
-          type="button"
-          aria-label={rec ? 'Aufnahme beenden' : 'Aufnahme starten'}
-          disabled={busy || d.engine === 'none'}
-          onClick={() => (rec ? d.stop() : d.start())}
-          className={clsx(
-            'relative grid size-20 shrink-0 place-items-center rounded-full text-white shadow-lift transition active:scale-95 disabled:opacity-50',
-            rec ? 'animate-rec bg-bad' : 'bg-brand hover:bg-brand-strong',
-          )}
-        >
-          {busy ? <Loader2 className="size-8 animate-spin" /> : rec ? <Square className="size-7 fill-current" /> : <Mic className="size-8" />}
-        </button>
-        <div className="hidden min-w-0 flex-1 sm:flex">{rec && <Wave level={d.level} active />}</div>
-      </div>
-      {rec && (
-        <div className="sm:hidden">
-          <Wave level={d.level} active />
-        </div>
-      )}
-      <p className={clsx('text-center text-sm', d.error ? 'text-bad' : rec ? 'font-medium text-ink' : 'text-ink-3')}>
-        {d.error || (rec ? `Ich höre zu · ${fmtSeconds(d.seconds)}` : busy ? 'Wandle Sprache in Text um…' : d.engine === 'none' ? 'Diktat in diesem Browser nicht verfügbar – einfach tippen' : label)}
+    <div className="flex flex-col items-center gap-3 pt-1">
+      <button
+        type="button"
+        aria-label={rec ? 'Aufnahme beenden' : 'Aufnahme starten'}
+        disabled={busy || d.engine === 'none'}
+        onClick={() => (rec ? d.stop() : d.start())}
+        className={clsx(
+          'relative grid size-[72px] shrink-0 place-items-center rounded-full text-white transition active:scale-95 disabled:opacity-50',
+          rec ? 'animate-rec bg-bad' : 'bg-brand shadow-[0_6px_16px_-4px_rgb(232_89_12/0.45)] hover:bg-brand-strong',
+        )}
+      >
+        {busy ? <Loader2 className="size-7 animate-spin" /> : rec ? <Square className="size-6 fill-current" /> : <Mic className="size-7" />}
+      </button>
+      <div className="flex h-10 items-center">{rec ? <Wave level={d.level} active bars={32} /> : <Wave level={0} active={false} bars={32} />}</div>
+      <p className={clsx('-mt-1 text-center text-body', d.error ? 'text-bad' : rec ? 'font-medium text-ink tabular-nums' : 'font-medium text-ink')}>
+        {d.error || (rec ? `Ich höre zu · ${fmtSeconds(d.seconds)}` : busy ? 'Wandle Sprache in Text um …' : d.engine === 'none' ? 'Diktat hier nicht verfügbar – einfach tippen' : label)}
       </p>
-      {hint && !rec && !busy && <p className="-mt-2 text-center text-xs text-ink-3">{hint}</p>}
+      {hint && !rec && !busy && <p className="-mt-2 max-w-xs text-center text-meta text-ink-3">{hint}</p>}
     </div>
   );
 }

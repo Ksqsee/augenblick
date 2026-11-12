@@ -11,8 +11,7 @@ require('fs').mkdirSync(OUT, { recursive: true });
   const p = await ctx.newPage();
   const errors = [];
   p.on('pageerror', e => errors.push('pageerror ' + e.message));
-  p.on('console', m => m.type() === 'error' && errors.push('console ' + m.text()));
-  const shot = n => p.screenshot({ path: OUT + n + '.png', fullPage: true });
+  p.on('console', m => m.type() === 'error' && errors.push('console ' + m.text()));  const shot = n => p.screenshot({ path: OUT + n + '.png', fullPage: true });
   const email = `test${Date.now()}@example.com`;
 
   await p.goto(BASE + '/registrieren');
@@ -61,6 +60,7 @@ require('fs').mkdirSync(OUT, { recursive: true });
   await p.waitForURL(/\/pruefung\//);
   await p.getByRole('radio', { name: 'Mangel' }).nth(8).click();
   await p.getByRole('button', { name: 'Rest i. O.' }).click();
+  await p.getByRole('dialog').getByRole('button', { name: 'Alle i. O. setzen' }).click();
   await p.getByRole('radio', { name: 'Hoch' }).click();
   await p.getByPlaceholder('Beschreibung (optional)').fill('Dichtung oben 20 cm abgerissen');
   await p.getByRole('button', { name: 'Bänder geschmiert' }).click();
