@@ -261,6 +261,36 @@ const check = (ok, m) => {
   await p.screenshot({ path: OUT + '02-task-mention.png' });
   await p.keyboard.press('Escape');
 
+  step('Oberfläche: Suche, Tastatur und Eigenschaften direkt im Panel');
+  await p.goto(BASE + '/aufgaben');
+  await p.locator('[data-task]').first().waitFor();
+  await p.getByRole('searchbox', { name: 'Suchen' }).fill('E2E heute');
+  await p.locator('[data-task]', { hasText: 'E2E heute fällig' }).waitFor();
+  check((await p.locator('[data-task]').count()) === 1, `Suche filtert die Liste (${await p.locator('[data-task]').count()})`);
+  await p.getByRole('searchbox', { name: 'Suchen' }).fill('');
+  await p.locator('[data-task] [data-row-main]').first().focus();
+  await p.keyboard.press('ArrowDown');
+  const focusedId = await p.evaluate(() => document.activeElement?.closest('[data-task]')?.getAttribute('data-task'));
+  check(focusedId === (await p.locator('[data-task]').nth(1).getAttribute('data-task')), 'Pfeiltaste springt zur nächsten Zeile');
+  await p.keyboard.press('x');
+  await p.getByRole('region', { name: 'Mehrfachbearbeitung' }).getByText('1 ausgewählt').waitFor();
+  await p.keyboard.press('Escape');
+  await p.getByRole('region', { name: 'Mehrfachbearbeitung' }).waitFor({ state: 'detached' });
+  await p.locator('[data-task]', { hasText: 'E2E heute fällig' }).locator('[data-row-main]').click();
+  const pd = p.getByRole('dialog');
+  await pd.getByLabel('Priorität').selectOption('low');
+  let prioSaved = false;
+  for (let i = 0; i < 20 && !prioSaved; i++) {
+    prioSaved = (await api('/tasks')).json.find((t) => t.title === 'E2E heute fällig')?.priority === 'low';
+    if (!prioSaved) await p.waitForTimeout(250);
+  }
+  check(prioSaved, 'Priorität im Panel sofort gespeichert');
+  await pd.getByLabel('Titel').fill('E2E heute fällig (umbenannt)');
+  await pd.getByLabel('Titel').press('Enter');
+  await p.locator('[data-task]', { hasText: 'E2E heute fällig (umbenannt)' }).waitFor();
+  await p.keyboard.press('Escape');
+  await pd.waitFor({ state: 'detached' });
+
   step('Oberfläche: Mehrfachbearbeitung');
   await p.goto(BASE + '/aufgaben');
   const rows = p.locator('[data-task]');
@@ -295,9 +325,9 @@ const check = (ok, m) => {
   check((await p.locator('[data-action]').count()) > 0, 'Handlungsbedarf-Liste');
   await p.screenshot({ path: OUT + '03-action.png', fullPage: true });
   await p.getByRole('tab', { name: 'Offen' }).click();
-  const card = p.locator('div.grid > div').filter({ has: p.getByRole('button', { name: 'Behoben' }) }).first();
-  const title = (await card.locator('button.text-left').first().textContent()).trim();
-  await card.getByRole('button', { name: 'Details' }).click();
+  const card = p.locator('[data-defect]').filter({ has: p.getByRole('button', { name: 'Als behoben markieren' }) }).first();
+  const title = (await card.locator('[data-title]').textContent()).trim();
+  await card.locator('[data-row-main]').click();
   const drawer = p.locator('aside');
   await drawer.getByText('Verlauf').waitFor();
   await drawer.getByText('Bei der Prüfung erfasst').or(drawer.getByText('Erfasst', { exact: true })).first().waitFor();
@@ -341,10 +371,33 @@ const check = (ok, m) => {
   await mp.goto(BASE + '/aufgaben');
   await mp.locator('[data-task]').first().waitFor();
   await wide('/aufgaben');
+  check((await mp.locator('[data-task]').nth(0).getByRole('checkbox').count()) === 0 || !(await mp.locator('[data-task]').nth(0).getByRole('checkbox').isVisible()), 'Handy: Auswahl erst im Auswahlmodus');
+  await mp.getByRole('button', { name: 'Auswählen' }).click();
   await mp.locator('[data-task]').nth(0).getByRole('checkbox').check();
   await mp.getByRole('region', { name: 'Mehrfachbearbeitung' }).waitFor();
   await wide('/aufgaben mit Auswahl');
   await mp.screenshot({ path: OUT + '05-mobile-tasks.png', fullPage: true });
+  // Wischen nach rechts erledigt eine Aufgabe (Touch)
+  await mp.goto(BASE + '/aufgaben');
+  const swipeRow = mp.locator('[data-task]', { hasText: 'E2E Sonstiges' }).locator('[data-row-main]');
+  await swipeRow.waitFor();
+  const bb = await swipeRow.boundingBox();
+  const y = bb.y + bb.height / 2;
+  const fire = (type, x) => swipeRow.dispatchEvent(type, { pointerType: 'touch', pointerId: 7, isPrimary: true, clientX: x, clientY: y, bubbles: true });
+  await fire('pointerdown', 40);
+  for (const x of [60, 90, 130, 170, 200]) {
+    await fire('pointermove', x);
+    await mp.waitForTimeout(30);
+  }
+  await fire('pointerup', 200);
+  await mp.getByText('Erledigt', { exact: true }).first().waitFor();
+  let swiped = false;
+  for (let i = 0; i < 20 && !swiped; i++) {
+    swiped = (await api('/tasks')).json.find((t) => t.id === otherId)?.status === 'done';
+    if (!swiped) await mp.waitForTimeout(250);
+  }
+  check(swiped, 'Handy: Wischen nach rechts erledigt die Aufgabe');
+  await api('/tasks/bulk', { data: { ids: [otherId], status: 'open' } });
   await mp.goto(BASE + '/aufgaben?id=' + otherId);
   await mp.getByRole('dialog').getByTestId('watchers').waitFor();
   await wide('Aufgabe geöffnet');
