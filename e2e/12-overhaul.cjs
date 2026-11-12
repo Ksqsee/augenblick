@@ -59,6 +59,19 @@ const check = (ok, m) => {
   check((await p.getByRole('heading', { name: 'Rundgänge' }).count()) === 1, 'Rundgänge-Liste');
   await p.screenshot({ path: OUT + '01-heute.png', fullPage: true });
 
+  step('Suche in normaler Sprache');
+  await p.keyboard.press('Control+k');
+  await p.getByRole('dialog', { name: 'Suche' }).locator('input').fill('überfällige Feuerlöscher');
+  await p.getByText(/Elemente anzeigen: Überfällig · Feuerlöscher/).waitFor();
+  await p.keyboard.press('Enter');
+  await p.waitForURL((u) => u.pathname === '/elemente' && u.searchParams.get('status') === 'overdue' && !!u.searchParams.get('kategorie'));
+  {
+    const cat = new URL(p.url()).searchParams.get('kategorie');
+    const list = (await api(`/assets?due=overdue&category=${cat}`)).json;
+    await p.getByText(`${list.length} Elemente`).waitFor();
+    check(list.length > 0, `gefilterte Liste (${list.length})`);
+  }
+
   step('API: Mangel ohne Prüfung');
   const assets = (await api('/assets')).json;
   const a = assets[0];

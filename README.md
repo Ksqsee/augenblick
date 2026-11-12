@@ -17,6 +17,7 @@ API: [`docs/api.md`](docs/api.md)
   Mängel (Schwere, Maßnahme), Aufgaben (Frist) und Notizen; Element-Codes werden erkannt, die aktuelle Seite gibt den Ort vor
 - **Diktat in jedem Textfeld** und „Befund einsprechen“ im Prüfablauf (Mängel landen beim passenden Prüfpunkt);
   Vorschläge für Maßnahme und Schweregrad; Workers AI (Whisper/Llama), ohne KI Spracherkennung des Browsers und Regeln
+- **Suche in normaler Sprache** (Strg+K): „überfällige Feuerlöscher Grundschule“ öffnet die passend gefilterte Liste
 - **Rundgang**: fällige Elemente eines Gebäudes in Laufreihenfolge, nach jeder Prüfung direkt weiter zum nächsten
 - **Automatische Aufgaben** für schwere Mängel (SLA-Frist), abschaltbar; **Typenschild-Foto** füllt Hersteller/Modell
 - **MCP-Server** im Worker (`/api/mcp`) mit **OAuth-Anmeldung** (Freigabe mit API-Schlüssel oder neuer Verbindung): Prüfkompass als Werkzeugkasten für Claude – siehe `docs/api.md`

@@ -1,9 +1,11 @@
 import { useQuery } from '@tanstack/react-query';
 import clsx from 'clsx';
-import { Building, Building2, Search as SearchIcon } from 'lucide-react';
+import { Building, Building2, Search as SearchIcon, SlidersHorizontal } from 'lucide-react';
 import { type ReactNode, useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { api, type SearchResult } from '../api';
+import { parseQuery, queryUrl } from '../../shared/query';
+import { api, type SearchResult, useProperties } from '../api';
+import { allCategories } from '../categories';
 import { categoryLabel } from '../format';
 import { CategoryIcon } from './CategoryIcon';
 
@@ -61,9 +63,30 @@ export function SearchPalette({ onClose }: { onClose: () => void }) {
     enabled: debounced.length >= 2,
     staleTime: 10_000,
   });
+  const props = useProperties();
+  const smart = useMemo(() => {
+    if (debounced.length < 3) return null;
+    return parseQuery(debounced, { categories: allCategories().map((c) => ({ key: c.key, label: c.label, plural: c.plural })), properties: props.data ?? [] });
+  }, [debounced, props.data]);
   const hits: Hit[] = useMemo(() => {
-    if (!data) return [];
+    const first: Hit[] = smart
+      ? [
+          {
+            key: 'smart',
+            to: queryUrl(smart),
+            icon: (
+              <span className="grid size-8 place-items-center rounded-lg bg-brand-soft text-brand-strong">
+                <SlidersHorizontal className="size-4" />
+              </span>
+            ),
+            title: `${smart.target === 'defects' ? 'Mängel' : smart.target === 'tasks' ? 'Aufgaben' : 'Elemente'} anzeigen: ${smart.chips.join(' · ') || 'alle'}`,
+            sub: smart.rest ? `und Text „${smart.rest}“` : 'Gefilterte Liste öffnen',
+          },
+        ]
+      : [];
+    if (!data) return first;
     return [
+      ...first,
       ...data.assets.map((a) => ({
         key: `a${a.id}`,
         to: `/elemente/${a.id}`,
@@ -94,7 +117,7 @@ export function SearchPalette({ onClose }: { onClose: () => void }) {
         sub: b.propertyName,
       })),
     ];
-  }, [data]);
+  }, [data, smart]);
   useEffect(() => setIdx(0), [hits]);
   const go = (h: Hit) => {
     navigate(h.to);
@@ -118,7 +141,7 @@ export function SearchPalette({ onClose }: { onClose: () => void }) {
                 setIdx((i) => Math.max(0, i - 1));
               } else if (e.key === 'Enter' && hits[idx]) go(hits[idx]);
             }}
-            placeholder="Element-Code, Standort, Objekt, Gebäude …"
+            placeholder="Code, Ort – oder z. B. „überfällige Feuerlöscher Grundschule“"
             className="h-14 flex-1 bg-transparent text-[15px] outline-none placeholder:text-ink-3"
           />
           {isFetching && <span className="text-xs text-ink-3">…</span>}

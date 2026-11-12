@@ -2,7 +2,7 @@ import { allCategories } from '../categories';
 import { Package, Plus, Search } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
-import { type Asset, useAssets, useMe } from '../api';
+import { type Asset, useAssets, useMe, useProperties } from '../api';
 import { AssetDrawer } from '../components/AssetDrawer';
 import { AssetList } from '../components/AssetList';
 import { AssetForm } from '../components/forms';
@@ -17,11 +17,13 @@ const DUE_FILTERS = [
 
 export function AssetsPage() {
   const [params, setParams] = useSearchParams();
-  const [q, setQ] = useState('');
-  const [debounced, setDebounced] = useState('');
+  const [q, setQ] = useState(params.get('q') ?? '');
+  const [debounced, setDebounced] = useState(params.get('q') ?? '');
   const category = params.get('kategorie') ?? undefined;
   const due = params.get('status') ?? undefined;
-  const { data, isLoading, error } = useAssets({ q: debounced, category, due });
+  const propertyId = params.get('objekt') ?? undefined;
+  const { data, isLoading, error } = useAssets({ q: debounced, category, due, propertyId });
+  const { data: properties } = useProperties();
   const { data: me } = useMe();
   const [selected, setSelected] = useState<Asset | null>(null);
   const navigate = useNavigate();
@@ -71,6 +73,11 @@ export function AssetsPage() {
               {c.plural}
             </Chip>
           ))}
+          {propertyId && (
+            <Chip active onClick={() => setParam('objekt')}>
+              {properties?.find((p) => p.id === propertyId)?.name ?? 'Objekt'} ×
+            </Chip>
+          )}
           <span className="mx-1 w-px shrink-0 bg-line" />
           {DUE_FILTERS.map((f) => (
             <Chip key={f.value} active={due === f.value} onClick={() => setParam('status', due === f.value ? undefined : f.value)}>
@@ -86,7 +93,7 @@ export function AssetsPage() {
         <ErrorBox error={error} />
       ) : !data?.length ? (
         <Card>
-          <Empty icon={<Package className="size-5" />} title="Keine Elemente gefunden" text={q || category || due ? 'Passe Suche oder Filter an.' : 'Lege dein erstes Element an.'} />
+          <Empty icon={<Package className="size-5" />} title="Keine Elemente gefunden" text={q || category || due || propertyId ? 'Passe Suche oder Filter an.' : 'Lege dein erstes Element an.'} />
         </Card>
       ) : (
         <Card className="overflow-hidden">
