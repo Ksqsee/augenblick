@@ -107,9 +107,13 @@ async function login(b, email) {
     await d.saveAs(OUT + 'protokoll.pdf');
     check(fs.statSync(OUT + 'protokoll.pdf').size > 3000, 'Protokoll-PDF');
 
-    step('Mängelliste zeigt Maßnahme');
+    step('Mängelliste findet die Maßnahme, Detail zeigt sie');
     await p.goto(BASE + '/maengel');
-    await p.getByText('Obentürschließer tauschen (Fachfirma)').first().waitFor();
+    // v3: Maßnahme steht im Detail, nicht in der Zeile – die Suche findet sie
+    await p.getByRole('searchbox', { name: 'Suchen' }).fill('Obentürschließer tauschen');
+    await p.locator('[data-defect]').first().waitFor();
+    await p.locator('[data-defect] [data-row-main]').first().click();
+    await p.locator('aside').getByText('Obentürschließer tauschen (Fachfirma)').first().waitFor();
   }
 
   console.log(errors.length ? 'ERRORS\n' + errors.join('\n') : 'no page errors');

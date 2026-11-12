@@ -105,8 +105,14 @@ const step = (m) => console.log('·', m);
   step('defects filter');
   await p.goto(BASE + '/maengel');
   await p.getByRole('tab', { name: 'Begehungen' }).click();
-  await p.getByText('Palette im Fluchtweg Achse 7').waitFor();
-  await shot('08-defects-walk');
+  // v3: die Notiz steht im Detail, nicht in der Zeile – die Suche findet sie trotzdem
+  await p.getByRole('searchbox', { name: 'Suchen' }).fill('Palette im Fluchtweg');
+  await p.locator('[data-defect]').first().waitFor();
+  if ((await p.locator('[data-defect]').count()) !== 1) throw new Error('Suche nach Notiz findet den Begehungsmangel nicht eindeutig');
+  await p.locator('[data-defect] [data-row-main]').first().click();
+  await p.locator('aside').getByText('Palette im Fluchtweg Achse 7').waitFor();
+  await shot('08-defects-walk', false);
+  await p.keyboard.press('Escape');
 
   step('task share + external');
   await p.goto(BASE + '/aufgaben');

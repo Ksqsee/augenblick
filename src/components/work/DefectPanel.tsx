@@ -3,7 +3,8 @@ import { type ReactNode, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { api, type Defect, type DefectDetail, useAction, useDefect, useMe } from '../../api';
 import { categoryLabel, fmtDate, fmtDateTime, fmtRelative } from '../../format';
-import { Badge, Button, Chip, ErrorBox, Field, Input, Modal, Notice, SeverityBadge, Skeleton, StatusDot, Timeline, type TimelineItem, useToast } from '../ui';
+import { Button, Chip, ErrorBox, Field, Input, Modal, Notice, Skeleton, StatusDot, StatusText, Timeline, type TimelineItem, useToast } from '../ui';
+import { SeverityText } from './fields';
 import { TASK_STATUS } from './model';
 import { PanelSection, Prop, WorkPanel } from './Panel';
 import { PhotoPair } from './Photos';
@@ -50,11 +51,9 @@ export function DefectPanel({ id, onClose, onTask, onResolve }: { id: string; on
         meta={
           d && (
             <>
-              <SeverityBadge severity={d.severity} />
-              <Badge tone={resolved ? 'ok' : 'warn'} dot>
-                {resolved ? 'Behoben' : 'Offen'}
-              </Badge>
-              {d.hiddenAt && <Badge tone="muted">Ausgeblendet</Badge>}
+              <SeverityText severity={d.severity} />
+              <StatusText tone={resolved ? 'ok' : 'muted'}>{resolved ? 'Behoben' : 'Offen'}</StatusText>
+              {d.hiddenAt && <span className="text-ink-2">Ausgeblendet</span>}
             </>
           )
         }
@@ -63,11 +62,11 @@ export function DefectPanel({ id, onClose, onTask, onResolve }: { id: string; on
             <div className="grid grid-cols-2 gap-x-4 md:grid-cols-1">
               <Prop label="Ort">
                 {d.assetId ? (
-                  <Link to={`/elemente/${d.assetId}`} className="font-medium hover:underline">
+                  <Link to={`/elemente/${d.assetId}`} className="font-medium underline decoration-line-strong underline-offset-4 hover:decoration-ink">
                     {d.code}
                   </Link>
                 ) : d.walkthroughId ? (
-                  <Link to={`/druck/begehung/${d.walkthroughId}`} className="font-medium hover:underline">
+                  <Link to={`/druck/begehung/${d.walkthroughId}`} className="underline decoration-line-strong underline-offset-4 hover:decoration-ink">
                     Begehung
                   </Link>
                 ) : null}
@@ -86,7 +85,7 @@ export function DefectPanel({ id, onClose, onTask, onResolve }: { id: string; on
               )}
               {d.inspectionId && (
                 <Prop label="Prüfprotokoll">
-                  <Link to={`/druck/protokoll/${d.inspectionId}`} className="font-medium hover:underline">
+                  <Link to={`/druck/protokoll/${d.inspectionId}`} className="underline decoration-line-strong underline-offset-4 hover:decoration-ink">
                     Öffnen ›
                   </Link>
                 </Prop>
@@ -138,7 +137,7 @@ export function DefectPanel({ id, onClose, onTask, onResolve }: { id: string; on
       >
         {isLoading ? (
           <div className="flex flex-col gap-3" role="status" aria-label="Lädt">
-            <Skeleton className="aspect-[8/3] w-full rounded-xl" />
+            <Skeleton className="aspect-[8/3] w-full rounded-lg" />
             <Skeleton className="h-4 w-3/4" />
             <Skeleton className="h-4 w-1/2" />
           </div>
@@ -167,27 +166,26 @@ export function DefectPanel({ id, onClose, onTask, onResolve }: { id: string; on
               )}
               {resolved && (
                 <PanelSection title="Behebung">
-                  <div className="rounded-xl border border-ok-line bg-ok-soft/60 px-3.5 py-3">
-                    <p className="flex items-center gap-1.5 text-meta font-medium text-ok">
-                      <Check className="size-3.5" strokeWidth={3} />
+                  <div className="border-l-2 border-line pl-3">
+                    <p className="text-body break-words text-ink">{d.resolutionNote || <span className="text-ink-3">Ohne Notiz.</span>}</p>
+                    <p className="mt-1 text-meta text-ink-3">
                       {fmtDate(d.resolvedAt)}
                       {d.resolvedByName ? ` · ${d.resolvedByName}` : ''}
                     </p>
-                    <p className="mt-1 text-body break-words text-ink">{d.resolutionNote || <span className="text-ink-3">Ohne Notiz.</span>}</p>
                   </div>
                 </PanelSection>
               )}
               <PanelSection title="Aufgaben">
                 {d.tasks.length ? (
-                  <ul className="divide-y divide-line overflow-hidden rounded-xl border border-line">
+                  <ul className="-mx-2 divide-y divide-line">
                     {d.tasks.map((t) => (
                       <li key={t.id}>
-                        <Link to={`/aufgaben?id=${t.id}`} className="flex min-h-12 items-center gap-3 px-3.5 py-2 transition-colors hover:bg-hover">
-                          <StatusDot tone={t.status === 'done' ? 'ok' : t.status === 'in_progress' ? 'info' : t.status === 'cancelled' ? 'muted' : 'warn'} />
+                        <Link to={`/aufgaben?id=${t.id}`} className="flex min-h-11 items-center gap-3 rounded-md px-2 py-2 transition-colors hover:bg-hover">
                           <span className="min-w-0 flex-1 truncate text-body">{t.title}</span>
-                          <span className="shrink-0 text-meta text-ink-3">
+                          <span className="flex shrink-0 items-center gap-1.5 text-meta text-ink-2">
+                            <StatusDot tone={t.status === 'done' ? 'ok' : t.status === 'in_progress' ? 'info' : t.status === 'cancelled' ? 'muted' : 'warn'} />
                             {TASK_STATUS[t.status]}
-                            {t.assigneeName ? ` · ${t.assigneeName}` : ''}
+                            {t.assigneeName ? <span className="text-ink-3"> · {t.assigneeName}</span> : ''}
                           </span>
                         </Link>
                       </li>

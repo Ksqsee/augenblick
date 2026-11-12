@@ -1,4 +1,4 @@
-import { AlertTriangle, CheckCheck, ClipboardCheck, Copy, Eye, EyeOff, HardHat, Link2, Plus, Trash2 } from 'lucide-react';
+import { CheckCheck, ChevronRight, ClipboardCheck, Copy, Eye, EyeOff, HardHat, Link2, Plus, Trash2 } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { RECURRENCES } from '../../../shared/automation';
@@ -7,10 +7,10 @@ import { api, type Task, useAction, useMe, useMembers, useSubcontractors, useTas
 import { fmtDate, fmtDateTime } from '../../format';
 import { useStartInspection } from '../AssetDrawer';
 import { ResolveDefectDialog } from '../DefectResolve';
-import { Avatar, Badge, Button, ErrorBox, Input, Menu, type MenuItem, Notice, SeverityBadge, Textarea, useConfirm, useToast } from '../ui';
+import { Avatar, Button, ErrorBox, Input, Menu, type MenuItem, Notice, Textarea, useConfirm, useToast } from '../ui';
 import { Activity, type ActivityEvent } from './Activity';
-import { AssetCodes, LabelPicker } from './fields';
-import { fromDateInput, isOpenTask, KIND_ICON, needsDefectQuestion, patchTask, TASK_PRIO, TASK_STATUS, toDateInput } from './model';
+import { AssetCodes, LabelPicker, SeverityText } from './fields';
+import { fromDateInput, isOpenTask, needsDefectQuestion, patchTask, TASK_PRIO, TASK_STATUS, toDateInput } from './model';
 import { PanelSection, Prop, propSelectCls, WorkPanel } from './Panel';
 import { StatusToggle } from './rows';
 
@@ -115,7 +115,6 @@ export function TaskPanel({ task, onClose }: { task: Task; onClose: () => void }
   );
 
   const done = t.status === 'done';
-  const KindIcon = KIND_ICON[t.kind ?? 'other'];
   const events: ActivityEvent[] = [
     { id: 'created', at: t.createdAt, icon: <Plus />, title: <>{t.createdByName ?? 'Jemand'} hat die Aufgabe angelegt</> },
     ...(t.externalDoneAt ? [{ id: 'ext', at: t.externalDoneAt, icon: <HardHat />, tone: 'ok' as const, title: <>{t.subcontractorName ?? 'Die Firma'} hat sie als erledigt gemeldet</> }] : []),
@@ -142,7 +141,6 @@ export function TaskPanel({ task, onClose }: { task: Task; onClose: () => void }
         label={t.title}
         eyebrow={
           <span className="flex items-center gap-1.5">
-            <KindIcon className="size-4 shrink-0" />
             {TASK_KINDS[t.kind ?? 'other']}
             {save.isPending && <span className="text-ink-4">· Speichert …</span>}
           </span>
@@ -178,13 +176,9 @@ export function TaskPanel({ task, onClose }: { task: Task; onClose: () => void }
           <>
             <Watchers taskId={task.id} />
             {isOpenTask(t) && t.sla && (
-              <span className="flex flex-wrap gap-1.5">
-                <Badge tone={t.sla.responseBreached ? 'bad' : 'muted'} variant="outline" size="sm">
-                  Reaktion bis {fmtDateTime(t.sla.responseDue)}
-                </Badge>
-                <Badge tone={t.sla.resolveBreached ? 'bad' : 'muted'} variant="outline" size="sm">
-                  Lösung bis {fmtDateTime(t.sla.resolveDue)}
-                </Badge>
+              <span className="flex flex-wrap gap-x-3 tabular-nums">
+                <span className={t.sla.responseBreached ? 'text-shu' : undefined}>Reaktion bis {fmtDateTime(t.sla.responseDue)}</span>
+                <span className={t.sla.resolveBreached ? 'text-shu' : undefined}>Lösung bis {fmtDateTime(t.sla.resolveDue)}</span>
               </span>
             )}
           </>
@@ -192,9 +186,9 @@ export function TaskPanel({ task, onClose }: { task: Task; onClose: () => void }
         side={<Properties t={t} canEdit={canEdit} set={set} code={code} setCode={setCode} commitCode={commitCode} members={members.data?.members ?? []} subs={subs.data ?? []} error={save.error} />}
       >
         {t.kind === 'inspection' && t.assetId && isOpenTask(t) && canEdit && (
-          <div className="mb-6 flex flex-col gap-3 rounded-xl bg-canvas p-4 sm:flex-row sm:items-center">
+          <div className="mb-6 flex flex-col gap-3 sm:flex-row sm:items-center">
             <div className="min-w-0 flex-1">
-              <p className="text-body font-medium">Prüfauftrag für {t.assetCode}</p>
+              <p className="text-body text-ink">Prüfauftrag für {t.assetCode}</p>
               <p className="text-meta text-ink-3">Mit dem Abschluss der Prüfung wird dieser Auftrag automatisch erledigt.</p>
             </div>
             <Button icon={<ClipboardCheck />} loading={start.isPending} onClick={() => start.mutate({ assetId: t.assetId!, taskId: t.id })}>
@@ -203,9 +197,9 @@ export function TaskPanel({ task, onClose }: { task: Task; onClose: () => void }
           </div>
         )}
         {t.kind === 'defect' && t.assetId && t.defectStatus === 'open' && isOpenTask(t) && canEdit && (
-          <div className="mb-6 flex flex-col gap-3 rounded-xl bg-canvas p-4 sm:flex-row sm:items-center">
+          <div className="mb-6 flex flex-col gap-3 sm:flex-row sm:items-center">
             <div className="min-w-0 flex-1">
-              <p className="text-body font-medium">Behebung vor Ort prüfen</p>
+              <p className="text-body text-ink">Behebung vor Ort prüfen</p>
               <p className="text-meta text-ink-3">Startet die Nachprüfung zu {t.assetCode}; ist der Punkt in Ordnung, gilt der Mangel als behoben.</p>
             </div>
             <Button variant="secondary" icon={<ClipboardCheck />} loading={start.isPending} onClick={() => start.mutate({ assetId: t.assetId!, taskId: t.id })}>
@@ -234,15 +228,15 @@ export function TaskPanel({ task, onClose }: { task: Task; onClose: () => void }
         </PanelSection>
         {t.defectId && (
           <PanelSection title="Mangel">
-            <Link to={`/maengel?id=${t.defectId}`} className="flex items-center gap-3 rounded-xl border border-line px-3.5 py-3 transition-colors hover:border-line-strong hover:bg-hover">
-              <AlertTriangle className="size-4 shrink-0 text-warn" />
+            <Link to={`/maengel?id=${t.defectId}`} className="group -mx-2 flex items-center gap-3 rounded-md px-2 py-2 transition-colors hover:bg-hover">
               <span className="min-w-0 flex-1">
-                <span className="block truncate text-body font-medium">{t.defectTitle ?? 'Mangel'}</span>
+                <span className="block truncate text-body text-ink">{t.defectTitle ?? 'Mangel'}</span>
                 <span className="block text-meta text-ink-3">
-                  {t.defectStatus === 'resolved' ? 'Bereits behoben' : 'Offen – beim Erledigen fragen wir, ob er behoben ist'} · Mangel öffnen
+                  {t.defectStatus === 'resolved' ? 'Bereits behoben' : 'Offen – beim Erledigen fragen wir, ob er behoben ist'}
                 </span>
               </span>
-              {t.defectSeverity && <SeverityBadge severity={t.defectSeverity} />}
+              {t.defectSeverity && <SeverityText severity={t.defectSeverity} />}
+              <ChevronRight className="size-4 shrink-0 text-ink-4 group-hover:text-ink-3" aria-label="Mangel öffnen" />
             </Link>
           </PanelSection>
         )}
@@ -411,14 +405,13 @@ function Properties({
         <Prop label="Objekt">{t.propertyName}</Prop>
       </div>
       {t.assetId && canEdit && (
-        <Link to={`/elemente/${t.assetId}`} className="mt-1 text-meta font-medium text-ink-2 hover:text-ink">
+        <Link to={`/elemente/${t.assetId}`} className="mt-1 text-meta text-ink-2 hover:text-ink">
           Element öffnen ›
         </Link>
       )}
       <div className="mt-4 border-t border-line pt-4">
-        <Prop label="Labels">
-          <LabelPicker value={t.labels ?? []} disabled={!canEdit} onChange={(labels) => set({ labels })} />
-        </Prop>
+        <p className="mb-2 text-caption font-medium text-ink-3 md:text-meta md:font-normal">Labels</p>
+        {t.labels?.length || canEdit ? <LabelPicker value={t.labels ?? []} disabled={!canEdit} onChange={(labels) => set({ labels })} /> : <span className="text-body text-ink-4">–</span>}
       </div>
       <p className="mt-4 border-t border-line pt-4 text-caption text-ink-3">
         Angelegt {fmtDate(t.createdAt)}

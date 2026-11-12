@@ -1,19 +1,45 @@
-# Aufgaben und Mängel – Design v2
+# Aufgaben und Mängel – Design v3
 
-Ergänzt den Vertrag in [`docs/design.md`](../design.md) für die Arbeitslisten **Aufgaben** (`src/pages/Tasks.tsx`)
+Ergänzt den Vertrag in [`docs/design.md`](../design.md) (v3) für die Arbeitslisten **Aufgaben** (`src/pages/Tasks.tsx`)
 und **Mängel** (`src/pages/Defects.tsx`). Bausteine liegen in `src/components/work/`, Bilder in
-[`aufgaben-maengel/`](aufgaben-maengel/) (`d-` = 1360 px, `m-` = 390 px).
+[`v3/aufgaben-maengel/`](v3/aufgaben-maengel/) (`d-` = 1360 px, `m-` = 390 px). Die v2-Bilder sind entfernt.
 
-> Kurz: eine ruhige, gruppierte Liste wie in Linear/Things. Erledigen mit einem Klick auf den Kreis
-> (Handy: nach rechts wischen), alles andere im Detailpanel – ohne Seitenwechsel und ohne „Speichern“.
+> Kurz: wie Apple-Erinnerungen auf einer weißen Fläche. Gruppen als kleiner grauer Titel mit Haarlinie, ein
+> Abhak-Kreis, je Zeile Titel · eine graue Meta-Zeile · rechts **ein** Datum oder Statuswort (+ Avatar).
+> Alles Weitere steht im Detailpanel – ohne Seitenwechsel und ohne „Speichern“.
+
+## v3 (Phase 2, Paket G)
+
+Umgesetzt nach `docs/plan/v3.md` Abschnitt 5:
+
+- **Eine `Surface` je Seite**, Gruppen (`WorkGroup`) ohne grauen Balken: Titel 13 px `ink-3` + Zahl, Haarlinie
+  zwischen Gruppen, Zeilen-Haarlinien ab dem Textanfang (`pk-list`, `--row-inset: 32px`). Der Abhak-Kreis steht
+  bündig mit den Gruppentiteln; erledigt = Tinte statt Grün.
+- **Aufgabenzeile:** kein Typ-Symbol, keine Label-Pillen, kein Prioritätsbalken. Meta-Zeile:
+  „In Arbeit · Code · Objekt · Typ · Hoch · ● Label“ (Labelfarbe nur als 6-px-Punkt). Rechts das Datum
+  (Zinnober nur überfällig), Wecker nur bei verletzter SLA-Frist und grau (`ink-4`, nur ab `sm`),
+  Kommentarzahl mit Symbol in `ink-4`, Avatar. „Prüfen“ erscheint bei Prüfaufträgen erst beim Überfahren.
+- **Filter:** Suche + „Meine“ (einziger sichtbarer Schalter) + **ein** Menü „Filter“ (`FilterMenu.tsx`:
+  Zuständigkeit, Typ, Label; Zahl gesetzter Filter am Knopf, „Filter zurücksetzen“).
+- **Mangelzeile:** rechts nur der Schweregrad als Punkt + Wort (`SeverityText`; nur „Kritisch“ Zinnober, „Hoch“
+  Ocker-Punkt). Meta: Code · Ort · Objekt · Zeit · „mit Aufgabe“. Fotos, Notiz und Maßnahme nur im Detail.
+- **Handlungsbedarf:** ein Lage-Satz („4 schwere Mängel ohne Aufgabe, 4 überfällige Aufgaben und …“), Zeilen mit
+  16-px-Symbol der Art, Datum grau; Zinnober nur für „Kritisch ohne Aufgabe“.
+- **Detailpanel:** Kopf mit Meta als Textzeile (SLA-Fristen, Schweregrad, Status), Inhalt in Abschnitten mit
+  Haarlinien, Eigenschaften rechts als Bezeichnung/Wert ohne Hintergrund, Labels neutral mit Farbpunkt,
+  Behebung mit Linie links statt grünem Kasten, Aktivität als ruhige `Timeline`.
+- **Mehrfachauswahl:** Kästchen im linken Rand der Fläche (Desktop beim Überfahren), Leiste mit „× N ausgewählt“.
+- **Übersicht:** Kennzahlen ohne Kasten (`StatTile`), Balken in Tinte/Grau.
 
 ## Bausteine (`src/components/work/`)
 
 | Datei | Inhalt |
 |---|---|
 | `Panel.tsx` | `WorkPanel` – Detail rechts (54 rem), Inhalt links + Eigenschaften-Spalte (19,5 rem); Handy: Vollbild-Sheet von unten, Eigenschaften oben im 2er-Raster. `PanelSection`, `Prop` (Label links, Wert rechts), `propSelectCls` (Auswahl, die wie Text aussieht). Escape schließt nur, wenn kein Dialog darüber liegt. |
-| `rows.tsx` | `StatusToggle` (Erledigt-Kreis, 40-px-Ziel, halb gefüllt = In Arbeit), `RowCheck` (Desktop beim Überfahren, Handy nur im Auswahlmodus), `WorkGroup` (Abschnitt mit `h2`, Zähler, Statuspunkt, „Alle auswählen“), `PriorityGlyph` (drei Balken), `useSwipe` (Touch: nach rechts wischen = Hauptaktion), `listKeys` (Tastatur). |
-| `TaskRow.tsx` / `DefectRow.tsx` | Listenzeilen. Zwei Zeilen: Titel · Kontext. Rechts (ab `sm`): Fälligkeit/Zeit, Person bzw. Fotos, Priorität/Schweregrad. |
+| `rows.tsx` | `StatusToggle` (Erledigt-Kreis, 40-px-Ziel, halb gefüllt = In Arbeit), `RowCheck` (Desktop beim Überfahren, Handy nur im Auswahlmodus), `WorkGroup` (Abschnitt mit `h2`, Zähler, „Alle auswählen“), `WorkList`, `TextAction`, `useSwipe` (Touch: nach rechts wischen = Hauptaktion), `listKeys` (Tastatur). |
+| `TaskRow.tsx` / `DefectRow.tsx` | Listenzeilen: Titel · Meta-Zeile (`MetaLine`). Rechts: Datum + Avatar bzw. Schweregrad. |
+| `FilterMenu.tsx` | „Filter“-Knopf mit aufklappenden Einfachauswahl-Gruppen. |
+| `fields.tsx` | `LabelText`, `LabelPicker`, `SeverityText`, `labelDot`, `AssetCodes`. |
 | `TaskPanel.tsx` | Aufgabe: Titel und Beschreibung direkt bearbeitbar, Prüfauftrag „Prüfung starten“, verknüpfter Mangel, Link für Subunternehmer, **Aktivität** (Ereignisse + Kommentare mit @-Erwähnung). Eigenschaften speichern sofort. |
 | `DefectPanel.tsx` | Mangel: Vorher/Nachher, Beschreibung, Maßnahme, Behebung (grüner Kasten), Aufgaben, Verlauf (`Timeline`). Fuß: Behoben · Aufgabe anlegen · Ausblenden · PDF. |
 | `TaskCreate.tsx` | `TaskForm` – nur noch **Anlegen** (Modal/Bottom-Sheet). |
@@ -27,11 +53,11 @@ das Vorher-Foto neben der Nachher-Kachel; Fuß Abbrechen · **Als behoben markie
 
 ## Muster
 
-- **Gruppen statt Karten.** Aufgaben nach Fälligkeit (Überfällig rot · Fällig heute bernstein · Diese Woche ·
-  Später · Ohne Datum), offene Mängel nach Schweregrad (Kritisch · Hoch · Mittel · Gering). Behoben/Ausgeblendet
+- **Gruppen statt Karten.** Aufgaben nach Fälligkeit (Überfällig · Fällig heute · Diese Woche ·
+  Später · Ohne Datum, alle Titel grau), offene Mängel nach Schweregrad (Kritisch · Hoch · Mittel · Gering). Behoben/Ausgeblendet
   als eine Gruppe, neueste zuerst. Gruppen sind `section` mit `h2` (Screenreader, Tests).
-- **Farbe nur für Status.** Rot nur für Überfällig/kritisch/SLA verletzt, Priorität als Balken in Tinte
-  (hoch = rot). Labels behalten ihre Label-Farbe. Kein Auge/„SLA“-Text in jeder Zeile – nur ein Weckersymbol.
+- **Farbe nur für Status.** Zinnober nur für überfälliges Datum, „Kritisch“ und verletzte SLA-Frist im Panel.
+  Priorität „Hoch“ als Wort, Labelfarbe nur als Punkt, Wecker grau.
 - **Erledigen inline.** Kreis links (Aufgaben: erledigt/wieder öffnen; Mängel: öffnet „Mangel beheben“).
   Mängelbehebung mit offenem Mangel fragt nach („Mangel auch als behoben markieren?“).
 - **Detail ohne Seitenwechsel.** `?id=` in der URL (Direktlinks aus Benachrichtigungen bleiben gültig),
@@ -41,11 +67,11 @@ das Vorher-Foto neben der Nachher-Kachel; Fuß Abbrechen · **Als behoben markie
   Die Leiste sammelt Status/Zuständig/Priorität/Fälligkeit und übernimmt sie gemeinsam; verknüpfte Mängel
   werden über `useConfirm` abgefragt (kein `window.confirm`).
 - **Tastatur.** `↑/↓` oder `j/k` springen zwischen Zeilen, `Enter` öffnet, `X` wählt, `C` legt an, `/` sucht.
-  Fokus = orange Linie links in der Zeile (Orange markiert nur den Fokus). Hinweiszeile unter der Liste ab `lg`.
-- **Handy.** Zeilen ≥ 56 px, Kreis mit 40-px-Ziel, Wischen nach rechts (grüner Hintergrund mit Haken),
+  Fokus = Tintenlinie links in der Zeile. Hinweiszeile unter der Liste ab `lg`.
+- **Handy.** Zeilen ≥ 56 px, Kreis mit 40-px-Ziel, Wischen nach rechts (Tinte mit Haken),
   Detail als Vollbild-Sheet mit Fußknöpfen volle Breite, Beobachten nur als Symbol mit Namen für Screenreader.
 - **Leer/Laden/Fehler.** `SkeletonList`, `ErrorBox onRetry`, `Empty` je Fall: „Alles erledigt“ (+ Neue Aufgabe),
-  „Keine Treffer“ (+ Filter zurücksetzen), „Keine offenen Mängel“, „Nichts ausgeblendet“, „Alles im Griff“.
+  „Keine Aufgabe passt …“ (+ Textlink Filter zurücksetzen), „Keine offenen Mängel“, „Nichts ausgeblendet“, „Alles im Griff“.
 
 ## Mobbin-Referenzen
 
