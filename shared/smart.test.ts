@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { CATEGORIES } from './catalog';
-import { matchCheckpoint, parseCapture, suggestMeasure, suggestSeverity } from './smart';
+import { matchCheckpoint, parseCapture, similarity, suggestMeasure, suggestSeverity } from './smart';
 
 describe('Diktat auswerten (ohne KI)', () => {
   it('zerlegt mehrere Feststellungen und erkennt Schwere und Maßnahme', () => {
@@ -35,5 +35,13 @@ describe('Element-Code im Text', () => {
     expect(parseCapture('Brandschutztür BSK-8Z9L schließt nicht')[0].assetCode).toBe('BSK-8Z9L');
     expect(parseCapture('Feuerlöscher fl 7k2m fehlt')[0].assetCode).toBe('FL-7K2M');
     expect(parseCapture('Tür im OG klemmt stark')[0].assetCode).toBeNull();
+  });
+});
+
+describe('Ähnlichkeit (Duplikate)', () => {
+  it('erkennt gleiche Feststellung in anderen Worten', () => {
+    expect(similarity('Tür schließt nicht', 'Die Tür schließt nicht selbstständig')).toBeGreaterThanOrEqual(0.6);
+    expect(similarity('Dichtung fehlt', 'Schild fehlt am Feuerlöscher')).toBeLessThan(0.6);
+    expect(similarity('', 'x')).toBe(0);
   });
 });

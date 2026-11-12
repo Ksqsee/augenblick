@@ -83,6 +83,10 @@ const check = (ok, m) => {
   check(r.status === 400, `fremder Foto-Schlüssel → 400 (${r.status})`);
   r = await api('/defects', { data: { assetId: 'gibtsnicht', title: 'x', severity: 'low' } });
   check(r.status === 404, `unbekanntes Element → 404 (${r.status})`);
+  r = await api('/defects', { data: { assetId: a.id, title: 'Schild fehlt am Element', severity: 'low' } });
+  check(r.status === 409 && r.json.duplicate?.title === 'Schild fehlt', `Duplikat erkannt (${r.status})`);
+  r = await api('/defects', { data: { assetId: a.id, title: 'Schild fehlt am Element', severity: 'low', force: true } });
+  check(r.status === 200, 'mit force trotzdem angelegt');
   r = await api('/defects', { data: { assetId: a.id, title: 'Tür blockiert', severity: 'critical', measure: 'Sofort freiräumen' } });
   const tasks = (await api('/tasks')).json.filter((t) => t.defectId === r.json.id);
   check(r.json.taskCreated === true && tasks.length === 1 && tasks[0].priority === 'high', 'kritischer Mangel → Aufgabe automatisch');

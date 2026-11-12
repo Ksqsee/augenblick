@@ -6,7 +6,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { SEVERITIES, type Severity } from '../../shared/catalog';
 import { type CaptureItem, parseCapture } from '../../shared/smart';
-import { api, type Asset, useAssets, useProperties } from '../api';
+import { api, ApiError, type Asset, useAssets, useProperties } from '../api';
 import { useDictation } from '../dictate';
 import { categoryLabel } from '../format';
 import { BigMic } from './Dictate';
@@ -197,7 +197,7 @@ export function CaptureSheet({ initial, onClose }: { initial: { assetId?: string
   const [items, setItems] = useState<CaptureItem[] | null>(null);
   const [source, setSource] = useState<'ai' | 'rules'>('rules');
   const [busy, setBusy] = useState(false);
-  const [done, setDone] = useState<{ defects: number; tasks: number; auto: number } | null>(null);
+  const [done, setDone] = useState<{ defects: number; tasks: number; auto: number; dupes: { title: string; message: string; body: unknown }[] } | null>(null);
   const d = useDictation((t, final) => setText((prev) => (final ? (prev.trim() && !t.startsWith(prev.trim()) ? `${prev.trim()} ${t}` : t) : t)));
 
   // Kontext aus der aktuellen Seite übernehmen
@@ -234,17 +234,22 @@ export function CaptureSheet({ initial, onClose }: { initial: { assetId?: string
     let defects = 0;
     let tasks = 0;
     let auto = 0;
+    const dupes: { title: string; message: string; body: unknown }[] = [];
     try {
       for (const i of items) {
         if (!i.title.trim()) continue;
         const a = byCode(i.assetCode) ?? (where?.kind === 'asset' ? where.asset : undefined);
         const propertyId = a?.propertyId ?? (where?.kind === 'property' ? where.id : null);
         if (i.kind === 'defect') {
-          const r = await api<{ taskCreated: boolean }>('/defects', {
-            body: { assetId: a?.id ?? null, propertyId, title: i.title, note: i.note, measure: i.measure, severity: i.severity },
-          });
-          defects++;
-          if (r.taskCreated) auto++;
+          const body = { assetId: a?.id ?? null, propertyId, title: i.title, note: i.note, measure: i.measure, severity: i.severity };
+          try {
+            const r = await api<{ taskCreated: boolean }>('/defects', { body });
+            defects++;
+            if (r.taskCreated) auto++;
+          } catch (e) {
+            if (!(e instanceof ApiError && e.status === 409)) throw e;
+            dupes.push({ title: i.title, message: e.message, body });
+          }
         } else {
           await api('/tasks', {
             body: {
@@ -260,7 +265,7 @@ export function CaptureSheet({ initial, onClose }: { initial: { assetId?: string
         }
       }
       for (const k of ['defects', 'tasks', 'dashboard', 'smart', 'asset', 'assets']) qc.invalidateQueries({ queryKey: [k] });
-      setDone({ defects, tasks, auto });
+      setDone({ defects, tasks, auto, dupes });
     } catch (e) {
       toast(e instanceof Error ? e.message : 'Speichern fehlgeschlagen', 'bad');
     } finally {
@@ -281,10 +286,32 @@ export function CaptureSheet({ initial, onClose }: { initial: { assetId?: string
             <Check className="size-8" />
           </span>
           <p className="text-[15px]">
-            {[done.defects && `${done.defects} ${done.defects === 1 ? 'Mangel' : 'Mängel'}`, done.tasks && `${done.tasks} ${done.tasks === 1 ? 'Aufgabe' : 'Aufgaben'}`].filter(Boolean).join(' und ')}{' '}
-            angelegt.
+            {done.defects + done.tasks === 0
+              ? 'Nichts Neues angelegt.'
+              : `${[done.defects && `${done.defects} ${done.defects === 1 ? 'Mangel' : 'Mängel'}`, done.tasks && `${done.tasks} ${done.tasks === 1 ? 'Aufgabe' : 'Aufgaben'}`].filter(Boolean).join(' und ')} angelegt.`}
             {done.auto > 0 && <span className="mt-1 block text-sm text-ink-3">Für {done.auto} schwere Mängel wurde automatisch eine Aufgabe mit Frist erstellt.</span>}
           </p>
+          {done.dupes.length > 0 && (
+            <div className="w-full rounded-xl bg-warn-soft p-3 text-left text-sm">
+              <p className="font-medium text-warn">Nicht doppelt angelegt:</p>
+              <ul className="mt-1 list-disc pl-5 text-ink-2">
+                {done.dupes.map((x) => (
+                  <li key={x.title}>{x.message}</li>
+                ))}
+              </ul>
+              <button
+                type="button"
+                className="mt-2 text-[13px] font-medium text-warn underline underline-offset-4"
+                onClick={async () => {
+                  for (const x of done.dupes) await api('/defects', { body: { ...(x.body as object), force: true } });
+                  qc.invalidateQueries({ queryKey: ['defects'] });
+                  setDone({ ...done, defects: done.defects + done.dupes.length, dupes: [] });
+                }}
+              >
+                Trotzdem anlegen
+              </button>
+            </div>
+          )}
           <div className="flex w-full flex-col gap-2 sm:flex-row">
             <Button
               variant="secondary"

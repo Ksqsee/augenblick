@@ -87,6 +87,16 @@ export function matchCheckpoint(text: string, checkpoints: { id: string; label: 
   return best?.id ?? null;
 }
 
+/** Ähnlichkeit zweier Beschreibungen (0–1, Anteil gemeinsamer Wortstämme) – für die Duplikat-Warnung. */
+export function similarity(a: string, b: string): number {
+  const x = new Set(words(a));
+  const y = new Set(words(b));
+  if (!x.size || !y.size) return 0;
+  let common = 0;
+  for (const w of x) if (y.has(w)) common++;
+  return common / Math.min(x.size, y.size);
+}
+
 const cap = (s: string) => (s ? s[0].toUpperCase() + s.slice(1) : s);
 
 /** Diktat in einzelne Feststellungen, Aufgaben und Notizen zerlegen. */

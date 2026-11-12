@@ -7,6 +7,7 @@ import { BUILDING_TYPES } from '../shared/walkthrough';
 import { type DocLanguage, tr } from '../shared/i18n';
 import { buildXlsx } from '../shared/xlsx';
 import { getCategoryDef, listCategories } from './categories';
+import { similarity } from '../shared/smart';
 import { tasksFromDefects } from './smart';
 import { type AppEnv, assertInScope, type Ctx, id, logActivity, notFound, now, parseJson, requireCreate, requireRole, scopeSql } from './lib';
 
@@ -637,6 +638,8 @@ data.post('/defects', async (c) => {
       measure: str(1000).default(''),
       severity: severityEnum,
       photoKey: z.string().max(200).nullable().default(null),
+      /** trotz ähnlichem offenen Mangel anlegen */
+      force: z.boolean().default(false),
     })
     .parse(await c.req.json());
   if (b.photoKey && !b.photoKey.startsWith(`${tid(c)}/`)) throw new HTTPException(400, { message: 'Ungültige Datei' });
@@ -654,6 +657,18 @@ data.post('/defects', async (c) => {
     const p = propertyId ? await c.env.DB.prepare('SELECT 1 FROM properties WHERE id = ? AND tenant_id = ? AND deleted_at IS NULL').bind(propertyId, tid(c)).first() : null;
     if (!p) throw new HTTPException(400, { message: 'Bitte Element oder Objekt angeben' });
     assertInScope(c, 'property', propertyId);
+  }
+  // Duplikat-Warnung: gleicher Mangel schon offen (am Element bzw. am Objekt ohne Element)?
+  if (!b.force) {
+    const open = await c.env.DB.prepare(
+      b.assetId
+        ? "SELECT id, title, created_at AS createdAt FROM defects WHERE tenant_id = ? AND asset_id = ? AND status = 'open' LIMIT 50"
+        : "SELECT id, title, created_at AS createdAt FROM defects WHERE tenant_id = ? AND property_id = ? AND asset_id IS NULL AND status = 'open' LIMIT 50",
+    )
+      .bind(tid(c), b.assetId ?? propertyId)
+      .all<{ id: string; title: string; createdAt: number }>();
+    const dup = open.results.find((d) => similarity(d.title, b.title) >= 0.6);
+    if (dup) return c.json({ error: `Ähnlicher Mangel ist bereits offen: „${dup.title}“`, duplicate: dup }, 409);
   }
   const did = id();
   await c.env.DB.prepare(

@@ -255,6 +255,7 @@ export const TOOLS: Tool[] = [
         measure: str('Maßnahme zur Behebung'),
         assetCode: str('Code des betroffenen Elements'),
         propertyId: str('ID des Objekts (wenn kein Element)'),
+        force: { type: 'boolean', description: 'auch anlegen, wenn ein ähnlicher Mangel schon offen ist (sonst Fehler mit Hinweis auf das Duplikat)' },
       },
       ['title', 'severity'],
     ),
@@ -264,7 +265,7 @@ export const TOOLS: Tool[] = [
       return api({
         method: 'POST',
         path: '/defects',
-        body: { assetId, propertyId: a.propertyId ?? null, title: a.title, severity: a.severity, note: a.note ?? '', measure: a.measure ?? '' },
+        body: { assetId, propertyId: a.propertyId ?? null, title: a.title, severity: a.severity, note: a.note ?? '', measure: a.measure ?? '', force: !!a.force },
       });
     },
   },
