@@ -1,307 +1,300 @@
-# Prüfkompass – Designsystem v2
+# Prüfkompass – Designsystem v3
 
-Verbindlicher Vertrag für alle Seiten. Tokens stehen in `src/index.css`, Bausteine in
-`src/components/ui.tsx`, der Rahmen in `src/components/Shell.tsx`. Vorzeigeseiten: **Heute**
-(`src/pages/Dashboard.tsx`) und **Anmeldung** (`src/pages/Auth.tsx`). Bilder: `docs/design/`.
+Verbindlicher Vertrag für alle Seiten. Herleitung und Befund: `docs/plan/v3.md` (Abschnitte 1–2).
+Tokens: `src/index.css` · Bausteine: `src/components/ui.tsx` · Rahmen: `src/components/Shell.tsx`.
+Vorzeigeseiten: **Heute** (`src/pages/Dashboard.tsx`) und **Anmeldung** (`src/pages/Auth.tsx`).
+Bilder (1360 und 390 px): `docs/design/v3/`. Ältere Bilder in `docs/design/**` zeigen v2.
 
-> Kurz: warmes Papier, tiefe Tinte, **ein** Signalorange. Farbe bedeutet Status – sonst nichts.
-> Dichte am Schreibtisch, große Ziele auf dem Handy. Jede Seite hat einen leeren, ladenden und
-> fehlerhaften Zustand.
+> Kurz: ein Raum aus Sichtbeton mit einer Lichtfuge. Grauer Grund, **eine** weiße Fläche pro Seite,
+> Tinte als Akzent, **eine** Signalfarbe (Zinnober) nur für überfällig/kritisch. Status ist ein
+> Punkt und ein Wort. Ordnung wie im Shopify-Admin, Listen und Typografie wie bei Apple.
+
+v3 ändert das **Aussehen**, nicht die Bausteine: alle Namen und Props aus v2 gelten weiter. Seiten,
+die noch nicht umgebaut sind, erben Tokens und Bausteine und sehen dadurch schon ruhiger aus;
+Phase 2 (`docs/plan/v3.md` Abschnitt 4) baut sie nach den Vorlagen in Abschnitt 5 um.
 
 ---
 
 ## 1. Grundsätze
 
-1. **Werkzeug, kein Prospekt.** Prüfkompass wird im Treppenhaus mit Handschuhen und im Büro mit
-   Maus benutzt. Inhalte vor Dekoration: keine Verläufe als Schmuck, kein Glas-/Blur-Effekt, keine
-   Emoji, kein Lila, keine Illustrationen mit Figuren.
-2. **Farbe hat eine Bedeutung.** Rot = überfällig/kritisch, Bernstein = bald fällig/Mangel,
-   Blau = nie geprüft/Hinweis, Grün = aktuell/in Ordnung. Orange (`brand`) markiert nur die
-   Hauptaktion **Erfassen**, die aktive Navigation und den Fokus. Alles andere ist Tinte auf Papier.
-3. **Eine Hauptaktion pro Bereich.** Pro Seitenkopf höchstens ein `primary`-Knopf, weitere
-   Aktionen `secondary`/`ghost` oder im `Menu` (⋯).
-4. **Hierarchie über Typografie, nicht über Kästen.** Titel `text-h1`, Abschnitte `text-title`
-   halbfett, Inhalt `text-body`, Nebeninfo `text-meta` in `ink-3`. Karten nur, wo Inhalte
-   zusammengehören – keine Karte in der Karte.
-5. **Dicht, aber ruhig.** Listenzeilen 48 px (Desktop) / 56 px (Handy), 4-px-Raster, gleiche
-   Abstände zwischen gleichen Dingen.
-6. **Daumenfreundlich.** Auf dem Handy ist jedes Ziel ≥ 40 px hoch (Knöpfe `md` = 44 px), die
-   wichtigste Aktion liegt unten (Mikrofon in der Leiste, Sheet-Knöpfe volle Breite).
-7. **Ehrliche Zustände.** Laden = Skelett in der Form des Inhalts, leer = ein Satz + eine Aktion,
-   Fehler = Klartext + „Erneut versuchen“.
-8. **Bewegung erklärt, sie unterhält nicht.** ≤ 240 ms, nur Deckkraft und wenige Pixel Versatz;
+1. **Ma – Leere ist Material.** Großzügige Außenabstände, enge Innenabstände. Lieber weniger
+   Elemente pro Zeile als kleinere.
+2. **Eine Fläche pro Seite.** Grund `canvas` (Beton), darauf **eine** `Surface` für den Hauptinhalt.
+   Abschnitte darin trennt eine Haarlinie (`Section`), keine weitere Karte. Seitenspalten liegen
+   als Text mit Haarlinien auf dem Grund – nicht in Karten.
+3. **Schwarz ist die Akzentfarbe.** Hauptaktion = Tinte (`primary`). Zinnober (`shu`) gibt es
+   **nur** für „überfällig/kritisch“ und die laufende Aufnahme. Kein Orange. „Erfassen“ ist schwarz.
+4. **Status steht als Wort, nicht als Pille.** In Listen: 6-px-Punkt + Wort in `ink-2`; nur
+   Zinnober färbt auch das Wort („seit 5 Monaten überfällig“). Pillen nur im Seitenkopf und in
+   Tabellenspalten „Status“, dann neutral grau mit Punkt; getönt nur `shu`.
+5. **Keine Symbolkacheln.** Elementart = 16-px-Liniensymbol in `ink-3`, ohne Hintergrund.
+   Wo ein Symbol nichts unterscheidet (Vorschläge, Rundgänge, Einstellungen): gar keins.
+6. **Typografie trägt.** Große ruhige Titel (28/34, halbfett, −0.02em), Abschnittstitel klein
+   (13 px, `ink-3`), Zahlen `tabular-nums`. Keine Versalien-Labels, kein Fettdruck im Fließtext
+   (Ausnahme: der Code eines Elements).
+7. **Kanten statt Rundungen.** Radius 6 (Felder, Knöpfe), 10 (Fläche), 12 (Dialog). Flächen ohne
+   Schatten; nur Schwebendes (Dialog, Menü, Toast) wirft **einen** weichen Schatten.
+8. **Asymmetrie mit Raster.** Linksbündig auf 8-px-Raster, Zahlen rechtsbündig, Seitenspalte
+   280 px. Zentriert werden nur Leerzustände und Dialogtitel auf dem Handy.
+9. **Bewegung wie eine Schiebetür.** 160 ms, nur Deckkraft und 4 px; Sheets gleiten von unten.
    `prefers-reduced-motion` schaltet alles ab.
+10. **Sprache knapp.** Keine Ausrufezeichen, kein „Guten Tag“. Datum und Lage in einem Satz.
 
 ---
 
 ## 2. Tokens (`src/index.css`, Tailwind 4 `@theme`)
 
 Alle Namen sind Tailwind-Klassen (`bg-canvas`, `text-ink-3`, `border-line`, `text-meta` …).
-Bestehende Namen aus v1 bleiben gültig.
+Altnamen (`brand*`, `bad*`, `muted-soft`, `sev-*`) bleiben gültig und zeigen auf die neuen Werte.
 
-### 2.1 Farben – Flächen und Text
+### 2.1 Flächen und Text
 
 | Token | Wert | Verwendung |
 |---|---|---|
-| `canvas` | `#f7f6f3` | Seitenhintergrund, Seitenleiste |
-| `surface` | `#ffffff` | Karten, Listen, Felder, Dialoge |
-| `sunken` | `#f0eee9` | Segmented-Hintergrund, Symbolfelder, Platzhalter |
-| `hover` | `#f4f2ee` | Hover von Zeilen/Knöpfen auf `surface` |
-| `selected` | `#ebe8e1` | aktiver Navigationspunkt |
-| `line` / `line-strong` | `#e7e4dd` / `#d6d1c7` | Trennlinien, Feldrahmen / Hover-Rahmen |
-| `ink` | `#1a1714` | Text, `primary`-Knopf |
-| `ink-2` | `#57514a` | Sekundärtext, Labels |
-| `ink-3` | `#8c857b` | Meta, Platzhalter-Icons |
-| `ink-4` | `#b7b1a7` | Platzhaltertext, Chevrons, Nullwerte |
-| `brand` / `brand-strong` / `brand-soft` | `#e8590c` / `#c2410c` / `#fff1e8` | nur Erfassen, aktive Markierung, Fokus |
+| `canvas` | `#f2f2f0` | Beton: Seitengrund, Seitenleiste, Seitenspalten |
+| `surface` | `#ffffff` | die eine Fläche, Felder, Dialoge, Menüs |
+| `sunken` | `#ebebe8` | Segmented-Grund, neutrale Pille, Platzhalter |
+| `hover` | `#f6f6f4` | Zeilen-Hover auf `surface` |
+| `selected` | `#e9e9e6` | aktive Navigation, gewählte Zeile, aktiver Chip |
+| `line` / `line-strong` | `#e4e4e1` / `#cfcfcb` | Haarlinien / Feldrahmen im Hover |
+| `ink` | `#111110` | Sumi-Tinte: Text, Hauptknopf, Fokus |
+| `ink-2` | `#4a4a47` | Sekundärtext, Statuswörter |
+| `ink-3` | `#6e6e6a` | Meta, Abschnittstitel, Symbole |
+| `ink-4` | `#b4b4af` | Platzhalter, Chevrons, Nullwerte |
+| `brand` / `brand-strong` / `brand-soft` | `#111110` / `#000000` / `#ebebe8` | Altname = Tinte |
 
-### 2.2 Status (Prüfstatus, Ergebnis, Hinweise)
+**Abweichung vom Plan:** `ink-3` ist `#6e6e6a` statt `#858581`. Mit `#858581` hätte 13-px-Text
+nur 3,3 : 1 Kontrast auf Beton; `#6e6e6a` erreicht AA (5,1 : 1 auf Weiß, 4,6 : 1 auf Beton).
 
-Jeder Ton hat Text/Punkt, weiche Fläche und Kontur: `ok|warn|bad|info` + `-soft` + `-line`.
+### 2.2 Signal und Status
 
-| Ton | Text | Fläche | Kontur | Bedeutung |
-|---|---|---|---|---|
-| `bad` | `#cf2a1f` | `#fcebe9` | `#f3c4bf` | Überfällig, kritisch, Fehler |
-| `warn` | `#b25407` | `#fcf1e1` | `#f0d2a6` | Bald fällig, mit Mängeln |
-| `info` | `#2b58c9` | `#ebf0fc` | `#c6d4f4` | Nie geprüft, Hinweis |
-| `ok` | `#17793d` | `#e8f4ec` | `#bfe0cb` | Aktuell, ohne Mängel, erledigt |
-| `muted` | `ink-2` | `muted-soft` | `line` | Nicht prüfbar, neutral |
-| `brand` | `brand-strong` | `brand-soft` | – | „Offene Mängel“-Zähler, Hervorhebung |
+| Ton | Text/Punkt | Fläche | Kontur | Bedeutung | Darf als Fläche? |
+|---|---|---|---|---|---|
+| `shu` (= `bad`) | `#c8321c` | `#fbeeeb` | `#efc8c0` | überfällig, kritisch, Fehler, Aufnahme | ja – die einzige |
+| `warn` | `#8a6a1f` | `#f4f1e8` | `#e2dcc6` | bald fällig, mit Mängeln (Ocker) | nur `Notice` |
+| `info` | `#4a5a78` | `#eef0f4` | `#d5d9e2` | nie geprüft, Hinweis (Schiefer) | nur `Notice` |
+| `ok` | `#3f6b4f` | `#edf2ee` | `#cfdcd3` | aktuell, ohne Mängel (Kiefer) | nur `Notice` |
+| `muted` | `ink-3` | `sunken` | `line` | neutral, nicht prüfbar | – |
 
-**Zuordnung (immer über `format.ts`, nie neu erfinden):**
-
-- Prüfstatus `DUE_META`: `overdue → bad`, `soon → warn`, `never → info`, `ok → ok` → `<DueBadge state>`
-- Ergebnis `RESULT_META`: `ok → ok`, `defects → warn`, `critical → bad (gefüllt)`, `not_inspectable → muted` → `<ResultBadge result>`
-- Schweregrad `SEVERITY_TONE`: `low → muted`, `medium → warn`, `high → bad`, `critical → bad gefüllt`
-  → `<SeverityBadge severity>` (mit Balken-Symbol, damit es auch ohne Farbe lesbar ist).
-  Eigene Farbwerte `sev-low|medium|high|critical` für Diagramme.
+Zuordnung immer über `src/format.ts` (`DUE_META`, `RESULT_META`) und `SEVERITY_TONE` – nie neu
+erfinden. Alle Status-Töne erreichen AA als Textfarbe auf Weiß und Beton.
 
 ### 2.3 Typografie
 
-Schrift: **Geist Variable** (selbst gehostet über `@fontsource-variable/geist`; keine externen
-Schriften). Zahlen in Tabellen/Zählern immer `tabular-nums`.
+Schrift: `-apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Geist Variable', system-ui` – auf
+Apple-Geräten SF, sonst das selbst gehostete Geist. Keine externen Schriften (CSP).
 
 | Klasse | Größe / Zeile | Gewicht | Verwendung |
 |---|---|---|---|
-| `text-display` | 32 / 38 | 600, `tracking-[-0.02em]` | nur Begrüßung auf „Heute“ (ab sm) |
-| `text-h1` | 26 / 32 | 600, `tracking-[-0.02em]` | Seitentitel (`PageHeader`) |
-| `text-h2` | 20 / 28 | 600 | selten: große Abschnitte in Detailseiten |
+| `text-display` | 34 / 40 | 600 | selten; großer Einzelwert |
+| `text-h1` | 28 / 34 | 600, −0.02em | Seitentitel, Lage-Satz auf „Heute“ (Handy 24/30) |
+| `text-h2` | 20 / 26 | 500–600 | Satz neben der Anmeldung |
 | `text-h3` | 17 / 24 | 600 | Dialog-/Drawer-Titel |
-| `text-title` | 15 / 22 | 600 | Abschnittstitel (`SectionHeader`), Kartentitel |
-| `text-body` | 14 / 20 | 400/500 | Standardtext, Listentitel (500) |
-| `text-meta` | 13 / 18 | 400/500 | Untertitel, Labels, Chips, Knopf `sm` |
-| `text-caption` | 12 / 16 | 400/500 | Badges, Tabellenköpfe, Hinweise unter Feldern |
+| `text-title` | 15 / 22 | 600 | Kartentitel (alt), große Knöpfe |
+| `text-body` | 14 / 20 | 400 | Standard, Listentitel (**400**, nicht fett) |
+| `text-meta` | 13 / 18 | 400/500 | Abschnittstitel (500, `ink-3`), Untertitel, Statuswort |
+| `text-caption` | 12 / 16 | 400/500 | Pillen, Tabellenköpfe, Hinweise unter Feldern |
 
-Felder nutzen auf dem Handy 15 px (verhindert iOS-Zoom), ab `sm` 14 px.
+Felder auf dem Handy 15 px (kein iOS-Zoom), ab `sm` 14 px.
 
-### 2.4 Abstand, Radien, Schatten
+### 2.4 Raster, Radien, Schatten
 
-- **Raster 4 px.** Innenabstand Karte `p-4` (Handy) / `sm:p-5`; Listenzeile `px-4 py-2.5`;
-  Abstand zwischen Abschnitten `gap-8` (Handy) / `lg:gap-10`; zwischen Abschnittskopf und Inhalt
-  `mb-2.5` (macht `SectionHeader`); zwischen Feldern `gap-4`.
-- **Radien:** `rounded-md` 8 (Badges, Menüeinträge) · `rounded-lg` 10 (Knöpfe, Felder, Chips,
-  Symbolfelder) · `rounded-xl` 12 (Karten, Listen, Menüs) · `rounded-2xl` 16 (Dialoge, Sheets).
-  Nichts darüber außer runden Elementen (`rounded-full`: Avatar, Mikrofon, Status-Punkt).
-- **Schatten:** `shadow-card` = Haarlinie, für alles, was auf der Seite liegt. `shadow-lift` nur
-  Hover von klickbaren Karten. `shadow-pop` nur Schwebendes (Dialog, Menü, Toast, Drawer).
-  Keine Rahmen **und** Schatten zugleich auf Karten.
+- **Raster 8 px** (4 px für Feinheiten). Innenabstand einer `Section`: 16 px Handy / 24 px ab `sm`
+  (als Variable `--row-px`, die auch `ListRow` nutzt – Zeilen stehen bündig unter dem Titel).
+- **Radien:** `rounded-sm` 4 · `rounded-md` 6 (Knöpfe, Felder, Chips, Pillen) · `rounded-lg` 8
+  (Menüs, Toasts) · `rounded-xl` 10 (Surface, Card) · `rounded-2xl` 12 (Dialog, Sheet).
+- **Schatten:** `shadow-card` = Haarlinie (`0 0 0 1px line`), kein Schlagschatten.
+  `shadow-lift` = kräftigere Haarlinie. `shadow-pop` = `0 12px 32px -8px rgb(0 0 0/.18), 0 0 0 1px rgb(0 0 0/.06)`
+  nur für Dialog, Menü, Toast, Drawer.
+- **Fokus:** 2 px Tinte mit 2 px Abstand (`:focus-visible`); Felder: Rahmen + 1-px-Ring in Tinte.
 
 ### 2.5 Bewegung
 
 | Klasse | Dauer | Wofür |
 |---|---|---|
-| `animate-in` | 160 ms | Seitenwechsel (macht `Shell`), neue Inhalte |
-| `animate-pop` | 180 ms | Listeneinträge, die nachträglich erscheinen |
+| `animate-in` | 160 ms | Seitenwechsel (macht `Shell`), neue Inhalte – Deckkraft + 4 px |
+| `animate-pop` | 160 ms | nachträglich erscheinende Zeilen |
 | `animate-fade` | 160 ms | Abdunklung hinter Dialogen |
 | `animate-up` | 240 ms | Bottom-Sheet (Handy) |
 | `animate-slide` / `animate-slide-left` | 200/220 ms | Drawer rechts / Menü links (Handy) |
-| `animate-menu` | 140 ms | Aufklappmenüs |
-| `animate-rec` | Schleife | nur laufende Aufnahme |
-| `skeleton` | Schleife | Lade-Platzhalter |
+| `animate-menu` | 140 ms | Aufklappmenüs, nur Deckkraft + 4 px |
+| `animate-rec` | Schleife | Zinnober-Puls, nur bei laufender Aufnahme |
 
-Kurve `--ease-out-soft` (`cubic-bezier(.2,.8,.2,1)`). Hover-Übergänge 150 ms, `active:scale-[0.98]` auf Knöpfen.
+Knöpfe: kein Skalieren beim Klick, nur Deckkraft `.85`.
 
 ---
 
-## 3. Layout
+## 3. Rahmen (`Shell.tsx`)
 
-### Desktop (≥ 1024 px, `lg`)
-- **Seitenleiste** fest links, `w-60` (240 px), `bg-canvas`, rechts `border-line`. Von oben:
-  Logo + Glocke · Suche (Strg K) · **Erfassen** (orange) + Code scannen · Hauptnavigation ·
-  „Mehr“ (einklappbar) · unten Workspace/Konto-Menü und Rechtstexte.
-- **Inhalt** `max-w-6xl` (1152 px), zentriert, `px-10 pt-9 pb-16`.
-- Detailseiten: zweispaltig `lg:grid-cols-[minmax(0,1fr)_20rem]` – Inhalt links, Eigenschaften rechts.
-
-### Tablet (`sm`–`lg`)
-- Kein Seitenmenü; Kopfzeile und untere Leiste wie Handy, Inhalt `px-6`.
+### Desktop (≥ 1024 px)
+- **Seitenleiste** 232 px auf `canvas`, **ohne** Trennlinie zum Inhalt. Von oben: Logo + Glocke ·
+  Suche (Strg K) · **Erfassen** (schwarz, Mikrofon) + Scannen (`ghost`) · Navigation · „Mehr“
+  (einklappbar) · Workspace/Konto · Rechtslinks.
+- Navigation: Text 14 px, Symbol 16 px `ink-3`; aktiv = `selected` + Tinte, **kein** farbiger Balken.
+  Zähler (z. B. Offline-Warteschlange) als graue Zahl.
+- **Inhalt** `max-w-6xl`, `px-10 pt-8`. Die weiße Fläche beginnt mit eigenem Rand (`Surface`).
 
 ### Handy (390 px ist Referenz)
-- **Kopfzeile** `h-14`, `bg-canvas`, Logo · Glocke · Suche.
-- **Untere Leiste** (`aria-label="Hauptnavigation"`) mit fünf Plätzen: Heute · Prüfen ·
-  **Erfassen** (runder Mikrofon-Knopf 56 px, ragt 16 px heraus) · Mängel · Mehr (öffnet die
-  Seitenleiste als Panel von links). Aktiver Reiter: Tinte + Strich oben.
-- Inhalt `px-4 pt-5 pb-28` (Platz für die Leiste). **Kein horizontaler Überlauf**: breite Inhalte
-  (Chips, Tabs) scrollen in sich (`no-scrollbar -mx-4 px-4 overflow-x-auto`), Tabellen werden
-  zu Zeilen (`DataTable`).
+- Kopfzeile 56 px auf `canvas` (leicht durchscheinend), Logo · Glocke · Suche.
+- **Untere Leiste** `aria-label="Hauptnavigation"`: Heute · Prüfen · **Erfassen** · Mängel · Mehr.
+  Erfassen = schwarzer Kreis 52 px mit Mikrofon, kein Ring, ragt nicht heraus; solange das
+  Erfassen-Sheet offen ist, wird er Zinnober. Aktiver Reiter nur durch Tinte statt `ink-3`.
+- `Surface` läuft auf dem Handy randlos über die volle Breite (oben/unten Haarlinie).
+- Kein horizontaler Überlauf: breite Inhalte scrollen in sich, Tabellen werden Zeilen (`DataTable`).
+
+Logo: schwarzes Quadrat (Radius 6/32), dünner weißer Kreis, weiße Nadel (`LogoMark`).
 
 ---
 
 ## 4. Bausteine (`src/components/ui.tsx`)
 
-Import immer aus `../components/ui`. Keine eigenen Varianten mit Rohfarben (`bg-red-500` o. Ä.)
-bauen – fehlt etwas, Baustein erweitern.
+Import immer aus `../components/ui`. Keine Rohfarben im JSX (`bg-red-500`, Hex) – fehlt etwas,
+Baustein erweitern.
 
-### Aktionen
-| Baustein | Wichtige Props | Regeln |
+### 4.1 Neu in v3
+
+| Baustein | Props | Regel |
 |---|---|---|
-| `Button` | `variant: primary \| secondary \| outline \| ghost \| danger \| brand`, `size: xs \| sm \| md \| lg`, `icon`, `loading` | `primary` (Tinte) = Hauptaktion, max. 1 pro Bereich. `brand` nur für Erfassen/Aufnahme. `md` ist 44 px (Handy) / 36 px (Desktop). Text als Verb: „Speichern“, „Prüfung starten“. |
-| `IconButton` | `label` (Pflicht), `icon`, `variant: ghost \| secondary \| primary`, `size: sm \| md` | Für Symbol-only. `label` wird `aria-label` + Tooltip. |
-| `Menu` | `items: MenuItem[]` (`label, icon, onClick \| to, danger, disabled` oder `'separator'`), `align`, `trigger?` | Sekundäre Aktionen (⋯). Zerstörerisches zuletzt, `danger`, davor `'separator'`. |
-| `Kbd` | children | Tastenkürzel-Hinweis. |
+| `Surface` | `as?: div\|section\|article\|main`, `bleed?` (Standard an), `className` | Die **eine** weiße Fläche einer Seite. Radius 10, Haarlinie, kein Schatten; Handy randlos. Setzt `--row-px` für Sections und Zeilen. `bleed={false}` außerhalb der Shell, wenn der Rand nicht `px-4` ist. |
+| `Section` | `title?, count?, action?, flush?, id?, aria-label?` | Abschnitt in der Surface: Titel 13 px `ink-3` (h2), Haarlinie darüber (nicht beim ersten). `flush` lässt Listen bis an die Ränder laufen, Zeilen bleiben bündig mit dem Titel. |
+| `StatusText` | `tone, strong?, children` | Punkt + Wort für Listen und Fließtext. Wort `ink-2`, bei `bad` Zinnober. |
+| `ButtonLink` | `to, variant?, size?, icon?` | Link im Aussehen eines Knopfs (Navigation statt Aktion, z. B. „Rundgang starten“). |
+| `buttonClass(variant, size, className)` | – | Knopf-Klassen für Sonderfälle (z. B. `<label>` als Knopf). |
+| `LogoMark` (`Logo.tsx`) | `className` | Nur die Bildmarke. |
+| `DueBadge` / `ResultBadge` / `SeverityBadge` `variant` | `'text'` (Standard) \| `'pill'` | `text` = Punkt (bzw. Balken) + Wort. `pill` nur im Seitenkopf und in Tabellenspalten „Status“. |
+| `List plain` | – | Zeilen ohne Kasten (in `Section flush` oder Seitenspalte). |
+| `StatTile divider` | Standard an | Kennzahl ohne Kasten; `divider` = senkrechte Haarlinie links. |
 
-### Formulare
-| Baustein | Props | Regeln |
-|---|---|---|
-| `Field` | `label, hint?, error?, optional?, children(id)` | Label immer sichtbar (Tests nutzen `getByLabel`). Fehler ersetzt Hinweis. |
-| `Input`, `Select` | wie HTML | 44/40 px hoch. |
-| `Textarea` | `dictate?` (Standard an) | Diktat-Knopf (`FieldMic`) unten rechts – nicht entfernen. |
-| `DictateInput` | wie `Input` | Einzeilig mit Diktat. |
-| `SearchField` | `value, onChange, placeholder?, label?` | Mit Lupe und Leeren-Knopf. |
-| `Switch` | `checked, onChange, label?, description?` | Sofort wirksame Einstellungen; kein Speichern-Knopf nötig. |
+### 4.2 Was sich am Aussehen geändert hat
 
-Formularregeln: eine Spalte auf dem Handy, `sm:grid-cols-2` für kurze Paare (PLZ/Ort). Pflichtfelder
-nicht markieren, **optionale** mit `optional`. Speichern unten rechts im Dialog-Fuß bzw. am Ende
-der `SettingsSection`.
+| Baustein | v3 |
+|---|---|
+| `Button` | `primary` = Tinte; `brand` = Alias von `primary`; `secondary` = weiß mit Haarlinie; `ghost` ohne Rahmen; `danger` Zinnober. Radius 6, Höhe 44 Handy / 36 Desktop (`md`). Kein Schatten, kein Skalieren. |
+| `Badge` | Standard neutral grau mit Punkt in Tonfarbe; nur `tone="bad"` getönt; `solid` = Tinte bzw. Zinnober, nur für „Kritisch“. |
+| `StatusDot` | 6 px. |
+| `Card` | Haarlinie + Radius 10, kein Schatten. Für neue Seiten `Surface > Section`. |
+| `SectionHeader` | Titel 13 px `ink-3`, Zähler als schlichte Zahl. |
+| `ListRow` | Titel 14 px normal, Zeile 52 px Handy / 44 px Desktop, Haarlinie eingerückt bis zum Textanfang. `leading` höchstens 16-px-Symbol, Punkt oder Abhak-Kreis. |
+| `RowIcon` | Keine Kachel mehr: 16-px-Symbol in `ink-3` (bei `bad` Zinnober). |
+| `ListGroup` | Titel 13 px `ink-3`, kein grauer Balken, Zähler als Zahl. |
+| `StatTile` | Zahl 28 px, darunter Bezeichnung 13 px mit Punkt; Nullwerte `ink-4`. |
+| `Tabs` | Unterstrich 1,5 px Tinte; Zähler graue Zahl (bei `tone="bad"` und > 0 Zinnober). |
+| `Segmented` | Radius 6, aktiv weiß mit Haarlinie, Zähler als Zahl. |
+| `Chip` | Radius 6; aktiv = Tinte auf `selected`. |
+| `PageHeader` | `meta` ist eine Textzeile (13 px `ink-3`), keine Pillen-Reihe. Genau ein `primary`, Rest `ghost` oder ⋯. |
+| `Modal`/`Sheet` | Radius 12; Titel links (Desktop), zentriert mit Griff (Handy). |
+| `Empty` | Kein Symbolkreis (`icon` wird ignoriert); ein Satz in Tinte, Erklärung `ink-2`, eine Aktion – am besten Textlink. |
+| `Timeline` | Kreis weiß mit Haarlinie, Symbol `ink-3`; Textblock mit Linie links statt grauem Kasten. |
+| `Avatar` | Gedämpfte Töne aus den Status-Flächen. |
+| `ErrorBox` | Zinnober-Fläche (erlaubt: Fehler ist „kritisch“). |
+| `Toast` | Tinte, Radius 8, Häkchen statt farbigem Kreis. |
 
-### Flächen und Struktur
-| Baustein | Props | Regeln |
-|---|---|---|
-| `Card` | `className` | Weiß, `rounded-xl`, `shadow-card`. |
-| `CardHeader` | `title, subtitle?, action?` | Kopf innerhalb einer Karte. |
-| `PageHeader` | `title, subtitle?, actions?, breadcrumbs?: Crumb[], backTo?: {to,label}, eyebrow?, meta?, back?` | Jede Seite beginnt damit (außer „Heute“). Detailseiten: `breadcrumbs` (Desktop) bzw. `backTo`. `meta` für Badges unter dem Titel. |
-| `SectionHeader` | `title, count?, meta?, action?` | Über jeder Liste/Karte im Seiteninhalt. `action` z. B. `<SectionLink to>`. |
-| `SectionLink` | `to, children` | „Alle anzeigen ›“. |
-| `Breadcrumbs`, `BackLink` | `items` / `to` | Pfad bzw. Zurück-Link. |
-| `Tabs` | `value, onChange, tabs: {value,label,count?,tone?}[]` | Unterstrich-Reiter für **Bereiche** einer Seite. Mit `useUrlTab('tab', 'standard')` in der URL halten. |
-| `Segmented` | `value, onChange, options` | Umschalter für **Ansicht/Filter** innerhalb eines Bereichs (2–5 Optionen). |
-| `SettingsSection` | `title, description?, children, footer?` | Einstellungen: links Erklärung, rechts Felder in Karte. |
+### 4.3 Unverändert (nur Tokens)
+`IconButton`, `Kbd`, `Field`, `Input`, `Select`, `Textarea`, `DictateInput`, `SearchField`,
+`Switch`, `CardHeader`, `SectionLink`, `Breadcrumbs`, `BackLink`, `useUrlTab`, `FilterBar`/`Toolbar`,
+`DataTable`, `PropertyList`, `KeyValue`, `Skeleton*`, `Spinner`, `Notice`, `SettingsSection`,
+`Drawer`, `ConfirmDialog`/`useConfirm`, `Menu`, `useToast`, `toneDot`, `toneText`, `toneSoft`.
 
-### Listen und Daten
-| Baustein | Props | Regeln |
-|---|---|---|
-| `FilterBar` (= `Toolbar`) | `search?: {value,onChange,placeholder}`, `children` (Chips), `trailing` | Über jeder Liste mit > 10 Einträgen. Chips scrollen auf dem Handy waagrecht. |
-| `Chip` | `active, onClick, count?, icon?` | Filter an/aus. Aktiv = Tinte gefüllt. |
-| `List` | `header?, aria-label?` | Karte mit `divide-y`-Zeilen. |
-| `ListGroup` | `title, count?, tone?, action?` | Gruppenkopf (Linear-Stil) innerhalb von `List`. |
-| `ListRow` | `leading?, title, subtitle?, meta?, trailing?, to? \| onClick?, chevron?, tone?, selectable?, selected?, onSelect?` | Standardzeile für Objekte/Elemente/Mängel/Aufgaben. `meta` erscheint erst ab `sm`. `tone` färbt den Untertitel (z. B. „Überfällig seit …“). |
-| `RowIcon` | `tone?` | 36-px-Symbolfeld als `leading`. |
-| `DataTable<T>` | `columns: Column<T>[]` (`key, header, cell, align?, mobile?: primary\|secondary\|trailing\|hidden`), `rows, rowKey, rowTo?, onRowClick?, empty?, loading?, selected?, onSelect?` | Tabelle ab `md`; darunter automatisch `ListRow`s. Für Vergleichsdaten (Prüfungen, Berichte). |
-| `PropertyList` | `items: {label, value, icon?}[]` | Eigenschaften im Seitenpanel einer Detailseite. Leere Werte zeigen „–“. |
-| `KeyValue` | `items: [label, value][]` | Alt, weiter gültig (rechtsbündige Werte). |
-| `Timeline` | `items: {id, icon?, tone?, title, time?, meta?, body?}[]` | Verlauf/Aktivität (Prüfungen, Kommentare, Statuswechsel). |
-| `StatTile` | `label, value, tone?, to?, hint?` | Einzelne Kennzahl. Auf „Heute“ als Streifen (`StatusCell`). |
-| `Avatar` | `name, size: xs\|sm\|md\|lg` | Initialen, Farbe stabil aus dem Namen. |
+### 4.4 Do / Don't
 
-### Status
-| Baustein | Props | Regeln |
-|---|---|---|
-| `Badge` | `tone, variant: soft\|outline\|solid, size: sm\|md, dot?, icon?` | `soft` Standard; `solid` nur für Kritisches; `outline` für neutrale Labels (Prüfart, Label). |
-| `StatusDot` | `tone, pulse?, label?` | 8-px-Punkt in dichten Listen; `label` wenn der Punkt allein steht. |
-| `DueBadge` | `state: DueState` | Prüfstatus eines Elements. |
-| `ResultBadge` | `result: Result` | Ergebnis einer Prüfung. |
-| `SeverityBadge` | `severity: Severity` | Schweregrad eines Mangels. |
-| `toneDot`, `toneText`, `toneSoft`, `SEVERITY_TONE` | – | Klassen-Maps, falls ein Baustein nicht passt. |
+| ✔ So | ✘ Nicht so |
+|---|---|
+| `<DueBadge state />` (Punkt + Wort) in der Zeile | Status-Pille + Mangel-Pille + rote Zeitangabe in einer Zeile |
+| Eine Aussage pro Zeile, ein Signal | Vier Farben für dieselbe Lage (Balken, Punkt, Zahl, Pille) |
+| `Surface > Section` mit Haarlinien | Karte in Karte, Liste in Karte in Karte |
+| 16-px-Symbol ohne Hintergrund – oder keins | Symbol in getönter Kachel in jeder Zeile |
+| Ein schwarzer Hauptknopf pro Seitenkopf | Schwarzer und farbiger Hauptknopf nebeneinander |
+| Zinnober nur für überfällig/kritisch/Aufnahme | Rot für „Löschen“-Hover, Werbung, Hervorhebung |
+| Abschnittstitel 13 px grau | Versalien-Labels, fette 15-px-Abschnittstitel |
+| Seitenspalte als Text mit Haarlinien auf Beton | Seitenspalte aus gestapelten Karten |
+| Lage als Satz („14 Prüfungen sind überfällig“) | „Guten Tag, Sabine“ und eine Kachel-Reihe |
+| Nullwerte in `ink-4` | große rote Nullen |
+| Leerzustand: ein Satz + Textlink | Symbolkreis, Illustration, leere weiße Karte |
+| Bewegung 160 ms, Deckkraft + 4 px | Skalieren, Federn, Schatten-Hover |
 
-### Zustände
-| Baustein | Props | Regeln |
-|---|---|---|
-| `Empty` | `icon?, title, text?, action?, compact?` | Titel sagt, was fehlt („Noch keine Mängel“), Text sagt, was zu tun ist, **eine** Aktion. In Karten `compact`. |
-| `Skeleton`, `SkeletonList`, `PageSkeleton` | `className` / `rows` | Statt `Spinner` für Seiten und Listen. `Spinner` nur in kleinen Bereichen. |
-| `ErrorBox` | `error, onRetry?` | Fehler aus Anfragen. Mit `onRetry={() => refetch()}`. |
-| `Notice` | `tone, title?, children, action?, icon?` | Hinweise im Inhalt (z. B. „Offline – Änderungen werden später übertragen“). |
-| `useToast()` | `toast(text, 'ok' \| 'bad')` | Rückmeldung nach Aktionen, ≤ 6 Wörter: „Mangel gespeichert“. |
-
-### Überlagerungen
-| Baustein | Props | Regeln |
-|---|---|---|
-| `Modal` (= `Sheet`) | `title, description?, footer?, size: sm\|md\|lg\|xl, wide?` | Anlegen/Bearbeiten. Handy: Bottom-Sheet, Fußknöpfe volle Breite. Fuß: `secondary` „Abbrechen“ links, `primary` rechts. |
-| `Drawer` | `title, subtitle?, footer?` | Vorschau eines Datensatzes rechts, ohne Seitenwechsel. |
-| `ConfirmDialog` / `useConfirm()` | `title, text?, confirmLabel?, danger?` | Vor Löschen, Abschließen, Widerrufen. Kein `window.confirm`. |
-
-### Do / Don't
-- ✔ Status als `DueBadge`/`StatusDot` – ✘ farbiger Text ohne Punkt oder Symbol.
-- ✔ Eine `List` mit `ListRow`s – ✘ viele einzelne Karten untereinander.
-- ✔ Zahlen `tabular-nums`, Nullwerte in `ink-4` – ✘ große rote Nullen.
-- ✔ Aktionen als Verb („Aufgaben anlegen“) – ✘ „OK“, „Absenden“, „Hier klicken“.
-- ✔ Leere Liste mit `Empty` + Aktion – ✘ leere weiße Karte.
-- ✘ Verläufe, Glas-Effekte, farbige Hintergründe ganzer Karten, Emoji, Schatten auf Schatten.
-- ✘ Orange für etwas anderes als Erfassen/aktive Navigation.
+Weiter verboten: Verläufe als Schmuck, Glas-Effekte auf Inhalt, Emoji, Lila, Illustrationen,
+farbige Hintergründe ganzer Bereiche, Schatten auf Schatten, Orange.
 
 ---
 
-## 5. Seitenvorlagen
+## 5. Seitenvorlagen – immer `Surface > Section`
 
-### 5.1 Liste (Objekte, Elemente, Prüfungen, Mängel, Aufgaben, Begehungen)
+### 5.1 Heute (umgesetzt in `Dashboard.tsx`)
 ```
-PageHeader  title · subtitle · actions=[Button primary „Neues …“, Menu(Export, Import)]
-Tabs        (falls Bereiche: Überfällig · Bald fällig · …, mit count und tone, useUrlTab)
-FilterBar   search + Chips (Art, Status) + trailing (Ansicht/Export)
-List        header="74 Elemente" · ListGroup (optional) · ListRow …
-            leading=RowIcon/CategoryIcon · title=Code + Art · subtitle=Ort · meta=nächste Prüfung · trailing=DueBadge · chevron
-Empty       je nach Filter: „Keine Treffer“ + „Filter zurücksetzen“ bzw. „Noch keine …“ + Anlegen
+Grid lg:[1fr_280px]
+  Surface
+    Kopf     Datum (h1-Größe, Tinte)                        [Rundgang starten]  (Scannen ghost)
+             Lage als Satz (h1, ink-3; Zahlen Tinte, „überfällig/kritisch“ Zinnober)
+    Section  „Prüfstatus“ · rechts „74 Elemente in 4 Objekten“
+             StatTile ×5 ohne Kasten, senkrechte Haarlinien (Handy 3 Spalten)
+    Section  „Jetzt“ n (flush)       ○ Titel / Erklärung              [Aufgaben anlegen] | Öffnen
+    Section  „Rundgänge“ (flush)     Gebäude · Objekt / n Elemente · ● seit 5 Monaten überfällig  ›
+    Section  „Erledigt für dich“     09:12  3 Aufgaben … angelegt           Rückgängig
+             (lädt /api/automation/log?limit=5; bei 404/leer unsichtbar; „Alle“ → Einstellungen › Automatik)
+  aside (auf dem Grund)
+    Objekte          Name ………… ● 7 überfällig       (Haarlinien, keine Karte)
+    Offene Aufgaben  Titel ………… Datum (Zinnober wenn überfällig)
+    Zuletzt geprüft: Code vor 35 Tagen
 ```
-Laden: `SkeletonList`. Auswahl/Massenaktionen: `selectable` + Leiste über der Liste.
+Leere Lage: „Alles geprüft. Nächste Fälligkeit am 03.12.“ – sonst nichts Zusätzliches.
 
-### 5.2 Detail (Objekt, Element, Mangel, Aufgabe, Prüfung)
+### 5.2 Liste (Objekte, Elemente, Prüfungen, Mängel, Aufgaben, Begehungen)
 ```
-PageHeader  breadcrumbs (Objekt › Gebäude › Element) · title · meta=[DueBadge, Badges] · actions=[primary Hauptaktion, Menu]
-Grid lg:grid-cols-[minmax(0,1fr)_20rem] gap-6
-  links:  Tabs (Übersicht · Prüfungen · Mängel · Dateien) → Karten/Listen, Timeline „Verlauf“
-  rechts: Card p-5 mit PropertyList (Status, Fällig am, Prüfart, Hersteller …), darunter weitere Karten
-Handy: rechte Spalte rutscht unter den Titel (vor die Tabs).
+PageHeader  title · subtitle · actions=[primary „Neues …“, Menu ⋯]
+Tabs        (Bereiche, Zähler als Zahl, useUrlTab)
+FilterBar   Suche + Chips (auf dem Grund)
+Surface
+  Section flush title="74 Elemente"
+    ListGroup „Überfällig 13“
+    ListRow  leading=16-px-Symbol der Art · title=Code + Art · subtitle=Ort
+             meta=„seit 5 Monaten“ · trailing=<DueBadge state/> · chevron
+```
+Eine Zeile trägt **ein** Statussignal. Mängelzahl als Text in der Unterzeile („1 Mangel“), nicht
+als zweite Pille. Laden: `SkeletonList`. Leer: `Empty` mit Textlink.
+
+### 5.3 Detail (Objekt, Element, Mangel, Aufgabe, Prüfung)
+```
+PageHeader  breadcrumbs · title · meta=„● Überfällig seit 5 Monaten · Innere Prüfung“ · actions=[primary, Menu]
+Grid lg:[1fr_280px]
+  Surface   Section „Prüfarten“ · Section „Offene Mängel“ · Section „Verlauf“ (Timeline) · Section „Dateien“
+  aside     PropertyList auf dem Grund, Gruppen durch Haarlinie getrennt (keine Karten)
+Handy: aside unter den Kopf, vor die Surface.
 ```
 
-### 5.3 Formular / Sheet
-- Kurze Formulare (≤ 6 Felder) im `Modal` (Handy = Bottom-Sheet). Lange Abläufe (Prüfung) als
-  eigene Seite mit fester Fußleiste.
-- Felder `flex flex-col gap-4`; Abschnitte im Formular mit `text-meta font-semibold text-ink-2`.
-- Fuß: Abbrechen (`secondary`) · Speichern (`primary`, `loading` während der Anfrage).
-
-### 5.4 Dashboard („Heute“) – umgesetzt in `Dashboard.tsx`
-1. Kopf: Datum (`text-meta`), Begrüßung (`text-h1 sm:text-display`), **eine Zeile Lage** mit
-   `StatusDot`s und Links.
-2. Schnellstart: drei `ActionTile`s (Erfassen mit orangem Symbolfeld – auf dem Handy entfällt
-   die Kachel, dort ist das Mikrofon unten), Code scannen, Rundgang starten.
-3. **Prüfstatus**: eine Karte mit Verteilungsbalken und fünf Kennzahlen (Handy 2 Spalten).
-4. **Als Nächstes**: priorisierte Liste („needs attention“) mit `RowIcon` im Ton und einer Aktion je Zeile.
-5. Zwei Spalten: **Rundgänge** (links, breiter) | Objekte, Offene Aufgaben, Zuletzt geprüft.
+### 5.4 Formular / Dialog
+- Kurze Formulare im `Modal` (Handy: Sheet mit Griff, Titel zentriert, Fußknöpfe volle Breite).
+- Fuß: `secondary` „Abbrechen“ · `primary` „Speichern“ (mit `loading`). Kein `window.confirm`.
+- Abschnitte im Formular mit `text-meta font-medium text-ink-3`, nicht fett.
 
 ### 5.5 Einstellungen
 ```
-PageHeader title="Einstellungen"
-Tabs (Workspace · Prüfvorlagen · Benachrichtigungen · Konto · API), useUrlTab
-SettingsSection title + description │ Card mit Fields/Switches │ footer=[Button primary „Speichern“]
-Gefahrenbereich zuletzt: SettingsSection mit Notice tone="bad" und Button variant="danger" + ConfirmDialog
+PageHeader „Einstellungen“ · Tabs (…, Automatik)
+Surface
+  Section title + ein Satz · Felder/Switches · Speichern rechts unten
+  Section „Gefahrenbereich“ zuletzt: Text + Button danger + ConfirmDialog
 ```
+Regel-Listen (Automatik): Name · ein Satz · `Segmented` (Aus/Vorschlagen/Automatisch) · „zuletzt
+ausgeführt“ rechts in `ink-3` – Front/Jira-Muster, siehe Referenzen.
 
-### 5.6 Anmeldung / Registrierung / Einladung / Passwort
-Zweispaltig ab `lg`: links Formular (max. 352 px, vertikal zentriert, Logo oben, Rechtslinks unten),
-rechts ruhige Produktvorschau auf Rasterpapier (`AuthAside`). Handy: nur das Formular.
-Hauptknopf `size="lg"` volle Breite.
+### 5.6 Anmeldung / Registrierung / Einladung / Passwort (umgesetzt in `Auth.tsx`)
+Beton-Grund, Logo oben links. Eine `Surface` (max. 400 px) mit Titel, Felder, schwarzem Knopf
+volle Breite – **links im Raster**, nicht zentriert. Ab `lg` rechts unten ein einziger Satz mit
+Haarlinie links. Darunter Wechsel-Link (Registrieren/Anmelden), ganz unten Rechtslinks.
+Handy: Surface randlos.
 
 ---
 
 ## 6. Texte und Ton
 
-- **Du-Form**, freundlich und knapp: „Lege dein erstes Objekt an“, nicht „Bitte legen Sie …“.
-- **Kurz:** Titel ≤ 4 Wörter, Untertitel ein Satz, Toasts ≤ 6 Wörter, Knöpfe 1–3 Wörter (Verb).
-- **Fachwörter nur, wo die Branche sie benutzt** (Feuerschutztür, Brandschutzklappe, Prüfart,
-  Mangel, Maßnahme). Keine IT-Wörter: „Datensatz“, „Entität“, „Request“ → „Element“, „Eintrag“.
-- Zahlen + Einheit: „14 Prüfungen überfällig“, „seit 5 Monaten“, Datum `TT.MM.JJJJ` über `fmtDate`.
-- Leerzustände sagen, **was fehlt** und **was als Nächstes zu tun ist**.
-- Fehler: was ist passiert + was tun – „Keine Verbindung. Deine Eingaben bleiben erhalten.“
-- Gedankenstrich „–“ und typografische Anführungszeichen „…“. Auslassung „…“.
-- Feste Texte in PDFs/Excel zusätzlich Englisch über `shared/i18n.ts` (siehe `CLAUDE.md`).
+- **Du-Form**, knapp, ohne Ausrufezeichen, ohne Begrüßung.
+- **Lage als Satz:** „14 Prüfungen sind überfällig, 4 Mängel kritisch.“ – Zahl zuerst.
+- Titel ≤ 4 Wörter, Untertitel ein Satz, Toasts ≤ 6 Wörter, Knöpfe 1–3 Wörter als Verb.
+- Abschnittstitel als Hauptwort oder Zeitwort: „Jetzt“, „Rundgänge“, „Erledigt für dich“.
+- Fachwörter der Branche (Feuerschutztür, Prüfart, Mangel, Maßnahme), keine IT-Wörter.
+- Datum `TT.MM.JJJJ` (`fmtDate`), relativ „seit 5 Monaten“, Uhrzeit „09:12“.
+- Leerzustände: was fehlt + was zu tun ist. Fehler: was passiert ist + was tun.
+- Gedankenstrich „–“, typografische Anführungszeichen „…“.
+- Feste PDF-/Excel-Texte zusätzlich Englisch über `shared/i18n.ts` (siehe `CLAUDE.md`).
 
 ---
 
@@ -311,39 +304,33 @@ Nur Muster übernommen (Aufbau, Dichte, Hierarchie) – keine Texte, Grafiken od
 
 | App | Mobbin | Übernommen |
 |---|---|---|
-| Jobber | https://mobbin.com/screens/26563ea4-1b26-4a35-8c59-f9e8aab7de5c | „Heute“: Begrüßung + Datum oben, Arbeitsstand als Streifen mit Kennzahlen, To-do darunter |
-| Vanta | https://mobbin.com/screens/8d2ea40a-3f09-4615-b9ee-971bce9a277c | „Als Nächstes“: Liste „braucht Aufmerksamkeit“ mit Ton-Symbol und einer Aktion je Zeile |
-| Linear | https://mobbin.com/screens/2579f037-4e90-4330-ac35-19323ca9828a | Gruppierte dichte Liste → `ListGroup`/`ListRow`, Zähler neben Gruppentitel |
-| Linear | https://mobbin.com/screens/4c79f5df-23b6-4250-81b2-c29db5a9f9ae | Detailkopf mit Eigenschaften als Badges unter dem Titel (`PageHeader.meta`) |
-| Plane | https://mobbin.com/screens/1dfefd99-83d3-4831-896d-bcad9ce5b17c | Detailseite: Inhalt links, Eigenschaften-Panel rechts, Aktivität darunter |
-| incident.io | https://mobbin.com/screens/fe969887-afe1-41ae-991e-cda75c5a50d7 | `PropertyList` (Label links grau, Wert rechts) und `Timeline` mit Zeit und Textblock |
-| Plane | https://mobbin.com/screens/675ba224-6259-48bc-9cae-2bd3c712bf55 | Seitenleiste: kompakte 32-px-Einträge, ruhiger aktiver Zustand, Bereich einklappbar |
-| Searchable | https://mobbin.com/screens/25fff5b7-c6b7-455e-8746-7da0680c0384 | Konto/Workspace unten in der Seitenleiste |
-| Stripe | https://mobbin.com/screens/ab9ed449-1e64-4dbe-8be4-b98b53831762 | Listenseite: Titel + Aktionen, Filter-Chips, Suche, Tabelle mit leisen Köpfen (`DataTable`) |
-| Meetup | https://mobbin.com/screens/c9704a3c-644d-4aba-8780-128aabb8921b | Schnellfilter als Chips neben dem Suchfeld (`FilterBar`) |
-| Plane | https://mobbin.com/screens/7d44048d-ec3f-4377-9615-05369920140d | Anlegen-Dialog: Titel, Felder, Fuß mit Verwerfen/Speichern rechts (`Modal`) |
-| Canva | https://mobbin.com/screens/3faf146e-9b00-485b-a0d4-eaf0f689e235 | Kleiner Dialog mit sichtbaren Labels über Feldern |
-| Plane | https://mobbin.com/screens/81af81fa-5bb1-453a-ab8e-30bf42024c5c | Einstellungen in Abschnitten mit Fuß-Aktionen (`SettingsSection`) |
-| Replit | https://mobbin.com/screens/f4d4cf18-a47c-486d-ad88-48acf37bbd4e | Einstellungen: Gefahrenbereich zuletzt, Aktion rechts neben Erklärung |
-| incident.io | https://mobbin.com/screens/09e90e35-aa97-4450-99ff-c1162dbf10ec | Anmeldung zweigeteilt: ruhige warme Fläche + schlichtes Formular, Rechtstext unten |
-| incident.io | https://mobbin.com/screens/353f2bc2-ec80-403d-9aa2-87736661f04f | Leerzustand klein in der Karte mit gerahmtem Symbol (`Empty compact`) |
-| Attio | https://mobbin.com/screens/0323dfb8-2bdf-4495-942a-d77852b464eb | Leerzustand: Titel, ein Satz, genau eine Aktion |
-| Shopify (iOS) | https://mobbin.com/screens/e0a3f3f2-db73-430d-8259-e4b59fa6c843 | Handy-Liste: Suche + waagrecht scrollende Filter, Statusbadges in der Zeile |
-| Slack (iOS) | https://mobbin.com/screens/db4d4f0e-7eb9-4aad-93cd-ca273abee2de | Bottom-Sheet zum Anlegen: Griff, Titel, Schließen, klare Felder |
-| Snapchat (iOS) | https://mobbin.com/screens/89ebfd69-c2e3-4fe8-8647-c04e30a734b6 | Sheet mit großem Hauptknopf volle Breite unten |
-| TikTok (iOS) | https://mobbin.com/screens/908b080f-3369-4992-8be5-dce123219790 | Untere Leiste mit hervorgehobener Mittelaktion zwischen je zwei Reitern |
+| Shopify Admin, Bestellliste | https://mobbin.com/screens/86369e83-8e35-4317-90ca-3dfd056dd317 | grauer Grund, eine weiße Fläche, dichte Tabelle, neutrale Status-Marken, schwarzer Hauptknopf |
+| Shopify Admin, Mehrfachauswahl | https://mobbin.com/screens/a02d3d73-8a92-43d5-a848-6871b908b484 | Auswahl in der Tabelle, Aktionsleiste |
+| Shopify Admin, Startseite | https://mobbin.com/screens/f18701c2-d09a-43a9-a3ba-f060475c638e | Seitenleiste auf Grau ohne Trennlinie, Inhaltsfläche mit eigenem Rand (`Shell`, `Surface`) |
+| Apple Erinnerungen | https://mobbin.com/screens/0c4eacca-8ccc-4350-be95-3b758d61f977 | großer Titel, Abschnitte als graue Überschrift + Haarlinie, Abhak-Kreis, keine Karten (`Section`, „Jetzt“) |
+| Apple Erinnerungen „Geplant“ | https://mobbin.com/screens/4fcb0751-165a-429f-a395-defd9b2d9de3 | Datum als ruhige Abschnittszeile |
+| Midday | https://mobbin.com/screens/d508e201-5a04-464b-8891-98ddb426ed50 | ein Satz zur Lage statt Kacheln, Haarlinien-Raster (Kopf von „Heute“) |
+| Time2book | https://mobbin.com/screens/262f1f7f-fff4-427b-a89f-728a90de0df3 | Kennzahlen ohne Karten, durch senkrechte Linien getrennt (`StatTile`) |
+| Front, Regeln | https://mobbin.com/screens/5a449f27-f873-4a21-96bd-2c07e5536153 | Regel-Liste mit Schalter und „zuletzt ausgeführt“ (Automatik) |
+| Jira Automation | https://mobbin.com/screens/69777439-0b6d-4087-87af-8aad12c4b44a | Reiter Regeln / Protokoll („Erledigt für dich“) |
+| The New York Times, Anmeldung | https://mobbin.com/screens/cfe99e66-06b8-43b6-b8cb-33d339fbd0ac | schmale Formularspalte, schwarzer Knopf volle Breite, nichts sonst |
+| Shopify, Anmeldung | https://mobbin.com/screens/4697d474-32a0-48dc-b2e1-32e382619f5a | eine weiße Fläche mit dem Formular auf ruhigem Grund, Logo darüber |
 
-Gesucht, aber verworfen (passten nicht zum Ton): Luma-Anmeldung (dunkel, Werbekacheln),
-Hinge/Waymo-Leisten (zu verspielt), Square-Seitenleiste (zu verschachtelt).
+Angesehen und verworfen: Shopify-Startseite mit Illustrationskarten (zu werblich), Klaviyo- und
+Base44-Anmeldung mit Bild- und Werbehälfte (widerspricht „Leere ist Material“), Canny (blauer
+Akzent, zu klein).
 
 ---
 
 ## 8. Prüfliste vor dem Merge einer Seite
 
-- [ ] Beginnt mit `PageHeader` (Detail: Breadcrumbs/BackLink), Abschnitte mit `SectionHeader`.
-- [ ] Laden = Skelett, leer = `Empty` mit Aktion, Fehler = `ErrorBox onRetry`.
-- [ ] Status nur über `DueBadge`/`ResultBadge`/`SeverityBadge`/`StatusDot`.
-- [ ] 390 px: kein horizontaler Überlauf, Ziele ≥ 40 px, Hauptaktion erreichbar.
-- [ ] Keine Rohfarben (`red-500`, Hex im JSX), keine neuen Radien/Schatten.
-- [ ] Texte in Du-Form, Knöpfe als Verb, keine Fachjargon-Fremdwörter.
-- [ ] `npm run check` und die passende e2e-Reihe grün.
+- [ ] Grund `canvas`, **eine** `Surface`, Abschnitte als `Section` (keine Karte in der Surface).
+- [ ] Seitenspalten auf dem Grund mit Haarlinien, ohne Karten.
+- [ ] Höchstens ein `primary` im Seitenkopf; kein Orange; Zinnober nur für überfällig/kritisch.
+- [ ] Status in Listen als `DueBadge`/`ResultBadge`/`SeverityBadge` (`variant="text"`) oder `StatusText`; Pillen nur im Kopf/Status-Spalte.
+- [ ] Keine Symbolkacheln (`CategoryIcon`-Kachel, getönte `RowIcon`); höchstens 16-px-Symbol.
+- [ ] Laden = Skelett, leer = `Empty` (Satz + Textlink), Fehler = `ErrorBox onRetry`.
+- [ ] 390 px: kein horizontaler Überlauf, Ziele ≥ 40 px.
+- [ ] Keine Rohfarben/Hex im JSX, keine eigenen Radien/Schatten.
+- [ ] Texte: Du-Form, knapp, Knöpfe als Verb, keine Ausrufezeichen.
+- [ ] `npm run check` und die passende e2e-Reihe grün; Bilder 1360/390 px neu.
