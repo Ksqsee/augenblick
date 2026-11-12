@@ -1,37 +1,94 @@
 import { useQuery } from '@tanstack/react-query';
-import { CheckCircle2 } from 'lucide-react';
 import { type FormEvent, type ReactNode, useState } from 'react';
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { ROLES, type Role } from '../../shared/catalog';
 import { api, queryClient } from '../api';
 import { Logo } from '../components/Logo';
-import { Button, ErrorBox, Field, Input, Spinner } from '../components/ui';
+import { Badge, Button, ErrorBox, Field, Input, Spinner, StatusDot } from '../components/ui';
+import type { Tone } from '../format';
 
-function AuthLayout({ title, subtitle, children, footer }: { title: string; subtitle?: string; children: ReactNode; footer?: ReactNode }) {
+const PREVIEW: { code: string; name: string; place: string; tone: Tone; label: string }[] = [
+  { code: 'FST-0142', name: 'Feuerschutztür', place: 'Treppenhaus Nord', tone: 'ok', label: 'Aktuell' },
+  { code: 'FL-0031', name: 'Feuerlöscher', place: 'Flur West', tone: 'warn', label: 'Bald fällig' },
+  { code: 'BSK-0007', name: 'Brandschutzklappe', place: 'Technikraum', tone: 'bad', label: 'Überfällig' },
+  { code: 'RWM-0210', name: 'Rauchwarnmelder', place: 'Büro 3.12', tone: 'info', label: 'Nie geprüft' },
+];
+
+/** Rechte Seite der Anmeldung: ruhige Produktvorschau statt Werbebild. */
+function AuthAside() {
   return (
-    <div className="grid min-h-dvh lg:grid-cols-[1fr_1.1fr]">
-      <div className="flex flex-col px-6 py-8 sm:px-12">
-        <Logo />
-        <div className="mx-auto flex w-full max-w-sm flex-1 flex-col justify-center py-10">
-          <h1 className="text-2xl font-semibold tracking-tight">{title}</h1>
-          {subtitle && <p className="mt-2 text-sm text-ink-3">{subtitle}</p>}
-          <div className="mt-8">{children}</div>
-          {footer && <div className="mt-6 text-sm text-ink-3">{footer}</div>}
-        </div>
-      </div>
-      <div className="relative hidden overflow-hidden bg-ink lg:block">
-        <div className="absolute inset-0 bg-[radial-gradient(circle_at_30%_20%,rgba(226,85,27,0.35),transparent_55%),radial-gradient(circle_at_80%_80%,rgba(226,85,27,0.18),transparent_50%)]" />
-        <div className="relative flex h-full flex-col justify-end p-14 text-white">
-          <p className="max-w-md text-3xl leading-tight font-semibold tracking-tight">Brandschutz-Prüfungen planen, durchführen und nachweisen – an einem Ort.</p>
-          <ul className="mt-8 space-y-3 text-[15px] text-white/80">
-            {['Fällige Prüfungen auf einen Blick', 'Prüfprotokolle mit Unterschrift direkt vor Ort', 'Mängel bis zur Behebung nachverfolgen', 'QR-Etiketten für jedes Element'].map((t) => (
-              <li key={t} className="flex items-center gap-3">
-                <CheckCircle2 className="size-5 text-brand" /> {t}
+    <div className="relative hidden overflow-hidden border-l border-line bg-sunken lg:flex lg:flex-col lg:justify-center" aria-hidden>
+      <svg className="absolute inset-0 size-full text-line-strong/40" aria-hidden>
+        <defs>
+          <pattern id="pk-grid" width="32" height="32" patternUnits="userSpaceOnUse">
+            <path d="M32 0H0v32" fill="none" stroke="currentColor" strokeWidth="1" />
+          </pattern>
+        </defs>
+        <rect width="100%" height="100%" fill="url(#pk-grid)" />
+      </svg>
+      <div className="relative mx-auto w-full max-w-md px-10 py-16">
+        <p className="text-[30px] leading-[1.15] font-semibold tracking-[-0.025em] text-ink">
+          Jede Tür, jede Klappe, jeder Löscher – <span className="text-ink-3">geprüft und belegt.</span>
+        </p>
+        <p className="mt-4 text-title text-ink-2">Fristen im Blick, Prüfung vor Ort mit Unterschrift, Mängel bis zur Behebung.</p>
+        <div className="mt-10 rounded-2xl bg-surface shadow-pop">
+          <div className="flex items-center justify-between border-b border-line px-4 py-3">
+            <div>
+              <p className="text-body font-semibold">Haupthaus · 3. OG</p>
+              <p className="text-caption text-ink-3">Rundgang · 4 Elemente</p>
+            </div>
+            <Badge tone="muted">heute</Badge>
+          </div>
+          <ul className="divide-y divide-line">
+            {PREVIEW.map((r) => (
+              <li key={r.code} className="flex items-center gap-3 px-4 py-2.5">
+                <StatusDot tone={r.tone} />
+                <span className="min-w-0 flex-1">
+                  <span className="block truncate text-body font-medium">
+                    {r.code} <span className="font-normal text-ink-3">{r.name}</span>
+                  </span>
+                  <span className="block truncate text-caption text-ink-3">{r.place}</span>
+                </span>
+                <Badge tone={r.tone}>{r.label}</Badge>
               </li>
             ))}
           </ul>
+          <div className="flex items-center gap-3 border-t border-line px-4 py-3">
+            <span className="h-1.5 flex-1 overflow-hidden rounded-full bg-sunken">
+              <span className="block h-full w-1/4 rounded-full bg-ink" />
+            </span>
+            <span className="text-caption text-ink-3 tabular-nums">1 von 4</span>
+          </div>
         </div>
       </div>
+    </div>
+  );
+}
+
+function AuthLayout({ title, subtitle, children, footer }: { title: string; subtitle?: string; children: ReactNode; footer?: ReactNode }) {
+  return (
+    <div className="grid min-h-dvh bg-canvas lg:grid-cols-[minmax(0,1fr)_minmax(0,1.05fr)]">
+      <div className="flex flex-col px-5 pt-6 pb-8 sm:px-12 sm:pt-10">
+        <Link to="/login" className="self-start" aria-label="Prüfkompass">
+          <Logo />
+        </Link>
+        <main className="animate-in mx-auto flex w-full max-w-[22rem] flex-1 flex-col justify-center py-10">
+          <h1 className="text-h1 font-semibold tracking-[-0.02em]">{title}</h1>
+          {subtitle && <p className="mt-1.5 text-body text-ink-3">{subtitle}</p>}
+          <div className="mt-8">{children}</div>
+          {footer && <div className="mt-8 border-t border-line pt-5 text-body text-ink-3">{footer}</div>}
+        </main>
+        <p className="text-caption text-ink-3">
+          <Link to="/rechtliches/privacy" className="hover:text-ink">
+            Datenschutz
+          </Link>
+          {' · '}
+          <Link to="/rechtliches/terms" className="hover:text-ink">
+            Nutzungsbedingungen
+          </Link>
+        </p>
+      </div>
+      <AuthAside />
     </div>
   );
 }
@@ -73,7 +130,7 @@ export function Login() {
       footer={
         <>
           Noch kein Konto?{' '}
-          <Link to="/registrieren" className="font-medium text-ink underline underline-offset-4">
+          <Link to="/registrieren" className="font-medium text-ink underline decoration-line-strong underline-offset-4 hover:decoration-ink">
             Workspace anlegen
           </Link>
         </>
@@ -85,12 +142,12 @@ export function Login() {
         <Field label="Passwort">
           {(id) => <Input id={id} type="password" autoComplete="current-password" required value={password} onChange={(e) => setPassword(e.target.value)} />}
         </Field>
-        <Button size="lg" loading={busy} className="mt-2">
+        <Button size="lg" loading={busy} className="mt-2 w-full">
           Anmelden
         </Button>
-        <details className="text-sm text-ink-3">
-          <summary className="cursor-pointer font-medium text-ink-2">Passwort vergessen?</summary>
-          <p className="mt-2">
+        <details className="group text-meta text-ink-3">
+          <summary className="cursor-pointer list-none font-medium text-ink-2 hover:text-ink [&::-webkit-details-marker]:hidden">Passwort vergessen?</summary>
+          <p className="mt-2 rounded-lg bg-sunken px-3 py-2.5 leading-relaxed">
             Bitte eine Administratorin oder einen Administrator deines Workspaces, unter <b>Team</b> einen Link zum Zurücksetzen zu erzeugen. Der Link ist 24 Stunden gültig.
           </p>
         </details>
@@ -114,7 +171,7 @@ export function Register() {
       footer={
         <>
           Schon registriert?{' '}
-          <Link to="/login" className="font-medium text-ink underline underline-offset-4">
+          <Link to="/login" className="font-medium text-ink underline decoration-line-strong underline-offset-4 hover:decoration-ink">
             Anmelden
           </Link>
         </>
@@ -128,7 +185,7 @@ export function Register() {
         <Field label="Passwort" hint="Mindestens 10 Zeichen">
           {(id) => <Input id={id} type="password" autoComplete="new-password" minLength={10} required value={f.password} onChange={set('password')} />}
         </Field>
-        <p className="text-xs text-ink-3">
+        <p className="text-caption leading-relaxed text-ink-3">
           Mit der Registrierung stimmst du den{' '}
           <Link to="/rechtliches/terms" className="underline" target="_blank">
             Nutzungsbedingungen
@@ -143,7 +200,7 @@ export function Register() {
           </Link>{' '}
           zu.
         </p>
-        <Button size="lg" loading={busy} className="mt-2">
+        <Button size="lg" loading={busy} className="mt-2 w-full">
           Kostenlos starten
         </Button>
       </form>
@@ -183,7 +240,7 @@ export function InviteAccept() {
         <Field label={d.existingUser ? 'Dein bestehendes Passwort' : 'Passwort festlegen'} hint={d.existingUser ? undefined : 'Mindestens 10 Zeichen'}>
           {(id) => <Input id={id} type="password" minLength={d.existingUser ? 1 : 10} required value={password} onChange={(e) => setPassword(e.target.value)} />}
         </Field>
-        <Button size="lg" loading={busy} className="mt-2">
+        <Button size="lg" loading={busy} className="mt-2 w-full">
           Einladung annehmen
         </Button>
       </form>
@@ -241,7 +298,7 @@ export function ResetPassword() {
         <Field label="Wiederholen">
           {(id) => <Input id={id} type="password" autoComplete="new-password" minLength={10} required value={repeat} onChange={(e) => setRepeat(e.target.value)} />}
         </Field>
-        <Button size="lg" loading={busy}>
+        <Button size="lg" loading={busy} className="mt-2 w-full">
           Passwort speichern
         </Button>
       </form>
