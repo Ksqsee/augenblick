@@ -1,4 +1,4 @@
-// Einstellungen → Unternehmen: ein Formular (Firmenprofil, Prüfungen, Automatisierung, Dokumente) mit
+// Einstellungen → Unternehmen: ein Formular (Firmenprofil, Prüfungen, Dokumente) mit
 // Speichern-Leiste, darunter sofort wirksame Bereiche (Speicher, Sicherung, Papierkorb).
 import { useQuery } from '@tanstack/react-query';
 import clsx from 'clsx';
@@ -9,8 +9,7 @@ import { buildFileName, DEFAULT_PDF_PATTERN, PDF_PLACEHOLDERS } from '../../../s
 import { api, downscale, fileUrl, type Me, queryClient, uploadBlob, useAction, useMe } from '../../api';
 import { MeterBar, RowDivider, SaveBar, SettingRow, SettingsSection } from '../../components/admin';
 import { categoryLabel, fmtDateTime } from '../../format';
-import { Button, Empty, ErrorBox, Field, IconButton, Input, Segmented, Select, Skeleton, Surface, Switch, Textarea, useToast } from '../../components/ui';
-import { ADAPT_MODES, type AdaptMode } from '../../../shared/intervals';
+import { Button, Empty, ErrorBox, Field, IconButton, Input, Select, Skeleton, Surface, Textarea, useToast } from '../../components/ui';
 
 function initialForm(t: Me['tenant']) {
   return {
@@ -25,8 +24,6 @@ function initialForm(t: Me['tenant']) {
     language: (t.language ?? 'de') as DocLanguage,
     timeZone: t.timeZone || 'Europe/Berlin',
     reminderDays: (t.reminderDays ?? '') as number | '',
-    autoTasks: t.autoTasks !== false,
-    adaptIntervals: (t.adaptIntervalsMode ?? 'suggest') as AdaptMode,
     kinds: (t.inspectionKinds ?? []) as { key?: string; label: string }[],
   };
 }
@@ -70,8 +67,6 @@ function CompanyForm({ me }: { me: Me }) {
           language: f.language,
           timeZone: f.timeZone,
           reminderDays: f.reminderDays === '' ? null : Number(f.reminderDays),
-          autoTasks: f.autoTasks,
-          adaptIntervalsMode: f.adaptIntervals,
           inspectionKinds: f.kinds.filter((k) => k.label.trim().length >= 2),
         },
       }),
@@ -215,26 +210,6 @@ function CompanyForm({ me }: { me: Me }) {
               </option>
             ))}
           </Select>
-        </SettingRow>
-      </SettingsSection>
-
-      <SettingsSection title="Automatisierung" description="Arbeit, die Prüfkompass selbst erledigt.">
-        <Switch
-          checked={f.autoTasks}
-          onChange={(v) => set('autoTasks', v)}
-          label="Aufgaben für schwere Mängel automatisch anlegen"
-          description="Bei Mängeln der Stufe „Hoch“ oder „Kritisch“ entsteht sofort eine Aufgabe mit Frist nach SLA – aus Prüfungen und aus dem Erfassen."
-        />
-        <RowDivider />
-        <SettingRow
-          title="Prüfintervalle selbst anpassen"
-          description="Nach zwei Prüfungen in Folge mit Mängeln wird das Intervall des Elements halbiert (mindestens 1 Monat), nach vier mängelfreien Prüfungen gilt wieder der Standard. Nie länger als der Standard."
-        >
-          <Segmented<AdaptMode>
-            value={f.adaptIntervals}
-            onChange={(v) => set('adaptIntervals', v)}
-            options={(Object.keys(ADAPT_MODES) as AdaptMode[]).map((k) => ({ value: k, label: ADAPT_MODES[k] }))}
-          />
         </SettingRow>
       </SettingsSection>
 

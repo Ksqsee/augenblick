@@ -152,12 +152,12 @@ const addMonths = (ts, months) => {
   check((await api(`/smart/intervals?assetId=${A1.id}`)).json.suggestions.length === 0 && (await sched(A1.id)).intervalMonths == null, 'Stufe „Aus“: weder Vorschlag noch Anpassung');
   await api('/account/company', { method: 'PATCH', data: company(me.tenant, { adaptIntervalsMode: 'suggest' }) });
 
-  step('Einstellungen → Unternehmen: Stufe wählen');
-  await owner.p.goto(`${BASE}/einstellungen?tab=company`);
-  await owner.p.getByText('Prüfintervalle selbst anpassen').waitFor();
-  await owner.p.getByRole('tab', { name: 'Automatisch' }).click();
-  await owner.p.getByRole('button', { name: 'Speichern' }).first().click();
-  await owner.p.getByText('Gespeichert').first().waitFor();
+  step('Einstellungen → Automatik: Stufe im Schritt „Lernen“ wählen (einzige Stelle)');
+  await owner.p.goto(`${BASE}/einstellungen?tab=automation`);
+  const learn = owner.p.locator('[data-automation="adapt_intervals"]');
+  await learn.getByText('Lernen', { exact: true }).waitFor();
+  await learn.getByRole('tab', { name: 'Automatisch' }).click();
+  await owner.p.getByText('Lernen: Automatisch').first().waitFor();
   me = (await api('/account/me')).json;
   check(me.tenant.adaptIntervalsMode === 'auto', `Stufe über die Oberfläche gespeichert (${me.tenant.adaptIntervalsMode})`);
   await api('/account/company', { method: 'PATCH', data: company(me.tenant, { adaptIntervalsMode: 'suggest' }) });

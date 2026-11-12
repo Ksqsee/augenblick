@@ -228,6 +228,7 @@ Grid lg:[1fr_280px]
     Section  „Prüfstatus“ · rechts „74 Elemente in 4 Objekten“
              StatTile ×5 ohne Kasten, senkrechte Haarlinien (Handy 3 Spalten)
     Section  „Jetzt“ n (flush)       ○ Titel / Erklärung              [Aufgaben anlegen] | Öffnen
+             (GET /now: je Zeile genau eine Aktion, höchstens 12, „Alle n anzeigen“; Rundgänge darin fehlen unten)
     Section  „Rundgänge“ (flush)     Gebäude · Objekt / n Elemente · ● seit 5 Monaten überfällig  ›
     Section  „Erledigt für dich“     09:12  3 Aufgaben … angelegt           Rückgängig
              (lädt /api/automation/log?limit=5; bei 404/leer unsichtbar; „Alle“ → Einstellungen › Automatik)
@@ -273,8 +274,10 @@ Surface
   Section title + ein Satz · Felder/Switches · Speichern rechts unten
   Section „Gefahrenbereich“ zuletzt: Text + Button danger + ConfirmDialog
 ```
-Regel-Listen (Automatik): Name · ein Satz · `Segmented` (Aus/Vorschlagen/Automatisch) · „zuletzt
-ausgeführt“ rechts in `ink-3` – Front/Jira-Muster, siehe Referenzen.
+Automatik als **Ablauf** (incident.io-Workflow, bewusst kein Knoten-Editor): oben Hauptschalter
+„Autopilot“ (Satz + `Switch`), darunter sechs nummerierte Schritte senkrecht (Kreis 28 px mit Haarlinie in Tinte, dünne
+Tintenlinie zum nächsten Schritt) – je Name · ein Satz · `Segmented` (Aus/Vorschlagen/Automatisch) · „zuletzt …“ in `ink-3`;
+Zuweisungsregeln eingerückt in Schritt 2; darunter das Protokoll. Alles in einer `Surface`.
 
 ### 5.6 Anmeldung / Registrierung / Einladung / Passwort (umgesetzt in `Auth.tsx`)
 Beton-Grund, Logo oben links. Eine `Surface` (max. 400 px) mit Titel, Felder, schwarzem Knopf

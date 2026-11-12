@@ -1,6 +1,6 @@
-// Selbstanpassende Prüfintervalle (Regel `adapt_intervals`, Logik in shared/intervals.ts).
-// Stufe je Workspace in `tenants.adapt_intervals_mode`: off | suggest | auto.
-// - suggest: Vorschläge in GET /smart/suggestions (Aktion POST /smart/intervals/apply) und auf der Elementseite
+// Selbstanpassende Prüfintervalle (Autopilot-Schritt 5 „Lernen“, Schlüssel `adapt_intervals`, Logik in shared/intervals.ts).
+// Stufe je Workspace in `tenants.adapt_intervals_mode`: off | suggest | auto (bei ausgeschaltetem Autopiloten wirkt „off“).
+// - suggest: Vorschläge in GET /now (und /smart/suggestions) (Aktion POST /smart/intervals/apply) und auf der Elementseite
 // - auto: wird beim Abschluss einer Prüfung angewendet (worker/inspections.ts → finalize) und protokolliert
 // Im Autopilot als Regel `adapt_intervals` registriert (worker/automation.ts liest/schreibt dieselbe Spalte);
 // übernommene und automatisch angewendete Intervalle stehen im Autopilot-Protokoll, „Rückgängig“ = revertIntervals.
@@ -9,15 +9,17 @@ import { HTTPException } from 'hono/http-exception';
 import { z } from 'zod';
 import { type AdaptMode, applyInterval, describeProposal, effectiveInterval, type HistoryEntry, type IntervalProposal, proposeInterval } from '../shared/intervals';
 import { type Result, type Schedules, summarizeSchedules } from '../shared/logic';
-import { logAutomation } from './automation';
+import { autopilotEnabled, logAutomation } from './automation';
 import { listCategories } from './categories';
 import { tid } from './data';
 import { type AppEnv, type Ctx, logActivity, notFound, now, parseJson, requireRole, scopeSql } from './lib';
 
 export const intervals = new Hono<AppEnv>();
 
+/** Wirksame Stufe des Schritts „Lernen“: gespeicherte Stufe, „off“ solange der Autopilot ausgeschaltet ist. */
 export async function adaptMode(c: Ctx): Promise<AdaptMode> {
   const m = await c.env.DB.prepare('SELECT adapt_intervals_mode FROM tenants WHERE id = ?').bind(tid(c)).first<string>('adapt_intervals_mode');
+  if (!(await autopilotEnabled(c.env, tid(c)))) return 'off';
   return m === 'off' || m === 'auto' ? m : 'suggest';
 }
 

@@ -8,7 +8,7 @@ import { type DocLanguage, tr } from '../shared/i18n';
 import { buildXlsx } from '../shared/xlsx';
 import { getCategoryDef, listCategories } from './categories';
 import { similarity } from '../shared/smart';
-import { autoDefectTasks } from './automation';
+import { autoDefectTasks, closeVerificationsOf } from './automation';
 import { actionRequired } from './smart';
 import { type AppEnv, assertInScope, type Ctx, id, logActivity, notFound, now, parseJson, requireCreate, requireRole, scopeSql, walkScope } from './lib';
 
@@ -771,6 +771,8 @@ data.patch('/defects/:id', async (c) => {
     .bind(b.status, resolved ? t : null, resolved ? c.get('user').userId : null, resolved ? b.note : '', resolved ? b.photoKey : null, c.req.param('id'), tid(c))
     .run();
   if (!r.meta.changes) notFound('Mangel');
+  // Autopilot „Nachprüfen“: offener Nachprüf-Auftrag zu diesem Mangel entfällt
+  if (resolved) await closeVerificationsOf(c, [c.req.param('id')], t);
   await logActivity(c, resolved ? 'resolve' : 'reopen', 'defect', c.req.param('id'), resolved ? `Mangel behoben${b.note ? `: ${b.note.slice(0, 120)}` : ''}${b.photoKey ? ' (mit Foto)' : ''}` : 'Mangel wieder geöffnet');
   return c.json({ ok: true });
 });

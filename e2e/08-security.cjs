@@ -342,6 +342,25 @@ function client() {
   check((await owner(`/automation/log/${logIn.id}/undo`, { body: {} })).status === 409, 'zweites Rückgängig → 409');
   check((await mallory('/automation/monthly-report/zzzzzzzzzzzzzzzz/complete', { body: { reportIds: [created.id] } })).status === 404, 'fremde Reservierung → 404');
 
+  console.log('· #30 Autopilot-Hauptschalter und „Jetzt“ (GET /now)');
+  check((await reader('/automation/autopilot', { method: 'PUT', body: { enabled: false } })).status === 403, 'Lesezugriff schaltet den Autopiloten nicht ab');
+  check((await insp('/automation/autopilot', { method: 'PUT', body: { enabled: false } })).status === 403, 'Prüfer schaltet den Autopiloten nicht ab');
+  check((await owner('/automation/autopilot', { method: 'PUT', body: { enabled: 'nein' } })).status === 400, 'ungültiger Wert → 400');
+  check((await owner('/automation/autopilot')).json.enabled === true, 'Autopilot weiter an');
+  // Mallory schaltet nur den eigenen Workspace
+  check((await mallory('/automation/autopilot', { method: 'PUT', body: { enabled: false } })).status === 200, 'Inhaberin des anderen Workspaces schaltet ihren');
+  check((await owner('/automation/autopilot')).json.enabled === true && (await mallory('/automation/autopilot')).json.enabled === false, 'Schalter je Workspace');
+  // „Jetzt“ verrät nichts außerhalb des Bereichs und des Workspaces
+  const outsideIds = [O.id, oAsset.id, oAsset.buildingId, oAsset.code];
+  const inspNow = JSON.stringify((await insp('/now?limit=50')).json);
+  check(!outsideIds.some((x) => x && inspNow.includes(x)) && !inspNow.includes('Autopilot außen'), 'eingeschränkter Prüfer: /now ohne fremde Objekte, Elemente, Mängel');
+  const inspSugg = JSON.stringify((await insp('/smart/suggestions')).json);
+  check(!outsideIds.some((x) => x && inspSugg.includes(x)), 'eingeschränkter Prüfer: /smart/suggestions ohne fremde Ziele');
+  const mNow = JSON.stringify((await mallory('/now?limit=50')).json);
+  check(![S.id, O.id, sAsset.id, oAsset.id].some((x) => mNow.includes(x)), 'anderer Workspace: /now ohne fremde Daten');
+  check((await reader('/now')).json.items.length === 0, 'Lesezugriff: /now leer');
+  check((await owner('/now?limit=99999')).json.items.length <= 50, '/now: limit gedeckelt');
+
   console.log(fail.length ? `FAILED ${fail.length}: ${fail.join('; ')}` : 'ALL CHECKS OK');
   if (fail.length) process.exitCode = 1;
 })().catch((e) => {

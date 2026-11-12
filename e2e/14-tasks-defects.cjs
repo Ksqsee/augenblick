@@ -1,5 +1,5 @@
 // E2E 14-tasks-defects: Aufgabentypen, Beobachter, @-Erwähnungen, Mehrfachbearbeitung, Gruppierung/Schnellfilter,
-// Behebung mit Notiz und Nachher-Foto (auch im PDF), Ausblenden, Mangel-Detail, Handlungsbedarf, MCP. Nur lokal.
+// Behebung mit Notiz und Nachher-Foto (auch im PDF), Ausblenden, Mangel-Detail, Sortierung nach Dringlichkeit, /smart/action-required, MCP. Nur lokal.
 const { chromium } = require('playwright');
 if (!process.env.DEMO_PASSWORD) throw new Error('DEMO_PASSWORD fehlt');
 const fs = require('fs');
@@ -334,13 +334,23 @@ const check = (ok, m) => {
   check(det.status === 'resolved' && det.resolutionNote === 'Erledigt über die Aufgabe' && !!det.resolutionPhotoKey, 'Mangel mit Notiz und Foto behoben');
   check((await api('/tasks')).json.find((t) => t.id === fixId).status === 'done', 'Aufgabe erledigt');
 
-  step('Oberfläche: Mängel – Handlungsbedarf, Detail, Behebung, Ausblenden, PDF');
-  await p.goto(BASE + '/maengel');
-  await p.getByRole('tab', { name: 'Handlungsbedarf' }).click();
-  await p.locator('[data-action]').first().waitFor();
-  check((await p.locator('[data-action]').count()) > 0, 'Handlungsbedarf-Liste');
+  step('Oberfläche: Mängel – nach Dringlichkeit, Detail, Behebung, Ausblenden, PDF');
+  // Der frühere Reiter „Handlungsbedarf“ ist in „Jetzt“ (Heute) aufgegangen; ein alter Link landet bei „Offen“
+  await p.goto(BASE + '/maengel?tab=action');
+  await p.getByRole('tab', { name: 'Offen', selected: true }).waitFor();
+  check((await p.getByRole('tab', { name: 'Handlungsbedarf' }).count()) === 0, 'kein Reiter „Handlungsbedarf“');
+  await p.locator('[data-defect]').first().waitFor();
+  {
+    // innerhalb einer Schwere: Mängel ohne offene Aufgabe vor denen mit Aufgabe
+    const first = await p.locator('[data-defect]').first().innerText();
+    const openList = (await api('/defects?status=open')).json;
+    const topSev = ['critical', 'high', 'medium', 'low'].find((sv) => openList.some((d) => d.severity === sv));
+    const sameSev = openList.filter((d) => d.severity === topSev);
+    const free = sameSev.filter((d) => !d.taskId || d.taskStatus === 'done' || d.taskStatus === 'cancelled').sort((a, b) => a.createdAt - b.createdAt);
+    const expected = (free[0] ?? sameSev.sort((a, b) => a.createdAt - b.createdAt)[0]).title;
+    check(first.includes(expected), `nach Dringlichkeit sortiert (${expected})`);
+  }
   await p.screenshot({ path: OUT + '03-action.png', fullPage: true });
-  await p.getByRole('tab', { name: 'Offen' }).click();
   const card = p.locator('[data-defect]').filter({ has: p.getByRole('button', { name: 'Als behoben markieren' }) }).first();
   const title = (await card.locator('[data-title]').textContent()).trim();
   await card.locator('[data-row-main]').click();
@@ -417,7 +427,7 @@ const check = (ok, m) => {
   await mp.goto(BASE + '/aufgaben?id=' + otherId);
   await mp.getByRole('dialog').getByTestId('watchers').waitFor();
   await wide('Aufgabe geöffnet');
-  for (const tab of ['Handlungsbedarf', 'Offen', 'Behoben', 'Ausgeblendet']) {
+  for (const tab of ['Offen', 'Behoben', 'Ausgeblendet']) {
     await mp.goto(BASE + '/maengel');
     await mp.getByRole('tab', { name: tab }).click();
     await mp.waitForLoadState('networkidle');

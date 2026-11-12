@@ -342,7 +342,7 @@ function IntervalSection({ asset, canEdit }: { asset: AssetDetail; canEdit: bool
   const q = useQuery({ queryKey: ['intervals', asset.id], queryFn: () => api<{ mode: string; suggestions: IntervalSuggestionRow[] }>(`/smart/intervals?assetId=${asset.id}`) });
   const after = (msg: string) => {
     toast(msg);
-    for (const k of ['asset', 'intervals', 'smart', 'assets', 'dashboard']) void queryClient.invalidateQueries({ queryKey: [k] });
+    for (const k of ['asset', 'intervals', 'smart', 'now', 'assets', 'dashboard']) void queryClient.invalidateQueries({ queryKey: [k] });
   };
   const reset = useAction((key: string) => api('/smart/intervals/reset', { body: { assetId: asset.id, schedule: key } }), () => after('Intervall zurückgesetzt'));
   const apply = useAction((s: IntervalSuggestionRow) => api('/smart/intervals/apply', { body: { assetId: asset.id, schedule: s.schedule, months: s.to } }), () => after('Intervall angepasst'));

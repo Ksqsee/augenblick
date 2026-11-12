@@ -8,7 +8,7 @@ import { getCategoryDef, getSchedule } from './categories';
 import { defaultTaskKind, type TaskKind, taskKindError } from '../shared/tasks';
 import { assetInScope, defectInScope, randomCode, str, taskScope, tid } from './data';
 import { type AppEnv, assertInScope, type Ctx, type Env, id, logActivity, notFound, now, parseJson, RANK, requireRole, type ScopeSetting, token } from './lib';
-import { afterTasksDone, systemCtx } from './automation';
+import { afterTasksDone, closeVerificationsOf, systemCtx, verifyActive } from './automation';
 import { notify, notifyTenant } from './notify';
 import { assertNotThrottled, clientIp, recordFailure } from './throttle';
 
@@ -333,6 +333,15 @@ async function resolveLinkedDefects(c: Ctx, taskIds: string[], by: string | null
     .bind(now(), by, tid(c), JSON.stringify(taskIds))
     .run();
   if (r.meta.changes) await logActivity(c, 'resolve', 'defect', null, `${r.meta.changes === 1 ? 'Mangel' : `${r.meta.changes} Mängel`} mit erledigter Aufgabe behoben`);
+  // Nachprüf-Aufträge zu jetzt behobenen Mängeln entfallen
+  if (r.meta.changes) {
+    const defects = (
+      await c.env.DB.prepare('SELECT defect_id FROM tasks WHERE tenant_id = ? AND defect_id IS NOT NULL AND id IN (SELECT value FROM json_each(?))')
+        .bind(tid(c), JSON.stringify(taskIds))
+        .all<{ defect_id: string }>()
+    ).results.map((x) => x.defect_id);
+    await closeVerificationsOf(c, defects);
+  }
 }
 
 work.patch('/tasks/:id', async (c) => {
@@ -365,7 +374,7 @@ work.patch('/tasks/:id', async (c) => {
     await notify(c, { userIds: [b.assigneeId], type: 'task_assigned', title: `Aufgabe zugewiesen: ${b.title}`, body: c.get('user').name, link: `/aufgaben?id=${c.req.param('id')}` });
   }
   if (b.status !== prev.status) await notifyStatus(c, [{ id: c.req.param('id'), title: b.title }], b.status);
-  // Autopilot: Folgeaufgabe für wiederkehrende Aufgaben
+  // Folgeaufgabe (Wiederholung) und Autopilot-Schritt „Nachprüfen“
   const next = b.status === 'done' && prev.status !== 'done' ? await afterTasksDone(c, [c.req.param('id')]) : 0;
   return c.json({ ok: true, kind, ...(next ? { nextCreated: true } : {}) });
 });
@@ -806,7 +815,8 @@ export async function externalUpdate(c: Ctx, r: Record<string, unknown>, raw: un
       ? [c.env.DB.prepare('INSERT INTO task_comments (id, tenant_id, task_id, user_id, author_name, body, created_at) VALUES (?,?,?,?,?,?,?)').bind(id(), r.tenantId, r.id, null, `${who} (extern)`, b.note, t)]
       : []),
   ]);
-  if (b.status === 'done' && r.defectId) {
+  // Ohne Autopilot-Schritt „Nachprüfen“ gilt die Meldung des Partners als Behebung; mit ihm bestätigt erst die Nachprüfung vor Ort
+  if (b.status === 'done' && r.defectId && !(await verifyActive(c.env, r.tenantId as string))) {
     await c.env.DB.prepare("UPDATE defects SET status='resolved', resolved_at=? WHERE id=? AND status='open'").bind(t, r.defectId).run();
   }
   await c.env.DB.prepare('INSERT INTO activity (id, tenant_id, user_id, action, entity, entity_id, summary, created_at) VALUES (?,?,?,?,?,?,?,?)')
@@ -825,7 +835,7 @@ export async function externalUpdate(c: Ctx, r: Record<string, unknown>, raw: un
     },
     c.executionCtx,
   );
-  // Autopilot: wiederkehrende Aufgabe → Folgeaufgabe (ohne Sitzung im Namen des Systems)
+  // Autopilot: Folgeaufgabe (Wiederholung) und Nachprüf-Auftrag – ohne Sitzung im Namen des Systems
   if (b.status === 'done') {
     const pending: Promise<unknown>[] = [];
     await afterTasksDone(systemCtx(c.env, r.tenantId as string, pending), [r.id as string]);

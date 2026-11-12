@@ -19,16 +19,30 @@ API: [`docs/api.md`](docs/api.md)
   Vorschläge für Maßnahme und Schweregrad; Workers AI (Whisper/Llama), ohne KI Spracherkennung des Browsers und Regeln
 - **Suche in normaler Sprache** (Strg+K): „überfällige Feuerlöscher Grundschule“ öffnet die passend gefilterte Liste
 - **Rundgang**: fällige Elemente eines Gebäudes in Laufreihenfolge, nach jeder Prüfung direkt weiter zum nächsten
-- **Autopilot** (Einstellungen → Automatik): Regeln je Workspace mit drei Stufen *Aus* · *Vorschlagen* (Vorschlag mit Knopf auf
-  „Heute“) · *Automatisch* (ausgeführt und protokolliert, sieben Tage rückgängig zu machen):
-  **Woche planen** (montags je Gebäude mit Fälligkeiten in 14 Tagen ein Prüfauftrag „Rundgang“, zuständig ist, wer dort
-  zuletzt geprüft hat; der Auftrag erledigt sich selbst, sobald nach einer Prüfung im Gebäude nichts mehr im Planungsfenster
-  fällig ist), **Mängel zuweisen** (Aufgabe für schwere Mängel aus Prüfungen, Meldungen und Begehungen, Zuweisungsregeln Elementart + Schwere → Person
-  oder Subunternehmer mit Link, Frist in Tagen), **Fristen eskalieren**, **wiederkehrende Aufgaben** (monatlich,
-  vierteljährlich, jährlich), **offene Mängel nachhalten** (Erinnerung 14 Tage nach erledigter Behebung),
-  **Monatsberichte** (Objektberichte des Vormonats im Archiv, erzeugt im Browser einer Admin-Person),
-  **Prüfintervalle anpassen** (selbstanpassende Intervalle, siehe „Prüfen“);
-  Protokoll mit „Rückgängig“ im Zugriffsbereich; **Typenschild-Foto** füllt Hersteller/Modell
+- **Autopilot** (Einstellungen → Automatik): **ein Kreislauf aus sechs Schritten**, je Schritt eine Stufe *Aus* ·
+  *Vorschlagen* (eine Zeile unter „Jetzt“ mit einem Knopf) · *Automatisch* (ausgeführt, protokolliert, sieben Tage rückgängig zu
+  machen); oben ein Hauptschalter **Autopilot an/aus** (aus = alle Schritte ruhen, Stufen bleiben gemerkt):
+  1. **Planen** (Standard automatisch) – montags je Gebäude mit Fälligkeiten in 14 Tagen ein Rundgang-Auftrag an die Person, die
+     dort zuletzt geprüft hat; er erledigt sich, sobald im Gebäude nichts mehr im Planungsfenster fällig ist.
+  2. **Zuweisen** (automatisch) – schwerer Mangel aus Prüfung, Begehung oder Erfassen → Aufgabe nach Zuweisungsregel
+     (Elementart + Schwere → Person oder Partner mit Link, Frist in Tagen).
+  3. **Nachhalten** (automatisch) – Frist überschritten → Priorität hoch und Hinweis an die Admins (bei Partner-Aufträgen mit
+     „hat sich noch nicht gemeldet“); Mangel 14 Tage nach erledigter Behebung noch offen und keine Nachprüfung → Erinnerung.
+  4. **Nachprüfen** (automatisch, schließt den Kreis) – Mängelbehebung erledigt (Person, Mehrfachbearbeitung, Partner-Link oder
+     Partner-Seite), Mangel noch offen → Prüfauftrag „Nachprüfung <Code>“ an die Person, die den Mangel festgestellt hat
+     (sonst ohne Zuständige), Frist laut SLA. Starten öffnet die Nachprüfung nur mit den betroffenen Prüfpunkten; i. O. → Mangel
+     behoben, Auftrag zu; besteht weiter → Behebung wieder offen (Kommentar, Benachrichtigung). Solange der Schritt wirkt, gilt
+     „erledigt“ eines Partners nicht mehr als Behebung – das bestätigt erst die Nachprüfung.
+  5. **Lernen** (vorschlagen) – wiederholt Mängel → Intervall kürzer, lange mängelfrei → zurück zum Standard.
+  6. **Nachweisen** (vorschlagen) – Monatsanfang → Objektberichte des Vormonats im Archiv (erzeugt im Browser einer Admin-Person).
+
+  Wiederholung (monatlich, vierteljährlich, jährlich) ist eine Eigenschaft der Aufgabe und läuft immer. Montags kommt eine
+  Meldung **„Autopilot: letzte Woche“** (Einträge je Schritt) an Inhaber und Admins statt Einzelmeldungen für Routine; Zuweisungen
+  und Wieder-Öffnungen melden sich weiter einzeln. Protokoll mit „Rückgängig“ im Zugriffsbereich.
+- **Jetzt** (auf „Heute“, `GET /now`): eine Warteschlange für alles, was eine Entscheidung oder Handlung der angemeldeten Person
+  braucht – Unterschriften, abgelehnte Offline-Übertragungen, schwere Mängel ohne Aufgabe, eigene überfällige Aufgaben,
+  Rundgänge, Begehungen, Autopilot-Vorschläge, angefangene Prüfungen, Intervall-Vorschläge; je Zeile eine Aktion, nach
+  Dringlichkeit, höchstens 12 (Rest hinter „Alle … anzeigen“)
 - **Foto zuerst beim Anlegen**: „Foto aufnehmen“ erkennt Art, Hersteller, Modell und Baujahr (Workers AI) und schlägt sie vor;
   ohne KI bleibt es bei der Auswahl, das Foto wird am Element gespeichert
 - **Sammelanlage per Diktat** unter „Erfassen“: „fünf Feuerlöscher im Erdgeschoss Flur“ → Anzahl, Art, Etage, Standort prüfen,
@@ -74,7 +88,7 @@ API: [`docs/api.md`](docs/api.md)
   und Kommentaren; Notizen bleiben im Subunternehmer-Link unsichtbar
 - **Behebung dokumentieren** mit Notiz und Nachher-Foto (wer/wann), im Mangel-Detail, Mängelbericht und Prüfprotokoll;
   **Mangel-Detail** mit Fotos vorher/nachher, Aufgaben und Verlauf; **Ausblenden** (Admins, mit Grund, zählt nicht mit)
-- **Handlungsbedarf**: schwere Mängel ohne Aufgabe, überfällige Aufgaben und Prüfungen in einer Liste nach Dringlichkeit
+- **Mängel nach Dringlichkeit**: offene Mängel nach Schwere, darin zuerst die ohne (offene) Aufgabe, dann die ältesten
 - **Subunternehmer**: Aufgabe per Link teilen, Rückmeldung ohne Konto; **Partner-Zugang** je Firma mit widerrufbarem
   Einladungscode → Sammelseite `/partner/:code` mit allen offenen Aufträgen der Firma und Rückmeldung je Auftrag
 - **Kunden-Freigabe**: Link je Objekt für Auftraggeber – Prüfquote, Fälligkeiten, letzte Prüfungen, offene Mängel, „Zuletzt aktualisiert“; ohne Konto, widerrufbar
@@ -137,7 +151,7 @@ npm run check              # Typprüfung + Unit-Tests + Build
 
 ## Tests
 
-- **Unit-Tests** (`npm test`, Vitest): Fachlogik, Autopilot-Regeln, Import/Export, Übersetzungen, Ruhezeiten, Web Push.
+- **Unit-Tests** (`npm test`, Vitest): Fachlogik, Autopilot-Kreislauf, Rangfolge „Jetzt“, Import/Export, Übersetzungen, Ruhezeiten, Web Push.
 - **Browser-Tests** (`e2e/`, Playwright): Reihen von der Registrierung über Sicherheitskorrekturen und Massenoperationen bis zu Berichtigung, Nachprüfung sowie Aufgaben und Mängeln (`14-tasks-defects`), dem Autopiloten (`20-autopilot`) und den offenen Punkten aus der Analyse (`21-offene-punkte`: Offline-Fehlliste, Intervalle, Partner-Zugang).
   Vor jeder Reihe wird die lokale D1 geleert und mit Demodaten befüllt.
 
