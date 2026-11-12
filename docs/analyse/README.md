@@ -190,10 +190,10 @@ entfällt.
 | Mehrere und eigene „Arten der Prüfung“ je Prüfung | ✓ | `kinds`, eigene Arten in den Unternehmenseinstellungen |
 | Erinnerung X Tage vor Fälligkeit | ✓ | täglicher Cron, Einstellung je Workspace |
 | Papierkorb für Elemente (30 Tage) | ✓ | `GET /trash/assets`, `POST /assets/:id/restore` |
-| Zugriff je Mitglied auf Objekte/Gebäude beschränken, Anlegerechte | geplant | |
-| Berichtsgenerator mit Filtern, Suche in Prüfungen | geplant | |
-| Jährlicher Compliance-Bericht (Begehungen, Mängel, Behebungsquote) | geplant | |
-| Brandschutzbeauftragten-Status je Mitglied mit Verlauf | geplant | |
+| Zugriff je Mitglied auf Objekte/Gebäude beschränken, Anlegerechte | ✓ | Team-Dialog, `memberships.scope`/`can_create`, Migration 0010 |
+| Berichtsgenerator mit Filtern, Suche in Prüfungen | ✓ | Berichte → Bericht-Generator |
+| Jährlicher Compliance-Bericht (Begehungen, Mängel, Behebungsquote) | ✓ | `GET /reports/annual`, Jahresbericht-PDF |
+| Brandschutzbeauftragten-Status je Mitglied mit Verlauf | ✓ | Team-Dialog, Hash-Kette `member_flag_history` |
 | Fehlgeschlagene Offline-Übertragungen auf dem Server (erneut versuchen, endgültig löschen) | geplant | |
 | Selbstanpassende Prüfintervalle | geplant | |
 | Subunternehmer als externe Firma mit Einladungscode | geplant | |
