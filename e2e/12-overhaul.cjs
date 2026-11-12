@@ -98,6 +98,8 @@ const check = (ok, m) => {
   const before = (await api('/defects?status=open')).json.length;
   await p.getByRole('button', { name: /Erfassen/ }).first().click();
   const dlg = p.getByRole('dialog');
+  await dlg.getByLabel('Erfasster Text').waitFor();
+  check((await dlg.getByRole('button', { name: 'Auswerten' }).count()) === 0, '„Auswerten“ erst mit Text');
   await dlg.getByLabel('Erfasster Text').fill(`Brandschutztür ${a.code} schließt nicht, Gefahr im Verzug. Hausmeister informieren bis morgen.`);
   check(await dlg.getByRole('list', { name: 'Erkannt' }).isVisible(), 'Live-Vorschau beim Tippen');
   await dlg.getByRole('button', { name: 'Auswerten' }).click();
@@ -146,6 +148,23 @@ const check = (ok, m) => {
     const parsed = (await api('/ai/parse', { data: { text: `${cp.label} mangelhaft, Gefahr im Verzug`, checkpoints: insp.checkpoints.map((c) => ({ id: c.id, label: c.label })) } })).json;
     check(parsed.items[0]?.checkpointId === cp.id, `Prüfpunkt-Zuordnung (${parsed.items[0]?.checkpointId} / ${cp.id})`);
     check(parsed.items[0]?.severity === 'critical', 'Schwere aus Text');
+  }
+  step('Prüfablauf v3: neutrale Antworten, Fortschritt als Linie');
+  check(await p.getByRole('progressbar', { name: 'Fortschritt' }).waitFor().then(() => true, () => false), 'Fortschrittslinie im Kopf');
+  {
+    const first = p.locator('[data-cp] [role=radiogroup]').first();
+    await first.getByRole('radio', { name: 'Mangel' }).click();
+    await p.waitForTimeout(400); // Farbübergang 150 ms abwarten
+    const st = await first.getByRole('radio', { name: 'Mangel' }).evaluate((e) => getComputedStyle(e).borderTopColor);
+    const okSt = await first.getByRole('radio', { name: 'In Ordnung' }).evaluate((e) => getComputedStyle(e).backgroundColor);
+    check(st === 'rgb(200, 50, 28)', `gewählter Mangel mit Zinnober-Kontur (${st})`);
+    check(okSt === 'rgb(255, 255, 255)', `nicht gewählte Antwort neutral (${okSt})`);
+    const panel = await p.locator('[data-cp]').first().locator('.border-l').first().evaluate((e) => getComputedStyle(e).backgroundColor);
+    check(panel === 'rgba(0, 0, 0, 0)', `Mangel-Panel ohne Fläche (${panel})`);
+    await first.getByRole('radio', { name: 'In Ordnung' }).click();
+    await p.waitForTimeout(400);
+    const okOn = await first.getByRole('radio', { name: 'In Ordnung' }).evaluate((e) => getComputedStyle(e).backgroundColor);
+    check(okOn === 'rgb(233, 233, 230)', `gewählt = selected (${okOn})`);
   }
   step('Rest i. O. nur nach Bestätigung, Abschlussleiste springt zur Lücke');
   const okBefore = await p.getByRole('radio', { name: 'In Ordnung', checked: true }).count();

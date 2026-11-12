@@ -1,6 +1,6 @@
 import { useQuery } from '@tanstack/react-query';
 import clsx from 'clsx';
-import { Check, CheckCheck, CheckCircle2, ChevronDown, ClipboardList, Download, Footprints, Plus, Repeat, Scale } from 'lucide-react';
+import { Check, CheckCheck, ChevronDown, ClipboardList, Download, Footprints, Plus, Repeat, Scale } from 'lucide-react';
 import { useCallback, useMemo, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { SEVERITIES, WALK_PURPOSES, type WalkPurpose } from '../../shared/catalog';
@@ -10,7 +10,7 @@ import { api, type Finding, type PropertyDetail, queryClient, useAction, useMe, 
 import { AddButton, DefectEditor, DefectPanel, DiscardButton, jumpTo, ReadyList, RunFrame, type RunStep, SignatureSection, useAutosave } from '../components/run';
 import { CheckpointRow, reveal, revealNextOpen } from '../components/inspect/Checkpoint';
 import { RunSkeleton } from './InspectionRun';
-import { Badge, Button, Card, DictateInput, Empty, ErrorBox, Field, List, ListRow, Modal, PageHeader, ResultBadge, RowIcon, SectionHeader, Select, SkeletonList, Spinner, Textarea, useToast } from '../components/ui';
+import { Button, ButtonLink, DictateInput, Empty, ErrorBox, Field, List, ListRow, Modal, PageHeader, ResultBadge, Section, Select, SkeletonList, Spinner, StatusText, Surface, Textarea, useToast } from '../components/ui';
 import { defectsLabel, fmtDate, fmtDateTime, RESULT_META } from '../format';
 import { PrintFrame } from './Protocol';
 
@@ -25,30 +25,21 @@ export function WalkthroughsPage() {
     <ListRow
       key={w.id}
       to={w.status === 'draft' ? `/begehung/${w.id}` : `/druck/begehung/${w.id}`}
-      leading={
-        <RowIcon tone={w.status === 'draft' ? 'info' : undefined}>
-          <Footprints />
-        </RowIcon>
-      }
       title={
         <>
           {w.propertyName}
-          {w.buildingName && <span className="font-normal text-ink-3"> · {w.buildingName}</span>}
+          {w.buildingName && <span className="text-ink-3"> · {w.buildingName}</span>}
         </>
       }
-      subtitle={[fmtDate(w.inspectedAt ?? w.createdAt), w.inspector, w.buildingType && BUILDING_TYPES[w.buildingType], w.purpose && w.purpose !== 'regular' && WALK_PURPOSES[w.purpose]]
+      subtitle={[
+        fmtDate(w.inspectedAt ?? w.createdAt),
+        w.inspector,
+        w.purpose && w.purpose !== 'regular' && WALK_PURPOSES[w.purpose],
+        w.openDefects > 0 && `${defectsLabel(w.openDefects)} offen`,
+      ]
         .filter(Boolean)
         .join(' · ')}
-      trailing={
-        <>
-          {w.openDefects > 0 && (
-            <Badge tone="warn" className="max-sm:hidden">
-              {defectsLabel(w.openDefects)} offen
-            </Badge>
-          )}
-          {w.status === 'draft' ? <Badge tone="info">Entwurf</Badge> : w.result && <ResultBadge result={w.result} />}
-        </>
-      }
+      trailing={w.status === 'draft' ? <StatusText tone="info">Entwurf</StatusText> : w.result && <ResultBadge result={w.result} />}
       chevron
     />
   );
@@ -71,28 +62,29 @@ export function WalkthroughsPage() {
       ) : error ? (
         <ErrorBox error={error} onRetry={() => refetch()} />
       ) : !data?.length ? (
-        <Card>
+        <Surface>
           <Empty
-            icon={<Footprints />}
             title="Noch keine Begehung"
             text="Bei einer Begehung prüfst du ein ganzes Objekt: Rettungswege, Kennzeichnung, Organisation. Feststellungen werden zu Mängeln."
           />
-        </Card>
+        </Surface>
       ) : (
-        <div className="flex flex-col gap-8">
+        <Surface>
           {drafts.length > 0 && (
-            <section>
-              <SectionHeader title="Weitermachen" count={drafts.length} />
-              <List aria-label="Offene Begehungen">{drafts.map(row)}</List>
-            </section>
+            <Section title="Weitermachen" count={drafts.length} flush>
+              <List plain aria-label="Offene Begehungen">
+                {drafts.map(row)}
+              </List>
+            </Section>
           )}
           {done.length > 0 && (
-            <section>
-              <SectionHeader title="Abgeschlossen" count={done.length} />
-              <List aria-label="Abgeschlossene Begehungen">{done.map(row)}</List>
-            </section>
+            <Section title="Abgeschlossen" count={done.length} flush>
+              <List plain aria-label="Abgeschlossene Begehungen">
+                {done.map(row)}
+              </List>
+            </Section>
           )}
-        </div>
+        </Surface>
       )}
     </>
   );
@@ -219,17 +211,14 @@ export function WalkthroughRun() {
     );
   if (data.status === 'submitted')
     return (
-      <div className="grid min-h-dvh place-items-center bg-canvas p-6">
-        <Card className="flex w-full max-w-sm flex-col items-center gap-3 p-6 text-center">
-          <CheckCircle2 className="size-8 text-ok" />
-          <p className="text-title font-semibold">Begehung abgeschlossen</p>
-          <p className="text-body text-ink-3">Das Protokoll steht bereit.</p>
-          <Link to={`/druck/begehung/${id}`} className="mt-2 w-full">
-            <Button size="lg" className="w-full">
-              Protokoll ansehen
-            </Button>
-          </Link>
-        </Card>
+      <div className="grid min-h-dvh place-items-center bg-canvas p-4">
+        <Surface bleed={false} className="flex w-full max-w-sm flex-col gap-2 p-6">
+          <p className="text-h3 font-semibold text-ink">Begehung abgeschlossen</p>
+          <p className="text-body text-ink-2">Das Protokoll steht bereit.</p>
+          <ButtonLink to={`/druck/begehung/${id}`} size="lg" className="mt-4 w-full">
+            Protokoll ansehen
+          </ButtonLink>
+        </Surface>
       </div>
     );
   return <WalkRunner w={data} />;
@@ -304,14 +293,10 @@ function WalkRunner({ w }: { w: Walkthrough }) {
   return (
     <RunFrame
       back={`/objekte/${w.propertyId}`}
-      icon={
-        <RowIcon className="size-8">
-          <Footprints />
-        </RowIcon>
-      }
+      icon={<Footprints className="size-4 text-ink-3" strokeWidth={1.75} />}
       title={
         <>
-          Begehung <span className="font-normal text-ink-3">· {BUILDING_TYPES[w.buildingType]}</span>
+          Begehung <span className="text-ink-3">· {BUILDING_TYPES[w.buildingType]}</span>
         </>
       }
       subtitle={[w.buildingName, w.propertyName].filter(Boolean).join(' · ')}
@@ -325,38 +310,36 @@ function WalkRunner({ w }: { w: Walkthrough }) {
       submitting={submitting}
       onSubmit={submit}
     >
-      <Card className="p-4 sm:p-5">
+      <Surface>
+      <Section>
         <Field label="Teilnehmende" hint="z. B. Betreiber, Hausmeister, Brandschutzbeauftragte">
           {(id) => <DictateInput id={id} value={d.participants} onChange={(e) => update({ participants: e.target.value })} />}
         </Field>
-      </Card>
+      </Section>
 
-      <section>
-        <SectionHeader title="Fragenkatalog" meta={`${answered} von ${ids.length}`} />
-        <div className="flex flex-col gap-3">
+      <Section title="Fragenkatalog" action={<span className="text-meta text-ink-3 tabular-nums">{`${answered} von ${ids.length}`}</span>} flush>
+        <div className="divide-y divide-line border-t border-line">
           {sections.map(([sec, qs]) => {
             const done = qs.filter((q) => d.answers[q.id]).length;
             const defects = qs.filter((q) => d.answers[q.id] === 'defect').length;
             const isOpen = open === sec;
             const finished = done === qs.length;
             return (
-              <Card key={sec} id={`abschnitt-${sec}`} className="scroll-mt-20 overflow-hidden">
-                <button className="flex min-h-14 w-full items-center gap-3 px-4 text-left hover:bg-hover sm:px-5" onClick={() => setOpen(isOpen ? null : sec)} aria-expanded={isOpen}>
-                  <span
-                    className={clsx(
-                      'grid h-7 min-w-11 shrink-0 place-items-center rounded-md px-1.5 text-caption font-semibold tabular-nums',
-                      finished ? (defects ? 'bg-warn-soft text-warn' : 'bg-ok-soft text-ok') : 'bg-sunken text-ink-2',
+              <div key={sec} id={`abschnitt-${sec}`} className="scroll-mt-20">
+                <button className="flex min-h-13 w-full items-center gap-3 px-(--row-px) text-left hover:bg-hover sm:min-h-12" onClick={() => setOpen(isOpen ? null : sec)} aria-expanded={isOpen}>
+                  <span className="min-w-0 flex-1">
+                    <span className="block text-body text-ink">{WALK_SECTIONS[sec]}</span>
+                    {defects > 0 && (
+                      <StatusText tone="warn" className="mt-0.5">
+                        {defects} {defects === 1 ? 'Feststellung' : 'Feststellungen'}
+                      </StatusText>
                     )}
-                  >
-                    {finished && !defects ? <Check className="size-4" strokeWidth={2.5} /> : `${done}/${qs.length}`}
                   </span>
-                  <span className="min-w-0 flex-1 text-body font-semibold">{WALK_SECTIONS[sec]}</span>
-                  {defects > 0 && (
-                    <Badge tone="warn" dot>
-                      {defects}
-                    </Badge>
-                  )}
-                  <ChevronDown className={clsx('size-4 shrink-0 text-ink-3 transition-transform', isOpen && 'rotate-180')} />
+                  <span className="flex shrink-0 items-center gap-1.5 text-meta text-ink-3 tabular-nums">
+                    {finished && <Check className="size-3.5 text-ink" strokeWidth={2.5} />}
+                    {done}/{qs.length}
+                  </span>
+                  <ChevronDown className={clsx('size-4 shrink-0 text-ink-4 transition-transform', isOpen && 'rotate-180')} />
                 </button>
                 {isOpen && (
                   <div className="divide-y divide-line border-t border-line">
@@ -387,10 +370,11 @@ function WalkRunner({ w }: { w: Walkthrough }) {
                       );
                     })}
                     {done < qs.length && (
-                      <div className="px-4 py-2 sm:px-5">
+                      <div className="px-(--row-px) py-2">
                         <Button
                           size="sm"
                           variant="ghost"
+                          className="-ml-3"
                           icon={<CheckCheck />}
                           onClick={() => update({ answers: { ...d.answers, ...Object.fromEntries(qs.filter((q) => !d.answers[q.id]).map((q) => [q.id, 'ok' as Answer])) } })}
                         >
@@ -400,35 +384,33 @@ function WalkRunner({ w }: { w: Walkthrough }) {
                     )}
                   </div>
                 )}
-              </Card>
+              </div>
             );
           })}
         </div>
-      </section>
+      </Section>
 
-      <section id="weitere-feststellungen" className="scroll-mt-24">
-        <SectionHeader title="Weitere Feststellungen" meta="ohne Katalogfrage" />
-        <div className="flex flex-col gap-3">
+      <Section id="weitere-feststellungen" title="Weitere Feststellungen" action={<span className="text-meta text-ink-3">ohne Katalogfrage</span>} className="scroll-mt-24">
+        <div className="flex flex-col gap-4">
           {d.findings
             .filter((f) => !f.questionId)
             .map((f, i) => (
-              <Card key={i} className="animate-pop p-4">
+              <DefectPanel key={i}>
                 <DefectEditor
                   defect={f}
                   editableTitle
                   onChange={(nf) => update({ findings: d.findings.map((x) => (x === f ? nf : x)) })}
                   onRemove={() => update({ findings: d.findings.filter((x) => x !== f) })}
                 />
-              </Card>
+              </DefectPanel>
             ))}
           <AddButton onClick={() => update({ findings: [...d.findings, { title: '', note: '', severity: 'medium' }] })}>Feststellung ohne Katalogfrage</AddButton>
         </div>
-      </section>
+      </Section>
 
-      <section>
-        <SectionHeader title="Bemerkungen" meta="optional" />
+      <Section title="Bemerkungen" action={<span className="text-meta text-ink-3">optional</span>}>
         <Textarea aria-label="Bemerkungen" value={d.notes} onChange={(e) => update({ notes: e.target.value })} placeholder="Gesamteindruck, Vereinbarungen, Fristen …" />
-      </section>
+      </Section>
 
       <ReadyList steps={steps} />
 
@@ -439,6 +421,7 @@ function WalkRunner({ w }: { w: Walkthrough }) {
         onName={(signerName) => update({ signerName })}
         onSignature={(signature) => update({ signature })}
       />
+      </Surface>
 
       <DiscardButton
         onDiscard={async () => {
@@ -595,6 +578,7 @@ function WalkPdfButton({ w }: { w: Walkthrough }) {
   if (!me) return null;
   return (
     <Button
+      className="max-lg:order-first"
       icon={<Download className="size-4" />}
       loading={busy}
       onClick={async () => {

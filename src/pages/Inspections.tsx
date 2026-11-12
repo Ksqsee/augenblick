@@ -1,16 +1,16 @@
 import clsx from 'clsx';
-import { Archive, ClipboardCheck, CloudDownload, Download, FileText, Footprints, ScanLine, SlidersHorizontal, Trash2 } from 'lucide-react';
+import { Archive, CloudDownload, Download, Footprints, ScanLine, SlidersHorizontal, Trash2 } from 'lucide-react';
 import { useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { api, archiveReport, type Asset, useAction, useAssets, useDashboard, useInspections, useMe } from '../api';
 import { allCategories, scheduleLabel, schedulesFor } from '../categories';
 import { AssetDrawer } from '../components/AssetDrawer';
-import { CategoryIcon } from '../components/CategoryIcon';
-import { Badge, Button, Card, Chip, Empty, ErrorBox, List, ListRow, Menu, PageHeader, ResultBadge, SkeletonList, StatusDot, Tabs, useConfirm, useToast } from '../components/ui';
+import { CategoryGlyph } from '../components/inspect/Glyph';
+import { Button, ButtonLink, Chip, Empty, ErrorBox, List, ListRow, Menu, PageHeader, ResultBadge, Section, SkeletonList, StatusText, Surface, Tabs, useConfirm, useToast } from '../components/ui';
 import { INSPECTION_PURPOSES } from '../../shared/catalog';
 import { summarizeSchedules } from '../../shared/logic';
 import { EMPTY_FILTER, filterParams, type InspectionFilter, InspectionFilters } from '../components/InspectionFilters';
-import { assetDue, categoryLabel, defectsLabel, DUE_META, fmtDate, fmtDateTime, fmtRelative } from '../format';
+import { assetDue, categoryLabel, defectsLabel, DUE_META, fmtDate, fmtRelative } from '../format';
 
 type Tab = 'overdue' | 'soon' | 'never' | 'not_inspectable' | 'new' | 'drafts' | 'done' | 'archive' | 'corrected';
 type DueTab = 'overdue' | 'soon' | 'never' | 'not_inspectable' | 'new';
@@ -37,9 +37,9 @@ export function InspectionsPage() {
         subtitle="Was fällig ist, was läuft, was erledigt ist"
         actions={
           <>
-            <Link to="/scan">
-              <Button icon={<ScanLine />}>Code scannen</Button>
-            </Link>
+            <ButtonLink to="/scan" icon={<ScanLine />}>
+              Code scannen
+            </ButtonLink>
             <Menu
               items={[
                 { label: 'Begehungen', icon: <Footprints />, to: '/begehungen' },
@@ -116,56 +116,57 @@ function DueList({ due, schedule, onSchedule }: { due: DueTab; schedule: string;
       ) : error ? (
         <ErrorBox error={error} onRetry={() => refetch()} />
       ) : !data?.length ? (
-        <Card>
+        <Surface>
           <Empty
-            icon={<ClipboardCheck />}
             title={schedule ? 'Keine Treffer' : texts[0]}
             text={schedule ? 'Für diese Prüfart ist hier nichts offen.' : texts[1]}
             action={
               schedule ? (
-                <Button variant="secondary" onClick={() => onSchedule('')}>
+                <Button variant="ghost" onClick={() => onSchedule('')}>
                   Filter zurücksetzen
                 </Button>
               ) : undefined
             }
           />
-        </Card>
+        </Surface>
       ) : (
-        <List header={<span>{data.length === 1 ? '1 Element' : `${data.length} Elemente`}</span>} aria-label="Elemente">
-          {data.map((a) => {
-            const dt = dueText(a);
-            const k = a.schedules ? summarizeSchedules(a.schedules).nextKey : null;
-            return (
-              <ListRow
-                key={a.id}
-                onClick={() => setSelected(a)}
-                leading={<CategoryIcon category={a.category} size="sm" />}
-                title={
-                  <>
-                    {a.code} <span className="font-normal text-ink-3 max-sm:hidden">· {categoryLabel(a.category)}</span>
-                  </>
-                }
-                subtitle={[a.location, a.floor, a.buildingName, a.propertyName].filter(Boolean).join(' · ') || '–'}
-                meta={
-                  <span className="flex flex-col items-end leading-tight">
-                    <span className="text-caption text-ink-3">{k && k !== 'main' ? scheduleLabel(a.category, k) : 'nächste Prüfung'}</span>
-                    <span className="font-medium text-ink-2">{fmtDate(a.nextDueAt)}</span>
-                  </span>
-                }
-                trailing={
-                  <span className="flex flex-col items-end gap-1 sm:min-w-32 sm:items-start">
-                    <span className="flex items-center gap-1.5 text-meta whitespace-nowrap text-ink-2 tabular-nums">
-                      <StatusDot tone={dt.tone} />
-                      {dt.text}
-                    </span>
-                    {a.openDefects > 0 && <span className="text-caption text-warn">{defectsLabel(a.openDefects)}</span>}
-                  </span>
-                }
-                chevron
-              />
-            );
-          })}
-        </List>
+        <Surface>
+          <Section title={data.length === 1 ? '1 Element' : `${data.length} Elemente`} flush>
+            <List plain aria-label="Elemente">
+              {data.map((a) => {
+                const dt = dueText(a);
+                const k = a.schedules ? summarizeSchedules(a.schedules).nextKey : null;
+                // eine Meta-Zeile: Ort, ggf. Prüfart und offene Mängel als Text
+                const sub = [
+                  [a.location, a.floor, a.buildingName].filter(Boolean).join(', ') || a.propertyName || '–',
+                  k && k !== 'main' ? scheduleLabel(a.category, k) : null,
+                  a.openDefects > 0 ? defectsLabel(a.openDefects) : null,
+                ]
+                  .filter(Boolean)
+                  .join(' · ');
+                return (
+                  <ListRow
+                    key={a.id}
+                    onClick={() => setSelected(a)}
+                    leading={<CategoryGlyph category={a.category} />}
+                    title={
+                      <>
+                        {a.code} <span className="text-ink-3 max-sm:hidden">· {categoryLabel(a.category)}</span>
+                      </>
+                    }
+                    subtitle={sub}
+                    trailing={
+                      <span title={a.nextDueAt ? `nächste Prüfung ${fmtDate(a.nextDueAt)}` : undefined}>
+                        <StatusText tone={dt.tone}>{dt.text}</StatusText>
+                      </span>
+                    }
+                    chevron
+                  />
+                );
+              })}
+            </List>
+          </Section>
+        </Surface>
       )}
     </>
   );
@@ -237,9 +238,8 @@ function InspectionList({ status, archived, corrected }: { status: 'draft' | 'su
       ) : error ? (
         <ErrorBox error={error} onRetry={() => refetch()} />
       ) : !rows.length ? (
-        <Card>
+        <Surface>
           <Empty
-            icon={<FileText />}
             title={active ? 'Keine Treffer' : corrected ? 'Keine berichtigten Prüfungen' : status === 'draft' ? 'Keine offenen Entwürfe' : archived ? 'Archiv ist leer' : 'Noch keine Prüfungen'}
             text={
               active
@@ -254,18 +254,18 @@ function InspectionList({ status, archived, corrected }: { status: 'draft' | 'su
             }
             action={
               active ? (
-                <Button variant="secondary" onClick={() => setFilter(EMPTY_FILTER)}>
+                <Button variant="ghost" onClick={() => setFilter(EMPTY_FILTER)}>
                   Filter zurücksetzen
                 </Button>
               ) : undefined
             }
           />
-        </Card>
+        </Surface>
       ) : (
-        <Card className="overflow-hidden">
+        <Surface>
           {selectable && (
-            <div className="flex min-h-12 flex-wrap items-center gap-2 border-b border-line px-4 py-2">
-              <label className="mr-auto flex items-center gap-2.5 text-meta text-ink-2">
+            <div className="flex min-h-12 flex-wrap items-center gap-2 border-b border-line px-(--row-px) py-2">
+              <label className="mr-auto flex items-center gap-3 text-meta text-ink-3">
                 <input
                   type="checkbox"
                   className="size-4 accent-ink"
@@ -287,7 +287,6 @@ function InspectionList({ status, archived, corrected }: { status: 'draft' | 'su
                       <Button
                         size="sm"
                         variant="ghost"
-                        className="text-bad"
                         icon={<Trash2 />}
                         onClick={async () => {
                           if (await confirm({ title: `${sel.size} Prüfungen endgültig löschen?`, text: 'Die Termine der Elemente werden neu berechnet.', confirmLabel: 'Löschen', danger: true }))
@@ -302,42 +301,35 @@ function InspectionList({ status, archived, corrected }: { status: 'draft' | 'su
               )}
             </div>
           )}
-          <ul className="divide-y divide-line" aria-label="Prüfungen">
+          <ul className="pk-list" aria-label="Prüfungen" style={{ '--row-inset': selectable ? '56px' : '28px' } as React.CSSProperties}>
             {rows.map((i) => (
-              <li key={i.id} className={clsx('flex items-center transition-colors hover:bg-hover', sel.has(i.id) && 'bg-brand-soft/50')}>
+              <li key={i.id} className={clsx('flex items-center transition-colors hover:bg-hover', sel.has(i.id) && 'bg-selected')}>
                 {selectable && (
-                  <label className="flex cursor-pointer items-center self-stretch pl-4">
+                  <label className="flex cursor-pointer items-center self-stretch pl-(--row-px)">
                     <input type="checkbox" className="size-4 accent-ink" checked={sel.has(i.id)} onChange={() => toggle(i.id)} aria-label={`${i.code} auswählen`} />
                   </label>
                 )}
-                <Link to={i.status === 'draft' ? `/pruefung/${i.id}` : `/druck/protokoll/${i.id}`} className="group flex min-h-14 min-w-0 flex-1 items-center gap-3 px-4 py-2.5 sm:min-h-12">
-                  <CategoryIcon category={i.category} size="sm" />
+                <Link to={i.status === 'draft' ? `/pruefung/${i.id}` : `/druck/protokoll/${i.id}`} className="group flex min-h-[52px] min-w-0 flex-1 items-center gap-3 px-(--row-px) py-2 sm:min-h-11">
+                  <CategoryGlyph category={i.category} />
                   <span className="min-w-0 flex-1">
-                    <span className="flex min-w-0 items-center gap-2 text-body font-medium">
-                      <span className="truncate">
-                        {i.code} <span className="font-normal text-ink-3">· {scheduleLabel(i.category, i.schedule ?? 'main')}</span>
-                      </span>
-                      {i.purpose && i.purpose !== 'regular' && (
-                        <Badge tone="muted" variant="outline" size="sm">
-                          {INSPECTION_PURPOSES[i.purpose]}
-                        </Badge>
-                      )}
+                    <span className="block truncate text-body text-ink">
+                      {i.code} <span className="text-ink-3">· {scheduleLabel(i.category, i.schedule ?? 'main')}</span>
                     </span>
                     <span className="mt-0.5 block truncate text-meta text-ink-3">
-                      <span className="sm:hidden">{fmtDate(i.inspectedAt ?? i.createdAt)} · </span>
-                      {[i.location, i.buildingName, i.propertyName].filter(Boolean).join(' · ')}
+                      {[
+                        fmtDate(i.inspectedAt ?? i.createdAt),
+                        i.purpose && i.purpose !== 'regular' ? INSPECTION_PURPOSES[i.purpose] : null,
+                        i.inspector,
+                        [i.location, i.buildingName].filter(Boolean).join(', '),
+                      ]
+                        .filter(Boolean)
+                        .join(' · ')}
                     </span>
                   </span>
-                  <span className="hidden shrink-0 text-right text-meta text-ink-3 tabular-nums sm:block">
-                    {fmtDateTime(i.inspectedAt ?? i.createdAt)}
-                    <span className="block text-caption">{i.inspector}</span>
-                  </span>
                   {i.supersededAt ? (
-                    <Badge tone="muted">Berichtigt</Badge>
+                    <StatusText tone="muted">Berichtigt</StatusText>
                   ) : i.status === 'draft' ? (
-                    <Badge tone="info" dot>
-                      Entwurf
-                    </Badge>
+                    <StatusText tone="info">Entwurf</StatusText>
                   ) : (
                     i.result && <ResultBadge result={i.result} />
                   )}
@@ -345,7 +337,7 @@ function InspectionList({ status, archived, corrected }: { status: 'draft' | 'su
               </li>
             ))}
           </ul>
-        </Card>
+        </Surface>
       )}
     </>
   );

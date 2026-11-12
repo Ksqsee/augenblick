@@ -1,4 +1,4 @@
-// Auswahl-Chips für den Prüfablauf: große Ziele (40 px auf dem Handy), ruhige Tinte als „an“.
+// Auswahl-Chips für den Prüfablauf: große Ziele (40 px auf dem Handy); gewählt = Tinte auf `selected` (v3).
 import clsx from 'clsx';
 import { Check } from 'lucide-react';
 import type { ReactNode } from 'react';
@@ -6,8 +6,8 @@ import type { ReactNode } from 'react';
 const roomy = 'gap-1.5 px-3.5 text-meta';
 const tight = 'justify-center gap-1 px-1 text-caption sm:gap-1.5 sm:px-3.5 sm:text-meta';
 const base =
-  'inline-flex h-10 shrink-0 items-center rounded-lg border font-medium whitespace-nowrap transition-[background-color,border-color,color] duration-150 select-none active:scale-[0.98] disabled:pointer-events-none disabled:opacity-40 sm:h-9 [&_svg]:size-3.5';
-const on = 'border-ink bg-ink text-white';
+  'inline-flex h-10 shrink-0 items-center rounded-md border font-medium whitespace-nowrap transition-[background-color,border-color,color,opacity] duration-150 select-none active:opacity-85 disabled:pointer-events-none disabled:opacity-40 sm:h-9 [&_svg]:size-3.5';
+const on = 'border-line-strong bg-selected text-ink';
 const off = 'border-line bg-surface text-ink-2 hover:border-line-strong hover:text-ink';
 
 /** An/aus-Chip mit Haken (Mehrfachauswahl, z. B. Prüfart, durchgeführte Arbeiten). */

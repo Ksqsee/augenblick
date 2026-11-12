@@ -1,8 +1,32 @@
-# Prüfen – Bereich auf Designsystem v2
+# Prüfen – Bereich auf Designsystem v3
 
 Gilt für Prüfungsliste, Prüfablauf (online/offline), Rundgang, Code scannen, Offline-Modus, Begehungen,
 Protokoll-Ansicht und das Erfassen-Sheet. Grundlage ist `docs/design.md`; neue Bausteine liegen unter
-`src/components/inspect/`. Bilder (390 px = `m-…`, 1360 px = `d-…`): `docs/design/pruefen/`.
+`src/components/inspect/`. Bilder (390 px = `m-…`, 1360 px = `d-…`): `docs/design/v3/pruefen/`.
+
+## v3 (Phase 2, Paket F)
+
+Umgebaut nach `docs/design.md` (v3) und `docs/plan/v3.md` Abschnitt 5; Maßstab ist „Heute“.
+
+- **Eine Fläche pro Seite:** Prüfablauf, Begehung, Rundgang, Prüfungen, Begehungen, Offline und Scan bestehen
+  aus `Surface > Section`; keine Karten mehr in der Fläche. Hinweise (Offline, Berichtigung, Nachprüfung)
+  stehen als `Notice` darüber, „Entwurf verwerfen“ darunter auf dem Grund.
+- **Antwortknöpfe neutral:** groß wie bisher, gewählt = Tinte auf `selected`; nur ein gewählter „Mangel“ hat
+  eine Zinnober-Kontur. Ergebnis-Kreise ohne Statusfarbe. Der nächste offene Punkt trägt links eine
+  2-px-Tintenlinie.
+- **Mangel-Panel** ohne Fläche, nur Haarlinie in Tinte links. **Vorschläge** („Maßnahme: …“, „Als … einstufen“)
+  als graue unterstrichene Textknöpfe.
+- **Bekannter Mangel vom …** ruhig und inline unter dem Prüfpunkt: Satz, Schwere als Punkt + Wort, zwei Chips.
+- **Fortschritt** als dünne Tintenlinie (`ProgressLine` in `inspect/Glyph.tsx`) – im Kopf des Ablaufs und im Rundgang.
+- **Mikrofon** schwarz, während der Aufnahme Zinnober ohne Pulsschein (nur Wellenform) – `BigMic`,
+  `VoicePanel`, `FieldMic`. Im Erfassen-Sheet erscheint „Auswerten“ erst, wenn Text da ist.
+- **Status** als Punkt + Wort (`StatusText`, `ResultBadge`/`DueBadge` text); keine Pillen in Listen.
+  **Keine Symbolkacheln:** Elementart als 16-px-Linie (`CategoryGlyph` in `inspect/Glyph.tsx`), Erfassen-Arten
+  als graues Wort.
+- **Listenzeilen:** Titel · eine graue Meta-Zeile (Ort, Prüfart, „1 Mangel“) · rechts ein Statuswort.
+- **Protokoll:** nur die Werkzeugleiste ist neu (auf dem Beton, PDF als einziger schwarzer Knopf, Rest ghost;
+  „Berichtigen“ und „Wieder öffnen“ fragen per Dialog statt `window.confirm`). Das A4-Blatt bleibt unverändert.
+
 
 ## Leitidee
 
@@ -19,9 +43,10 @@ fehlt**, und „Weiter“ springt genau dorthin. Erst wenn alles da ist, wird da
 | `VoicePanel.tsx` | „Befund einsprechen“: Mikrofon, Wellenform + Zeit während der Aufnahme, Text prüfen, „Übernehmen“. |
 | `Signature.tsx` | `SignatureSection` (Name + Zeichenfläche mit Grundlinie, Name und Datum unter der Linie) und `SignaturePad`. |
 
-Farben: Antwort „i. O.“ grün, „Mangel“ Bernstein (wie das Ergebnis „Mit Mängeln“), „n. z.“ neutral – jeweils
-weiche Fläche mit farbiger Kontur, keine Vollflächen. Orange nur für den Mikrofonknopf und die Markierung des
-aktuellen Prüfpunkts (dünner Strich links).
+| `Glyph.tsx` | `CategoryGlyph` (Elementart als 16-px-Linie ohne Kachel) und `ProgressLine` (dünne Tintenlinie, `role=progressbar`). |
+
+Farben (v3): keine Statusfarben auf Antwortknöpfen; einzige Signalfarbe ist Zinnober für einen gewählten
+„Mangel“ (Kontur) und die laufende Aufnahme.
 
 ## Kleine kluge Abkürzungen
 
@@ -40,19 +65,20 @@ aktuellen Prüfpunkts (dünner Strich links).
 ## Seiten
 
 - **Prüfungen** (`Inspections.tsx`): `Tabs` mit Zählern im Ton, Prüfart-Chips waagrecht scrollend, Liste mit
-  `ListRow` (Code · Art, Ort, rechts Fälligkeit in Worten mit Status-Punkt, offene Mängel). Durchgeführt:
-  Filter auf dem Handy hinter „Filter“, Auswahlleiste im Kartenkopf.
+  `ListRow` (16-px-Symbol, Code · Art, Meta-Zeile Ort · Prüfart · „1 Mangel“, rechts Fälligkeit als Punkt + Wort).
+  Durchgeführt: Filter auf dem Handy hinter „Filter“, Auswahlleiste oben in der Fläche, Datum in der Meta-Zeile.
 - **Prüfablauf** (`InspectionRun.tsx`, `run.tsx`): siehe oben; Skelett beim Laden, eigene Seite für
   „Bereits abgeschlossen“.
-- **Rundgang** (`Round.tsx`): Fortschritt in Segmenten, Bestätigung, große „Weiter mit“-Karte, „Danach“ als Liste.
+- **Rundgang** (`Round.tsx`): eine Fläche – Fortschritt als Tintenlinie mit Bestätigung, Abschnitt „Weiter mit“, „Danach“ als Liste.
 - **Code scannen** (`Scan.tsx`): dunkler Sucher mit vier Ecken, Hinweis darunter, manuelle Eingabe mit Label.
-- **Offline-Modus** (`Offline.tsx`): „Gebäude laden“, „Auf diesem Gerät“ (je Gebäude eine `List`),
-  „Warteschlange“ rechts bzw. darunter.
+- **Offline-Modus** (`Offline.tsx`): eine Fläche mit „Übertragungen prüfen“, „Gebäude laden“, „Auf diesem Gerät“
+  (je Gebäude Kopfzeile + Liste); „Warteschlange“ als Seitenspalte auf dem Grund.
 - **Begehungen** (`Walkthroughs.tsx`): „Weitermachen“ / „Abgeschlossen“; Ablauf mit aufklappbaren Abschnitten
   und denselben Prüfpunkt-Zeilen.
-- **Protokoll** (`Protocol.tsx`): feste Werkzeugleiste oben, Papier bleibt druckfertig (A4, `print:`-Regeln unverändert).
+- **Protokoll** (`Protocol.tsx`): feste Werkzeugleiste oben auf dem Beton (Handy: waagrecht scrollend, PDF zuerst),
+  Papier bleibt druckfertig (A4, `print:`-Regeln unverändert).
 - **Erfassen** (`CaptureSheet.tsx`, `Dictate.tsx`): großer Mikrofonknopf mit Wellenform, Textfeld,
-  „Wird erkannt“ als Live-Liste, Ort, Schnellzugriffe; danach Karten je Eintrag (Art umschalten, Schwere in
+  „Wird erkannt“ als Live-Liste, Ort, Schnellzugriffe; danach je Eintrag ein Block mit Haarlinie (Art umschalten, Schwere in
   einer Zeile, Maßnahme); Bestätigung mit Hinweis auf Doppelte („Trotzdem anlegen“).
 
 ## Mobbin-Referenzen

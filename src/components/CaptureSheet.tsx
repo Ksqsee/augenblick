@@ -2,7 +2,7 @@
 // Ablauf: sprechen → Live-Vorschau → „Auswerten“ → Karten prüfen → „übernehmen“ → Bestätigung.
 import { useQueryClient } from '@tanstack/react-query';
 import clsx from 'clsx';
-import { AlertTriangle, ArrowLeft, Check, CheckCircle2, ListTodo, MapPin, PackagePlus, ScanLine, Sparkles, StickyNote, Trash2, X } from 'lucide-react';
+import { AlertTriangle, ArrowLeft, Check, MapPin, PackagePlus, ScanLine, Trash2, X } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { SEVERITIES, type Severity } from '../../shared/catalog';
@@ -15,7 +15,7 @@ import { BigMic } from './Dictate';
 import { BuildingPicker } from './forms';
 import { RadioChips } from './inspect/Choice';
 import { readLastPlace, rememberPlace } from './objects/memory';
-import { Button, Field, Input, Modal, Notice, Select, SEVERITY_TONE, Textarea, toneDot, useToast } from './ui';
+import { Button, Field, Input, Modal, Notice, Select, SEVERITY_TONE, StatusText, Textarea, useToast } from './ui';
 
 const OPEN_EVENT = 'pk:capture';
 /** Erfassen von überall öffnen, optional mit vorgewähltem Element oder Objekt. */
@@ -31,12 +31,12 @@ export function useCaptureListener() {
   return [ctx, () => setCtx(null)] as const;
 }
 
-/** Art eines Eintrags: Mangel = Bernstein, Aufgabe = Blau, Notiz = neutral. */
+/** Art eines Eintrags – v3: nur als graues Wort, keine farbige Kachel. */
 const KIND_META = {
-  defect: { label: 'Mangel', icon: AlertTriangle, box: 'bg-warn-soft text-warn' },
-  task: { label: 'Aufgabe', icon: ListTodo, box: 'bg-info-soft text-info' },
-  note: { label: 'Notiz', icon: StickyNote, box: 'bg-sunken text-ink-2' },
-  asset: { label: 'Elemente', icon: PackagePlus, box: 'bg-ok-soft text-ok' },
+  defect: { label: 'Mangel' },
+  task: { label: 'Aufgabe' },
+  note: { label: 'Notiz' },
+  asset: { label: 'Elemente' },
 } as const;
 /** Arten, zwischen denen ein Eintrag umgeschaltet werden kann (Sammelanlagen haben eine eigene Karte). */
 const SWITCH_KINDS = ['defect', 'task', 'note'] as const;
@@ -47,7 +47,7 @@ type Item = CaptureItem & { buildingId?: string; propertyId?: string };
 /** Arten des Workspaces für die Erkennung „fünf Feuerlöscher …“. */
 const captureCategories = (): CaptureCategory[] => allCategories().map((c) => ({ key: c.key, label: c.label, plural: c.plural }));
 const assetCount = (i: CaptureItem) => Math.min(Math.max(Math.round(i.count ?? 1), 1), MAX_BULK_ASSETS);
-const sevDot = (s: Severity) => (s === 'low' ? 'bg-ink-4' : toneDot[SEVERITY_TONE[s]]);
+const sevDot = (s: Severity) => (s === 'low' ? 'bg-ink-4' : s === 'medium' ? 'bg-warn' : 'bg-shu');
 
 type Where = { kind: 'asset'; asset: Asset } | { kind: 'property'; id: string; name: string } | null;
 
@@ -66,12 +66,12 @@ function WherePicker({ where, onChange }: { where: Where; onChange: (w: Where) =
   }, [q, assets.data, props.data]);
   if (where)
     return (
-      <div className="flex min-h-12 items-center gap-3 rounded-lg border border-line bg-surface px-3 text-body">
+      <div className="flex min-h-11 items-center gap-3 rounded-md border border-line bg-surface px-3 text-body">
         <MapPin className="size-4 shrink-0 text-ink-3" />
         <span className="min-w-0 flex-1 truncate">
           {where.kind === 'asset' ? (
             <>
-              <span className="font-semibold">{where.asset.code}</span>
+              <span className="text-ink">{where.asset.code}</span>
               <span className="text-ink-3">
                 {' '}
                 · {categoryLabel(where.asset.category)} · {where.asset.location || where.asset.buildingName}
@@ -80,7 +80,7 @@ function WherePicker({ where, onChange }: { where: Where; onChange: (w: Where) =
           ) : (
             <>
               <span className="text-ink-3">Objekt </span>
-              <span className="font-semibold">{where.name}</span>
+              <span className="text-ink">{where.name}</span>
             </>
           )}
         </span>
@@ -104,12 +104,12 @@ function WherePicker({ where, onChange }: { where: Where; onChange: (w: Where) =
         onFocus={() => setOpen(true)}
       />
       {open && (hits.a.length > 0 || hits.p.length > 0) && (
-        <ul className="animate-menu absolute inset-x-0 top-full z-10 mt-1 overflow-hidden rounded-xl bg-surface py-1 shadow-pop">
+        <ul className="animate-menu absolute inset-x-0 top-full z-10 mt-1 overflow-hidden rounded-lg bg-surface py-1 shadow-pop">
           {hits.a.map((a) => (
             <li key={a.id}>
               <button type="button" className="flex w-full flex-col px-3 py-2 text-left hover:bg-hover" onClick={() => onChange({ kind: 'asset', asset: a })}>
-                <span className="text-body font-medium">
-                  {a.code} <span className="font-normal text-ink-3">· {categoryLabel(a.category)}</span>
+                <span className="text-body text-ink">
+                  {a.code} <span className="text-ink-3">· {categoryLabel(a.category)}</span>
                 </span>
                 <span className="truncate text-meta text-ink-3">
                   {a.propertyName} · {a.buildingName} · {[a.floor, a.location].filter(Boolean).join(', ')}
@@ -121,7 +121,7 @@ function WherePicker({ where, onChange }: { where: Where; onChange: (w: Where) =
             <li key={p.id}>
               <button type="button" className="w-full px-3 py-2.5 text-left text-body hover:bg-hover" onClick={() => onChange({ kind: 'property', id: p.id, name: p.name })}>
                 <span className="text-ink-3">Objekt </span>
-                <span className="font-medium">{p.name}</span>
+                <span className="text-ink">{p.name}</span>
               </button>
             </li>
           ))}
@@ -131,36 +131,26 @@ function WherePicker({ where, onChange }: { where: Where; onChange: (w: Where) =
   );
 }
 
-function KindIcon({ kind, className }: { kind: CaptureItem['kind']; className?: string }) {
-  const K = KIND_META[kind];
-  return (
-    <span className={clsx('grid size-8 shrink-0 place-items-center rounded-lg', K.box, className)}>
-      <K.icon className="size-4" />
-    </span>
-  );
-}
-
-/** Eine erkannte Zeile zum Prüfen: Art umschalten, Titel, bei Mängeln Schwere und Maßnahme. */
+/** Eine erkannte Zeile zum Prüfen: Art umschalten, Titel, bei Mängeln Schwere und Maßnahme. Ohne Karte – Haarlinie dazwischen. */
 function ItemCard({ item, onChange, onRemove }: { item: CaptureItem; onChange: (i: CaptureItem) => void; onRemove: () => void }) {
   const M = KIND_META[item.kind];
   return (
-    <div className="animate-pop flex flex-col gap-3 rounded-xl border border-line bg-surface p-3 sm:p-4">
+    <div className="animate-pop flex flex-col gap-3 py-4">
       <div className="flex items-center gap-2">
-        <KindIcon kind={item.kind} />
-        <div className="flex rounded-lg bg-sunken p-0.5" role="group" aria-label="Art">
+        <div className="flex rounded-md bg-sunken p-0.5" role="group" aria-label="Art">
           {SWITCH_KINDS.map((k) => (
             <button
               key={k}
               type="button"
               aria-pressed={item.kind === k}
               onClick={() => onChange({ ...item, kind: k })}
-              className={clsx('h-9 rounded-md px-2.5 text-meta font-medium transition sm:h-8', item.kind === k ? 'bg-surface text-ink shadow-card' : 'text-ink-3 hover:text-ink')}
+              className={clsx('h-9 rounded-[5px] px-3 text-meta font-medium transition-colors sm:h-8', item.kind === k ? 'bg-surface text-ink shadow-card' : 'text-ink-3 hover:text-ink')}
             >
               {KIND_META[k].label}
             </button>
           ))}
         </div>
-        <button type="button" onClick={onRemove} className="ml-auto grid size-9 place-items-center rounded-lg text-ink-3 hover:bg-bad-soft hover:text-bad" aria-label="Eintrag entfernen">
+        <button type="button" onClick={onRemove} className="-mr-2 ml-auto grid size-10 place-items-center rounded-md text-ink-3 hover:bg-hover hover:text-ink" aria-label="Eintrag entfernen">
           <Trash2 className="size-4" />
         </button>
       </div>
@@ -192,13 +182,13 @@ function AssetItemCard({ item, onChange, onRemove, canCreate }: { item: Item; on
   const cats = allCategories();
   const n = assetCount(item);
   return (
-    <div className="animate-pop flex flex-col gap-3 rounded-xl border border-line bg-surface p-3 sm:p-4" data-asset-item>
+    <div className="animate-pop flex flex-col gap-3 py-4" data-asset-item>
       <div className="flex items-center gap-2">
-        <KindIcon kind="asset" />
-        <p className="min-w-0 flex-1 truncate text-body font-medium">
+        <PackagePlus className="size-4 shrink-0 text-ink-3" strokeWidth={1.75} />
+        <p className="min-w-0 flex-1 truncate text-body text-ink">
           {n} {n === 1 ? 'Element' : 'Elemente'} anlegen
         </p>
-        <button type="button" onClick={onRemove} className="grid size-9 place-items-center rounded-lg text-ink-3 hover:bg-bad-soft hover:text-bad" aria-label="Eintrag entfernen">
+        <button type="button" onClick={onRemove} className="-mr-2 grid size-10 place-items-center rounded-md text-ink-3 hover:bg-hover hover:text-ink" aria-label="Eintrag entfernen">
           <Trash2 className="size-4" />
         </button>
       </div>
@@ -249,20 +239,13 @@ function LivePreview({ text }: { text: string }) {
   if (!items.length) return null;
   return (
     <div>
-      <p className="mb-1.5 flex items-center gap-1.5 text-caption font-medium text-ink-3">
-        <Sparkles className="size-3.5" /> Wird erkannt
-      </p>
-      <ul className="flex flex-col divide-y divide-line rounded-xl border border-line" aria-label="Erkannt">
+      <p className="mb-1 text-meta font-medium text-ink-3">Wird erkannt</p>
+      <ul className="flex flex-col divide-y divide-line border-y border-line" aria-label="Erkannt">
         {items.slice(0, 6).map((i, n) => (
-          <li key={n} className="animate-pop flex min-h-11 items-center gap-2.5 px-3 py-1.5 text-body">
-            <KindIcon kind={i.kind} className="size-7" />
-            <span className="min-w-0 flex-1 truncate">{i.kind === 'asset' ? `${assetCount(i)} × ${categoryLabel(i.category ?? '') || i.title}` : i.title}</span>
-            {i.kind === 'defect' && (
-              <span className="inline-flex shrink-0 items-center gap-1.5 text-meta text-ink-3">
-                <span className={clsx('size-2 rounded-full', sevDot(i.severity))} />
-                {SEVERITIES[i.severity]}
-              </span>
-            )}
+          <li key={n} className="animate-pop flex min-h-11 items-center gap-3 py-1.5 text-body">
+            <span className="w-16 shrink-0 text-meta text-ink-3">{KIND_META[i.kind].label}</span>
+            <span className="min-w-0 flex-1 truncate text-ink">{i.kind === 'asset' ? `${assetCount(i)} × ${categoryLabel(i.category ?? '') || i.title}` : i.title}</span>
+            {i.kind === 'defect' && <StatusText tone={i.severity === 'low' ? 'muted' : SEVERITY_TONE[i.severity]}>{SEVERITIES[i.severity]}</StatusText>}
             {i.dueInDays != null && <span className="shrink-0 text-meta text-ink-3 tabular-nums">in {i.dueInDays} T.</span>}
           </li>
         ))}
@@ -410,9 +393,9 @@ export function CaptureSheet({ initial, onClose }: { initial: { assetId?: string
         }
       >
         <div className="flex flex-col gap-4">
-          <div className="flex flex-col items-center gap-2 py-3 text-center">
-            <CheckCircle2 className="size-10 text-ok" strokeWidth={1.75} />
-            <p className="text-title font-semibold">
+          <div className="flex flex-col gap-1 py-2 max-sm:items-center max-sm:text-center">
+            <p className="flex items-center gap-2 text-title text-ink">
+              <Check className="size-4 shrink-0" strokeWidth={2.25} />
               {n === 0
                 ? 'Nichts Neues angelegt'
                 : `${[
@@ -423,7 +406,7 @@ export function CaptureSheet({ initial, onClose }: { initial: { assetId?: string
                     .filter(Boolean)
                     .join(' und ')} angelegt`}
             </p>
-            {done.auto > 0 && <p className="max-w-xs text-meta text-ink-3">Für {done.auto} schwere Mängel gibt es automatisch eine Aufgabe mit Frist.</p>}
+            {done.auto > 0 && <p className="text-meta text-ink-3">Für {done.auto} schwere Mängel gibt es automatisch eine Aufgabe mit Frist.</p>}
           </div>
           {done.dupes.length > 0 && (
             <Notice
@@ -461,7 +444,7 @@ export function CaptureSheet({ initial, onClose }: { initial: { assetId?: string
       <Modal
         title={
           <span className="flex items-center gap-1.5">
-            <button type="button" onClick={() => setItems(null)} className="-ml-1.5 grid size-8 place-items-center rounded-lg text-ink-3 hover:bg-sunken hover:text-ink" aria-label="Zurück">
+            <button type="button" onClick={() => setItems(null)} className="-ml-1.5 grid size-8 place-items-center rounded-md text-ink-3 hover:bg-hover hover:text-ink" aria-label="Zurück">
               <ArrowLeft className="size-5" />
             </button>
             {items.length} {items.length === 1 ? 'Eintrag' : 'Einträge'} erkannt
@@ -470,13 +453,16 @@ export function CaptureSheet({ initial, onClose }: { initial: { assetId?: string
         description={source === 'ai' ? 'Von der KI vorsortiert – Art, Schwere und Text bei Bedarf anpassen.' : 'Automatisch vorsortiert – Art, Schwere und Text bei Bedarf anpassen.'}
         onClose={onClose}
         footer={
-          <Button size="lg" className="w-full" loading={busy} disabled={!items.length || needsPlace || needsBuilding} onClick={save} icon={<Check />}>
+          <Button size="lg" className="w-full" loading={busy} disabled={!items.length || needsPlace || needsBuilding} onClick={save}>
             {needsPlace ? 'Erst Ort wählen' : needsBuilding ? 'Erst Art und Gebäude wählen' : items.length > 1 ? `Alle ${items.length} übernehmen` : 'Übernehmen'}
           </Button>
         }
       >
-        <div className="flex flex-col gap-3">
-          <WherePicker where={where} onChange={setWhere} />
+        <div className="flex flex-col">
+          <div className="pb-2">
+            <WherePicker where={where} onChange={setWhere} />
+          </div>
+          <div className="flex flex-col divide-y divide-line border-b border-line">
           {items.map((it, n) =>
             it.kind === 'asset' ? (
               <AssetItemCard
@@ -490,6 +476,7 @@ export function CaptureSheet({ initial, onClose }: { initial: { assetId?: string
               <ItemCard key={n} item={it} onChange={(v) => setItems(items.map((x, j) => (j === n ? v : x)))} onRemove={() => setItems(items.filter((_, j) => j !== n))} />
             ),
           )}
+          </div>
           {!items.length && <p className="py-6 text-center text-body text-ink-3">Alle Einträge entfernt. Geh zurück, um neu zu sprechen.</p>}
         </div>
       </Modal>
@@ -500,9 +487,12 @@ export function CaptureSheet({ initial, onClose }: { initial: { assetId?: string
       title="Erfassen"
       onClose={onClose}
       footer={
-        <Button size="lg" className="w-full" loading={busy} disabled={!text.trim() || d.state !== 'idle'} onClick={analyse} icon={<Sparkles />}>
-          Auswerten
-        </Button>
+        // „Auswerten“ erscheint erst, wenn Text da ist
+        text.trim() ? (
+          <Button size="lg" className="animate-pop w-full" loading={busy} disabled={d.state !== 'idle'} onClick={analyse}>
+            Auswerten
+          </Button>
+        ) : undefined
       }
     >
       <div className="flex flex-col gap-4">
@@ -517,15 +507,15 @@ export function CaptureSheet({ initial, onClose }: { initial: { assetId?: string
         />
         <LivePreview text={text} />
         <WherePicker where={where} onChange={setWhere} />
-        <div className="grid grid-cols-2 gap-2">
+        <div className="-mx-2 flex flex-wrap gap-x-1">
           {QUICK.map((q) => (
             <Link
               key={q.to}
               to={q.to}
               onClick={onClose}
-              className="flex h-11 items-center justify-center gap-2 rounded-lg border border-line text-meta font-medium text-ink-2 transition-colors hover:bg-hover hover:text-ink"
+              className="flex h-10 items-center gap-2 rounded-md px-2 text-meta text-ink-2 transition-colors hover:bg-hover hover:text-ink"
             >
-              <q.icon className="size-4" /> {q.label}
+              <q.icon className="size-4 text-ink-3" /> {q.label}
             </Link>
           ))}
         </div>

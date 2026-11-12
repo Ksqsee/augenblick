@@ -1,13 +1,13 @@
 // Rundgang: alle fälligen Elemente eines Gebäudes in Laufreihenfolge (Etage, Standort) nacheinander prüfen.
 // Nach jeder Prüfung landet man wieder hier – mit Bestätigung und dem nächsten Element im Fokus.
 import { useQueryClient } from '@tanstack/react-query';
-import { Check, CheckCircle2, Footprints, MapPin, Play } from 'lucide-react';
+import { Check } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
-import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom';
+import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import type { Category } from '../../shared/catalog';
 import { api } from '../api';
-import { CategoryIcon } from '../components/CategoryIcon';
-import { Button, Card, Empty, ErrorBox, List, ListRow, PageHeader, PageSkeleton, SectionHeader, StatusDot, useToast } from '../components/ui';
+import { CategoryGlyph, ProgressLine } from '../components/inspect/Glyph';
+import { Button, ButtonLink, Empty, ErrorBox, List, ListRow, PageHeader, PageSkeleton, Section, StatusText, Surface, useToast } from '../components/ui';
 import { categoryLabel, fmtDate, fmtRelative } from '../format';
 import { useRounds } from './Dashboard';
 
@@ -76,125 +76,103 @@ export function RoundPage() {
   };
 
   const nd = next && dueLine(next.nextDueAt);
+  const place = (a: { floor?: string | null; location?: string | null }) => [a.floor, a.location].filter(Boolean).join(', ');
 
   return (
-    <div className="mx-auto flex max-w-2xl flex-col gap-6">
+    <div className="mx-auto flex max-w-2xl flex-col">
       <PageHeader
-        className="!mb-0"
         backTo={{ to: '/', label: 'Heute' }}
         eyebrow={r?.propertyName ?? 'Rundgang'}
         title={r?.buildingName ?? 'Rundgang'}
         subtitle={total > 0 ? `${total} Elemente in Laufreihenfolge` : undefined}
       />
 
-      {total > 0 && (
-        <div>
-          <div className="mb-2 flex items-baseline justify-between text-meta">
-            <span className="font-medium text-ink tabular-nums">
-              {done.length} von {total} geprüft
-            </span>
-            <span className="text-ink-3 tabular-nums">{Math.round((done.length / total) * 100)} %</span>
-          </div>
-          <div className="flex h-1.5 gap-0.5 overflow-hidden rounded-full" aria-hidden>
-            {Array.from({ length: total }, (_, i) => (
-              <span key={i} className={i < done.length ? 'flex-1 bg-ok' : 'flex-1 bg-line'} />
-            ))}
-          </div>
-        </div>
-      )}
-
-      {justDone && (
-        <div role="status" className="animate-pop flex items-center gap-3 rounded-xl bg-ok-soft px-4 py-3 text-ok">
-          <CheckCircle2 className="size-5 shrink-0" />
-          <p className="min-w-0 flex-1 text-body">
-            <span className="font-semibold">{justCode ? `${justCode} gespeichert` : 'Prüfung gespeichert'}</span>
-            <span className="text-ink-2"> – das Protokoll liegt unter Prüfungen.</span>
-          </p>
-        </div>
-      )}
-
-      {next ? (
-        <Card className="flex flex-col gap-5 p-5 sm:p-6">
-          <p className="text-meta font-medium text-ink-3">{done.length ? 'Weiter mit' : 'Als Erstes'}</p>
-          <div className="-mt-2 flex items-start gap-3.5">
-            <CategoryIcon category={next.category as Category} />
-            <div className="min-w-0 flex-1">
-              <p className="text-h2 font-semibold tracking-tight">{next.code}</p>
-              <p className="text-body text-ink-2">{categoryLabel(next.category as Category)}</p>
-            </div>
-          </div>
-          <div className="flex flex-col gap-1.5 text-meta">
-            <span className="flex items-center gap-2 text-ink-2">
-              <MapPin className="size-4 shrink-0 text-ink-3" />
-              {[next.floor, next.location].filter(Boolean).join(', ') || 'ohne Standort'}
-            </span>
-            {nd && (
-              <span className="flex items-center gap-2 text-ink-2">
-                <span className="grid size-4 place-items-center">
-                  <StatusDot tone={nd.tone} />
-                </span>
-                {nd.text}
+      <Surface>
+        {total > 0 && (
+          <Section>
+            <div className="mb-3 flex items-baseline justify-between text-meta">
+              <span className="text-ink tabular-nums">
+                {done.length} von {total} geprüft
               </span>
+              <span className="text-ink-3 tabular-nums">{Math.round((done.length / total) * 100)} %</span>
+            </div>
+            <ProgressLine value={(done.length / total) * 100} label="Rundgang" />
+            {justDone && (
+              <p role="status" className="animate-pop mt-4 flex items-start gap-2 text-body text-ink">
+                <Check className="mt-0.5 size-4 shrink-0" strokeWidth={2.25} />
+                <span>
+                  {justCode ? `${justCode} gespeichert` : 'Prüfung gespeichert'}
+                  <span className="text-ink-3"> – das Protokoll liegt unter Prüfungen.</span>
+                </span>
+              </p>
             )}
-          </div>
-          <Button ref={startRef} size="lg" className="w-full sm:w-auto sm:self-start" loading={starting === next.id} onClick={() => start(next.id)} icon={<Play />}>
-            Prüfung starten
-          </Button>
-        </Card>
-      ) : (
-        <Card>
+          </Section>
+        )}
+
+        {next ? (
+          <Section title={done.length ? 'Weiter mit' : 'Als Erstes'}>
+            <div className="flex flex-col gap-5 pt-1">
+              <div>
+                <p className="flex items-center gap-2.5 text-h2 font-semibold tracking-tight text-ink">
+                  <CategoryGlyph category={next.category} className="size-5" />
+                  {next.code}
+                </p>
+                <p className="mt-1 text-body text-ink-2">
+                  {categoryLabel(next.category as Category)}
+                  {place(next) && <span className="text-ink-3"> · {place(next)}</span>}
+                </p>
+                {nd && <StatusText tone={nd.tone} className="mt-2">{nd.text}</StatusText>}
+              </div>
+              <Button ref={startRef} size="lg" className="w-full sm:w-auto sm:self-start" loading={starting === next.id} onClick={() => start(next.id)}>
+                Prüfung starten
+              </Button>
+            </div>
+          </Section>
+        ) : (
           <Empty
-            icon={done.length ? <Check /> : <Footprints />}
             title={done.length ? 'Rundgang geschafft' : 'Hier ist nichts fällig'}
             text={done.length ? `${done.length} Elemente geprüft. Die Protokolle findest du unter Prüfungen.` : 'In diesem Gebäude steht in den nächsten 30 Tagen keine Prüfung an.'}
             action={
-              <Link to={done.length ? '/pruefungen?tab=done' : '/'}>
-                <Button variant="secondary">{done.length ? 'Protokolle ansehen' : 'Zurück zu Heute'}</Button>
-              </Link>
+              <ButtonLink to={done.length ? '/pruefungen?tab=done' : '/'} variant="ghost">
+                {done.length ? 'Protokolle ansehen' : 'Zurück zu Heute'}
+              </ButtonLink>
             }
           />
-        </Card>
-      )}
+        )}
 
-      {open.length > 1 && (
-        <section>
-          <SectionHeader title="Danach" count={open.length - 1} />
-          <List aria-label="Danach">
-            {open.slice(1).map((a, i) => {
-              const d = dueLine(a.nextDueAt);
-              return (
-                <ListRow
-                  key={a.id}
-                  leading={
-                    <span className="flex items-center gap-2.5">
-                      <span className="w-4 text-right text-caption text-ink-4 tabular-nums">{i + 2}</span>
-                      <CategoryIcon category={a.category as Category} size="sm" />
-                    </span>
-                  }
-                  title={
-                    <>
-                      {a.code} <span className="font-normal text-ink-3">· {[a.floor, a.location].filter(Boolean).join(', ') || categoryLabel(a.category as Category)}</span>
-                    </>
-                  }
-                  subtitle={d.text}
-                  tone={d.tone === 'bad' ? 'bad' : undefined}
-                  trailing={
-                    <Button size="sm" variant="secondary" loading={starting === a.id} onClick={() => start(a.id)} aria-label={`${a.code} prüfen`}>
-                      Prüfen
-                    </Button>
-                  }
-                />
-              );
-            })}
-          </List>
-        </section>
-      )}
+        {open.length > 1 && (
+          <Section title="Danach" count={open.length - 1} flush>
+            <List plain aria-label="Danach">
+              {open.slice(1).map((a, i) => {
+                const d = dueLine(a.nextDueAt);
+                return (
+                  <ListRow
+                    key={a.id}
+                    leading={<span className="w-4 text-right text-meta text-ink-3 tabular-nums">{i + 2}</span>}
+                    title={
+                      <>
+                        {a.code} <span className="text-ink-3">· {place(a) || categoryLabel(a.category as Category)}</span>
+                      </>
+                    }
+                    subtitle={<StatusText tone={d.tone}>{d.text}</StatusText>}
+                    trailing={
+                      <Button size="sm" variant="ghost" loading={starting === a.id} onClick={() => start(a.id)} aria-label={`${a.code} prüfen`} className="-mr-2">
+                        Prüfen
+                      </Button>
+                    }
+                  />
+                );
+              })}
+            </List>
+          </Section>
+        )}
 
-      {done.length > 0 && next && (
-        <p className="flex items-center gap-1.5 text-meta text-ink-3">
-          <Check className="size-4 text-ok" /> In diesem Rundgang erledigt: {done.length}
-        </p>
-      )}
+        {done.length > 0 && next && (
+          <Section>
+            <p className="text-meta text-ink-3">In diesem Rundgang erledigt: {done.length}</p>
+          </Section>
+        )}
+      </Surface>
     </div>
   );
 }

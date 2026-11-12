@@ -94,6 +94,7 @@ if (!PROD) {
   await p.getByRole('button', { name: 'Archivieren' }).waitFor();
   if (!PROD) {
   await p.getByRole('button', { name: 'Wieder öffnen' }).click();
+  await p.getByRole('dialog').getByRole('button', { name: 'Wieder öffnen' }).click();
   await p.waitForURL(/\/pruefung\//);
   const reopened = await api('/inspections/' + target.id);
   check(reopened.status === 'draft', 'Prüfung wieder geöffnet');

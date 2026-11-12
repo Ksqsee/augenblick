@@ -7,21 +7,24 @@ import { INSPECTION_PURPOSES, SEVERITIES } from '../../shared/catalog';
 import { api, fileUrl, type Inspection, useAction, useInspection, useMe } from '../api';
 import { APP_NAME } from '../components/Logo';
 import { attributeRows } from '../components/forms';
-import { Button, ErrorBox, Spinner, useToast } from '../components/ui';
+import { Button, ErrorBox, Spinner, useConfirm, useToast } from '../components/ui';
 import { fmtDate, fmtDateTime, RESULT_META } from '../format';
 
 export function PrintFrame({ title, back, children, actions }: { title: string; back: string; children: ReactNode; actions?: ReactNode }) {
   return (
-    <div className="min-h-dvh bg-sunken pb-10 print:bg-white print:pb-0">
-      <div className="no-print sticky top-0 z-20 mb-4 border-b border-line bg-surface sm:mb-6">
-        <div className="mx-auto flex min-h-14 max-w-5xl flex-wrap items-center gap-x-2 gap-y-1 px-2 py-2 sm:px-4 lg:flex-nowrap">
-          <Link to={back} className="grid size-10 shrink-0 place-items-center rounded-lg text-ink-2 hover:bg-hover hover:text-ink" aria-label="Zurück">
-            <ArrowLeft className="size-5" />
-          </Link>
-          <p className="mr-auto min-w-0 truncate text-body font-semibold">{title}</p>
-          <div className="flex flex-wrap gap-1.5 max-lg:w-full max-lg:pb-1 lg:shrink-0 lg:flex-nowrap">
+    <div className="min-h-dvh bg-canvas pb-10 print:bg-white print:pb-0">
+      {/* Werkzeugleiste (v3): auf dem Beton, Haarlinie unten, ein schwarzer Hauptknopf (PDF), Rest ghost. Ohne backdrop-filter, damit Dialoge darin nicht beschnitten werden */}
+      <div className="no-print sticky top-0 z-20 mb-4 border-b border-line bg-canvas sm:mb-8">
+        <div className="mx-auto flex max-w-5xl flex-wrap items-center gap-x-2 px-2 sm:px-4 lg:flex-nowrap">
+          <div className="flex h-14 min-w-0 flex-1 items-center gap-2">
+            <Link to={back} className="grid size-10 shrink-0 place-items-center rounded-md text-ink-2 hover:bg-hover hover:text-ink" aria-label="Zurück">
+              <ArrowLeft className="size-5" />
+            </Link>
+            <p className="min-w-0 truncate text-body font-medium text-ink">{title}</p>
+          </div>
+          <div className="no-scrollbar -mx-2 flex items-center gap-1 overflow-x-auto px-2 pb-2 max-lg:w-[calc(100%+1rem)] lg:mx-0 lg:shrink-0 lg:justify-end lg:px-0 lg:pb-0 [&>*]:shrink-0">
             {actions}
-            <Button variant="secondary" icon={<Printer className="size-4" />} onClick={() => window.print()}>
+            <Button variant="ghost" icon={<Printer className="size-4" />} onClick={() => window.print()}>
               Drucken
             </Button>
           </div>
@@ -214,6 +217,7 @@ function ProtocolActions({ i }: { i: Inspection }) {
   const { data: me } = useMe();
   const navigate = useNavigate();
   const toast = useToast();
+  const [confirm, confirmEl] = useConfirm();
   const [busy, setBusy] = useState(false);
   const isAdmin = me && ['owner', 'admin'].includes(me.user.role);
   const reopen = useAction(
@@ -239,31 +243,40 @@ function ProtocolActions({ i }: { i: Inspection }) {
   );
   return (
     <>
+      {confirmEl}
       {canFollowUp && (
-        <Button variant="ghost" icon={<Repeat className="size-4" />} loading={followUp.isPending} onClick={() => followUp.mutate(undefined)}>
+        <Button variant="ghost" className="shrink-0" icon={<Repeat className="size-4" />} loading={followUp.isPending} onClick={() => followUp.mutate(undefined)}>
           Nachprüfung
         </Button>
       )}
       {canCorrect && (
         <Button
           variant="ghost"
+          className="shrink-0"
           icon={<FilePen className="size-4" />}
           loading={correct.isPending}
-          onClick={() => confirm('Prüfung berichtigen? Es entsteht eine neue Fassung zum Bearbeiten; die ursprüngliche bleibt als Nachweis erhalten.') && correct.mutate(undefined)}
+          onClick={async () => {
+            if (await confirm({ title: 'Prüfung berichtigen?', text: 'Es entsteht eine neue Fassung zum Bearbeiten; die ursprüngliche bleibt als Nachweis erhalten.', confirmLabel: 'Berichtigen' }))
+              correct.mutate(undefined);
+          }}
         >
           Berichtigen
         </Button>
       )}
       {isAdmin && i.status === 'submitted' && !i.supersededAt && (
         <>
-          <Button variant="ghost" icon={<Archive className="size-4" />} loading={archive.isPending} onClick={() => archive.mutate(undefined)}>
+          <Button variant="ghost" className="shrink-0" icon={<Archive className="size-4" />} loading={archive.isPending} onClick={() => archive.mutate(undefined)}>
             {i.archivedAt ? 'Aus Archiv holen' : 'Archivieren'}
           </Button>
           <Button
             variant="ghost"
+            className="shrink-0"
             icon={<RotateCcw className="size-4" />}
             loading={reopen.isPending}
-            onClick={() => confirm('Prüfung wieder öffnen? Ergebnis, Unterschrift und daraus erzeugte Mängel werden zurückgesetzt, Termine neu berechnet.') && reopen.mutate(undefined)}
+            onClick={async () => {
+              if (await confirm({ title: 'Prüfung wieder öffnen?', text: 'Ergebnis, Unterschrift und daraus erzeugte Mängel werden zurückgesetzt, Termine neu berechnet.', confirmLabel: 'Wieder öffnen' }))
+                reopen.mutate(undefined);
+            }}
           >
             Wieder öffnen
           </Button>
@@ -271,6 +284,7 @@ function ProtocolActions({ i }: { i: Inspection }) {
       )}
       {me && (
         <Button
+          className="max-lg:order-first"
           icon={<Download className="size-4" />}
           loading={busy}
           onClick={async () => {
