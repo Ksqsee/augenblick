@@ -9,6 +9,7 @@ import { api, clearMeCache, queryClient, useAction, useMe } from '../../api';
 import { RowDivider, SettingRow } from '../../components/admin';
 import { Badge, Button, ErrorBox, Field, Input, Modal, Notice, SettingsSection, Skeleton, StatusDot, useConfirm, useToast } from '../../components/ui';
 import { fmtDateTime } from '../../format';
+import { forgetSignature, rememberedSignature } from '../../components/inspect/Signature';
 
 export function AccountTab({ focus }: { focus?: 'privacy' }) {
   useEffect(() => {
@@ -19,6 +20,7 @@ export function AccountTab({ focus }: { focus?: 'privacy' }) {
       <ProfileSection />
       <PasswordSection />
       <SessionsSection />
+      <DeviceSignatureSection />
       <LoginHistorySection />
       <DataSection />
       <WorkspaceSection />
@@ -96,6 +98,40 @@ const submit = (fn: () => void) => (e: React.FormEvent) => {
   e.preventDefault();
   fn();
 };
+
+/** Gemerkte Unterschrift auf diesem Gerät (nur localStorage) anzeigen und vergessen. */
+function DeviceSignatureSection() {
+  const { data: me } = useMe();
+  const toast = useToast();
+  const [saved, setSaved] = useState<string | null>(null);
+  useEffect(() => setSaved(rememberedSignature(me?.user.id)), [me?.user.id]);
+  return (
+    <SettingsSection
+      title="Unterschrift auf diesem Gerät"
+      description="Liegt nur in diesem Browser, nicht auf dem Server. Sie wird erst als Teil einer abgeschlossenen Prüfung übertragen."
+    >
+      {saved ? (
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
+          <img src={saved} alt="Gemerkte Unterschrift" className="h-14 w-40 rounded border border-line bg-surface object-contain" />
+          <p className="min-w-0 flex-1 text-meta text-ink-3">Im Prüfablauf kannst du damit mit einem Tipp abschließen.</p>
+          <Button
+            variant="secondary"
+            icon={<Trash2 />}
+            onClick={() => {
+              if (me) forgetSignature(me.user.id);
+              setSaved(null);
+              toast('Unterschrift vergessen');
+            }}
+          >
+            Vergessen
+          </Button>
+        </div>
+      ) : (
+        <p className="text-meta text-ink-3">Keine Unterschrift gemerkt. Beim Unterschreiben einer Prüfung kannst du „Unterschrift auf diesem Gerät merken“ wählen.</p>
+      )}
+    </SettingsSection>
+  );
+}
 
 const isMobile = (ua: string) => /Mobile|iPhone|Android/.test(ua);
 

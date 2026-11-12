@@ -2,6 +2,7 @@ import { keepPreviousData, QueryClient, useMutation, useQuery, useQueryClient } 
 import type { AttributeField, Category, CategoryDef, Checkpoint, CustomKind, InspectionKind, InspectionPurpose, Role, Severity, WalkPurpose } from '../shared/catalog';
 import type { Answer, Result, ResultOverride, Schedules } from '../shared/logic';
 import type { TaskKind } from '../shared/tasks';
+import type { KnownDefect } from '../shared/carry';
 import type { BuildingType, WalkQuestion } from '../shared/walkthrough';
 
 export class ApiError extends Error {
@@ -330,6 +331,10 @@ export interface DefectDraft {
   measure?: string;
   severity: Severity;
   photoKey?: string;
+  /** bekannter, weiterhin vorhandener Mangel (verknüpft statt neu angelegt) */
+  knownId?: string;
+  /** Datum, an dem der bekannte Mangel festgestellt wurde */
+  since?: number;
 }
 
 export interface InspectionPhoto {
@@ -343,6 +348,10 @@ export interface Inspection {
   propertyId: string;
   /** Behebung der hier festgestellten Mängel */
   resolutions?: { checkpointId: string | null; title: string; resolvedAt: number; resolvedByName: string | null; note: string; photoKey: string | null }[];
+  /** offene Mängel des Elements aus anderen Prüfungen (nur im Entwurf) */
+  knownDefects?: KnownDefect[];
+  /** bei dieser Prüfung als behoben gemeldete bekannte Mängel */
+  resolvedDefects?: string[];
   status: 'draft' | 'submitted';
   kind: InspectionKind;
   kinds: string[];

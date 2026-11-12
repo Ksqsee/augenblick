@@ -11,9 +11,10 @@ import { categoryLabel, fmtDate } from '../format';
 export function useStartInspection() {
   const navigate = useNavigate();
   return useAction(
-    (v: string | { assetId: string; schedule?: string }) => {
-      const { assetId, schedule } = typeof v === 'string' ? { assetId: v, schedule: undefined } : v;
-      return api<{ id: string }>(`/assets/${assetId}/inspections`, { method: 'POST', body: schedule ? { schedule } : {} });
+    /** `taskId`: aus einer Aufgabe gestartet – Mängelbehebung wird zur Nachprüfung, Prüfauftrag bleibt Regelprüfung */
+    (v: string | { assetId: string; schedule?: string; taskId?: string }) => {
+      const { assetId, schedule, taskId } = typeof v === 'string' ? { assetId: v, schedule: undefined, taskId: undefined } : v;
+      return api<{ id: string }>(`/assets/${assetId}/inspections`, { method: 'POST', body: { ...(schedule ? { schedule } : {}), ...(taskId ? { taskId } : {}) } });
     },
     (r) => navigate(`/pruefung/${r.id}`),
   );

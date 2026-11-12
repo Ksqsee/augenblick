@@ -63,8 +63,8 @@ Für API-Schlüssel gelten diese Regeln:
 | `POST /assets` | Element anlegen: `{ buildingId, category, location, floor, manufacturer, model, attributes, code?, warnDays? }` (`warnDays`: eigene Vorwarnzeit in Tagen) |
 | `PATCH /assets/:id` | Element ändern |
 | `PUT /assets/:id/schedules` | Prüfart aktivieren/deaktivieren: `{ key, enabled, nextDueAt? }` |
-| `POST /assets/:id/inspections` | Prüfungsentwurf anlegen: `{ schedule? }` oder Nachprüfung `{ purpose: "follow_up", followUpOf }` |
-| `PUT /inspections/:id`, `POST /inspections/:id/submit` | Entwurf speichern bzw. abschließen; Arten als `kinds: ["periodic", …]` (eingebaute Schlüssel oder eigene `k_…`) |
+| `POST /assets/:id/inspections` | Prüfungsentwurf anlegen: `{ schedule? }` oder Nachprüfung `{ purpose: "follow_up", followUpOf }`; `{ taskId }` = aus einer Aufgabe gestartet (Mängelbehebung → Nachprüfung der Ausgangsprüfung). Art vorbelegt: `initial` bei nie geprüften Elementen, sonst `periodic` |
+| `PUT /inspections/:id`, `POST /inspections/:id/submit` | Entwurf speichern bzw. abschließen; Arten als `kinds: ["periodic", …]` (eingebaute Schlüssel oder eigene `k_…`). Bekannte Mängel: `GET /inspections/:id` liefert im Entwurf `knownDefects` (offene Mängel des Elements); ein Mangel mit `knownId` wird verknüpft statt neu angelegt (ebenso ein gleich benannter offener Mangel), `resolvedDefects: [id, …]` schließt bekannte Mängel beim Abschluss („Bei Prüfung vom … behoben“). Gilt auch für `POST /inspections/offline` |
 | `POST /inspections/:id/correct` | Berichtigung einer abgeschlossenen Prüfung anlegen (eigene Prüfung oder Admin); liefert den Entwurf |
 | `PATCH /defects/:id` | Mangel als behoben markieren / wieder öffnen: `{ status: "resolved"\|"open", note?, photoKey? }` – Notiz und Nachher-Foto (vorher über `POST /files`), wer/wann wird gespeichert; Wiederöffnen löscht die Behebung |
 | `POST /defects/:id/hide`, `POST /defects/:id/unhide` | Ausblenden mit `{ reason }` (Duplikat, nicht relevant …) bzw. wieder einblenden – nur Admins, daher nicht mit API-Schlüsseln |
@@ -96,7 +96,8 @@ Für API-Schlüssel gelten diese Regeln:
 | `GET /smart/suggestions` | Priorisierte Vorschläge (Rundgänge, Mängel ohne Aufgabe, fällige Begehungen, liegengebliebene Entwürfe, überfällige Aufgaben) |
 | `GET /smart/rounds?days=30` | Fällige Elemente je Gebäude in Laufreihenfolge (Etage, Standort) |
 | `GET /ai/status` | Welche KI-Funktionen verfügbar sind: `{ transcribe, structure: "ai"|"rules", vision }` |
-| `POST /ai/parse` | Text (z. B. Diktat) in Mängel/Aufgaben/Notizen zerlegen: `{ text, checkpoints? }` → `{ items, source }`; ohne KI regelbasiert |
+| `POST /ai/parse` | Text (z. B. Diktat) in Mängel/Aufgaben/Notizen/Sammelanlagen zerlegen: `{ text, checkpoints?, categories? }` → `{ items, source }`; ohne KI regelbasiert. Sammelanlage: `kind: "asset"` mit `count` (max. 50), `category` (Schlüssel oder null), `floor`, `location`; `categories: []` schaltet sie ab, ohne Angabe gelten die Arten des Workspaces |
+| `POST /ai/identify` | Foto beim Anlegen erkennen: `{ key }` (über `POST /files`) → `{ category, manufacturer, model, year, serial, confidence }`; ohne KI oder bei Fehler `503` |
 | `POST /ai/transcribe` | Sprachaufnahme (`audio/webm`, `ogg`, `mp4`, `wav` …, max. 8 MB, Rohdaten im Body) → `{ text }` |
 | `POST /ai/typeplate` | Typenschild-Foto auslesen: `{ key }` (vorher über `POST /files` hochgeladen) → Hersteller, Modell, Baujahr, Seriennummer, Zulassung |
 

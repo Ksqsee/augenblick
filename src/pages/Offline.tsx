@@ -317,6 +317,7 @@ export function OfflineRun() {
         checkpoints={sched.checkpoints}
         inspectorName={me?.user.name ?? ''}
         back="/offline"
+        knownDefects={bundle.openDefects?.filter((x) => x.assetId === asset.id)}
         initial={
           (state.draft && { ...state.draft, kinds: state.draft.kinds ?? [(state.draft as { kind?: string }).kind ?? 'periodic'] }) ?? {
             kinds: [asset.lastInspectedAt ? 'periodic' : 'initial'],

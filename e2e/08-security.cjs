@@ -217,6 +217,31 @@ function client() {
   const fk = await owner(`/defects/${myDefect.id}`, { method: 'PATCH', body: { status: 'resolved', photoKey: `${'x'.repeat(8)}/fremd` } });
   check(fk.status === 400, `fremder Foto-Schlüssel bei Behebung abgelehnt (${fk.status})`);
 
+  console.log('· #27 Prüfen smart: bekannte Mängel nur des eigenen Elements, Bilderkennung');
+  {
+    const SIG = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==';
+    const other = (await owner('/defects')).json.find((d) => d.assetId && d.status === 'open');
+    const target = (await owner('/assets')).json.find((a) => a.id !== other.assetId);
+    const started = (await owner(`/assets/${target.id}/inspections`, { body: {} })).json;
+    const draft = (await owner(`/inspections/${started.id}`)).json;
+    check(!draft.knownDefects.some((k) => k.id === other.id), 'Mängel anderer Elemente erscheinen nicht als bekannt');
+    const sub = await owner(`/inspections/${draft.id}/submit`, {
+      body: {
+        kinds: draft.kinds,
+        answers: Object.fromEntries(draft.checkpoints.map((c) => [c.id, 'ok'])),
+        defects: [{ title: 'Sicherheitstest fremde Verknüpfung', note: '', severity: 'low', knownId: other.id }],
+        resolvedDefects: [other.id, mDefect],
+        signature: SIG,
+      },
+    });
+    check(sub.status === 200, `Abschluss mit fremden IDs läuft durch (${sub.status})`);
+    check((await owner(`/defects/${other.id}`)).json?.status === 'open', 'Mangel eines anderen Elements bleibt offen');
+    check((await mallory(`/defects/${mDefect}`)).json?.status === 'open', 'Mangel eines anderen Workspaces bleibt offen');
+    const mine = (await owner(`/assets/${target.id}`)).json.defects.filter((d) => d.title === 'Sicherheitstest fremde Verknüpfung');
+    check(mine.length === 1, 'fremde Verknüpfung ignoriert → eigener neuer Mangel');
+    check((await reader('/ai/identify', { body: { key: 'x/y' } })).status === 403, 'Bilderkennung nicht mit Lesezugriff');
+  }
+
   console.log(fail.length ? `FAILED ${fail.length}: ${fail.join('; ')}` : 'ALL CHECKS OK');
   if (fail.length) process.exitCode = 1;
 })().catch((e) => {

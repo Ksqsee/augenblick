@@ -1,6 +1,7 @@
 // Offline-Modus: Gebäude vorab laden, Prüfungen lokal erfassen, später synchronisieren.
 import { createStore, del, get, keys, set } from 'idb-keyval';
 import { useEffect, useState, useSyncExternalStore } from 'react';
+import type { KnownDefect } from '../shared/carry';
 import type { Checkpoint } from '../shared/catalog';
 import { api, ApiError, type Asset, type CategoryInfo, downscale, queryClient, uploadBlob } from './api';
 import type { InspectionDraft } from './components/run';
@@ -11,6 +12,8 @@ export interface Bundle {
   building: { id: string; name: string; propertyId: string; propertyName: string };
   assets: Asset[];
   categories: CategoryInfo[];
+  /** offene Mängel der Elemente (ältere Pakete haben keine) */
+  openDefects?: (KnownDefect & { assetId: string })[];
   preparedAt: number;
 }
 

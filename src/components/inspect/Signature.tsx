@@ -1,8 +1,40 @@
-// Unterschrift: Name + Zeichenfläche mit Grundlinie. Der zuletzt verwendete Name wird pro Prüfer/in gemerkt.
-import { Eraser } from 'lucide-react';
-import { useEffect, useRef } from 'react';
+// Unterschrift: Name + Zeichenfläche mit Grundlinie. Der zuletzt verwendete Name wird pro Prüfer/in gemerkt,
+// auf Wunsch auch die Unterschrift selbst – nur auf diesem Gerät (localStorage), nie getrennt an den Server.
+import { Eraser, PenLine } from 'lucide-react';
+import { useEffect, useRef, useState } from 'react';
+import { useMe } from '../../api';
 import { fmtDate } from '../../format';
-import { Card, Field, Input } from '../ui';
+import { Button, Card, Field, Input } from '../ui';
+
+// ---------- Gemerkte Unterschrift (je Person, nur auf diesem Gerät) ----------
+const sigKey = (userId: string) => `pk:signature:${userId}`;
+const SIG_RE = /^data:image\/(png|jpeg);base64,[A-Za-z0-9+/=]+$/;
+
+export function rememberedSignature(userId: string | undefined): string | null {
+  if (!userId) return null;
+  try {
+    const v = localStorage.getItem(sigKey(userId));
+    return v && SIG_RE.test(v) ? v : null;
+  } catch {
+    return null;
+  }
+}
+
+export function rememberSignature(userId: string, dataUrl: string) {
+  try {
+    if (SIG_RE.test(dataUrl)) localStorage.setItem(sigKey(userId), dataUrl);
+  } catch {
+    /* Speicher voll oder gesperrt – dann eben nicht gemerkt */
+  }
+}
+
+export function forgetSignature(userId: string) {
+  try {
+    localStorage.removeItem(sigKey(userId));
+  } catch {
+    /* ohne Speicher */
+  }
+}
 
 /** Zeichenfläche (Pointer Events: Finger, Stift, Maus). Liefert eine PNG-Data-URL. */
 export function SignaturePad({ value, onChange, caption }: { value: string | null; onChange: (v: string | null) => void; caption?: string }) {
@@ -105,7 +137,10 @@ export function SignatureSection({
   signature,
   onName,
   onSignature,
+  onQuickFinish,
 }: {
+  /** „Mit gemerkter Unterschrift abschließen“: setzt die Unterschrift und schließt ab (nur wenn sonst alles fertig ist) */
+  onQuickFinish?: (signature: string) => void;
   id?: string;
   name: string;
   /** Name der angemeldeten Person – Standard, wenn nichts eingetragen ist */
@@ -126,6 +161,31 @@ export function SignatureSection({
       /* ohne Speicher */
     }
   }, [name, fallbackName, onName]);
+
+  const { data: me } = useMe();
+  const userId = me?.user.id;
+  const [saved, setSaved] = useState<string | null>(() => rememberedSignature(userId));
+  const [optIn, setOptIn] = useState(() => !!saved);
+  useEffect(() => {
+    const v = rememberedSignature(userId);
+    setSaved(v);
+    setOptIn(!!v);
+  }, [userId]);
+  // Pad nach „gemerkte einsetzen“ neu einhängen, damit es das Bild zeigt
+  const [padKey, setPadKey] = useState(0);
+  const setSignature = (v: string | null) => {
+    onSignature(v);
+    // gemerkte Unterschrift aktuell halten, solange „merken“ an ist
+    if (v && optIn && userId) {
+      rememberSignature(userId, v);
+      setSaved(v);
+    }
+  };
+  const applySaved = () => {
+    if (!saved) return;
+    onSignature(saved);
+    setPadKey((k) => k + 1);
+  };
 
   return (
     <section id={id} className="scroll-mt-24">
@@ -152,7 +212,48 @@ export function SignatureSection({
             />
           )}
         </Field>
-        <SignaturePad value={signature} onChange={onSignature} caption={name.trim() || fallbackName} />
+        {saved && !signature && (
+          <div className="flex flex-col gap-3 rounded-lg bg-canvas p-3 sm:flex-row sm:items-center">
+            <img src={saved} alt="Gemerkte Unterschrift" className="h-12 w-32 shrink-0 rounded border border-line bg-surface object-contain" />
+            <div className="flex min-w-0 flex-1 flex-col gap-2 sm:flex-row sm:justify-end">
+              {onQuickFinish ? (
+                <Button icon={<PenLine />} onClick={() => onQuickFinish(saved)}>
+                  Mit gemerkter Unterschrift abschließen
+                </Button>
+              ) : (
+                <Button variant="secondary" icon={<PenLine />} onClick={applySaved}>
+                  Gemerkte Unterschrift einsetzen
+                </Button>
+              )}
+            </div>
+          </div>
+        )}
+        <SignaturePad key={padKey} value={signature} onChange={setSignature} caption={name.trim() || fallbackName} />
+        {userId && (
+          <label className="flex items-start gap-3 text-body">
+            <input
+              type="checkbox"
+              className="mt-1 size-4 accent-ink"
+              checked={optIn}
+              onChange={(e) => {
+                setOptIn(e.target.checked);
+                if (!e.target.checked) {
+                  forgetSignature(userId);
+                  setSaved(null);
+                } else if (signature) {
+                  rememberSignature(userId, signature);
+                  setSaved(rememberedSignature(userId));
+                }
+              }}
+            />
+            <span>
+              Unterschrift auf diesem Gerät merken
+              <span className="block text-meta text-ink-3">
+                Wird nur in diesem Browser gespeichert, nicht auf dem Server – nur als Teil einer abgeschlossenen Prüfung. Vergessen unter Einstellungen → Konto.
+              </span>
+            </span>
+          </label>
+        )}
       </Card>
     </section>
   );

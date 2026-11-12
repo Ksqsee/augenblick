@@ -1,6 +1,7 @@
 import { Hono } from 'hono';
 import { HTTPException } from 'hono/http-exception';
 import { z } from 'zod';
+import { type KnownDefect, linkKnownDefects } from '../shared/carry';
 import { type Category, type Checkpoint, type CustomKind, INSPECTION_KINDS, type InspectionPurpose, kindLabel } from '../shared/catalog';
 import { type Answer, addMonths, applyInspection, computeResult, DAY, finalResult, isComplete, type Result, type Schedules, summarizeSchedules } from '../shared/logic';
 import { getCategoryDef, getSchedule, listCategories } from './categories';
@@ -19,6 +20,9 @@ const defectInput = z.object({
   measure: str(1000).default(''),
   severity: severityEnum,
   photoKey: z.string().max(200).optional(),
+  /** bekannter, weiterhin vorhandener Mangel (wird verknüpft statt neu angelegt) */
+  knownId: z.string().max(40).optional(),
+  since: z.number().int().optional(),
 });
 const photoInput = z.object({ key: z.string().max(200), caption: str(300).default('') });
 const inspectionBody = z.object({
@@ -35,6 +39,8 @@ const inspectionBody = z.object({
   signerName: str(160).default(''),
   resultOverride: z.enum(['ok', 'defects', 'critical']).nullable().default(null),
   resultReason: str(500).default(''),
+  /** bekannte Mängel, die bei dieser Prüfung als behoben gemeldet wurden */
+  resolvedDefects: z.array(z.string().max(40)).max(100).default([]),
 });
 type InspectionBody = z.infer<typeof inspectionBody>;
 
@@ -188,9 +194,30 @@ export async function recomputeAssets(c: Ctx, assetIds: string[]) {
 inspections.post('/assets/:id/inspections', async (c) => {
   requireRole(c, 'inspector');
   const a = await loadAsset(c, c.req.param('id'));
-  const body = z
-    .object({ schedule: z.string().max(40).optional(), purpose: z.enum(['regular', 'follow_up']).default('regular'), followUpOf: z.string().max(40).optional() })
+  const body: { schedule?: string; purpose: 'regular' | 'follow_up'; followUpOf?: string; taskId?: string; repair?: boolean } = z
+    .object({
+      schedule: z.string().max(40).optional(),
+      purpose: z.enum(['regular', 'follow_up']).default('regular'),
+      followUpOf: z.string().max(40).optional(),
+      /** aus einer Aufgabe gestartet: Prüfauftrag = Regelprüfung, Mängelbehebung = Nachprüfung der Ausgangsprüfung */
+      taskId: z.string().max(40).optional(),
+    })
     .parse(await c.req.json().catch(() => ({})));
+  if (body.taskId && body.purpose === 'regular') {
+    const task = await c.env.DB.prepare(
+      `SELECT t.kind, d.inspection_id AS inspectionId FROM tasks t LEFT JOIN defects d ON d.id = t.defect_id AND d.tenant_id = t.tenant_id
+        WHERE t.id = ? AND t.tenant_id = ? AND t.asset_id = ?`,
+    )
+      .bind(body.taskId, tid(c), a.id)
+      .first<{ kind: string; inspectionId: string | null }>();
+    if (task?.kind === 'defect') {
+      const from = task.inspectionId
+        ? await c.env.DB.prepare("SELECT id FROM inspections WHERE id = ? AND tenant_id = ? AND status = 'submitted' AND superseded_at IS NULL").bind(task.inspectionId, tid(c)).first()
+        : null;
+      if (from) Object.assign(body, { purpose: 'follow_up', followUpOf: task.inspectionId });
+      else body.repair = true;
+    }
+  }
   // Nachprüfung: bezieht sich auf eine gültige, abgeschlossene Prüfung desselben Elements
   const origin =
     body.purpose === 'follow_up'
@@ -217,8 +244,9 @@ inspections.post('/assets/:id/inspections', async (c) => {
   }
   const iid = id();
   const t = now();
+  // Vorbelegung der Art: Erstprüfung, solange das Element nie geprüft wurde (auch kein übernommener Termin), sonst wiederkehrend
   const last = await c.env.DB.prepare("SELECT 1 FROM inspections WHERE asset_id = ? AND status = 'submitted' LIMIT 1").bind(a.id).first();
-  const kind = origin ? 'after_repair' : last ? 'periodic' : 'initial';
+  const kind = origin ? 'after_repair' : body.repair ? 'after_repair' : last || summarizeSchedules(a.schedules).lastAt ? 'periodic' : 'initial';
   await c.env.DB.prepare(
     `INSERT INTO inspections (id, tenant_id, asset_id, inspector_id, kind, kinds, purpose, follow_up_of, reason, status, schedule, answers, maintenance, checkpoints, created_at, updated_at)
      VALUES (?,?,?,?,?,?,?,?,?,'draft',?,'{}','{"items":[],"defects":[]}',?,?,?)`,
@@ -227,6 +255,18 @@ inspections.post('/assets/:id/inspections', async (c) => {
     .run();
   return c.json({ id: iid });
 });
+
+/** Offene, sichtbare Mängel eines Elements – ohne die der genannten Prüfungen (eigene, ersetzte). */
+async function openDefectsOf(c: Ctx, assetId: string, exclude: (string | null | undefined)[]): Promise<KnownDefect[]> {
+  const rows = await c.env.DB.prepare(
+    `SELECT id, checkpoint_id AS checkpointId, title, note, measure, severity, created_at AS createdAt FROM defects
+      WHERE tenant_id = ? AND asset_id = ? AND status = 'open' AND hidden_at IS NULL
+        AND COALESCE(inspection_id, '') NOT IN (SELECT value FROM json_each(?)) ORDER BY created_at LIMIT 100`,
+  )
+    .bind(tid(c), assetId, JSON.stringify(exclude.filter(Boolean)))
+    .all<KnownDefect>();
+  return rows.results;
+}
 
 export async function loadInspection(c: Ctx, iid: string) {
   const row = await c.env.DB.prepare(
@@ -251,6 +291,7 @@ export async function loadInspection(c: Ctx, iid: string) {
     notInspectable?: boolean;
     resultOverride?: InspectionBody['resultOverride'];
     resultReason?: string;
+    resolvedDefects?: string[];
   }>(
     row.maintenance as string,
     { items: [], defects: [] },
@@ -270,8 +311,12 @@ export async function loadInspection(c: Ctx, iid: string) {
       .bind(iid, tid(c))
       .all<{ checkpointId: string | null; title: string; resolvedAt: number; resolvedByName: string | null; note: string; photoKey: string | null }>()
   ).results;
+  // Bekannte Mängel: nur im Entwurf, offene Mängel des Elements aus anderen Prüfungen
+  const knownDefects = row.status === 'draft' ? await openDefectsOf(c, row.asset_id as string, [iid, row.supersedes_id as string | null]) : [];
   return {
     resolutions,
+    knownDefects,
+    resolvedDefects: extra.resolvedDefects ?? [],
     id: row.id as string,
     assetId: row.asset_id as string,
     propertyId: row.propertyId as string,
@@ -335,7 +380,7 @@ function storeDraft(c: Ctx, iid: string, b: InspectionBody, kinds: string[]) {
     kinds[0] ?? null,
     JSON.stringify(kinds),
     JSON.stringify(b.answers),
-    JSON.stringify({ items: b.maintenance, defects: b.defects, notInspectable: b.notInspectable, photos: b.photos, resultOverride: b.resultOverride, resultReason: b.resultReason }),
+    JSON.stringify({ items: b.maintenance, defects: b.defects, notInspectable: b.notInspectable, photos: b.photos, resultOverride: b.resultOverride, resultReason: b.resultReason, resolvedDefects: b.resolvedDefects }),
     b.notes,
     b.signature,
     b.signerName,
@@ -400,6 +445,11 @@ async function finalize(
   const nextDue = result === 'not_inspectable' || opts.followUpOf ? null : addMonths(t, sched.intervalMonths);
   const asset = await loadAsset(c, opts.assetId);
   const schedules = applyInspection(asset.schedules, opts.schedule, t, result, nextDue);
+  // Bekannte Mängel: weiterhin vorhandene (oder gleich benannte) verknüpfen statt doppelt anlegen, behobene schließen
+  const known = await openDefectsOf(c, opts.assetId, [opts.iid, opts.supersedesId]);
+  const resolvedKnown = b.resolvedDefects.filter((x) => known.some((k) => k.id === x));
+  const linked = linkKnownDefects(b.defects, known, resolvedKnown);
+  const fresh = linked.filter((d) => !d.knownId);
   // Erst den Abschluss beanspruchen (nur aus dem Entwurf): ein gleichzeitiger zweiter Abschluss bekommt 409 und schreibt nichts
   const claim = await c.env.DB.prepare("UPDATE inspections SET status='submitted', result=?, inspected_at=?, next_due_at=?, updated_at=? WHERE id=? AND status='draft'")
     .bind(result, t, nextDue, now(), opts.iid)
@@ -446,13 +496,32 @@ async function finalize(
       ).bind(t, c.get('user').userId, opts.followUpOf, tid(c), JSON.stringify(okIds)),
     );
   }
+  if (linked.some((d) => d.knownId) || b.defects.some((d) => d.knownId)) {
+    // Verknüpfung im Protokoll festhalten (bekannte Mängel behalten ihr ursprüngliches Datum)
+    extra.push(c.env.DB.prepare("UPDATE inspections SET maintenance = json_set(maintenance, '$.defects', json(?)) WHERE id = ?").bind(JSON.stringify(linked), opts.iid));
+  }
+  if (resolvedKnown.length) {
+    const tz = (await c.env.DB.prepare('SELECT timezone FROM tenants WHERE id = ?').bind(tid(c)).first<string>('timezone')) || 'Europe/Berlin';
+    let day: string;
+    try {
+      day = new Intl.DateTimeFormat('de-DE', { day: '2-digit', month: '2-digit', year: 'numeric', timeZone: tz }).format(t);
+    } catch {
+      day = new Intl.DateTimeFormat('de-DE', { day: '2-digit', month: '2-digit', year: 'numeric', timeZone: 'Europe/Berlin' }).format(t);
+    }
+    extra.push(
+      c.env.DB.prepare(
+        `UPDATE defects SET status = 'resolved', resolved_at = ?1, resolved_by = ?2, resolution_note = ?3
+          WHERE tenant_id = ?4 AND asset_id = ?5 AND status = 'open' AND id IN (SELECT value FROM json_each(?6))`,
+      ).bind(t, c.get('user').userId, `Bei Prüfung vom ${day} behoben`, tid(c), opts.assetId, JSON.stringify(resolvedKnown)),
+    );
+  }
   try {
     // Mängel und Fotos mengenbasiert: feste Zahl an Statements
     await c.env.DB.batch([
       c.env.DB.prepare(
         `INSERT INTO defects (id, tenant_id, property_id, asset_id, inspection_id, checkpoint_id, title, note, measure, severity, status, photo_key, created_at)
          SELECT lower(hex(randomblob(8))), ?1, ?2, ?3, ?4, ${j('checkpointId')}, ${j('title')}, ${j('note')}, ${j('measure')}, ${j('severity')}, 'open', ${j('photoKey')}, ?5 FROM json_each(?6)`,
-      ).bind(tid(c), opts.propertyId, opts.assetId, opts.iid, t, JSON.stringify(b.defects)),
+      ).bind(tid(c), opts.propertyId, opts.assetId, opts.iid, t, JSON.stringify(fresh)),
       c.env.DB.prepare(
         `INSERT INTO attachments (id, tenant_id, asset_id, inspection_id, file_key, name, content_type, caption, created_by, created_at)
          SELECT lower(hex(randomblob(8))), ?1, ?2, ?3, ${j('key')}, 'Foto', 'image/jpeg', ${j('caption')}, ?4, ?5 FROM json_each(?6)`,
@@ -707,7 +776,14 @@ inspections.get('/offline/buildings/:id', async (c) => {
   if (!b) notFound('Gebäude');
   assertInScope(c, 'building', b.id as string);
   const assets = await assetQuery(c, 'a.building_id = ?2').bind(tid(c), b.id).all();
-  return c.json({ building: b, assets: assets.results.map(mapAsset), categories: await listCategories(c), preparedAt: now() });
+  // offene Mängel je Element, damit „Bekannte Mängel“ auch ohne Netz erscheinen
+  const openDefects = await c.env.DB.prepare(
+    `SELECT d.id, d.asset_id AS assetId, d.checkpoint_id AS checkpointId, d.title, d.note, d.measure, d.severity, d.created_at AS createdAt FROM defects d
+      JOIN assets a ON a.id = d.asset_id WHERE d.tenant_id = ? AND a.building_id = ? AND a.deleted_at IS NULL AND d.status = 'open' AND d.hidden_at IS NULL ORDER BY d.created_at LIMIT 2000`,
+  )
+    .bind(tid(c), b.id)
+    .all();
+  return c.json({ building: b, assets: assets.results.map(mapAsset), categories: await listCategories(c), openDefects: openDefects.results, preparedAt: now() });
 });
 
 // ---------- Anhänge an Elementen ----------

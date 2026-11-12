@@ -1,6 +1,6 @@
 import { getCategory, allCategories } from '../categories';
 import { useQuery } from '@tanstack/react-query';
-import { ArrowLeft, Camera, ChevronRight } from 'lucide-react';
+import { ArrowLeft, Camera, ChevronRight, Loader2, Sparkles } from 'lucide-react';
 import { type FormEvent, type ReactNode, useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { type Category } from '../../shared/catalog';
@@ -8,7 +8,7 @@ import { BUILDING_TYPES, type BuildingType } from '../../shared/walkthrough';
 import { api, type Asset, type PropertyDetail, uploadPhoto, useAction, useProperties, useProperty } from '../api';
 import { CategoryIcon } from './CategoryIcon';
 import { lastFloor, readLastPlace, rememberPlace } from './objects/memory';
-import { Button, ErrorBox, Field, Input, Modal, Select, Textarea, useToast } from './ui';
+import { Button, ErrorBox, Field, Input, Modal, Notice, Select, Textarea, useToast } from './ui';
 
 /** Abschnittstitel innerhalb eines Formulars (docs/design.md 5.3). */
 function FormSection({ title, children, className }: { title: string; children: ReactNode; className?: string }) {
@@ -149,10 +149,10 @@ export function BuildingForm({ propertyId, initial, onClose }: { propertyId: str
   );
 }
 
-/** Objekt → Gebäude. Startet mit dem zuletzt benutzten Objekt, solange es noch existiert. */
-function BuildingPicker({ value, onChange }: { value: string; onChange: (v: string) => void }) {
+/** Objekt → Gebäude. Startet mit dem vorgegebenen bzw. zuletzt benutzten Objekt, solange es noch existiert. */
+export function BuildingPicker({ value, onChange, initialPropertyId }: { value: string; onChange: (v: string) => void; initialPropertyId?: string }) {
   const props = useProperties();
-  const [propertyId, setPropertyId] = useState(() => readLastPlace().propertyId ?? '');
+  const [propertyId, setPropertyId] = useState(() => initialPropertyId ?? readLastPlace().propertyId ?? '');
   const detail = useProperty(propertyId);
   // Gemerktes Objekt/Gebäude verwerfen, wenn es nicht mehr da ist (gelöscht oder kein Zugriff)
   useEffect(() => {
@@ -251,10 +251,83 @@ function TypePlateButton({ onRead }: { onRead: (r: PlateResult) => void }) {
   );
 }
 
-/** Schritt 1 beim Anlegen: Art wählen (Liste mit Norm und Intervall). */
-function CategoryPicker({ onPick, onClose }: { onPick: (c: Category) => void; onClose: () => void }) {
+/** Ergebnis der Bilderkennung (POST /ai/identify). */
+export interface IdentifyResult {
+  category: string | null;
+  manufacturer: string | null;
+  model: string | null;
+  year: number | null;
+  serial: string | null;
+  confidence: number;
+}
+
+/** Foto beim Anlegen: hochladen, Art und Typenschild erkennen lassen. Ohne KI (503) bleibt es beim Foto. */
+export interface FirstPhoto {
+  key: string;
+  preview: string;
+  result: IdentifyResult | null;
+}
+
+function PhotoFirst({ onDone, photo }: { onDone: (p: FirstPhoto) => void; photo: FirstPhoto | null }) {
+  const ref = useRef<HTMLInputElement>(null);
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState('');
   return (
-    <Modal title="Neues Element" description="Welche Art möchtest du anlegen?" onClose={onClose}>
+    <div className="flex flex-col gap-2">
+      <input
+        ref={ref}
+        type="file"
+        accept="image/*"
+        capture="environment"
+        className="hidden"
+        aria-label="Foto des Elements"
+        onChange={async (e) => {
+          const file = e.target.files?.[0];
+          e.target.value = '';
+          if (!file) return;
+          setBusy(true);
+          setErr('');
+          try {
+            const key = await uploadPhoto(file);
+            // Erkennung ist optional: ohne KI oder bei Fehler still bei der manuellen Auswahl bleiben
+            const result = await api<IdentifyResult>('/ai/identify', { body: { key } }).catch(() => null);
+            onDone({ key, preview: URL.createObjectURL(file), result });
+          } catch (x) {
+            setErr(x instanceof Error ? x.message : 'Hochladen fehlgeschlagen');
+          } finally {
+            setBusy(false);
+          }
+        }}
+      />
+      <button
+        type="button"
+        disabled={busy}
+        onClick={() => ref.current?.click()}
+        className="flex min-h-16 w-full items-center gap-3 rounded-xl border border-line-strong bg-surface px-3 py-2.5 text-left transition-colors hover:bg-hover"
+      >
+        {photo ? (
+          <img src={photo.preview} alt="Foto des Elements" className="size-11 shrink-0 rounded-lg object-cover" />
+        ) : (
+          <span className="grid size-11 shrink-0 place-items-center rounded-lg bg-ink text-white">{busy ? <Loader2 className="size-5 animate-spin" /> : <Camera className="size-5" />}</span>
+        )}
+        <span className="min-w-0 flex-1">
+          <span className="block text-body font-semibold">{busy ? 'Wird erkannt …' : photo ? 'Anderes Foto aufnehmen' : 'Foto aufnehmen'}</span>
+          <span className="block text-meta text-ink-3">
+            {photo ? 'Foto übernommen – bitte die Art unten wählen.' : 'Art und Typenschild werden erkannt, du bestätigst nur noch.'}
+          </span>
+        </span>
+      </button>
+      {err && <p className="text-caption text-bad">{err}</p>}
+    </div>
+  );
+}
+
+/** Schritt 1 beim Anlegen: Foto aufnehmen oder Art wählen (Liste mit Norm und Intervall). */
+function CategoryPicker({ onPick, onClose, photo, onPhoto }: { onPick: (c: Category) => void; onClose: () => void; photo: FirstPhoto | null; onPhoto: (p: FirstPhoto) => void }) {
+  return (
+    <Modal title="Neues Element" description="Foto aufnehmen oder Art wählen" onClose={onClose}>
+      <PhotoFirst photo={photo} onDone={onPhoto} />
+      <p className="mt-5 mb-1 text-meta font-medium text-ink-3">Art wählen</p>
       <ul className="-mx-2 flex flex-col">
         {allCategories().map((c) => (
           <li key={c.key}>
@@ -312,6 +385,24 @@ export function AssetForm({
   const [attrs, setAttrs] = useState<Record<string, string | number | boolean | null>>(initial?.attributes ?? {});
   const [created, setCreated] = useState<string[]>([]);
   const [round, setRound] = useState(0);
+  /** Foto zuerst: wird nach dem Anlegen am Element gespeichert */
+  const [photo, setPhoto] = useState<FirstPhoto | null>(null);
+  const prefill = (p: FirstPhoto, cat: Category | null) => {
+    const r = p.result;
+    if (!r) return;
+    setF((x) => ({ ...x, manufacturer: r.manufacturer ?? x.manufacturer, model: [r.model, r.serial && `SN ${r.serial}`].filter(Boolean).join(' · ') || x.model }));
+    if (cat && r.year && getCategory(cat).attributes.some((a) => a.key === 'year')) setAttrs((a) => ({ ...a, year: r.year }));
+  };
+  const onPhoto = (p: FirstPhoto) => {
+    setPhoto(p);
+    const cat = p.result?.category && p.result.confidence >= 0.5 && allCategories().some((c) => c.key === p.result!.category) ? (p.result.category as Category) : null;
+    prefill(p, cat);
+    if (cat) setCategory(cat);
+  };
+  const pick = (cat: Category) => {
+    if (photo) prefill(photo, cat);
+    setCategory(cat);
+  };
   const set = (k: keyof typeof f) => (e: React.ChangeEvent<HTMLInputElement>) => setF({ ...f, [k]: e.target.value });
   const setBuilding = (buildingId: string) => setF((x) => ({ ...x, buildingId, floor: (buildingId && lastFloor(buildingId)) || x.floor }));
   const save = useAction(
@@ -322,6 +413,11 @@ export function AssetForm({
     (r, again) => {
       const made = !initial && r && typeof r === 'object' ? (r as { id: string; code: string }) : undefined;
       if (made) rememberPlace({ propertyId: initial ? undefined : propertyId, buildingId: f.buildingId, floor: f.floor });
+      if (made && photo) {
+        // Foto vom Anlegen als Anhang am Element ablegen (Fehler hier verhindern das Anlegen nicht)
+        void api(`/assets/${made.id}/attachments`, { body: { key: photo.key, name: 'Foto beim Anlegen', contentType: 'image/jpeg', size: 0, caption: 'Foto beim Anlegen' } }).catch(() => undefined);
+        setPhoto(null);
+      }
       toast(made ? `${made.code} angelegt` : 'Element gespeichert');
       if (made && again) {
         // gleiche Art, gleiches Gebäude, gleiche Etage – nur Standort und Kennungen leeren
@@ -334,7 +430,7 @@ export function AssetForm({
     },
   );
 
-  if (!category) return <CategoryPicker onPick={setCategory} onClose={() => onClose()} />;
+  if (!category) return <CategoryPicker onPick={pick} onClose={() => onClose()} photo={photo} onPhoto={onPhoto} />;
 
   const def = getCategory(category);
   const buildingName = buildings?.find((b) => b.id === f.buildingId)?.name;
@@ -386,6 +482,18 @@ export function AssetForm({
         className="flex flex-col gap-6"
       >
         {save.error && <ErrorBox error={save.error} />}
+        {photo && !initial && (
+          <Notice
+            tone="info"
+            icon={<Sparkles />}
+            title={photo.result?.category === category ? `Erkannt: ${def.label}` : 'Foto übernommen'}
+            action={<img src={photo.preview} alt="Foto des Elements" className="size-12 rounded-lg object-cover" />}
+          >
+            {photo.result?.category === category
+              ? 'Art und Angaben vom Foto vorgeschlagen – bitte prüfen. Falsche Art? Zurück zur Auswahl.'
+              : 'Das Foto wird mit dem Element gespeichert.'}
+          </Notice>
+        )}
         <FormSection title="Ort">
           {buildings ? (
             <Field label="Gebäude" className="sm:col-span-2">

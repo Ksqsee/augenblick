@@ -253,7 +253,7 @@ export function TasksPage() {
                         onSelect={() => toggle(t.id)}
                         onOpen={() => (selectMode ? toggle(t.id) : setOpen(t.id))}
                         onToggleDone={() => onToggle(t)}
-                        onStart={t.kind === 'inspection' && t.assetId && canEdit && isOpenTask(t) ? () => start.mutate(t.assetId!) : undefined}
+                        onStart={t.kind === 'inspection' && t.assetId && canEdit && isOpenTask(t) ? () => start.mutate({ assetId: t.assetId!, taskId: t.id }) : undefined}
                         starting={start.isPending && start.variables === t.assetId}
                       />
                     ))}

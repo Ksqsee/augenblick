@@ -6,13 +6,16 @@ import { AlertTriangle, ArrowLeft, Check, CheckCircle2, ListTodo, MapPin, Packag
 import { useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { SEVERITIES, type Severity } from '../../shared/catalog';
-import { type CaptureItem, parseCapture } from '../../shared/smart';
-import { api, ApiError, type Asset, useAssets, useProperties } from '../api';
+import { type CaptureCategory, type CaptureItem, MAX_BULK_ASSETS, parseCapture } from '../../shared/smart';
+import { allCategories } from '../categories';
+import { api, ApiError, type Asset, useAssets, useMe, useProperties } from '../api';
 import { useDictation } from '../dictate';
 import { categoryLabel } from '../format';
 import { BigMic } from './Dictate';
+import { BuildingPicker } from './forms';
 import { RadioChips } from './inspect/Choice';
-import { Button, Input, Modal, Notice, SEVERITY_TONE, Textarea, toneDot, useToast } from './ui';
+import { readLastPlace, rememberPlace } from './objects/memory';
+import { Button, Field, Input, Modal, Notice, Select, SEVERITY_TONE, Textarea, toneDot, useToast } from './ui';
 
 const OPEN_EVENT = 'pk:capture';
 /** Erfassen von überall öffnen, optional mit vorgewähltem Element oder Objekt. */
@@ -33,7 +36,17 @@ const KIND_META = {
   defect: { label: 'Mangel', icon: AlertTriangle, box: 'bg-warn-soft text-warn' },
   task: { label: 'Aufgabe', icon: ListTodo, box: 'bg-info-soft text-info' },
   note: { label: 'Notiz', icon: StickyNote, box: 'bg-sunken text-ink-2' },
+  asset: { label: 'Elemente', icon: PackagePlus, box: 'bg-ok-soft text-ok' },
 } as const;
+/** Arten, zwischen denen ein Eintrag umgeschaltet werden kann (Sammelanlagen haben eine eigene Karte). */
+const SWITCH_KINDS = ['defect', 'task', 'note'] as const;
+
+/** Eintrag in der Prüfansicht; Sammelanlagen bekommen zusätzlich das Gebäude. */
+type Item = CaptureItem & { buildingId?: string; propertyId?: string };
+
+/** Arten des Workspaces für die Erkennung „fünf Feuerlöscher …“. */
+const captureCategories = (): CaptureCategory[] => allCategories().map((c) => ({ key: c.key, label: c.label, plural: c.plural }));
+const assetCount = (i: CaptureItem) => Math.min(Math.max(Math.round(i.count ?? 1), 1), MAX_BULK_ASSETS);
 const sevDot = (s: Severity) => (s === 'low' ? 'bg-ink-4' : toneDot[SEVERITY_TONE[s]]);
 
 type Where = { kind: 'asset'; asset: Asset } | { kind: 'property'; id: string; name: string } | null;
@@ -135,7 +148,7 @@ function ItemCard({ item, onChange, onRemove }: { item: CaptureItem; onChange: (
       <div className="flex items-center gap-2">
         <KindIcon kind={item.kind} />
         <div className="flex rounded-lg bg-sunken p-0.5" role="group" aria-label="Art">
-          {(Object.keys(KIND_META) as CaptureItem['kind'][]).map((k) => (
+          {SWITCH_KINDS.map((k) => (
             <button
               key={k}
               type="button"
@@ -174,9 +187,65 @@ function ItemCard({ item, onChange, onRemove }: { item: CaptureItem; onChange: (
   );
 }
 
+/** Sammelanlage prüfen: Anzahl, Art, Gebäude, Etage und Standort. */
+function AssetItemCard({ item, onChange, onRemove, canCreate }: { item: Item; onChange: (i: Item) => void; onRemove: () => void; canCreate: boolean }) {
+  const cats = allCategories();
+  const n = assetCount(item);
+  return (
+    <div className="animate-pop flex flex-col gap-3 rounded-xl border border-line bg-surface p-3 sm:p-4" data-asset-item>
+      <div className="flex items-center gap-2">
+        <KindIcon kind="asset" />
+        <p className="min-w-0 flex-1 truncate text-body font-medium">
+          {n} {n === 1 ? 'Element' : 'Elemente'} anlegen
+        </p>
+        <button type="button" onClick={onRemove} className="grid size-9 place-items-center rounded-lg text-ink-3 hover:bg-bad-soft hover:text-bad" aria-label="Eintrag entfernen">
+          <Trash2 className="size-4" />
+        </button>
+      </div>
+      {!canCreate && <Notice tone="warn">Du darfst keine neuen Elemente anlegen – dieser Eintrag wird übersprungen.</Notice>}
+      <div className="grid grid-cols-[6rem_minmax(0,1fr)] gap-3">
+        <Field label="Anzahl">
+          {(id) => (
+            <Input
+              id={id}
+              type="number"
+              inputMode="numeric"
+              min={1}
+              max={MAX_BULK_ASSETS}
+              value={item.count ?? 1}
+              onChange={(e) => onChange({ ...item, count: e.target.value === '' ? 1 : Math.min(Math.max(Math.round(Number(e.target.value)), 1), MAX_BULK_ASSETS) })}
+            />
+          )}
+        </Field>
+        <Field label="Art">
+          {(id) => (
+            <Select id={id} value={item.category ?? ''} onChange={(e) => onChange({ ...item, category: e.target.value || null })}>
+              <option value="">Bitte wählen …</option>
+              {cats.map((c) => (
+                <option key={c.key} value={c.key}>
+                  {c.label}
+                </option>
+              ))}
+            </Select>
+          )}
+        </Field>
+      </div>
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+        <BuildingPicker value={item.buildingId ?? ''} initialPropertyId={item.propertyId} onChange={(buildingId) => onChange({ ...item, buildingId })} />
+        <Field label="Etage" optional>
+          {(id) => <Input id={id} value={item.floor ?? ''} onChange={(e) => onChange({ ...item, floor: e.target.value })} placeholder="EG, 1. OG …" />}
+        </Field>
+        <Field label="Standort" optional>
+          {(id) => <Input id={id} value={item.location ?? ''} onChange={(e) => onChange({ ...item, location: e.target.value })} placeholder="z. B. Flur" />}
+        </Field>
+      </div>
+    </div>
+  );
+}
+
 /** Schon beim Sprechen/Tippen zeigen, was erkannt wird (Regeln laufen lokal). */
 function LivePreview({ text }: { text: string }) {
-  const items = useMemo(() => (text.trim().length > 6 ? parseCapture(text) : []), [text]);
+  const items = useMemo(() => (text.trim().length > 6 ? parseCapture(text, { categories: captureCategories() }) : []), [text]);
   if (!items.length) return null;
   return (
     <div>
@@ -187,7 +256,7 @@ function LivePreview({ text }: { text: string }) {
         {items.slice(0, 6).map((i, n) => (
           <li key={n} className="animate-pop flex min-h-11 items-center gap-2.5 px-3 py-1.5 text-body">
             <KindIcon kind={i.kind} className="size-7" />
-            <span className="min-w-0 flex-1 truncate">{i.title}</span>
+            <span className="min-w-0 flex-1 truncate">{i.kind === 'asset' ? `${assetCount(i)} × ${categoryLabel(i.category ?? '') || i.title}` : i.title}</span>
             {i.kind === 'defect' && (
               <span className="inline-flex shrink-0 items-center gap-1.5 text-meta text-ink-3">
                 <span className={clsx('size-2 rounded-full', sevDot(i.severity))} />
@@ -215,10 +284,12 @@ export function CaptureSheet({ initial, onClose }: { initial: { assetId?: string
   const props = useProperties();
   const [text, setText] = useState('');
   const [where, setWhere] = useState<Where>(null);
-  const [items, setItems] = useState<CaptureItem[] | null>(null);
+  const [items, setItems] = useState<Item[] | null>(null);
+  const { data: me } = useMe();
+  const canCreate = me?.user.role !== 'viewer' && me?.user.canCreate !== false;
   const [source, setSource] = useState<'ai' | 'rules'>('rules');
   const [busy, setBusy] = useState(false);
-  const [done, setDone] = useState<{ defects: number; tasks: number; auto: number; dupes: { title: string; message: string; body: unknown }[] } | null>(null);
+  const [done, setDone] = useState<{ defects: number; tasks: number; assets: number; auto: number; dupes: { title: string; message: string; body: unknown }[] } | null>(null);
   const d = useDictation((t, final) => setText((prev) => (final ? (prev.trim() && !t.startsWith(prev.trim()) ? `${prev.trim()} ${t}` : t) : t)));
 
   // Kontext aus der aktuellen Seite übernehmen
@@ -236,8 +307,12 @@ export function CaptureSheet({ initial, onClose }: { initial: { assetId?: string
   async function analyse() {
     setBusy(true);
     try {
-      const r = await api<{ items: CaptureItem[]; source: 'ai' | 'rules' }>('/ai/parse', { body: { text, checkpoints: [] } });
-      setItems(r.items.length ? r.items : [{ kind: 'note', title: text.slice(0, 200), note: '', severity: 'medium', measure: '', assetCode: null, checkpointId: null, dueInDays: null }]);
+      const r = await api<{ items: CaptureItem[]; source: 'ai' | 'rules' }>('/ai/parse', { body: { text, checkpoints: [], categories: captureCategories() } });
+      // Sammelanlagen starten im Gebäude des gewählten Elements bzw. im zuletzt benutzten
+      const last = readLastPlace();
+      const place = where?.kind === 'asset' ? { buildingId: where.asset.buildingId, propertyId: where.asset.propertyId } : where?.kind === 'property' ? { propertyId: where.id } : { buildingId: last.buildingId, propertyId: last.propertyId };
+      const list: Item[] = r.items.map((i) => (i.kind === 'asset' ? { ...i, ...place } : i));
+      setItems(list.length ? list : [{ kind: 'note', title: text.slice(0, 200), note: '', severity: 'medium', measure: '', assetCode: null, checkpointId: null, dueInDays: null }]);
       setSource(r.source);
     } catch (e) {
       toast(e instanceof Error ? e.message : 'Auswerten fehlgeschlagen', 'bad');
@@ -248,16 +323,29 @@ export function CaptureSheet({ initial, onClose }: { initial: { assetId?: string
 
   const byCode = (code: string | null) => (code ? assets.data?.find((a) => a.code.toLowerCase() === code.toLowerCase()) : undefined);
   const needsPlace = items?.some((i) => i.kind === 'defect' && !byCode(i.assetCode)) && !where;
+  const assetItems = (items ?? []).filter((i) => i.kind === 'asset' && canCreate);
+  const needsBuilding = assetItems.some((i) => !i.buildingId || !i.category);
 
   async function save() {
     if (!items) return;
     setBusy(true);
     let defects = 0;
     let tasks = 0;
+    let assetsMade = 0;
     let auto = 0;
     const dupes: { title: string; message: string; body: unknown }[] = [];
     try {
       for (const i of items) {
+        if (i.kind === 'asset') {
+          // Sammelanlage: n Elemente nacheinander anlegen (Codes vergibt der Server)
+          if (!canCreate || !i.buildingId || !i.category) continue;
+          for (let n = 0; n < assetCount(i); n++) {
+            await api('/assets', { body: { buildingId: i.buildingId, category: i.category, floor: i.floor ?? '', location: i.location ?? '' } });
+            assetsMade++;
+          }
+          rememberPlace({ propertyId: i.propertyId, buildingId: i.buildingId, floor: i.floor ?? '' });
+          continue;
+        }
         if (!i.title.trim()) continue;
         const a = byCode(i.assetCode) ?? (where?.kind === 'asset' ? where.asset : undefined);
         const propertyId = a?.propertyId ?? (where?.kind === 'property' ? where.id : null);
@@ -286,7 +374,7 @@ export function CaptureSheet({ initial, onClose }: { initial: { assetId?: string
         }
       }
       for (const k of ['defects', 'tasks', 'dashboard', 'smart', 'asset', 'assets']) qc.invalidateQueries({ queryKey: [k] });
-      setDone({ defects, tasks, auto, dupes });
+      setDone({ defects, tasks, assets: assetsMade, auto, dupes });
     } catch (e) {
       toast(e instanceof Error ? e.message : 'Speichern fehlgeschlagen', 'bad');
     } finally {
@@ -300,7 +388,7 @@ export function CaptureSheet({ initial, onClose }: { initial: { assetId?: string
   };
 
   if (done) {
-    const n = done.defects + done.tasks;
+    const n = done.defects + done.tasks + done.assets;
     return (
       <Modal
         title="Gespeichert"
@@ -317,7 +405,7 @@ export function CaptureSheet({ initial, onClose }: { initial: { assetId?: string
             >
               Weiter erfassen
             </Button>
-            <Button onClick={() => go(done.defects ? '/maengel' : '/aufgaben')}>Ansehen</Button>
+            <Button onClick={() => go(done.defects ? '/maengel' : done.tasks ? '/aufgaben' : '/elemente')}>Ansehen</Button>
           </>
         }
       >
@@ -327,7 +415,13 @@ export function CaptureSheet({ initial, onClose }: { initial: { assetId?: string
             <p className="text-title font-semibold">
               {n === 0
                 ? 'Nichts Neues angelegt'
-                : `${[done.defects && `${done.defects} ${done.defects === 1 ? 'Mangel' : 'Mängel'}`, done.tasks && `${done.tasks} ${done.tasks === 1 ? 'Aufgabe' : 'Aufgaben'}`].filter(Boolean).join(' und ')} angelegt`}
+                : `${[
+                    done.defects && `${done.defects} ${done.defects === 1 ? 'Mangel' : 'Mängel'}`,
+                    done.tasks && `${done.tasks} ${done.tasks === 1 ? 'Aufgabe' : 'Aufgaben'}`,
+                    done.assets && `${done.assets} ${done.assets === 1 ? 'Element' : 'Elemente'}`,
+                  ]
+                    .filter(Boolean)
+                    .join(' und ')} angelegt`}
             </p>
             {done.auto > 0 && <p className="max-w-xs text-meta text-ink-3">Für {done.auto} schwere Mängel gibt es automatisch eine Aufgabe mit Frist.</p>}
           </div>
@@ -376,16 +470,26 @@ export function CaptureSheet({ initial, onClose }: { initial: { assetId?: string
         description={source === 'ai' ? 'Von der KI vorsortiert – Art, Schwere und Text bei Bedarf anpassen.' : 'Automatisch vorsortiert – Art, Schwere und Text bei Bedarf anpassen.'}
         onClose={onClose}
         footer={
-          <Button size="lg" className="w-full" loading={busy} disabled={!items.length || needsPlace} onClick={save} icon={<Check />}>
-            {needsPlace ? 'Erst Ort wählen' : items.length > 1 ? `Alle ${items.length} übernehmen` : 'Übernehmen'}
+          <Button size="lg" className="w-full" loading={busy} disabled={!items.length || needsPlace || needsBuilding} onClick={save} icon={<Check />}>
+            {needsPlace ? 'Erst Ort wählen' : needsBuilding ? 'Erst Art und Gebäude wählen' : items.length > 1 ? `Alle ${items.length} übernehmen` : 'Übernehmen'}
           </Button>
         }
       >
         <div className="flex flex-col gap-3">
           <WherePicker where={where} onChange={setWhere} />
-          {items.map((it, n) => (
-            <ItemCard key={n} item={it} onChange={(v) => setItems(items.map((x, j) => (j === n ? v : x)))} onRemove={() => setItems(items.filter((_, j) => j !== n))} />
-          ))}
+          {items.map((it, n) =>
+            it.kind === 'asset' ? (
+              <AssetItemCard
+                key={n}
+                item={it}
+                canCreate={canCreate}
+                onChange={(v) => setItems(items.map((x, j) => (j === n ? v : x)))}
+                onRemove={() => setItems(items.filter((_, j) => j !== n))}
+              />
+            ) : (
+              <ItemCard key={n} item={it} onChange={(v) => setItems(items.map((x, j) => (j === n ? v : x)))} onRemove={() => setItems(items.filter((_, j) => j !== n))} />
+            ),
+          )}
           {!items.length && <p className="py-6 text-center text-body text-ink-3">Alle Einträge entfernt. Geh zurück, um neu zu sprechen.</p>}
         </div>
       </Modal>
