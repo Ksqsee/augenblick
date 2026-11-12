@@ -1,13 +1,14 @@
 // „Befund einsprechen“ im Prüfablauf: einmal sprechen, Mängel landen bei den passenden Prüfpunkten.
+// v3: Abschnitt in der Surface, Mikrofon schwarz, während der Aufnahme Zinnober ohne Pulsschein (nur Wellenform).
 import clsx from 'clsx';
-import { Check, Loader2, Mic, Sparkles, Square } from 'lucide-react';
+import { Check, Loader2, Mic, Square } from 'lucide-react';
 import { useState } from 'react';
 import type { Checkpoint } from '../../../shared/catalog';
 import type { CaptureItem } from '../../../shared/smart';
 import { api } from '../../api';
 import { fmtSeconds, useDictation } from '../../dictate';
 import { Wave } from '../Dictate';
-import { Button, Card, Textarea } from '../ui';
+import { Button, Section, Textarea } from '../ui';
 
 export function VoicePanel({ checkpoints, onApply }: { checkpoints: Pick<Checkpoint, 'id' | 'label'>[]; onApply: (items: CaptureItem[]) => void }) {
   const [text, setText] = useState('');
@@ -38,7 +39,8 @@ export function VoicePanel({ checkpoints, onApply }: { checkpoints: Pick<Checkpo
   };
 
   return (
-    <Card className="flex flex-col gap-3 p-3 sm:p-4">
+    <Section aria-label="Befund einsprechen">
+      <div className="flex flex-col gap-3">
       <div className="flex items-center gap-3">
         <button
           type="button"
@@ -46,8 +48,8 @@ export function VoicePanel({ checkpoints, onApply }: { checkpoints: Pick<Checkpo
           disabled={converting}
           aria-label={rec ? 'Aufnahme beenden' : 'Befund einsprechen'}
           className={clsx(
-            'grid size-12 shrink-0 place-items-center rounded-full text-white transition active:scale-95 disabled:opacity-60',
-            rec ? 'animate-rec bg-bad' : 'bg-brand hover:bg-brand-strong',
+            'grid size-11 shrink-0 place-items-center rounded-full text-white transition-colors active:opacity-85 disabled:opacity-60',
+            rec ? 'bg-shu' : 'bg-ink hover:bg-brand-strong',
           )}
         >
           {converting ? <Loader2 className="size-5 animate-spin" /> : rec ? <Square className="size-4 fill-current" /> : <Mic className="size-5" />}
@@ -59,8 +61,8 @@ export function VoicePanel({ checkpoints, onApply }: { checkpoints: Pick<Checkpo
           </div>
         ) : (
           <div className="min-w-0 flex-1">
-            <p className="text-body font-semibold">Befund einsprechen</p>
-            <p className={clsx('text-meta', dict.error ? 'text-bad' : 'text-ink-3')}>
+            <p className="text-body text-ink">Befund einsprechen</p>
+            <p className={clsx('text-meta', dict.error ? 'text-shu' : 'text-ink-3')}>
               {dict.error || (converting ? 'Wandle Sprache in Text um …' : 'Nur Mängel nennen – sie landen beim passenden Punkt.')}
             </p>
           </div>
@@ -75,18 +77,19 @@ export function VoicePanel({ checkpoints, onApply }: { checkpoints: Pick<Checkpo
                 Verwerfen
               </Button>
             )}
-            <Button size="sm" loading={busy} disabled={!text.trim() || rec} onClick={apply} icon={<Sparkles />}>
+            <Button size="sm" loading={busy} disabled={!text.trim() || rec} onClick={apply}>
               Übernehmen
             </Button>
           </div>
         </div>
       )}
       {msg && (
-        <p className={clsx('flex items-start gap-1.5 text-meta', msg.ok ? 'text-ok' : 'text-bad')} role="status">
+        <p className={clsx('flex items-start gap-1.5 text-meta', msg.ok ? 'text-ink-2' : 'text-shu')} role="status">
           {msg.ok && <Check className="mt-0.5 size-3.5 shrink-0" strokeWidth={2.5} />}
           {msg.text}
         </p>
       )}
-    </Card>
+      </div>
+    </Section>
   );
 }

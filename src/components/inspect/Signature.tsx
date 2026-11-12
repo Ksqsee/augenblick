@@ -4,7 +4,7 @@ import { Eraser, PenLine } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import { useMe } from '../../api';
 import { fmtDate } from '../../format';
-import { Button, Card, Field, Input } from '../ui';
+import { Button, Field, Input, Section } from '../ui';
 
 // ---------- Gemerkte Unterschrift (je Person, nur auf diesem Gerät) ----------
 const sigKey = (userId: string) => `pk:signature:${userId}`;
@@ -69,7 +69,7 @@ export function SignaturePad({ value, onChange, caption }: { value: string | nul
   };
 
   return (
-    <div className="relative h-44 overflow-hidden rounded-lg border border-line bg-surface">
+    <div className="relative h-44 overflow-hidden rounded-md border border-line bg-surface">
       {/* Grundlinie mit Kreuz – zeichnet sich nicht mit ins Bild */}
       <div aria-hidden className="pointer-events-none absolute inset-x-5 bottom-11 flex items-end gap-2 border-b border-line-strong pb-1 text-ink-4">
         <span className="text-[18px] leading-none">×</span>
@@ -112,7 +112,7 @@ export function SignaturePad({ value, onChange, caption }: { value: string | nul
       {value && (
         <button
           type="button"
-          className="absolute top-2 right-2 inline-flex h-8 items-center gap-1.5 rounded-md bg-sunken px-2.5 text-caption font-medium text-ink-2 hover:text-ink"
+          className="absolute top-1.5 right-1.5 inline-flex h-8 items-center gap-1.5 rounded-md px-2.5 text-caption font-medium text-ink-2 hover:bg-hover hover:text-ink"
           onClick={() => {
             const c = ref.current!;
             c.getContext('2d')!.clearRect(0, 0, c.width, c.height);
@@ -188,12 +188,8 @@ export function SignatureSection({
   };
 
   return (
-    <section id={id} className="scroll-mt-24">
-      <div className="mb-2.5 flex min-h-7 items-center justify-between gap-3">
-        <h2 className="text-title font-semibold tracking-tight">Unterschrift</h2>
-        <span className="text-meta text-ink-3">{fmtDate(Date.now())}</span>
-      </div>
-      <Card className="flex flex-col gap-4 p-4 sm:p-5">
+    <Section id={id} title="Unterschrift" action={<span className="text-meta text-ink-3 tabular-nums">{fmtDate(Date.now())}</span>} className="scroll-mt-24">
+      <div className="flex flex-col gap-4 pt-1">
         <Field label="Name" hint={`Leer lassen für ${fallbackName || 'deinen Namen'}`}>
           {(fid) => (
             <Input
@@ -213,8 +209,8 @@ export function SignatureSection({
           )}
         </Field>
         {saved && !signature && (
-          <div className="flex flex-col gap-3 rounded-lg bg-canvas p-3 sm:flex-row sm:items-center">
-            <img src={saved} alt="Gemerkte Unterschrift" className="h-12 w-32 shrink-0 rounded border border-line bg-surface object-contain" />
+          <div className="flex flex-col gap-3 border-l border-ink py-1 pl-4 sm:flex-row sm:items-center">
+            <img src={saved} alt="Gemerkte Unterschrift" className="h-12 w-32 shrink-0 object-contain object-left" />
             <div className="flex min-w-0 flex-1 flex-col gap-2 sm:flex-row sm:justify-end">
               {onQuickFinish ? (
                 <Button icon={<PenLine />} onClick={() => onQuickFinish(saved)}>
@@ -230,7 +226,7 @@ export function SignatureSection({
         )}
         <SignaturePad key={padKey} value={signature} onChange={setSignature} caption={name.trim() || fallbackName} />
         {userId && (
-          <label className="flex items-start gap-3 text-body">
+          <label className="flex items-start gap-3 text-body text-ink">
             <input
               type="checkbox"
               className="mt-1 size-4 accent-ink"
@@ -254,7 +250,7 @@ export function SignatureSection({
             </span>
           </label>
         )}
-      </Card>
-    </section>
+      </div>
+    </Section>
   );
 }

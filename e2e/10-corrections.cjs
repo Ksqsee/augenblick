@@ -102,6 +102,7 @@ const check = (ok, m) => {
   step('Berichtigung');
   await p.goto(`${BASE}/druck/protokoll/${iid}`);
   await p.getByRole('button', { name: 'Berichtigen' }).click();
+  await p.getByRole('dialog').getByRole('button', { name: 'Berichtigen' }).click();
   await p.waitForURL(/\/pruefung\//);
   const cid = p.url().split('/pruefung/')[1];
   await p.getByText(/Berichtigung der Prüfung vom/).waitFor();

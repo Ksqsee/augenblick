@@ -1,4 +1,5 @@
 // Diktat-Knöpfe: kleiner Mikrofon-Knopf für Textfelder und der große Aufnahmeknopf für „Erfassen“.
+// v3: Mikrofon schwarz bzw. grau, während der Aufnahme Zinnober – ohne Pulsschein, nur die Wellenform bewegt sich.
 import clsx from 'clsx';
 import { Loader2, Mic, Square } from 'lucide-react';
 import { type RefObject, useEffect, useRef, useState } from 'react';
@@ -36,7 +37,7 @@ export function FieldMic({ target, className }: { target: RefObject<HTMLInputEle
       }}
       className={clsx(
         'inline-flex h-8 items-center gap-1.5 rounded-full px-2.5 text-xs font-medium transition',
-        rec ? 'bg-bad text-white' : d.error ? 'bg-bad/10 text-bad' : 'bg-sunken text-ink-2 hover:bg-line hover:text-ink',
+        rec ? 'bg-shu text-white' : d.error ? 'text-shu hover:bg-hover' : 'text-ink-3 hover:bg-hover hover:text-ink',
         className,
       )}
     >
@@ -74,14 +75,14 @@ export function BigMic({ dictation: d, label = 'Tippen und sprechen', hint }: { 
         disabled={busy || d.engine === 'none'}
         onClick={() => (rec ? d.stop() : d.start())}
         className={clsx(
-          'relative grid size-[72px] shrink-0 place-items-center rounded-full text-white transition active:scale-95 disabled:opacity-50',
-          rec ? 'animate-rec bg-bad' : 'bg-brand shadow-[0_6px_16px_-4px_rgb(232_89_12/0.45)] hover:bg-brand-strong',
+          'relative grid size-16 shrink-0 place-items-center rounded-full text-white transition-colors active:opacity-85 disabled:opacity-50',
+          rec ? 'bg-shu' : 'bg-ink hover:bg-brand-strong',
         )}
       >
-        {busy ? <Loader2 className="size-7 animate-spin" /> : rec ? <Square className="size-6 fill-current" /> : <Mic className="size-7" />}
+        {busy ? <Loader2 className="size-6 animate-spin" /> : rec ? <Square className="size-5 fill-current" /> : <Mic className="size-6" />}
       </button>
       <div className="flex h-10 items-center">{rec ? <Wave level={d.level} active bars={32} /> : <Wave level={0} active={false} bars={32} />}</div>
-      <p className={clsx('-mt-1 text-center text-body', d.error ? 'text-bad' : rec ? 'font-medium text-ink tabular-nums' : 'font-medium text-ink')}>
+      <p className={clsx('-mt-1 text-center text-body', d.error ? 'text-shu' : 'text-ink', rec && 'tabular-nums')}>
         {d.error || (rec ? `Ich höre zu · ${fmtSeconds(d.seconds)}` : busy ? 'Wandle Sprache in Text um …' : d.engine === 'none' ? 'Diktat hier nicht verfügbar – einfach tippen' : label)}
       </p>
       {hint && !rec && !busy && <p className="-mt-2 max-w-xs text-center text-meta text-ink-3">{hint}</p>}

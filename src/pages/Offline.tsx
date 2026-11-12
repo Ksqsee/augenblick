@@ -1,18 +1,16 @@
 import { getCategory } from '../categories';
 import { useQuery } from '@tanstack/react-query';
-import clsx from 'clsx';
-import { AlertCircle, Check, CloudDownload, CloudOff, CloudUpload, Loader2, RefreshCw, Trash2, Wifi } from 'lucide-react';
+import { CloudDownload, CloudOff, Loader2, RefreshCw, Trash2 } from 'lucide-react';
 import { useEffect, useState } from 'react';
-import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom';
+import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { summarizeSchedules } from '../../shared/logic';
 import { registerCategories } from '../categories';
 import { api, type PropertyDetail, queryClient, useAssets, useMe, useProperties } from '../api';
-import { DueBadge } from '../components/AssetList';
-import { CategoryIcon } from '../components/CategoryIcon';
+import { CategoryGlyph } from '../components/inspect/Glyph';
 import { InspectionForm, type InspectionDraft, PhotoCtx } from '../components/run';
-import { Badge, Button, Card, Empty, ErrorBox, Field, IconButton, List, ListRow, Modal, Notice, PageHeader, SectionHeader, Select, SkeletonList, useConfirm, useToast } from '../components/ui';
+import { Button, ButtonLink, DueBadge, Empty, ErrorBox, Field, IconButton, List, ListRow, Modal, Notice, PageHeader, Section, Select, SkeletonList, StatusText, Surface, useConfirm, useToast } from '../components/ui';
 import { RunSkeleton } from './InspectionRun';
-import { fmtDateTime } from '../format';
+import { assetDue, fmtDateTime } from '../format';
 import {
   type Bundle,
   enqueue,
@@ -67,53 +65,40 @@ export function OfflinePage() {
       <PageHeader
         title="Offline-Modus"
         subtitle="Gebäude vorab laden und im Keller oder in der Tiefgarage ohne Netz prüfen"
-        meta={
-          <Badge tone={online ? 'ok' : 'warn'} dot>
-            {online ? 'Verbunden' : 'Kein Netz'}
-          </Badge>
-        }
+        meta={<StatusText tone={online ? 'ok' : 'warn'}>{online ? 'Verbunden' : 'Kein Netz'}</StatusText>}
       />
 
-      <div className="grid grid-cols-1 gap-8 lg:grid-cols-[minmax(0,1fr)_20rem] lg:gap-6">
-        <div className="flex flex-col gap-8">
-          {online && <FailuresSection />}
-          {online ? (
-            <PrepareCard />
-          ) : (
+      <div className="grid grid-cols-1 gap-10 lg:grid-cols-[minmax(0,1fr)_280px]">
+        <div className="flex min-w-0 flex-col gap-6">
+          {!online && (
             <Notice tone="warn" icon={<CloudOff />} title="Kein Netz">
               Du kannst alle Gebäude unten prüfen. Die Ergebnisse werden übertragen, sobald du wieder verbunden bist.
             </Notice>
           )}
-          <section>
-            <SectionHeader title="Auf diesem Gerät" count={bundles?.length || undefined} />
+          <Surface>
+          {online && <FailuresSection />}
+          {online && <PrepareCard />}
+          <Section title="Auf diesem Gerät" count={bundles?.length || undefined} flush>
             {bundles === null ? (
               <SkeletonList rows={4} />
             ) : bundles.length === 0 ? (
-              <Card>
-                <Empty
-                  compact
-                  icon={<CloudDownload />}
-                  title="Noch keine Gebäude geladen"
-                  text="Lade die Gebäude, in denen du ohne Netz prüfen willst, vorher bei bestehender Verbindung herunter."
-                />
-              </Card>
+              <p className="px-(--row-px) pb-4 text-body text-ink-2">
+                Noch keine Gebäude geladen. Lade die Gebäude, in denen du ohne Netz prüfen willst, vorher bei bestehender Verbindung herunter.
+              </p>
             ) : (
-              <div className="flex flex-col gap-4">
+              <div className="flex flex-col">
                 {bundles.map((b) => (
-                  <List
-                    key={b.building.id}
-                    aria-label={b.building.name}
-                    header={
-                      <>
-                        <span className="min-w-0">
-                          <span className="block truncate text-body font-semibold text-ink">
+                  <div key={b.building.id} className="border-t border-line first:border-t-0">
+                    <div className="flex items-center gap-3 px-(--row-px) pt-3 pb-1">
+                        <span className="min-w-0 flex-1">
+                          <span className="block truncate text-body text-ink">
                             {b.building.propertyName} · {b.building.name}
                           </span>
-                          <span className="block text-caption text-ink-3">
+                          <span className="block text-meta text-ink-3">
                             {b.assets.length} Elemente · Stand {fmtDateTime(b.preparedAt)}
                           </span>
                         </span>
-                        <span className="flex shrink-0 gap-0.5">
+                        <span className="-mr-2 flex shrink-0 gap-0.5">
                           {online && (
                             <IconButton
                               label="Aktualisieren"
@@ -124,54 +109,57 @@ export function OfflinePage() {
                           )}
                           <IconButton label="Vom Gerät entfernen" icon={<Trash2 />} size="sm" onClick={() => removeBuilding(b.building.id)} />
                         </span>
-                      </>
-                    }
-                  >
+                    </div>
+                    <List plain aria-label={b.building.name}>
                     {b.assets.map((a) => {
                       const queued = outbox.some((o) => o.assetId === a.id);
                       return (
                         <ListRow
                           key={a.id}
                           to={`/offline/pruefen/${a.id}`}
-                          leading={<CategoryIcon category={a.category} size="sm" />}
+                          leading={<CategoryGlyph category={a.category} />}
                           title={
                             <>
-                              {a.code} <span className="font-normal text-ink-3">· {getCategory(a.category).label}</span>
+                              {a.code} <span className="text-ink-3">· {getCategory(a.category).label}</span>
                             </>
                           }
                           subtitle={[a.location, a.floor].filter(Boolean).join(' · ') || '–'}
                           trailing={
                             queued ? (
-                              <Badge tone="info" icon={<CloudUpload />}>
-                                Wartet
-                              </Badge>
+                              <StatusText tone="info">Wartet</StatusText>
+                            ) : a.lastResult === 'not_inspectable' ? (
+                              <StatusText tone="muted">Nicht prüfbar</StatusText>
                             ) : (
-                              <DueBadge asset={a} />
+                              <DueBadge state={assetDue(a.nextDueAt)} />
                             )
                           }
                           chevron
                         />
                       );
                     })}
-                  </List>
+                    </List>
+                  </div>
                 ))}
               </div>
             )}
-          </section>
+          </Section>
+          </Surface>
         </div>
 
-        <aside>
-          <SectionHeader title="Warteschlange" count={n || undefined} />
-          <Card className="overflow-hidden">
-            <div className="flex items-center gap-3 px-4 py-3.5">
-              <span className={clsx('grid size-9 shrink-0 place-items-center rounded-lg', n ? 'bg-info-soft text-info' : 'bg-ok-soft text-ok')}>
-                {n ? <CloudUpload className="size-[18px]" /> : <Check className="size-[18px]" />}
-              </span>
-              <p className="min-w-0 flex-1 text-body font-medium">{n ? `${n} ${n === 1 ? 'Prüfung' : 'Prüfungen'} noch nicht übertragen` : 'Alles übertragen'}</p>
+        <aside className="min-w-0">
+          <div className="mb-1 flex h-7 items-center justify-between">
+            <h2 className="text-meta font-medium text-ink-3">
+              Warteschlange {n > 0 && <span className="font-normal tabular-nums">{n}</span>}
+            </h2>
+          </div>
+          <div className="border-t border-line">
+            <div className="flex min-h-12 items-center gap-3 py-2.5">
+              <p className="min-w-0 flex-1 text-body text-ink">{n ? `${n} ${n === 1 ? 'Prüfung' : 'Prüfungen'} noch nicht übertragen` : 'Alles übertragen'}</p>
               {n > 0 && online && (
                 <Button
                   size="sm"
-                  variant="secondary"
+                  variant="ghost"
+                  className="-mr-2"
                   onClick={async () => {
                     const r = await syncOutbox();
                     toast(
@@ -193,12 +181,11 @@ export function OfflinePage() {
             {n > 0 && (
               <ul className="divide-y divide-line border-t border-line">
                 {outbox.map((o) => (
-                  <li key={o.clientId} className="flex items-center gap-3 px-4 py-2.5">
-                    {o.error ? <AlertCircle className="size-4 shrink-0 text-bad" /> : online ? <Wifi className="size-4 shrink-0 text-ink-3" /> : <CloudOff className="size-4 shrink-0 text-ink-3" />}
+                  <li key={o.clientId} className="flex items-center gap-3 py-2.5">
                     <div className="min-w-0 flex-1">
-                      <p className="text-body font-medium">{o.code}</p>
-                      <p className="text-caption text-ink-3">geprüft {fmtDateTime(o.inspectedAt)}</p>
-                      {o.error && <p className="text-caption text-bad">{o.error}</p>}
+                      <p className="text-body text-ink">{o.code}</p>
+                      <p className="text-meta text-ink-3">geprüft {fmtDateTime(o.inspectedAt)}</p>
+                      {o.error && <p className="text-meta text-shu">{o.error}</p>}
                     </div>
                     {o.error && (
                       <IconButton
@@ -215,7 +202,7 @@ export function OfflinePage() {
                 ))}
               </ul>
             )}
-          </Card>
+          </div>
           {confirmEl}
         </aside>
       </div>
@@ -302,28 +289,30 @@ function FailuresSection() {
     }
   };
   return (
-    <section id="uebertragungen" className="scroll-mt-20">
+    <Section
+      id="uebertragungen"
+      title="Übertragungen prüfen"
+      count={q.data.length || undefined}
+      action={<span className="text-meta text-ink-3 max-sm:hidden">{isAdmin ? 'Vom Server abgelehnt – alle Geräte' : 'Vom Server abgelehnt'}</span>}
+      flush
+      className="scroll-mt-20"
+    >
       {confirmEl}
       {pick && <PickAssetModal failure={pick} busy={busy === pick.id} onClose={() => setPick(null)} onPick={(id) => retry(pick, id)} />}
-      <SectionHeader title="Übertragungen prüfen" count={q.data.length || undefined} meta={isAdmin ? 'Vom Server abgelehnt – alle Geräte' : 'Vom Server abgelehnt'} />
       {q.data.length === 0 ? (
-        <Card>
-          <Empty compact icon={<Check />} title="Keine abgelehnten Übertragungen" text="Prüfungen, die der Server nicht übernehmen kann, erscheinen hier zum erneuten Versuch." />
-        </Card>
+        <p className="px-(--row-px) pb-4 text-body text-ink-2">Keine abgelehnten Übertragungen. Prüfungen, die der Server nicht übernehmen kann, erscheinen hier zum erneuten Versuch.</p>
       ) : (
-        <Card className="overflow-hidden">
-          <ul className="divide-y divide-line" aria-label="Abgelehnte Übertragungen">
+          <ul className="pk-list" aria-label="Abgelehnte Übertragungen">
             {q.data.map((f) => (
-              <li key={f.id} data-failure={f.id} className="flex flex-col gap-2.5 px-4 py-3 sm:flex-row sm:items-center">
+              <li key={f.id} data-failure={f.id} className="flex flex-col gap-2.5 px-(--row-px) py-3 sm:flex-row sm:items-center">
                 <div className="flex min-w-0 flex-1 items-start gap-3">
-                  <AlertCircle className="mt-0.5 size-4 shrink-0 text-bad" />
                   <div className="min-w-0 flex-1">
-                    <p className="text-body font-medium break-words">
+                    <p className="text-body break-words text-ink">
                       {f.assetCode || 'Element unbekannt'}
-                      {f.category && <span className="font-normal text-ink-3"> · {getCategory(f.category).label}</span>}
+                      {f.category && <span className="text-ink-3"> · {getCategory(f.category).label}</span>}
                     </p>
-                    <p className="text-meta break-words text-bad">{f.reason}</p>
-                    <p className="text-caption text-ink-3">
+                    <p className="text-meta break-words text-shu">{f.reason}</p>
+                    <p className="text-meta text-ink-3">
                       {[
                         f.userName,
                         f.inspectedAt ? `geprüft ${fmtDateTime(f.inspectedAt)}` : null,
@@ -336,7 +325,7 @@ function FailuresSection() {
                     </p>
                   </div>
                 </div>
-                <div className="flex shrink-0 flex-wrap justify-end gap-2 pl-7 sm:pl-0">
+                <div className="flex shrink-0 flex-wrap gap-2 sm:justify-end">
                   {f.retryable &&
                     (f.assetAvailable ? (
                       <Button size="sm" variant="secondary" icon={<RefreshCw />} loading={busy === f.id} disabled={!!busy} onClick={() => retry(f)}>
@@ -352,9 +341,8 @@ function FailuresSection() {
               </li>
             ))}
           </ul>
-        </Card>
       )}
-    </section>
+    </Section>
   );
 }
 
@@ -408,9 +396,8 @@ function PrepareCard() {
   const [error, setError] = useState<unknown>(null);
   const toast = useToast();
   return (
-    <section>
-      <SectionHeader title="Gebäude laden" />
-      <Card className="flex flex-col gap-4 p-4 sm:p-5">
+    <Section title="Gebäude laden">
+      <div className="flex flex-col gap-4">
         {!!error && <ErrorBox error={error} />}
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-[1fr_1fr_auto] sm:items-end">
           <Field label="Objekt">
@@ -448,6 +435,7 @@ function PrepareCard() {
             disabled={!buildingId}
             loading={busy}
             icon={<CloudDownload />}
+            className="justify-self-start"
             onClick={async () => {
               setBusy(true);
               setError(null);
@@ -465,9 +453,9 @@ function PrepareCard() {
             Laden
           </Button>
         </div>
-        <p className="text-caption text-ink-3">Lädt Elemente und Prüfvorlagen des Gebäudes auf dieses Gerät.</p>
-      </Card>
-    </section>
+        <p className="text-meta text-ink-3">Lädt Elemente und Prüfvorlagen des Gebäudes auf dieses Gerät.</p>
+      </div>
+    </Section>
   );
 }
 
@@ -546,19 +534,10 @@ export function OfflineRun() {
 
 function NotOnDevice({ title, text }: { title: string; text: string }) {
   return (
-    <div className="grid min-h-dvh place-items-center bg-canvas p-6">
-      <Card className="w-full max-w-sm">
-        <Empty
-          icon={<CloudOff />}
-          title={title}
-          text={text}
-          action={
-            <Link to="/offline">
-              <Button>Zum Offline-Modus</Button>
-            </Link>
-          }
-        />
-      </Card>
+    <div className="grid min-h-dvh place-items-center bg-canvas p-4">
+      <Surface bleed={false} className="w-full max-w-sm">
+        <Empty title={title} text={text} action={<ButtonLink to="/offline">Zum Offline-Modus</ButtonLink>} />
+      </Surface>
     </div>
   );
 }

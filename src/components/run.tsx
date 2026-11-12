@@ -1,14 +1,14 @@
 import { getCategory } from '../categories';
 import clsx from 'clsx';
-import { Camera, CheckCheck, Loader2, Plus, Sparkles, Trash2, X } from 'lucide-react';
+import { Camera, CheckCheck, Loader2, Plus, Trash2, X } from 'lucide-react';
 import { createContext, type ReactNode, useCallback, useContext, useEffect, useRef, useState } from 'react';
 import { type Category, type Checkpoint, type CustomKind, INSPECTION_KINDS, SEVERITIES, type Severity } from '../../shared/catalog';
 import { type Answer, computeResult, finalResult, isComplete, type ResultOverride } from '../../shared/logic';
 import { type DefectDraft, fileUrl, uploadPhoto, useMe } from '../api';
 import { defectsLabel, fmtDate, RESULT_META } from '../format';
 import { decideKnown, groupKnownDefects, type KnownDecision, knownDecision, type KnownDefect } from '../../shared/carry';
-import { CategoryIcon } from './CategoryIcon';
-import { Button, Card, DictateInput, Notice, SectionHeader, Switch, Textarea, toneDot, SEVERITY_TONE, useConfirm } from './ui';
+import { Button, DictateInput, Notice, Section, StatusText, Surface, Switch, Textarea, toneDot, SEVERITY_TONE, useConfirm } from './ui';
+import { CategoryGlyph } from './inspect/Glyph';
 import { type CaptureItem, suggestMeasure, suggestSeverity } from '../../shared/smart';
 import { CheckpointRow, reveal, revealNextOpen } from './inspect/Checkpoint';
 import { RadioChips, ToggleChip } from './inspect/Choice';
@@ -47,17 +47,18 @@ function SmartHints<T extends DefectLike>({ defect, onChange }: { defect: T; onC
   const sev = suggestSeverity(text);
   const sevHint = sev !== defect.severity && (sev === 'critical' || sev === 'high') ? sev : null;
   if (!measure && !sevHint) return null;
-  const chip = 'inline-flex min-h-8 items-center gap-1.5 rounded-lg bg-info-soft px-2.5 py-1 text-left text-caption font-medium text-info transition-colors hover:bg-info-line/60';
+  // grau mit Unterstreichung – ein Tipp übernimmt den Vorschlag
+  const chip = 'min-h-8 py-1 text-left text-meta text-ink-2 underline decoration-ink-4 underline-offset-4 transition-colors hover:text-ink hover:decoration-ink';
   return (
-    <div className="flex flex-wrap gap-1.5" aria-label="Vorschläge">
+    <div className="flex flex-wrap items-baseline gap-x-4 gap-y-0.5" aria-label="Vorschläge">
       {measure && (
         <button type="button" onClick={() => onChange({ ...defect, measure })} className={chip}>
-          <Sparkles className="size-3.5 shrink-0" /> Maßnahme: {measure}
+          Maßnahme: {measure}
         </button>
       )}
       {sevHint && (
         <button type="button" onClick={() => onChange({ ...defect, severity: sevHint })} className={chip}>
-          <Sparkles className="size-3.5 shrink-0" /> Als „{SEVERITIES[sevHint]}“ einstufen
+          Als „{SEVERITIES[sevHint]}“ einstufen
         </button>
       )}
     </div>
@@ -67,7 +68,7 @@ function SmartHints<T extends DefectLike>({ defect, onChange }: { defect: T; onC
 const SEVERITY_OPTIONS = (Object.entries(SEVERITIES) as [Severity, string][]).map(([k, v]) => ({
   value: k,
   label: v,
-  leading: <span className={clsx('size-2 rounded-full', k === 'low' ? 'bg-ink-4' : toneDot[SEVERITY_TONE[k]], k === 'critical' && 'ring-2 ring-bad/30')} />,
+  leading: <span className={clsx('size-1.5 rounded-full', k === 'low' ? 'bg-ink-4' : toneDot[SEVERITY_TONE[k]])} />,
 }));
 
 /** Mangel bearbeiten: Schwere, Beschreibung (Diktat), Foto, Maßnahme, Vorschläge. */
@@ -124,16 +125,16 @@ export function DefectEditor<T extends DefectLike>({
             }
           }}
         />
-        <Button variant="secondary" aria-label="Foto aufnehmen" loading={uploading} onClick={() => fileRef.current?.click()} className="w-11 px-0 sm:h-10 sm:w-10">
+        <Button variant="secondary" aria-label="Foto aufnehmen" loading={uploading} onClick={() => fileRef.current?.click()} className="w-11 shrink-0 px-0 sm:w-9">
           {!uploading && <Camera className="size-4" />}
         </Button>
       </div>
       <DictateInput placeholder="Maßnahme, z. B. Schließer tauschen" aria-label="Maßnahme" value={defect.measure ?? ''} onChange={(e) => onChange({ ...defect, measure: e.target.value })} />
       <SmartHints defect={defect} onChange={onChange} />
-      {err && <p className="text-caption text-bad">{err}</p>}
+      {err && <p className="text-caption text-shu">{err}</p>}
       {defect.photoKey && (
         <div className="relative w-fit">
-          <img src={photos.src(defect.photoKey)} alt="Foto zum Mangel" className="h-24 rounded-lg object-cover shadow-card" />
+          <img src={photos.src(defect.photoKey)} alt="Foto zum Mangel" className="h-24 rounded-md border border-line object-cover" />
           <button
             type="button"
             onClick={() => onChange({ ...defect, photoKey: undefined })}
@@ -148,9 +149,9 @@ export function DefectEditor<T extends DefectLike>({
   );
 }
 
-/** Rahmen um den Mangel unter einem Prüfpunkt: eingerückt, mit Bernstein-Strich. */
+/** Rahmen um den Mangel unter einem Prüfpunkt: keine Fläche, nur eine Haarlinie in Tinte links. */
 export function DefectPanel({ children }: { children: ReactNode }) {
-  return <div className="animate-pop rounded-lg border-l-2 border-warn bg-canvas py-3 pr-3 pl-3.5">{children}</div>;
+  return <div className="animate-pop border-l border-ink py-1 pl-4">{children}</div>;
 }
 
 /** Mit Verzögerung speichern, sobald sich der Wert ändert (erster Render zählt nicht). */
@@ -188,7 +189,7 @@ export function DiscardButton({ onDiscard }: { onDiscard: () => Promise<void> | 
         onClick={async () => {
           if (await confirm({ title: 'Entwurf verwerfen?', text: 'Alle Eingaben zu diesem Entwurf gehen verloren.', confirmLabel: 'Verwerfen', danger: true })) await onDiscard();
         }}
-        className="inline-flex h-10 items-center gap-1.5 self-center rounded-lg px-3 text-meta text-ink-3 transition-colors hover:bg-bad-soft hover:text-bad"
+        className="inline-flex h-10 items-center gap-1.5 self-center rounded-md px-3 text-meta text-ink-3 transition-colors hover:bg-hover hover:text-ink"
       >
         <Trash2 className="size-4" /> Entwurf verwerfen
       </button>
@@ -336,10 +337,10 @@ export function InspectionForm({
   return (
     <RunFrame
       back={back}
-      icon={<CategoryIcon category={subject.category} size="sm" />}
+      icon={<CategoryGlyph category={subject.category} />}
       title={
         <>
-          {subject.code} <span className="font-normal text-ink-3">· {def.label}</span>
+          {subject.code} <span className="text-ink-3">· {def.label}</span>
         </>
       }
       subtitle={[scheduleLabel, subject.location, subject.buildingName].filter(Boolean).join(' · ')}
@@ -356,7 +357,7 @@ export function InspectionForm({
     >
       {confirmEl}
       {(offline || banner) && (
-        <div className="-mb-3 flex flex-col gap-3">
+        <div className="flex flex-col gap-3">
           {offline && (
             <Notice tone="info" title="Offline-Prüfung">
               Wird auf diesem Gerät gespeichert und übertragen, sobald du wieder Netz hast.
@@ -366,19 +367,18 @@ export function InspectionForm({
         </div>
       )}
 
-      <section id="ablauf" className="scroll-mt-24">
-        <Card className="flex flex-col gap-4 p-4 sm:p-5">
+      <Surface>
+      <Section id="ablauf" className="scroll-mt-24">
+        <div className="flex flex-col gap-4">
           <KindPicker value={d.kinds ?? []} onChange={(kinds) => update({ kinds })} />
-          <div className="border-t border-line pt-4">
-            <Switch
-              checked={d.notInspectable}
-              onChange={(notInspectable) => update({ notInspectable })}
-              label="Nicht prüfbar"
-              description="Zum Beispiel kein Zugang – Prüfpunkte entfallen."
-            />
-          </div>
-        </Card>
-      </section>
+          <Switch
+            checked={d.notInspectable}
+            onChange={(notInspectable) => update({ notInspectable })}
+            label="Nicht prüfbar"
+            description="Zum Beispiel kein Zugang – Prüfpunkte entfallen."
+          />
+        </div>
+      </Section>
 
       {!d.notInspectable && !offline && (
         <VoicePanel
@@ -406,21 +406,22 @@ export function InspectionForm({
       )}
 
       {!d.notInspectable && (
-        <section>
-          <SectionHeader
-            title="Prüfpunkte"
-            meta={`${answered} von ${ids.length}`}
-            action={
-              open > 0 ? (
-                <Button size="sm" variant="ghost" icon={<CheckCheck />} onClick={restOk}>
+        <Section
+          title="Prüfpunkte"
+          flush
+          action={
+            <>
+              <span className="text-meta text-ink-3 tabular-nums">
+                {answered} von {ids.length}
+              </span>
+              {open > 0 && (
+                <Button size="sm" variant="ghost" icon={<CheckCheck />} onClick={restOk} className="-mr-2">
                   Rest i. O.
                 </Button>
-              ) : (
-                <span className="text-meta font-medium text-ok">Alle beantwortet</span>
-              )
-            }
-          />
-          <Card className="overflow-hidden">
+              )}
+            </>
+          }
+        >
             <div ref={listRef} className="divide-y divide-line">
               {checkpoints.map((cp, idx) => {
                 const defect = d.defects.find((x) => x.checkpointId === cp.id && !x.knownId);
@@ -452,45 +453,41 @@ export function InspectionForm({
                 );
               })}
             </div>
-          </Card>
-        </section>
+        </Section>
       )}
 
       {!d.notInspectable && known.loose.length > 0 && (
-        <section id="bekannte-maengel" className="scroll-mt-24">
-          <SectionHeader title="Bekannte Mängel" meta="ohne passenden Prüfpunkt" />
-          <Card className="flex flex-col gap-3 p-3 sm:p-4">
+        <Section id="bekannte-maengel" title="Bekannte Mängel" action={<span className="text-meta text-ink-3">ohne passenden Prüfpunkt</span>} className="scroll-mt-24">
+          <div className="flex flex-col gap-5">
             {known.loose.map((k) => (
               <KnownDefectCard key={k.id} k={k} decision={knownDecision(d, k.id)} onDecide={(x) => decide(k, x)} />
             ))}
-          </Card>
-        </section>
+          </div>
+        </Section>
       )}
 
       {!d.notInspectable && (
-        <section id="weitere-maengel" className="scroll-mt-24">
-          <SectionHeader title="Weitere Mängel" meta="ohne Prüfpunkt" />
-          <div className="flex flex-col gap-3">
+        <Section id="weitere-maengel" title="Weitere Mängel" action={<span className="text-meta text-ink-3">ohne Prüfpunkt</span>} className="scroll-mt-24">
+          <div className="flex flex-col gap-4">
             {d.defects
               .filter((x) => !x.checkpointId && !x.knownId)
               .map((x, i) => (
-                <Card key={i} className="animate-pop p-4">
+                <DefectPanel key={i}>
                   <DefectEditor
                     defect={x}
                     editableTitle
                     onChange={(nd) => update({ defects: d.defects.map((y) => (y === x ? nd : y)) })}
                     onRemove={() => update({ defects: d.defects.filter((y) => y !== x) })}
                   />
-                </Card>
+                </DefectPanel>
               ))}
             <AddButton onClick={() => update({ defects: [...d.defects, { title: '', note: '', severity: 'medium' }] })}>Mangel ohne Prüfpunkt erfassen</AddButton>
           </div>
-        </section>
+        </Section>
       )}
 
       {def.maintenance.length > 0 && (
-        <section>
-          <SectionHeader title="Durchgeführte Arbeiten" meta={d.maintenance.length ? `${d.maintenance.length} gewählt` : 'optional'} />
+        <Section title="Durchgeführte Arbeiten" action={<span className="text-meta text-ink-3">{d.maintenance.length ? `${d.maintenance.length} gewählt` : 'optional'}</span>}>
           <div className="flex flex-wrap gap-2">
             {def.maintenance.map((m) => {
               const on = d.maintenance.includes(m.key);
@@ -501,15 +498,14 @@ export function InspectionForm({
               );
             })}
           </div>
-        </section>
+        </Section>
       )}
 
       <PhotoSection photos={d.photos ?? []} onChange={(photos) => update({ photos })} />
 
-      <section>
-        <SectionHeader title="Bemerkungen" meta="optional" />
+      <Section title="Bemerkungen" action={<span className="text-meta text-ink-3">optional</span>}>
         <Textarea aria-label="Bemerkungen" value={d.notes} onChange={(e) => update({ notes: e.target.value })} placeholder="Hinweise zur Prüfung, Absprachen vor Ort …" />
-      </section>
+      </Section>
 
       {!d.notInspectable && (
         <OverallResult
@@ -531,6 +527,7 @@ export function InspectionForm({
         onSignature={(signature) => update({ signature })}
         onQuickFinish={steps.every((x) => x.done || x.key === 'sign') ? (signature) => void finish({ ...d, signature }) : undefined}
       />
+      </Surface>
 
       <DiscardButton onDiscard={discard} />
     </RunFrame>
@@ -540,15 +537,16 @@ export function InspectionForm({
 /** Offener Mangel aus einer früheren Prüfung: weiterhin vorhanden oder behoben? */
 function KnownDefectCard({ k, decision, onDecide }: { k: KnownDefect; decision: KnownDecision; onDecide: (d: KnownDecision) => void }) {
   return (
-    <div className="flex flex-col gap-2.5 rounded-lg border-l-2 border-warn bg-canvas py-3 pr-3 pl-3.5" data-known={k.id}>
-      <p className="text-body">
-        <span className="text-ink-3">Bekannter Mangel vom {fmtDate(k.createdAt)}:</span> <span className="font-medium">{k.title}</span>
-        <span className="ml-2 inline-flex items-center gap-1.5 align-middle text-meta text-ink-3">
-          <span className={clsx('size-2 rounded-full', k.severity === 'low' ? 'bg-ink-4' : toneDot[SEVERITY_TONE[k.severity]])} />
-          {SEVERITIES[k.severity]}
-        </span>
-      </p>
-      {k.note && <p className="-mt-1.5 text-meta text-ink-3">{k.note}</p>}
+    <div className="flex flex-col gap-2.5" data-known={k.id}>
+      <div>
+        <p className="text-body text-ink">
+          <span className="text-ink-3">Bekannter Mangel vom {fmtDate(k.createdAt)}:</span> {k.title}
+        </p>
+        <p className="mt-0.5 flex flex-wrap items-center gap-x-1.5 text-meta text-ink-3">
+          <StatusText tone={SEVERITY_TONE[k.severity]}>{SEVERITIES[k.severity]}</StatusText>
+          {k.note && <span className="min-w-0">· {k.note}</span>}
+        </p>
+      </div>
       <div className="flex flex-wrap gap-2" role="group" aria-label={`Bekannter Mangel: ${k.title}`}>
         <ToggleChip active={decision === 'present'} onClick={() => onDecide(decision === 'present' ? 'open' : 'present')}>
           Weiterhin vorhanden
@@ -558,7 +556,7 @@ function KnownDefectCard({ k, decision, onDecide }: { k: KnownDefect; decision: 
         </ToggleChip>
       </div>
       {decision !== 'open' && (
-        <p className="text-caption text-ink-3">
+        <p className="text-meta text-ink-3">
           {decision === 'present' ? 'Bleibt als offener Mangel bestehen – es wird kein neuer angelegt.' : 'Wird mit dem Abschluss als behoben vermerkt.'}
         </p>
       )}
@@ -566,13 +564,13 @@ function KnownDefectCard({ k, decision, onDecide }: { k: KnownDefect; decision: 
   );
 }
 
-/** Gestrichelter Knopf zum Hinzufügen (volle Breite). */
+/** Hinzufügen als ruhiger Textknopf mit Plus (linksbündig). */
 export function AddButton({ onClick, children }: { onClick: () => void; children: ReactNode }) {
   return (
     <button
       type="button"
       onClick={onClick}
-      className="flex h-12 items-center justify-center gap-2 rounded-xl border border-dashed border-line-strong text-body font-medium text-ink-2 transition-colors hover:bg-hover hover:text-ink sm:h-11"
+      className="-ml-2 inline-flex h-11 items-center gap-2 self-start rounded-md px-2 text-body text-ink-2 transition-colors hover:bg-hover hover:text-ink sm:h-9"
     >
       <Plus className="size-4" /> {children}
     </button>
@@ -593,9 +591,9 @@ function KindPicker({ value, onChange }: { value: string[]; onChange: (v: string
       <div className="flex items-center gap-3">
         <div className="min-w-0 flex-1">
           <p className="text-meta text-ink-3">Art der Prüfung</p>
-          <p className="truncate text-body font-medium">{chosen.join(', ')}</p>
+          <p className="truncate text-body text-ink">{chosen.join(', ')}</p>
         </div>
-        <Button size="sm" variant="ghost" onClick={() => setEdit(true)}>
+        <Button size="sm" variant="ghost" onClick={() => setEdit(true)} className="-mr-2">
           Ändern
         </Button>
       </div>
@@ -603,7 +601,7 @@ function KindPicker({ value, onChange }: { value: string[]; onChange: (v: string
   return (
     <div>
       <div className="mb-2 flex items-center justify-between gap-3">
-        <p className="text-meta font-medium text-ink-2">Art der Prüfung</p>
+        <p className="text-meta text-ink-3">Art der Prüfung</p>
         {chosen.length > 0 && (
           <Button size="xs" variant="ghost" onClick={() => setEdit(false)}>
             Fertig
@@ -640,9 +638,8 @@ function OverallResult({
 }) {
   const differs = !!override && override !== computed;
   return (
-    <section id="gesamtbewertung" className="scroll-mt-24">
-      <SectionHeader title="Gesamtbewertung" />
-      <p className="-mt-1 mb-3 text-meta text-ink-3">Ergibt sich aus den Befunden. Als Sachkundige/r kannst du sie abweichend festlegen.</p>
+    <Section id="gesamtbewertung" title="Gesamtbewertung" className="scroll-mt-24">
+      <p className="mb-3 text-meta text-ink-3">Ergibt sich aus den Befunden. Als Sachkundige/r kannst du sie abweichend festlegen.</p>
       <RadioChips<ResultOverride | null>
         label="Gesamtbewertung"
         value={override}
@@ -663,7 +660,7 @@ function OverallResult({
           onChange={(e) => onChange(override, e.target.value)}
         />
       )}
-    </section>
+    </Section>
   );
 }
 
@@ -674,11 +671,10 @@ export function PhotoSection({ photos, onChange }: { photos: { key: string; capt
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState('');
   return (
-    <section>
-      <SectionHeader title="Fotos" count={photos.length || undefined} meta={photos.length ? undefined : 'optional'} />
+    <Section title="Fotos" count={photos.length || undefined} action={photos.length ? undefined : <span className="text-meta text-ink-3">optional</span>}>
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
         {photos.map((p, i) => (
-          <div key={p.key} className="overflow-hidden rounded-xl bg-surface shadow-card">
+          <div key={p.key} className="overflow-hidden rounded-md border border-line bg-surface">
             <div className="relative aspect-[4/3] bg-sunken">
               <img src={store.src(p.key)} alt={p.caption || `Foto ${i + 1}`} className="absolute inset-0 size-full object-cover" />
               <button
@@ -703,13 +699,13 @@ export function PhotoSection({ photos, onChange }: { photos: { key: string; capt
           type="button"
           onClick={() => ref.current?.click()}
           disabled={busy}
-          className="flex aspect-[4/3] flex-col items-center justify-center gap-1.5 rounded-xl border border-dashed border-line-strong text-meta font-medium text-ink-2 transition-colors hover:bg-hover hover:text-ink"
+          className="flex aspect-[4/3] flex-col items-center justify-center gap-1.5 rounded-md border border-dashed border-line-strong text-meta text-ink-2 transition-colors hover:bg-hover hover:text-ink"
         >
           {busy ? <Loader2 className="size-5 animate-spin" /> : <Camera className="size-5" />}
           Foto hinzufügen
         </button>
       </div>
-      {err && <p className="mt-2 text-caption text-bad">{err}</p>}
+      {err && <p className="mt-2 text-caption text-shu">{err}</p>}
       <input
         ref={ref}
         type="file"
@@ -733,6 +729,6 @@ export function PhotoSection({ photos, onChange }: { photos: { key: string; capt
           }
         }}
       />
-    </section>
+    </Section>
   );
 }

@@ -2,7 +2,7 @@ import { ArrowRight, Camera, CameraOff } from 'lucide-react';
 import { type FormEvent, useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { api, ApiError } from '../api';
-import { Button, Card, ErrorBox, Input, PageHeader } from '../components/ui';
+import { Button, ErrorBox, Input, PageHeader, Surface } from '../components/ui';
 
 interface Detector {
   detect(source: HTMLVideoElement): Promise<{ rawValue: string }[]>;
@@ -80,13 +80,13 @@ export function ScanPage() {
   return (
     <div className="mx-auto max-w-lg">
       <PageHeader title="Code scannen" subtitle="QR-Etikett am Element scannen – die Prüfung ist dann einen Tipp entfernt." />
-      <Card className="overflow-hidden">
-        <div className="relative flex aspect-[4/5] flex-col items-center justify-center gap-6 overflow-hidden bg-ink px-6 text-white sm:aspect-square">
+      <Surface className="overflow-hidden">
+        <div className="relative flex aspect-square flex-col items-center justify-center gap-6 overflow-hidden bg-ink px-6 text-white sm:aspect-[4/3] sm:rounded-t-xl">
           {camera === 'on' && <video ref={videoRef} playsInline muted className="absolute inset-0 size-full object-cover" />}
           {/* Sucher: vier Ecken statt Rahmen */}
           <div aria-hidden className="pointer-events-none relative size-44 shrink-0 sm:size-56">
-            {['top-0 left-0 border-t-[3px] border-l-[3px] rounded-tl-xl', 'top-0 right-0 border-t-[3px] border-r-[3px] rounded-tr-xl', 'bottom-0 left-0 border-b-[3px] border-l-[3px] rounded-bl-xl', 'bottom-0 right-0 border-r-[3px] border-b-[3px] rounded-br-xl'].map((c) => (
-              <span key={c} className={`absolute size-8 border-white/90 ${c}`} />
+            {['top-0 left-0 border-t-2 border-l-2 rounded-tl-md', 'top-0 right-0 border-t-2 border-r-2 rounded-tr-md', 'bottom-0 left-0 border-b-2 border-l-2 rounded-bl-md', 'bottom-0 right-0 border-r-2 border-b-2 rounded-br-md'].map((c) => (
+              <span key={c} className={`absolute size-7 border-white/85 ${c}`} />
             ))}
           </div>
           {camera !== 'on' && (
@@ -107,13 +107,13 @@ export function ScanPage() {
           {camera === 'on' && <p className="absolute inset-x-0 bottom-5 text-center text-meta text-white/85">Suche Code …</p>}
         </div>
         <form
-          className="flex flex-col gap-2 p-4 sm:p-5"
+          className="flex flex-col gap-2 px-(--row-px) py-5 sm:py-6"
           onSubmit={(e: FormEvent) => {
             e.preventDefault();
             if (code.trim()) open(code);
           }}
         >
-          <label htmlFor="scan-code" className="text-meta font-medium text-ink-2">
+          <label htmlFor="scan-code" className="text-meta font-medium text-ink-3">
             Oder Code eingeben
           </label>
           <div className="flex gap-2">
@@ -127,13 +127,13 @@ export function ScanPage() {
               spellCheck={false}
               className="font-mono uppercase"
             />
-            <Button type="submit" variant="primary" disabled={!code.trim()} icon={<ArrowRight />}>
+            <Button type="submit" variant="primary" disabled={!code.trim()} icon={<ArrowRight />} className="shrink-0">
               Öffnen
             </Button>
           </div>
           {!!error && <ErrorBox error={error} className="mt-2" />}
         </form>
-      </Card>
+      </Surface>
     </div>
   );
 }
