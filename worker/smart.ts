@@ -5,7 +5,8 @@ import { DAY } from '../shared/logic';
 import { DEFAULT_SLA, HOUR } from '../shared/sla';
 import { sortByUrgency } from '../shared/tasks';
 import { defectScope, taskScope, tid } from './data';
-import { type AppEnv, type Ctx, id, logActivity, now, requireRole, scopeSql } from './lib';
+import { intervalSuggestions, adaptMode } from './intervals';
+import { type AppEnv, type Ctx, id, logActivity, now, RANK, requireRole, scopeSql } from './lib';
 
 export const smart = new Hono<AppEnv>();
 
@@ -57,7 +58,7 @@ smart.get('/smart/rounds', async (c) => {
 
 export interface Suggestion {
   id: string;
-  kind: 'round' | 'defects_without_task' | 'walkthrough_due' | 'stale_drafts' | 'overdue_tasks' | 'never_inspected';
+  kind: 'round' | 'defects_without_task' | 'walkthrough_due' | 'stale_drafts' | 'overdue_tasks' | 'never_inspected' | 'interval';
   tone: 'bad' | 'warn' | 'info';
   title: string;
   text: string;
@@ -147,9 +148,29 @@ smart.get('/smart/suggestions', async (c) => {
   if (tasks) {
     out.push({ id: 'overdue-tasks', kind: 'overdue_tasks', tone: 'warn', title: `${tasks} überfällige ${tasks === 1 ? 'Aufgabe' : 'Aufgaben'}`, text: 'Dir zugewiesen oder noch ohne Zuständige.', link: '/aufgaben', count: tasks });
   }
+  // Selbstanpassende Prüfintervalle, Stufe „Vorschlagen“ (nur wer sie übernehmen darf). Sie bekommen einen festen Platz,
+  // damit sie nicht hinter Rundgängen verschwinden; weitere stehen auf der Elementseite.
+  const intervalOut: Suggestion[] = [];
+  if (RANK[u.role] >= RANK.admin && (await adaptMode(c)) === 'suggest') {
+    for (const s of (await intervalSuggestions(c)).slice(0, 1)) {
+      intervalOut.push({
+        id: `interval-${s.assetId}-${s.schedule}`,
+        kind: 'interval',
+        tone: s.kind === 'shorten' ? 'warn' : 'info',
+        title: `${s.code}: ${s.text}`,
+        text:
+          s.kind === 'shorten'
+            ? `Zwei Prüfungen in Folge mit Mängeln (${s.scheduleLabel}). ${[s.buildingName, s.propertyName].filter(Boolean).join(' · ')}`
+            : `Vier mängelfreie Prüfungen in Folge (${s.scheduleLabel}). ${[s.buildingName, s.propertyName].filter(Boolean).join(' · ')}`,
+        link: `/elemente/${s.assetId}`,
+        action: { label: s.kind === 'shorten' ? 'Verkürzen' : 'Zurücksetzen', endpoint: '/smart/intervals/apply', body: { assetId: s.assetId, schedule: s.schedule, months: s.to } },
+        count: 1,
+      });
+    }
+  }
   const rank = { bad: 0, warn: 1, info: 2 };
   out.sort((a, b) => rank[a.tone] - rank[b.tone] || b.count - a.count);
-  return c.json(out.slice(0, 6));
+  return c.json([...out.slice(0, 6 - intervalOut.length), ...intervalOut]);
 });
 
 /** Für offene schwere Mängel ohne Aufgabe je eine Aufgabe anlegen (Frist nach SLA-Richtlinie). */

@@ -2,11 +2,12 @@
 // Vorlage „Detail“ (docs/design.md 5.2), Belege: docs/design/objekte-elemente.md
 import { getCategory } from '../categories';
 import { useQuery } from '@tanstack/react-query';
-import { AlertTriangle, CheckCircle2, ClipboardCheck, FileText, Link2, Map, Paperclip, Pencil, Plus, QrCode, Trash2, X } from 'lucide-react';
+import { AlertTriangle, CheckCircle2, ClipboardCheck, FileText, Link2, Map, Paperclip, Pencil, Plus, QrCode, RotateCcw, Trash2, X } from 'lucide-react';
 import QRCode from 'qrcode';
 import { type ReactNode, useEffect, useRef, useState } from 'react';
 import { Link, Navigate, useNavigate, useParams } from 'react-router-dom';
 import { INSPECTION_PURPOSES, kindLabel } from '../../shared/catalog';
+import { effectiveInterval } from '../../shared/intervals';
 import { api, ApiError, type Asset, type AssetDetail, type Attachment, downscale, fileUrl, queryClient, uploadBlob, useAction, useAsset, useAssets, useMe } from '../api';
 import { scheduleLabel, schedulesFor } from '../categories';
 import { useStartInspection } from '../components/AssetDrawer';
@@ -173,7 +174,7 @@ export function AssetPage() {
                     </span>
                   ),
                 },
-                { label: 'Intervall', value: `alle ${def.intervalMonths} Monate` },
+                { label: 'Intervall', value: `alle ${effectiveInterval(schedulesFor(a.category).find((s) => s.key === 'main')?.intervalMonths ?? def.intervalMonths, a.schedules?.main)} Monate` },
                 { label: 'Vorwarnung', value: a.warnDays ? `${a.warnDays} Tage vorher` : <span className="font-normal text-ink-3">Vorgabe</span> },
                 {
                   label: 'Objekt',
@@ -194,6 +195,7 @@ export function AssetPage() {
         </div>
 
         <div className="flex min-w-0 flex-col gap-8 lg:col-start-1 lg:row-span-2 lg:row-start-1">
+          <IntervalSection asset={a} canEdit={isAdmin} />
           <SchedulesSection asset={a} canEdit={!!canInspect} onStart={(schedule) => start.mutate({ assetId: a.id, schedule })} />
 
           <section>
@@ -356,6 +358,78 @@ function NextHere({ asset }: { asset: AssetDetail }) {
   );
 }
 
+interface IntervalSuggestionRow {
+  assetId: string;
+  schedule: string;
+  scheduleLabel: string;
+  kind: 'shorten' | 'restore';
+  from: number;
+  to: number;
+  standard: number;
+  text: string;
+}
+
+/**
+ * Selbstanpassende Prüfintervalle am Element: angepasste Intervalle mit „Zurücksetzen“ und offene Vorschläge
+ * (Stufe „Vorschlagen“) mit „Übernehmen“. Ändern dürfen nur Admins.
+ */
+function IntervalSection({ asset, canEdit }: { asset: AssetDetail; canEdit: boolean }) {
+  const toast = useToast();
+  const q = useQuery({ queryKey: ['intervals', asset.id], queryFn: () => api<{ mode: string; suggestions: IntervalSuggestionRow[] }>(`/smart/intervals?assetId=${asset.id}`) });
+  const after = (msg: string) => {
+    toast(msg);
+    for (const k of ['asset', 'intervals', 'smart', 'assets', 'dashboard']) void queryClient.invalidateQueries({ queryKey: [k] });
+  };
+  const reset = useAction((key: string) => api('/smart/intervals/reset', { body: { assetId: asset.id, schedule: key } }), () => after('Intervall zurückgesetzt'));
+  const apply = useAction((s: IntervalSuggestionRow) => api('/smart/intervals/apply', { body: { assetId: asset.id, schedule: s.schedule, months: s.to } }), () => after('Intervall angepasst'));
+  const list = schedulesFor(asset.category);
+  const adapted = list
+    .map((s) => ({ s, st: asset.schedules?.[s.key] }))
+    .filter(({ s, st }) => (s.key === 'main' || st?.enabled) && st?.intervalMonths != null && effectiveInterval(s.intervalMonths, st) < s.intervalMonths);
+  const suggestions = q.data?.suggestions ?? [];
+  if (!adapted.length && !suggestions.length) return null;
+  const multi = list.length > 1;
+  return (
+    <section aria-label="Prüfintervall">
+      {(reset.error || apply.error) && <ErrorBox error={reset.error ?? apply.error} className="mb-3" />}
+      <Card className="divide-y divide-line">
+        {adapted.map(({ s, st }) => (
+          <div key={s.key} data-interval={s.key} className="flex flex-col gap-2 px-4 py-3 sm:flex-row sm:items-center">
+            <p className="min-w-0 flex-1 text-body">
+              <span className="font-medium">
+                Intervall angepasst: {effectiveInterval(s.intervalMonths, st)} statt {s.intervalMonths} Monate
+              </span>
+              {multi && <span className="text-ink-3"> · {s.label}</span>}
+              {st?.intervalAt && <span className="block text-meta text-ink-3">seit {fmtDate(st.intervalAt)} wegen wiederholter Mängel</span>}
+            </p>
+            {canEdit && (
+              <Button size="sm" variant="ghost" icon={<RotateCcw />} loading={reset.isPending} onClick={() => reset.mutate(s.key)}>
+                Zurücksetzen
+              </Button>
+            )}
+          </div>
+        ))}
+        {suggestions.map((g) => (
+          <div key={`${g.schedule}-${g.kind}`} data-interval-suggestion={g.schedule} className="flex flex-col gap-2 px-4 py-3 sm:flex-row sm:items-center">
+            <p className="min-w-0 flex-1 text-body">
+              <span className="font-medium">Vorschlag: {g.text}</span>
+              {multi && <span className="text-ink-3"> · {g.scheduleLabel}</span>}
+              <span className="block text-meta text-ink-3">
+                {g.kind === 'shorten' ? 'Die letzten zwei Prüfungen hatten Mängel.' : 'Die letzten vier Prüfungen waren ohne Mängel.'}
+              </span>
+            </p>
+            {canEdit && (
+              <Button size="sm" variant="secondary" loading={apply.isPending} onClick={() => apply.mutate(g)}>
+                Übernehmen
+              </Button>
+            )}
+          </div>
+        ))}
+      </Card>
+    </section>
+  );
+}
+
 function SchedulesSection({ asset, canEdit, onStart }: { asset: AssetDetail; canEdit: boolean; onStart: (key: string) => void }) {
   const toast = useToast();
   const [confirm, confirmEl] = useConfirm();
@@ -385,7 +459,7 @@ function SchedulesSection({ asset, canEdit, onStart }: { asset: AssetDetail; can
             <div key={s.key} className="flex flex-col gap-2.5 px-4 py-3 sm:flex-row sm:items-center">
               <div className="min-w-0 flex-1">
                 <p className="text-body font-medium">
-                  {s.label} <span className="font-normal text-ink-3">· alle {s.intervalMonths} Monate</span>
+                  {s.label} <span className="font-normal text-ink-3">· alle {effectiveInterval(s.intervalMonths, st)} Monate</span>
                 </p>
                 <p className="text-meta text-ink-3">
                   {on ? (

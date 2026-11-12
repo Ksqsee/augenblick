@@ -75,6 +75,10 @@ Für API-Schlüssel gelten diese Regeln:
 | `POST /import/assets` | Massenimport (wie Import-Seite) |
 | `POST /defects` | Mangel ohne Prüfung melden: `{ assetId? , propertyId?, title, severity, note?, measure?, photoKey? }` – Element oder Objekt ist Pflicht; bei `high`/`critical` entsteht automatisch eine Aufgabe (Workspace-Einstellung), Antwort `{ id, taskCreated }` |
 | `POST /smart/tasks-from-defects` | Für offene Mängel ohne Aufgabe je eine Aufgabe mit SLA-Frist: `{ severities? }` → `{ created }` |
+| `POST /inspections/offline` | Offline erfasste Prüfung übernehmen (idempotent über `clientId`): Prüfungsdaten wie beim Abschluss plus `{ clientId, assetId, schedule, inspectedAt, checkpoints }`. Inhaltliche Ablehnung (Validierung, Element gelöscht, Konflikt …) → Fehler mit `failureId`; die Übertragung bleibt dann unter `GET /offline/failures` (nicht bei 401/403/429) |
+| `GET /offline/failures` | Vom Server abgelehnte Offline-Übertragungen: Admins alle des Workspaces, Prüfer nur eigene. Je Eintrag `reason`, `status`, `userName`, `assetCode`, `assetAvailable`, `retryable`, `attempts`, `inspectedAt` – ohne Prüfungsdaten |
+| `POST /offline/failures/:id/retry` | Serverseitig erneut übertragen: `{ assetId? }` (Ersatz-Element derselben Art, wenn das ursprüngliche fehlt) → `{ inspectionId }`; die Prüfung bleibt der prüfenden Person zugeordnet. Scheitert er, zählt `attempts` hoch und der Fehler kommt zurück |
+| `DELETE /offline/failures/:id` | Abgelehnte Übertragung endgültig verwerfen (eigene oder als Admin) |
 
 ## Kunden-Freigabe
 
@@ -83,6 +87,18 @@ Für API-Schlüssel gelten diese Regeln:
 | `GET/POST /properties/:id/shares` | Freigabe-Links eines Objekts auflisten bzw. erstellen (nur Admin-Sitzung): `{ label?, showDefects?, expiresInDays? }` → `{ id, token }` (Token nur einmal) |
 | `DELETE /shares/:id` | Link widerrufen |
 | `GET /public/property/:token` | Öffentliche, nur lesende Statusansicht (ohne Anmeldung); in der App unter `/kunde/:token` |
+
+## Partner-Zugang für Subunternehmer
+
+| Endpunkt | Beschreibung |
+|----------|--------------|
+| `POST /subcontractors/:id/partner-code` | Einladungscode erzeugen bzw. neu erzeugen (nur Admin) → `{ code }` – nur einmal sichtbar, gespeichert wird der Hash; ein vorheriger Code wird ungültig. `GET /subcontractors` zeigt `partnerAccess`, `partnerCreatedAt`, `partnerUsedAt` |
+| `DELETE /subcontractors/:id/partner-code` | Code widerrufen |
+| `GET /public/partner/:code` | Ohne Anmeldung: `{ company, tenantName, tasks }` – alle offenen Aufträge der Firma, je mit `ref` und denselben Feldern wie `GET /public/tasks/:token` (keine internen Notizen, IDs oder Personen); in der App unter `/partner/:code` |
+| `GET /public/partner/:code/tasks/:ref`, `…/photo` | Einzelner Auftrag bzw. Foto zum Mangel |
+| `POST /public/partner/:code/tasks/:ref` | Rückmeldung `{ status: "in_progress"\|"done", note? }` wie beim Einzel-Link (Kommentar „extern“, Benachrichtigung) |
+
+Ungültige oder widerrufene Codes liefern `404` und werden je IP gedrosselt (`token-ip`).
 
 ## Kalender-Abo
 
@@ -93,7 +109,10 @@ Für API-Schlüssel gelten diese Regeln:
 
 | Endpunkt | Beschreibung |
 |----------|--------------|
-| `GET /smart/suggestions` | Priorisierte Vorschläge (Rundgänge, Mängel ohne Aufgabe, fällige Begehungen, liegengebliebene Entwürfe, überfällige Aufgaben) |
+| `GET /smart/suggestions` | Priorisierte Vorschläge (Rundgänge, Mängel ohne Aufgabe, fällige Begehungen, liegengebliebene Entwürfe, überfällige Aufgaben; für Admins im Modus „Vorschlagen“ ein Intervall-Vorschlag `kind: "interval"` mit `action` → `POST /smart/intervals/apply`) |
+| `GET /smart/intervals?assetId=` | Selbstanpassende Prüfintervalle: `{ mode: "off"\|"suggest"\|"auto", suggestions }` – je Vorschlag `assetId`, `schedule`, `kind` (`shorten`/`restore`), `from`, `to`, `standard`, `text`. Das angepasste Intervall steht am Element unter `schedules.<Prüfart>.intervalMonths` |
+| `POST /smart/intervals/apply` | Vorschlag übernehmen (Admin): `{ assetId, schedule, months }` – `months` muss dem aktuellen Vorschlag entsprechen (sonst 409); der nächste Termin wird ab der letzten Prüfung neu berechnet |
+| `POST /smart/intervals/reset` | Angepasstes Intervall auf den Standard zurücksetzen (Admin): `{ assetId, schedule }` |
 | `GET /smart/rounds?days=30` | Fällige Elemente je Gebäude in Laufreihenfolge (Etage, Standort) |
 | `GET /ai/status` | Welche KI-Funktionen verfügbar sind: `{ transcribe, structure: "ai"|"rules", vision }` |
 | `POST /ai/parse` | Text (z. B. Diktat) in Mängel/Aufgaben/Notizen zerlegen: `{ text, checkpoints? }` → `{ items, source }`; ohne KI regelbasiert |

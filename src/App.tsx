@@ -15,7 +15,7 @@ import { FloorPlanPage } from './pages/FloorPlan';
 import { HelpPage } from './pages/Help';
 import { ImportPage } from './pages/Import';
 import { OfflinePage, OfflineRun } from './pages/Offline';
-import { ExternalTaskPage, SubcontractorsPage } from './pages/Subcontractors';
+import { ExternalTaskPage, PartnerPage, SubcontractorsPage } from './pages/Subcontractors';
 import { WalkthroughProtocol, WalkthroughRun, WalkthroughsPage } from './pages/Walkthroughs';
 import { InspectionRun } from './pages/InspectionRun';
 import { InspectionsPage } from './pages/Inspections';
@@ -62,6 +62,7 @@ export function App() {
         <Route path="/registrieren" element={<Register />} />
         <Route path="/einladung/:token" element={<InviteAccept />} />
         <Route path="/extern/:token" element={<ExternalTaskPage />} />
+        <Route path="/partner/:code" element={<PartnerPage />} />
         <Route path="/passwort/:token" element={<ResetPassword />} />
         <Route path="/oauth/authorize" element={<OAuthAuthorize />} />
         <Route path="/kunde/:token" element={<CustomerView />} />

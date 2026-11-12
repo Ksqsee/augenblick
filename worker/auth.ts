@@ -260,7 +260,8 @@ account.get('/me', async (c) => {
   const u = c.get('user');
   const tenant = await c.env.DB.prepare(
     `SELECT id, name, logo_key AS logoKey, address, phone, email, website, pdf_pattern AS pdfPattern, archive_after_months AS archiveAfterMonths,
-            language, timezone AS timeZone, reminder_days AS reminderDays, inspection_kinds AS inspectionKinds, auto_tasks AS autoTasks
+            language, timezone AS timeZone, reminder_days AS reminderDays, inspection_kinds AS inspectionKinds, auto_tasks AS autoTasks,
+            adapt_intervals_mode AS adaptIntervalsMode
        FROM tenants WHERE id = ?`,
   )
     .bind(u.tenantId)
@@ -330,6 +331,7 @@ account.patch('/company', async (c) => {
       timeZone: z.string().max(60).refine(isValidTimeZone, 'Unbekannte Zeitzone').optional(),
       reminderDays: z.number().int().min(1).max(365).nullable().optional(),
       autoTasks: z.boolean().optional(),
+      adaptIntervalsMode: z.enum(['off', 'suggest', 'auto']).optional(),
       inspectionKinds: z
         .array(z.object({ key: z.string().max(40).optional(), label: z.string().trim().min(2).max(60) }))
         .max(30)
@@ -348,12 +350,14 @@ account.patch('/company', async (c) => {
             language = COALESCE(?, language), timezone = COALESCE(?, timezone),
             reminder_days = CASE WHEN ? THEN ? ELSE reminder_days END,
             inspection_kinds = COALESCE(?, inspection_kinds),
-            auto_tasks = COALESCE(?, auto_tasks)
+            auto_tasks = COALESCE(?, auto_tasks),
+            adapt_intervals_mode = COALESCE(?, adapt_intervals_mode)
       WHERE id = ?`,
   )
     .bind(b.name, b.address, b.phone, b.email, b.website, b.logoKey !== undefined ? 1 : 0, b.logoKey ?? null, b.pdfPattern ?? null,
       b.archiveAfterMonths !== undefined ? 1 : 0, b.archiveAfterMonths ?? null, b.language ?? null, b.timeZone ?? null,
-      b.reminderDays !== undefined ? 1 : 0, b.reminderDays ?? null, kinds ? JSON.stringify(kinds) : null, b.autoTasks === undefined ? null : b.autoTasks ? 1 : 0, t)
+      b.reminderDays !== undefined ? 1 : 0, b.reminderDays ?? null, kinds ? JSON.stringify(kinds) : null, b.autoTasks === undefined ? null : b.autoTasks ? 1 : 0,
+      b.adaptIntervalsMode ?? null, t)
     .run();
   await logActivity(c, 'update', 'tenant', null, 'Firmenprofil geändert');
   return c.json({ ok: true });

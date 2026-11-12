@@ -11,6 +11,9 @@ import { account, auth } from './auth';
 import { categories } from './categories';
 import { runDaily } from './cron';
 import { inspections } from './inspections';
+import { intervals } from './intervals';
+import { offline } from './offline';
+import { partnerPublic, partners } from './partners';
 import { notifications } from './notify';
 import { data } from './data';
 import { type AppEnv, csrfGuard, type Env, requireAuth } from './lib';
@@ -42,6 +45,7 @@ app.route('/auth', auth);
 app.route('/public', publicApi);
 app.route('/public', sharePublic);
 app.route('/public', calendarPublic);
+app.route('/public', partnerPublic);
 app.route('/account', calendar);
 app.route('/account', account);
 // MCP für Claude & Co.: eigene Authentifizierung per API-Schlüssel, Werkzeuge rufen intern die API auf
@@ -54,7 +58,10 @@ app.route('/', mcpRoutes((req, c) => Promise.resolve(app.fetch(req, c.env, c.exe
 const secured = new Hono<AppEnv>();
 secured.use('*', requireAuth);
 secured.route('/', categories);
+secured.route('/', offline);
 secured.route('/', inspections);
+secured.route('/', intervals);
+secured.route('/', partners);
 secured.route('/', notifications);
 secured.route('/', walks);
 secured.route('/', plans);

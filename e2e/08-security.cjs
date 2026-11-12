@@ -217,6 +217,72 @@ function client() {
   const fk = await owner(`/defects/${myDefect.id}`, { method: 'PATCH', body: { status: 'resolved', photoKey: `${'x'.repeat(8)}/fremd` } });
   check(fk.status === 400, `fremder Foto-Schlüssel bei Behebung abgelehnt (${fk.status})`);
 
+  console.log('· #27 Offline-Fehlliste, Intervalle, Partner-Zugang: Workspace-Grenzen und Rollen');
+  const SIG1 = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==';
+  const offlineFail = (assetId) => ({
+    clientId: `sec27-${Math.random().toString(36).slice(2, 12)}`,
+    assetId,
+    schedule: 'main',
+    inspectedAt: Date.now(),
+    checkpoints: [{ id: 'a', label: 'A' }],
+    kinds: ['periodic'],
+    answers: { a: 'ok' },
+    signature: SIG1,
+    signerName: 'x',
+  });
+  // Abgelehnte Übertragung eines eingeschränkten Prüfers an ein Element außerhalb seines Bereichs: gemerkt, aber ohne fremden Code
+  const scopedFail = await insp('/inspections/offline', { body: offlineFail(oAsset.id) });
+  check(scopedFail.status === 404 && !!scopedFail.json?.failureId, `Ablehnung gemerkt (${scopedFail.status})`);
+  const scopedRow = (await insp('/offline/failures')).json.find((x) => x.id === scopedFail.json.failureId);
+  check(scopedRow && scopedRow.assetCode === '' && !JSON.stringify(scopedRow).includes(oAsset.code), 'Eintrag verrät keinen Code außerhalb des Bereichs');
+  check((await insp(`/offline/failures/${scopedFail.json.failureId}/retry`, { body: { assetId: oAsset.id } })).status === 404, 'Ersatz-Element außerhalb des Bereichs → 404');
+  const ownFail = await owner('/inspections/offline', { body: offlineFail('zzzzzzzzzzzzzzzz') });
+  const ofid = ownFail.json?.failureId;
+  check(ownFail.status === 404 && !!ofid, `Admin-Ablehnung gemerkt (${ownFail.status})`);
+  check(!(await mallory('/offline/failures')).json.some((x) => x.id === ofid), 'fremder Workspace sieht die Liste nicht');
+  check((await mallory(`/offline/failures/${ofid}/retry`, { body: {} })).status === 404, 'fremden Eintrag erneut versuchen → 404');
+  check((await mallory(`/offline/failures/${ofid}`, { method: 'DELETE' })).status === 404, 'fremden Eintrag löschen → 404');
+  check(!(await insp('/offline/failures')).json.some((x) => x.id === ofid), 'Prüfer sieht Einträge anderer nicht');
+  check((await insp(`/offline/failures/${ofid}/retry`, { body: {} })).status === 404, 'Prüfer versucht fremden Eintrag nicht erneut');
+  check((await insp(`/offline/failures/${ofid}`, { method: 'DELETE' })).status === 404, 'Prüfer löscht fremden Eintrag nicht');
+  check((await reader(`/offline/failures/${ofid}/retry`, { body: {} })).status === 403, 'Lesezugriff versucht nicht erneut');
+  check((await reader('/offline/failures')).status === 403, 'Lesezugriff ohne Fehlliste');
+  // Ersatz-Element aus fremdem Workspace
+  const mBuilding = (await mallory(`/properties/${mProp}/buildings`, { body: { name: 'Mallory Haus' } })).json?.id;
+  const mAsset = mBuilding && (await mallory('/assets', { body: { buildingId: mBuilding, category: 'smoke_alarm' } })).json?.id;
+  check(!!mAsset, 'fremdes Element angelegt');
+  check((await owner(`/offline/failures/${ofid}/retry`, { body: { assetId: mAsset } })).status === 404, 'Ersatz-Element aus fremdem Workspace → 404');
+  check((await owner(`/offline/failures/${ofid}`, { method: 'DELETE' })).status === 200, 'eigenen Eintrag gelöscht');
+  // Intervalle: fremde Elemente und Rollen
+  check((await mallory('/smart/intervals/apply', { body: { assetId: sAsset.id, schedule: 'main', months: 6 } })).status === 404, 'Intervall fremdes Element anpassen → 404');
+  check((await mallory('/smart/intervals/reset', { body: { assetId: sAsset.id, schedule: 'main' } })).status === 404, 'Intervall fremdes Element zurücksetzen → 404');
+  check((await mallory(`/smart/intervals?assetId=${sAsset.id}`)).json.suggestions.length === 0, 'keine Vorschläge zu fremden Elementen');
+  check((await owner('/smart/intervals/apply', { body: { assetId: mAsset, schedule: 'main', months: 6 } })).status === 404, 'Element aus fremdem Workspace → 404');
+  check((await insp('/smart/intervals/reset', { body: { assetId: sAsset.id, schedule: 'main' } })).status === 403, 'Prüfer setzt Intervall nicht zurück');
+  // Partner-Zugang
+  const ownSub = (await owner('/subcontractors')).json[0];
+  check((await mallory(`/subcontractors/${ownSub.id}/partner-code`, { method: 'POST' })).status === 404, 'Partner-Code für fremden Subunternehmer → 404');
+  check((await mallory(`/subcontractors/${ownSub.id}/partner-code`, { method: 'DELETE' })).status === 404, 'fremden Partner-Code widerrufen → 404');
+  check((await insp(`/subcontractors/${ownSub.id}/partner-code`, { method: 'POST' })).status === 403, 'Prüfer erzeugt keinen Partner-Code');
+  const pcode = (await owner(`/subcontractors/${ownSub.id}/partner-code`, { method: 'POST' })).json.code;
+  const pub = async (path, init) => (await fetch(`${BASE}/api/public/partner/${path}`, init)).status;
+  check((await pub(pcode)) === 200, 'Partner-Code gültig');
+  check((await pub(`${pcode.slice(0, -2)}xx`)) === 404, 'veränderter Code → 404');
+  check((await pub('kurz')) === 404, 'zu kurzer Code → 404');
+  const mSub = (await mallory('/subcontractors', { body: { company: 'Mallory Partner' } })).json.id;
+  const mCode = (await mallory(`/subcontractors/${mSub}/partner-code`, { method: 'POST' })).json.code;
+  const mView = await (await fetch(`${BASE}/api/public/partner/${mCode}`)).json();
+  check(mView.company === 'Mallory Partner' && mView.tasks.length === 0, 'Partner-Seite zeigt nur Aufträge der eigenen Firma');
+  const ownView = await (await fetch(`${BASE}/api/public/partner/${pcode}`)).json();
+  const someRef = ownView.tasks[0]?.ref;
+  if (someRef) check((await pub(`${mCode}/tasks/${someRef}`)) === 404, 'Auftrag fremder Firma über eigenen Code → 404');
+  check((await owner(`/subcontractors/${ownSub.id}/partner-code`, { method: 'DELETE' })).status === 200, 'Partner-Code widerrufen');
+  check((await pub(pcode)) === 404, 'widerrufener Code → 404');
+  if (someRef) {
+    const st = await pub(`${pcode}/tasks/${someRef}`, { method: 'POST', headers: { 'x-pk': '1', 'content-type': 'application/json' }, body: JSON.stringify({ status: 'done' }) });
+    check(st === 404, 'Rückmeldung mit widerrufenem Code → 404');
+  }
+
   console.log(fail.length ? `FAILED ${fail.length}: ${fail.join('; ')}` : 'ALL CHECKS OK');
   if (fail.length) process.exitCode = 1;
 })().catch((e) => {

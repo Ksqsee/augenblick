@@ -6,11 +6,11 @@ import { useEffect, useState } from 'react';
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { summarizeSchedules } from '../../shared/logic';
 import { registerCategories } from '../categories';
-import { api, type PropertyDetail, useMe, useProperties } from '../api';
+import { api, type PropertyDetail, queryClient, useAssets, useMe, useProperties } from '../api';
 import { DueBadge } from '../components/AssetList';
 import { CategoryIcon } from '../components/CategoryIcon';
 import { InspectionForm, type InspectionDraft, PhotoCtx } from '../components/run';
-import { Badge, Button, Card, Empty, ErrorBox, Field, IconButton, List, ListRow, Notice, PageHeader, SectionHeader, Select, SkeletonList, useConfirm, useToast } from '../components/ui';
+import { Badge, Button, Card, Empty, ErrorBox, Field, IconButton, List, ListRow, Modal, Notice, PageHeader, SectionHeader, Select, SkeletonList, useConfirm, useToast } from '../components/ui';
 import { RunSkeleton } from './InspectionRun';
 import { fmtDateTime } from '../format';
 import {
@@ -76,6 +76,7 @@ export function OfflinePage() {
 
       <div className="grid grid-cols-1 gap-8 lg:grid-cols-[minmax(0,1fr)_20rem] lg:gap-6">
         <div className="flex flex-col gap-8">
+          {online && <FailuresSection />}
           {online ? (
             <PrepareCard />
           ) : (
@@ -173,7 +174,16 @@ export function OfflinePage() {
                   variant="secondary"
                   onClick={async () => {
                     const r = await syncOutbox();
-                    toast(r.sent ? `${r.sent} Prüfungen übertragen` : r.failed ? 'Übertragung fehlgeschlagen' : 'Nichts zu übertragen', r.failed ? 'bad' : 'ok');
+                    toast(
+                      r.stored
+                        ? `${r.stored} ${r.stored === 1 ? 'Prüfung' : 'Prüfungen'} abgelehnt – siehe „Übertragungen prüfen“`
+                        : r.sent
+                          ? `${r.sent} Prüfungen übertragen`
+                          : r.failed
+                            ? 'Übertragung fehlgeschlagen'
+                            : 'Nichts zu übertragen',
+                      r.failed ? 'bad' : 'ok',
+                    );
                   }}
                 >
                   Senden
@@ -210,6 +220,182 @@ export function OfflinePage() {
         </aside>
       </div>
     </>
+  );
+}
+
+// ---------- Vom Server abgelehnte Übertragungen ----------
+export interface OfflineFailure {
+  id: string;
+  userId: string;
+  userName: string;
+  assetId: string | null;
+  assetCode: string;
+  category: string | null;
+  buildingName: string | null;
+  propertyName: string | null;
+  assetAvailable: boolean;
+  status: number;
+  reason: string;
+  attempts: number;
+  retryable: boolean;
+  inspectedAt: number | null;
+  createdAt: number;
+  updatedAt: number;
+}
+
+/**
+ * „Übertragungen prüfen“: Prüfungen, die der Server abgelehnt hat (z. B. Element gelöscht, ungültige Angaben).
+ * Admins sehen alle des Workspaces, Prüfer ihre eigenen. Erneut versuchen läuft auf dem Server mit den gespeicherten Daten.
+ */
+function FailuresSection() {
+  const { data: me } = useMe();
+  const canAct = !!me && me.user.role !== 'viewer';
+  const isAdmin = !!me && ['owner', 'admin'].includes(me.user.role);
+  const q = useQuery({ queryKey: ['offline-failures'], queryFn: () => api<OfflineFailure[]>('/offline/failures'), enabled: canAct });
+  const [params] = useSearchParams();
+  const toast = useToast();
+  const [confirm, confirmEl] = useConfirm();
+  const [pick, setPick] = useState<OfflineFailure | null>(null);
+  const [busy, setBusy] = useState<string | null>(null);
+  const focus = params.get('tab') === 'uebertragungen';
+  useEffect(() => {
+    if (focus && q.data) document.getElementById('uebertragungen')?.scrollIntoView({ block: 'start' });
+  }, [focus, q.data]);
+  if (!canAct || !q.data || (!q.data.length && !isAdmin && !focus)) return null;
+  const done = () => {
+    void queryClient.invalidateQueries({ queryKey: ['offline-failures'] });
+    void queryClient.invalidateQueries({ queryKey: ['notifications'] });
+  };
+  const retry = async (f: OfflineFailure, assetId?: string) => {
+    setBusy(f.id);
+    try {
+      const r = await api<{ duplicate?: boolean }>(`/offline/failures/${f.id}/retry`, { body: assetId ? { assetId } : {} });
+      toast(r.duplicate ? 'War bereits übertragen' : 'Prüfung übernommen');
+      setPick(null);
+      await queryClient.invalidateQueries();
+    } catch (e) {
+      toast(e instanceof Error ? e.message : 'Fehlgeschlagen', 'bad');
+      done();
+    } finally {
+      setBusy(null);
+    }
+  };
+  const remove = async (f: OfflineFailure) => {
+    if (
+      !(await confirm({
+        title: `Übertragung ${f.assetCode || ''} löschen?`.replace('  ', ' '),
+        text: 'Die offline erfasste Prüfung wird endgültig verworfen und nicht übernommen.',
+        confirmLabel: 'Löschen',
+        danger: true,
+      }))
+    )
+      return;
+    setBusy(f.id);
+    try {
+      await api(`/offline/failures/${f.id}`, { method: 'DELETE' });
+      toast('Übertragung gelöscht');
+      done();
+    } catch (e) {
+      toast(e instanceof Error ? e.message : 'Fehlgeschlagen', 'bad');
+    } finally {
+      setBusy(null);
+    }
+  };
+  return (
+    <section id="uebertragungen" className="scroll-mt-20">
+      {confirmEl}
+      {pick && <PickAssetModal failure={pick} busy={busy === pick.id} onClose={() => setPick(null)} onPick={(id) => retry(pick, id)} />}
+      <SectionHeader title="Übertragungen prüfen" count={q.data.length || undefined} meta={isAdmin ? 'Vom Server abgelehnt – alle Geräte' : 'Vom Server abgelehnt'} />
+      {q.data.length === 0 ? (
+        <Card>
+          <Empty compact icon={<Check />} title="Keine abgelehnten Übertragungen" text="Prüfungen, die der Server nicht übernehmen kann, erscheinen hier zum erneuten Versuch." />
+        </Card>
+      ) : (
+        <Card className="overflow-hidden">
+          <ul className="divide-y divide-line" aria-label="Abgelehnte Übertragungen">
+            {q.data.map((f) => (
+              <li key={f.id} data-failure={f.id} className="flex flex-col gap-2.5 px-4 py-3 sm:flex-row sm:items-center">
+                <div className="flex min-w-0 flex-1 items-start gap-3">
+                  <AlertCircle className="mt-0.5 size-4 shrink-0 text-bad" />
+                  <div className="min-w-0 flex-1">
+                    <p className="text-body font-medium break-words">
+                      {f.assetCode || 'Element unbekannt'}
+                      {f.category && <span className="font-normal text-ink-3"> · {getCategory(f.category).label}</span>}
+                    </p>
+                    <p className="text-meta break-words text-bad">{f.reason}</p>
+                    <p className="text-caption text-ink-3">
+                      {[
+                        f.userName,
+                        f.inspectedAt ? `geprüft ${fmtDateTime(f.inspectedAt)}` : null,
+                        f.buildingName,
+                        f.attempts > 1 ? `${f.attempts} Versuche` : null,
+                        !f.assetAvailable ? 'Element nicht mehr verfügbar' : null,
+                      ]
+                        .filter(Boolean)
+                        .join(' · ')}
+                    </p>
+                  </div>
+                </div>
+                <div className="flex shrink-0 flex-wrap justify-end gap-2 pl-7 sm:pl-0">
+                  {f.retryable &&
+                    (f.assetAvailable ? (
+                      <Button size="sm" variant="secondary" icon={<RefreshCw />} loading={busy === f.id} disabled={!!busy} onClick={() => retry(f)}>
+                        Erneut versuchen
+                      </Button>
+                    ) : (
+                      <Button size="sm" variant="secondary" icon={<RefreshCw />} disabled={!!busy} onClick={() => setPick(f)}>
+                        Anderes Element …
+                      </Button>
+                    ))}
+                  <IconButton label="Löschen" icon={<Trash2 />} size="sm" disabled={!!busy} onClick={() => remove(f)} />
+                </div>
+              </li>
+            ))}
+          </ul>
+        </Card>
+      )}
+    </section>
+  );
+}
+
+/** Element derselben Art wählen, wenn das ursprüngliche gelöscht wurde oder nicht mehr erreichbar ist. */
+function PickAssetModal({ failure, busy, onClose, onPick }: { failure: OfflineFailure; busy: boolean; onClose: () => void; onPick: (assetId: string) => void }) {
+  const assets = useAssets(failure.category ? { category: failure.category } : {});
+  const [assetId, setAssetId] = useState('');
+  return (
+    <Modal
+      title="Anderes Element wählen"
+      onClose={onClose}
+      footer={
+        <>
+          <Button variant="secondary" onClick={onClose}>
+            Abbrechen
+          </Button>
+          <Button disabled={!assetId} loading={busy} onClick={() => onPick(assetId)}>
+            Übertragen
+          </Button>
+        </>
+      }
+    >
+      <div className="flex flex-col gap-4">
+        <p className="text-body text-ink-2">
+          {failure.assetCode ? `${failure.assetCode} ist nicht mehr verfügbar.` : 'Das ursprüngliche Element ist nicht mehr verfügbar.'} Die Prüfung kann einem Element
+          {failure.category ? ` derselben Art (${getCategory(failure.category).label})` : ''} zugeordnet werden.
+        </p>
+        <Field label="Element">
+          {(id) => (
+            <Select id={id} value={assetId} onChange={(e) => setAssetId(e.target.value)}>
+              <option value="">Element wählen …</option>
+              {assets.data?.map((a) => (
+                <option key={a.id} value={a.id}>
+                  {a.code} · {[a.location, a.buildingName].filter(Boolean).join(' · ')}
+                </option>
+              ))}
+            </Select>
+          )}
+        </Field>
+      </div>
+    </Modal>
   );
 }
 

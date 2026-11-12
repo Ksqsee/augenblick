@@ -194,6 +194,6 @@ entfällt.
 | Berichtsgenerator mit Filtern, Suche in Prüfungen | ✓ | Berichte → Bericht-Generator |
 | Jährlicher Compliance-Bericht (Begehungen, Mängel, Behebungsquote) | ✓ | `GET /reports/annual`, Jahresbericht-PDF |
 | Brandschutzbeauftragten-Status je Mitglied mit Verlauf | ✓ | Team-Dialog, Hash-Kette `member_flag_history` |
-| Fehlgeschlagene Offline-Übertragungen auf dem Server (erneut versuchen, endgültig löschen) | geplant | |
-| Selbstanpassende Prüfintervalle | geplant | |
-| Subunternehmer als externe Firma mit Einladungscode | geplant | |
+| Fehlgeschlagene Offline-Übertragungen auf dem Server (erneut versuchen, endgültig löschen) | ✓ | Offline-Seite → „Übertragungen prüfen“, `GET /offline/failures` |
+| Selbstanpassende Prüfintervalle | ✓ | Einstellungen → Unternehmen (Aus/Vorschlagen/Automatisch), Elementseite, `GET /smart/intervals` |
+| Subunternehmer als externe Firma mit Einladungscode | ✓ | Subunternehmer → Partner-Zugang, Sammelseite `/partner/:code` |

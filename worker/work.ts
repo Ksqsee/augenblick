@@ -26,13 +26,14 @@ const subBody = z.object({
 work.get('/subcontractors', async (c) => {
   const rows = await c.env.DB.prepare(
     `SELECT s.id, s.company, s.contact_name AS contactName, s.email, s.phone, s.trade, s.notes,
+            s.partner_code_hash IS NOT NULL AS partnerAccess, s.partner_code_created_at AS partnerCreatedAt, s.partner_code_used_at AS partnerUsedAt,
             (SELECT COUNT(*) FROM tasks t WHERE t.subcontractor_id = s.id AND t.status IN ('open','in_progress')) AS openTasks,
             (SELECT COUNT(*) FROM tasks t WHERE t.subcontractor_id = s.id AND t.status = 'done') AS doneTasks
        FROM subcontractors s WHERE s.tenant_id = ? AND s.deleted_at IS NULL ORDER BY s.company`,
   )
     .bind(tid(c))
     .all();
-  return c.json(rows.results);
+  return c.json(rows.results.map((r) => ({ ...r, partnerAccess: !!r.partnerAccess })));
 });
 
 work.post('/subcontractors', async (c) => {
@@ -63,7 +64,7 @@ work.patch('/subcontractors/:id', async (c) => {
 work.delete('/subcontractors/:id', async (c) => {
   requireRole(c, 'admin');
   await c.env.DB.batch([
-    c.env.DB.prepare('UPDATE subcontractors SET deleted_at=? WHERE id=? AND tenant_id=?').bind(now(), c.req.param('id'), tid(c)),
+    c.env.DB.prepare('UPDATE subcontractors SET deleted_at=?, partner_code_hash=NULL WHERE id=? AND tenant_id=?').bind(now(), c.req.param('id'), tid(c)),
     c.env.DB.prepare('UPDATE tasks SET subcontractor_id=NULL, share_token=NULL WHERE subcontractor_id=? AND tenant_id=?').bind(c.req.param('id'), tid(c)),
   ]);
   return c.json({ ok: true });
@@ -713,15 +714,11 @@ work.post('/import/assets', async (c) => {
 // ---------- Öffentlicher Aufgaben-Link (ohne Login) ----------
 export const publicApi = new Hono<AppEnv>();
 
-async function taskByToken(c: Ctx) {
-  const tok = c.req.param('token') ?? '';
-  await assertNotThrottled(c, 'token-ip', clientIp(c));
-  if (tok.length < 20) {
-    await recordFailure(c, 'token-ip', clientIp(c));
-    notFound('Aufgabe');
-  }
-  const r = await c.env.DB.prepare(
-    `SELECT t.id, t.tenant_id AS tenantId, t.assignee_id AS assigneeId, t.created_by AS createdBy, t.title, t.description, t.status, t.priority, t.due_at AS dueAt, t.defect_id AS defectId,
+/**
+ * Felder einer Aufgabe für Externe (Einzel-Link und Partner-Seite, worker/partners.ts). Die Antwort entfernt
+ * interne IDs und Personen (`publicTask`); Kommentare/interne Notizen werden nie gelesen.
+ */
+export const PUBLIC_TASK_SQL = `SELECT t.id, t.tenant_id AS tenantId, t.assignee_id AS assigneeId, t.created_by AS createdBy, t.title, t.description, t.status, t.priority, t.due_at AS dueAt, t.defect_id AS defectId,
             t.external_note AS externalNote, t.external_done_at AS externalDoneAt,
             te.name AS tenantName, s.company AS subcontractorName,
             a.code AS assetCode, a.category, a.location, a.floor, b.name AS buildingName,
@@ -729,9 +726,30 @@ async function taskByToken(c: Ctx) {
             d.title AS defectTitle, d.severity AS defectSeverity, d.note AS defectNote, d.measure AS defectMeasure, d.photo_key AS photoKey, d.legal_basis AS legalBasis
        FROM tasks t JOIN tenants te ON te.id = t.tenant_id LEFT JOIN subcontractors s ON s.id = t.subcontractor_id
        LEFT JOIN assets a ON a.id = t.asset_id LEFT JOIN buildings b ON b.id = a.building_id LEFT JOIN properties p1 ON p1.id = b.property_id
-       LEFT JOIN defects d ON d.id = t.defect_id LEFT JOIN properties p2 ON p2.id = d.property_id LEFT JOIN properties p3 ON p3.id = t.property_id
-      WHERE t.share_token = ?`,
-  )
+       LEFT JOIN defects d ON d.id = t.defect_id LEFT JOIN properties p2 ON p2.id = d.property_id LEFT JOIN properties p3 ON p3.id = t.property_id`;
+
+/** Für Externe sichtbare Felder (ohne interne IDs, Personen und Foto-Schlüssel). */
+export function publicTask(r: Record<string, unknown>) {
+  const { tenantId: _t, id: _i, defectId: _d, assigneeId: _a, createdBy: _cb, photoKey: _p, ...rest } = r;
+  return { ...rest, hasPhoto: !!r.photoKey };
+}
+
+/** Foto zum Mangel einer Aufgabe ausliefern (nur aus dem Speicher des eigenen Workspaces). */
+export async function publicTaskPhoto(c: Ctx, r: Record<string, unknown>) {
+  if (!r.photoKey || !String(r.photoKey).startsWith(`${r.tenantId}/`)) notFound('Foto');
+  const obj = await c.env.FILES.get(r.photoKey as string);
+  if (!obj) notFound('Foto');
+  return new Response(obj.body, { headers: { 'content-type': obj.httpMetadata?.contentType ?? 'image/jpeg', 'cache-control': 'private, max-age=3600' } });
+}
+
+async function taskByToken(c: Ctx) {
+  const tok = c.req.param('token') ?? '';
+  await assertNotThrottled(c, 'token-ip', clientIp(c));
+  if (tok.length < 20) {
+    await recordFailure(c, 'token-ip', clientIp(c));
+    notFound('Aufgabe');
+  }
+  const r = await c.env.DB.prepare(`${PUBLIC_TASK_SQL} WHERE t.share_token = ?`)
     .bind(tok)
     .first<Record<string, unknown>>();
   if (!r) {
@@ -741,23 +759,19 @@ async function taskByToken(c: Ctx) {
   return r;
 }
 
-publicApi.get('/tasks/:token', async (c) => {
-  const r = await taskByToken(c);
-  const { tenantId: _t, id: _i, defectId: _d, assigneeId: _a, createdBy: _cb, ...rest } = r;
-  return c.json({ ...rest, hasPhoto: !!r.photoKey, photoKey: undefined });
-});
+publicApi.get('/tasks/:token', async (c) => c.json(publicTask(await taskByToken(c))));
 
-publicApi.get('/tasks/:token/photo', async (c) => {
-  const r = await taskByToken(c);
-  if (!r.photoKey || !String(r.photoKey).startsWith(`${r.tenantId}/`)) notFound('Foto');
-  const obj = await c.env.FILES.get(r.photoKey as string);
-  if (!obj) notFound('Foto');
-  return new Response(obj.body, { headers: { 'content-type': obj.httpMetadata?.contentType ?? 'image/jpeg', 'cache-control': 'private, max-age=3600' } });
-});
+publicApi.get('/tasks/:token/photo', async (c) => publicTaskPhoto(c, await taskByToken(c)));
 
 publicApi.post('/tasks/:token', async (c) => {
   const r = await taskByToken(c);
-  const b = z.object({ status: z.enum(['in_progress', 'done']), note: str(2000).default('') }).parse(await c.req.json());
+  await externalUpdate(c, r, await c.req.json());
+  return c.json({ ok: true });
+});
+
+/** Rückmeldung eines Subunternehmers (in Arbeit / erledigt + Notiz): Status, Kommentar, Protokoll, Benachrichtigung. */
+export async function externalUpdate(c: Ctx, r: Record<string, unknown>, raw: unknown) {
+  const b = z.object({ status: z.enum(['in_progress', 'done']), note: str(2000).default('') }).parse(raw);
   if (r.status === 'done' || r.status === 'cancelled') throw new HTTPException(409, { message: 'Aufgabe ist bereits abgeschlossen' });
   const t = now();
   const who = (r.subcontractorName as string | null) ?? 'Subunternehmer';
@@ -789,5 +803,4 @@ publicApi.post('/tasks/:token', async (c) => {
     },
     c.executionCtx,
   );
-  return c.json({ ok: true });
-});
+}
