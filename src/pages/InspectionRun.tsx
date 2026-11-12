@@ -2,26 +2,33 @@ import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { markRoundDone } from './Round';
 import { api, type Inspection, queryClient, useInspection } from '../api';
 import { InspectionForm } from '../components/run';
-import { Button, ErrorBox, Spinner, useToast } from '../components/ui';
+import { CheckCircle2 } from 'lucide-react';
+import { Button, Card, ErrorBox, Notice, Skeleton, useToast } from '../components/ui';
 import { fmtDate } from '../format';
 
 export function InspectionRun() {
   const { id = '' } = useParams();
   const { data, isLoading, error } = useInspection(id);
-  if (isLoading) return <Spinner className="min-h-dvh items-center" />;
+  if (isLoading) return <RunSkeleton />;
   if (error || !data)
     return (
-      <div className="p-6">
-        <ErrorBox error={error} />
+      <div className="mx-auto max-w-md p-6">
+        <ErrorBox error={error} onRetry={() => location.reload()} />
       </div>
     );
   if (data.status === 'submitted') {
     return (
-      <div className="mx-auto max-w-md p-6 text-center">
-        <p className="mb-4 text-sm text-ink-3">Diese Prüfung ist bereits abgeschlossen.</p>
-        <Link to={`/druck/protokoll/${id}`}>
-          <Button>Protokoll ansehen</Button>
-        </Link>
+      <div className="grid min-h-dvh place-items-center bg-canvas p-6">
+        <Card className="flex w-full max-w-sm flex-col items-center gap-3 p-6 text-center">
+          <CheckCircle2 className="size-8 text-ok" />
+          <p className="text-title font-semibold">Bereits abgeschlossen</p>
+          <p className="text-body text-ink-3">Diese Prüfung ist abgeschlossen und kann nur noch berichtigt werden.</p>
+          <Link to={`/druck/protokoll/${id}`} className="mt-2 w-full">
+            <Button size="lg" className="w-full">
+              Protokoll ansehen
+            </Button>
+          </Link>
+        </Card>
       </div>
     );
   }
@@ -41,15 +48,13 @@ function Online({ insp }: { insp: Inspection }) {
       back={round ? `/rundgang/${round}` : `/elemente/${insp.assetId}`}
       banner={
         insp.purpose === 'correction' ? (
-          <div className="rounded-xl border border-warn/30 bg-warn-soft px-4 py-3 text-sm text-warn">
-            Berichtigung der Prüfung vom {insp.supersedesDate ? fmtDate(insp.supersedesDate) : '–'}. Nach dem Abschluss ersetzt sie die ursprüngliche
-            Prüfung; diese bleibt unverändert als Nachweis unter „Berichtigt“ erhalten.
-          </div>
+          <Notice tone="warn" title={`Berichtigung der Prüfung vom ${insp.supersedesDate ? fmtDate(insp.supersedesDate) : '–'}`}>
+            Nach dem Abschluss ersetzt sie die ursprüngliche Prüfung; diese bleibt unverändert als Nachweis unter „Berichtigt“ erhalten.
+          </Notice>
         ) : insp.purpose === 'follow_up' ? (
-          <div className="rounded-xl border border-info/20 bg-info-soft px-4 py-3 text-sm text-info">
-            Nachprüfung zur Prüfung vom {insp.followUpDate ? fmtDate(insp.followUpDate) : '–'}: geprüft werden nur die beanstandeten Punkte. Mängel an
-            Punkten, die jetzt in Ordnung sind, gelten danach als behoben. Der Prüfturnus bleibt unverändert.
-          </div>
+          <Notice tone="info" title={`Nachprüfung zur Prüfung vom ${insp.followUpDate ? fmtDate(insp.followUpDate) : '–'}`}>
+            Geprüft werden nur die beanstandeten Punkte. Mängel an Punkten, die jetzt in Ordnung sind, gelten danach als behoben. Der Prüfturnus bleibt unverändert.
+          </Notice>
         ) : undefined
       }
       initial={{
@@ -72,7 +77,7 @@ function Online({ insp }: { insp: Inspection }) {
         toast('Prüfung abgeschlossen');
         if (round) {
           markRoundDone(round, insp.assetId);
-          navigate(`/rundgang/${round}?fertig=${insp.assetId}`, { replace: true });
+          navigate(`/rundgang/${round}?fertig=${insp.assetId}&code=${encodeURIComponent(insp.asset.code)}`, { replace: true });
         } else navigate(`/druck/protokoll/${insp.id}`, { replace: true });
       }}
       discard={async () => {
@@ -81,5 +86,27 @@ function Online({ insp }: { insp: Inspection }) {
         navigate(round ? `/rundgang/${round}` : `/elemente/${insp.assetId}`, { replace: true });
       }}
     />
+  );
+}
+
+/** Platzhalter in der Form des Prüfablaufs. */
+export function RunSkeleton() {
+  return (
+    <div className="min-h-dvh bg-canvas" role="status" aria-label="Lädt">
+      <div className="flex h-14 items-center gap-3 border-b border-line bg-surface px-4">
+        <Skeleton className="size-8 rounded-lg" />
+        <div className="flex flex-1 flex-col gap-1.5">
+          <Skeleton className="h-3.5 w-40" />
+          <Skeleton className="h-3 w-56" />
+        </div>
+      </div>
+      <div className="mx-auto flex max-w-3xl flex-col gap-4 px-4 pt-6">
+        <Skeleton className="h-28 rounded-xl" />
+        <Skeleton className="h-16 rounded-xl" />
+        {[0, 1, 2, 3].map((i) => (
+          <Skeleton key={i} className="h-24 rounded-xl" />
+        ))}
+      </div>
+    </div>
   );
 }

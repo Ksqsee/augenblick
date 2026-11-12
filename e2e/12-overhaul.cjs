@@ -144,7 +144,20 @@ const check = (ok, m) => {
     check(parsed.items[0]?.checkpointId === cp.id, `Prüfpunkt-Zuordnung (${parsed.items[0]?.checkpointId} / ${cp.id})`);
     check(parsed.items[0]?.severity === 'critical', 'Schwere aus Text');
   }
+  step('Rest i. O. nur nach Bestätigung, Abschlussleiste springt zur Lücke');
+  const okBefore = await p.getByRole('radio', { name: 'In Ordnung', checked: true }).count();
   await p.getByRole('button', { name: 'Rest i. O.' }).click();
+  await p.getByRole('dialog').getByRole('button', { name: 'Abbrechen' }).click();
+  check((await p.getByRole('radio', { name: 'In Ordnung', checked: true }).count()) === okBefore, 'Abbrechen ändert nichts');
+  await p.getByRole('button', { name: 'Rest i. O.' }).click();
+  await p.getByRole('dialog').getByRole('button', { name: 'Alle i. O. setzen' }).click();
+  check((await p.getByRole('radio', { name: 'In Ordnung', checked: true }).count()) === insp.checkpoints.length, 'alle Punkte i. O. nach Bestätigung');
+  check(await p.getByText('Unterschrift fehlt').first().isVisible(), 'Leiste nennt die fehlende Unterschrift');
+  await p.getByRole('button', { name: 'Weiter', exact: true }).click();
+  await p.waitForTimeout(900);
+  check(await p.locator('canvas').evaluate((c) => { const r = c.getBoundingClientRect(); return r.top >= 0 && r.bottom <= window.innerHeight; }), '„Weiter“ holt die Unterschrift in den Blick');
+  await p.getByLabel('Name', { exact: true }).fill('Erika Mustermann');
+  await p.waitForTimeout(900);
   // Mangel mit Vorschlägen
   await p.getByRole('button', { name: /Mangel/ }).first().click().catch(() => {});
   await p.screenshot({ path: OUT + '03-pruefung.png', fullPage: true });
@@ -159,11 +172,18 @@ const check = (ok, m) => {
   await p.getByText(/1 von \d+ geprüft/).waitFor();
   check(await p.getByText('Weiter mit').isVisible(), 'Weiter mit nächstem Element');
   check(!(await p.getByText(first.code, { exact: true }).count()), 'geprüftes Element nicht mehr in der Liste');
+  check(await p.getByText('Prüfung gespeichert').isVisible(), 'Bestätigung nach dem Abschluss');
+  await p.getByRole('button', { name: 'Prüfung starten' }).click();
+  await p.waitForURL((u) => u.pathname.startsWith('/pruefung/') && u.search.includes('rundgang='));
+  const nextRun = new URL(p.url()).pathname;
+  await p.getByLabel('Name', { exact: true }).waitFor();
+  await p.waitForFunction(() => document.querySelector('input[autocomplete="name"]')?.value === 'Erika Mustermann', null, { timeout: 5000 }).catch(() => {});
+  check((await p.getByLabel('Name', { exact: true }).inputValue()) === 'Erika Mustermann', 'Name der Unterschrift gemerkt');
 
   step('Handy 390 px: Heute, Erfassen, Rundgang ohne Überlauf');
   const m = await b.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 2, isMobile: true, hasTouch: true, locale: 'de-DE', storageState: await ctx.storageState() });
   const mp = await m.newPage();
-  for (const path of ['/', `/rundgang/${round.buildingId}`, '/maengel', '/pruefungen']) {
+  for (const path of ['/', `/rundgang/${round.buildingId}`, '/maengel', '/pruefungen', '/pruefungen?tab=done', nextRun, '/scan', '/offline', '/begehungen']) {
     await mp.goto(BASE + path);
     await mp.waitForLoadState('networkidle');
     const over = await mp.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);

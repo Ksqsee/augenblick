@@ -12,19 +12,25 @@ import { fmtDate, fmtDateTime, RESULT_META } from '../format';
 
 export function PrintFrame({ title, back, children, actions }: { title: string; back: string; children: ReactNode; actions?: ReactNode }) {
   return (
-    <div className="min-h-dvh bg-sunken py-6 print:bg-white print:py-0">
-      <div className="no-print mx-auto mb-4 flex max-w-[210mm] items-center justify-between px-4">
-        <Link to={back} className="inline-flex items-center gap-1 text-sm text-ink-2 hover:text-ink">
-          <ArrowLeft className="size-4" /> Zurück
-        </Link>
-        <div className="flex flex-wrap justify-end gap-2">
-          {actions}
-          <Button variant="secondary" icon={<Printer className="size-4" />} onClick={() => window.print()}>
-            Drucken
-          </Button>
+    <div className="min-h-dvh bg-sunken pb-10 print:bg-white print:pb-0">
+      <div className="no-print sticky top-0 z-20 mb-4 border-b border-line bg-surface sm:mb-6">
+        <div className="mx-auto flex min-h-14 max-w-5xl flex-wrap items-center gap-x-2 gap-y-1 px-2 py-2 sm:px-4 lg:flex-nowrap">
+          <Link to={back} className="grid size-10 shrink-0 place-items-center rounded-lg text-ink-2 hover:bg-hover hover:text-ink" aria-label="Zurück">
+            <ArrowLeft className="size-5" />
+          </Link>
+          <p className="mr-auto min-w-0 truncate text-body font-semibold">{title}</p>
+          <div className="flex flex-wrap gap-1.5 max-lg:w-full max-lg:pb-1 lg:shrink-0 lg:flex-nowrap">
+            {actions}
+            <Button variant="secondary" icon={<Printer className="size-4" />} onClick={() => window.print()}>
+              Drucken
+            </Button>
+          </div>
         </div>
       </div>
-      <article aria-label={title} className="print-page mx-auto max-w-[210mm] bg-white px-[14mm] py-[12mm] text-[12px] leading-relaxed text-ink shadow-pop">
+      <article
+        aria-label={title}
+        className="print-page mx-auto max-w-[210mm] bg-white px-5 py-6 text-[12px] leading-relaxed text-ink shadow-card sm:rounded-sm sm:px-[14mm] sm:py-[12mm] print:px-[14mm] print:py-[12mm] print:shadow-none"
+      >
         {children}
       </article>
     </div>

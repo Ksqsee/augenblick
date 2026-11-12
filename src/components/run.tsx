@@ -1,17 +1,23 @@
 import { getCategory } from '../categories';
 import clsx from 'clsx';
-import { ArrowLeft, Camera, Check, CheckCheck, Cloud, CloudOff, HardDrive, Loader2, Mic, Minus, Sparkles, Square, Trash2, X } from 'lucide-react';
+import { Camera, CheckCheck, Loader2, Plus, Sparkles, Trash2, X } from 'lucide-react';
 import { createContext, type ReactNode, useCallback, useContext, useEffect, useRef, useState } from 'react';
-import { Link } from 'react-router-dom';
 import { type Category, type Checkpoint, type CustomKind, INSPECTION_KINDS, SEVERITIES, type Severity } from '../../shared/catalog';
-import { type Answer, computeResult, finalResult, isComplete, type Result, type ResultOverride } from '../../shared/logic';
-import { api, type DefectDraft, fileUrl, uploadPhoto, useMe } from '../api';
+import { type Answer, computeResult, finalResult, isComplete, type ResultOverride } from '../../shared/logic';
+import { type DefectDraft, fileUrl, uploadPhoto, useMe } from '../api';
 import { defectsLabel, RESULT_META } from '../format';
 import { CategoryIcon } from './CategoryIcon';
-import { SignaturePad } from './SignaturePad';
-import { Button, Card, DictateInput, Input, Textarea } from './ui';
+import { Button, Card, DictateInput, Notice, SectionHeader, Switch, Textarea, toneDot, SEVERITY_TONE, useConfirm } from './ui';
 import { type CaptureItem, suggestMeasure, suggestSeverity } from '../../shared/smart';
-import { fmtSeconds, useDictation } from '../dictate';
+import { CheckpointRow, reveal, revealNextOpen } from './inspect/Checkpoint';
+import { RadioChips, ToggleChip } from './inspect/Choice';
+import { ReadyList, RunFrame, type RunStep, type SaveState } from './inspect/RunFrame';
+import { SignatureSection } from './inspect/Signature';
+import { VoicePanel } from './inspect/VoicePanel';
+
+export { AnswerSegment as AnswerButtons } from './inspect/Checkpoint';
+export { RunFrame, SaveIndicator, ReadyList, type RunStep, type SaveState } from './inspect/RunFrame';
+export { SignatureSection } from './inspect/Signature';
 
 // ---------- Fotos: online → R2, offline → IndexedDB ----------
 export interface PhotoStore {
@@ -21,39 +27,8 @@ export interface PhotoStore {
 const onlinePhotos: PhotoStore = { upload: uploadPhoto, src: fileUrl };
 export const PhotoCtx = createContext<PhotoStore>(onlinePhotos);
 
-// ---------- Bausteine ----------
-const ANSWERS: { value: Answer; label: string; icon: typeof Check; on: string }[] = [
-  { value: 'ok', label: 'In Ordnung', icon: Check, on: 'bg-ok text-white border-ok' },
-  { value: 'defect', label: 'Mangel', icon: X, on: 'bg-bad text-white border-bad' },
-  { value: 'na', label: 'Nicht zutreffend', icon: Minus, on: 'bg-ink-2 text-white border-ink-2' },
-];
-
-export function AnswerButtons({ value, onChange, label }: { value?: Answer; onChange: (a: Answer) => void; label: string }) {
-  return (
-    <div className="flex shrink-0 overflow-hidden rounded-lg border border-line" role="radiogroup" aria-label={label}>
-      {ANSWERS.map((o) => {
-        const Icon = o.icon;
-        return (
-          <button
-            key={o.value}
-            type="button"
-            role="radio"
-            aria-checked={value === o.value}
-            aria-label={o.label}
-            title={o.label}
-            onClick={() => onChange(o.value)}
-            className={clsx(
-              'flex h-11 flex-1 items-center justify-center border-l border-line transition first:border-l-0 sm:h-10 sm:w-14 sm:flex-none',
-              value === o.value ? o.on : 'bg-surface text-ink-3 hover:bg-sunken hover:text-ink',
-            )}
-          >
-            <Icon className="size-[18px]" strokeWidth={2.5} />
-          </button>
-        );
-      })}
-    </div>
-  );
-}
+/** Zu einer Stelle der Seite springen (Element-ID). */
+export const jumpTo = (id: string) => reveal(document.getElementById(id), 'start');
 
 export interface DefectLike {
   title: string;
@@ -71,22 +46,30 @@ function SmartHints<T extends DefectLike>({ defect, onChange }: { defect: T; onC
   const sev = suggestSeverity(text);
   const sevHint = sev !== defect.severity && (sev === 'critical' || sev === 'high') ? sev : null;
   if (!measure && !sevHint) return null;
+  const chip = 'inline-flex min-h-8 items-center gap-1.5 rounded-lg bg-info-soft px-2.5 py-1 text-left text-caption font-medium text-info transition-colors hover:bg-info-line/60';
   return (
-    <div className="flex flex-wrap gap-1.5">
+    <div className="flex flex-wrap gap-1.5" aria-label="Vorschläge">
       {measure && (
-        <button type="button" onClick={() => onChange({ ...defect, measure })} className="inline-flex min-h-7 items-center gap-1 rounded-full bg-brand-soft px-2.5 text-left text-xs font-medium text-brand-strong">
-          <Sparkles className="size-3 shrink-0" /> Maßnahme: {measure}
+        <button type="button" onClick={() => onChange({ ...defect, measure })} className={chip}>
+          <Sparkles className="size-3.5 shrink-0" /> Maßnahme: {measure}
         </button>
       )}
       {sevHint && (
-        <button type="button" onClick={() => onChange({ ...defect, severity: sevHint })} className="inline-flex h-7 items-center gap-1 rounded-full bg-bad-soft px-2.5 text-xs font-medium text-bad">
-          <Sparkles className="size-3" /> Als „{SEVERITIES[sevHint]}“ einstufen
+        <button type="button" onClick={() => onChange({ ...defect, severity: sevHint })} className={chip}>
+          <Sparkles className="size-3.5 shrink-0" /> Als „{SEVERITIES[sevHint]}“ einstufen
         </button>
       )}
     </div>
   );
 }
 
+const SEVERITY_OPTIONS = (Object.entries(SEVERITIES) as [Severity, string][]).map(([k, v]) => ({
+  value: k,
+  label: v,
+  leading: <span className={clsx('size-2 rounded-full', k === 'low' ? 'bg-ink-4' : toneDot[SEVERITY_TONE[k]], k === 'critical' && 'ring-2 ring-bad/30')} />,
+}));
+
+/** Mangel bearbeiten: Schwere, Beschreibung (Diktat), Foto, Maßnahme, Vorschläge. */
 export function DefectEditor<T extends DefectLike>({
   defect,
   onChange,
@@ -105,38 +88,18 @@ export function DefectEditor<T extends DefectLike>({
   const [err, setErr] = useState('');
   const fileRef = useRef<HTMLInputElement>(null);
   return (
-    <div className={clsx('flex flex-col gap-2.5', className)}>
+    <div className={clsx('flex flex-col gap-3', className)}>
       {editableTitle && (
         <div className="flex gap-2">
-          <DictateInput placeholder="Was wurde festgestellt?" value={defect.title} onChange={(e) => onChange({ ...defect, title: e.target.value })} />
+          <DictateInput placeholder="Was wurde festgestellt?" aria-label="Bezeichnung" value={defect.title} onChange={(e) => onChange({ ...defect, title: e.target.value })} />
           {onRemove && (
-            <Button variant="ghost" aria-label="Entfernen" onClick={onRemove}>
+            <Button variant="ghost" aria-label="Entfernen" onClick={onRemove} className="px-3">
               <Trash2 className="size-4" />
             </Button>
           )}
         </div>
       )}
-      <div className="flex flex-wrap gap-1.5" role="radiogroup" aria-label="Schweregrad">
-        {(Object.entries(SEVERITIES) as [Severity, string][]).map(([k, v]) => (
-          <button
-            key={k}
-            type="button"
-            role="radio"
-            aria-checked={defect.severity === k}
-            onClick={() => onChange({ ...defect, severity: k })}
-            className={clsx(
-              'h-7 rounded-full border px-2.5 text-xs font-medium transition',
-              defect.severity === k
-                ? k === 'critical' || k === 'high'
-                  ? 'border-bad bg-bad text-white'
-                  : 'border-warn bg-warn text-white'
-                : 'border-line bg-surface text-ink-2',
-            )}
-          >
-            {v}
-          </button>
-        ))}
-      </div>
+      <RadioChips label="Schweregrad" value={defect.severity} onChange={(severity) => onChange({ ...defect, severity })} options={SEVERITY_OPTIONS} fill />
       <div className="flex gap-2">
         <DictateInput placeholder="Beschreibung (optional)" aria-label="Beschreibung" value={defect.note} onChange={(e) => onChange({ ...defect, note: e.target.value })} />
         <input
@@ -153,27 +116,27 @@ export function DefectEditor<T extends DefectLike>({
             try {
               onChange({ ...defect, photoKey: await photos.upload(f) });
             } catch (x) {
-              setErr(x instanceof Error ? x.message : 'Upload fehlgeschlagen');
+              setErr(x instanceof Error ? x.message : 'Hochladen fehlgeschlagen');
             } finally {
               setUploading(false);
               e.target.value = '';
             }
           }}
         />
-        <Button variant="secondary" aria-label="Foto aufnehmen" loading={uploading} onClick={() => fileRef.current?.click()}>
+        <Button variant="secondary" aria-label="Foto aufnehmen" loading={uploading} onClick={() => fileRef.current?.click()} className="w-11 px-0 sm:h-10 sm:w-10">
           {!uploading && <Camera className="size-4" />}
         </Button>
       </div>
-      <DictateInput placeholder="Maßnahme (z. B. Schließer tauschen, Fachfirma beauftragen)" aria-label="Maßnahme" value={defect.measure ?? ''} onChange={(e) => onChange({ ...defect, measure: e.target.value })} />
+      <DictateInput placeholder="Maßnahme, z. B. Schließer tauschen" aria-label="Maßnahme" value={defect.measure ?? ''} onChange={(e) => onChange({ ...defect, measure: e.target.value })} />
       <SmartHints defect={defect} onChange={onChange} />
-      {err && <p className="text-xs text-bad">{err}</p>}
+      {err && <p className="text-caption text-bad">{err}</p>}
       {defect.photoKey && (
         <div className="relative w-fit">
-          <img src={photos.src(defect.photoKey)} alt="Foto zum Mangel" className="h-24 rounded-lg border border-line object-cover" />
+          <img src={photos.src(defect.photoKey)} alt="Foto zum Mangel" className="h-24 rounded-lg object-cover shadow-card" />
           <button
             type="button"
             onClick={() => onChange({ ...defect, photoKey: undefined })}
-            className="absolute -top-2 -right-2 grid size-6 place-items-center rounded-full bg-ink text-white"
+            className="absolute -top-2 -right-2 grid size-7 place-items-center rounded-full bg-ink text-white"
             aria-label="Foto entfernen"
           >
             <X className="size-3.5" />
@@ -184,111 +147,9 @@ export function DefectEditor<T extends DefectLike>({
   );
 }
 
-export type SaveState = 'saved' | 'saving' | 'error' | 'local';
-
-export function SaveIndicator({ state }: { state: SaveState }) {
-  return (
-    <span className="flex items-center gap-1 text-xs text-ink-3" aria-live="polite">
-      {state === 'saving' ? (
-        <Loader2 className="size-3.5 animate-spin" />
-      ) : state === 'error' ? (
-        <CloudOff className="size-3.5 text-bad" />
-      ) : state === 'local' ? (
-        <HardDrive className="size-3.5" />
-      ) : (
-        <Cloud className="size-3.5" />
-      )}
-      <span className="hidden sm:inline">
-        {{ saving: 'Speichert …', error: 'Nicht gespeichert', saved: 'Gespeichert', local: 'Auf dem Gerät' }[state]}
-      </span>
-    </span>
-  );
-}
-
-/** Rahmen für Prüf-/Begehungsseiten: Kopf mit Fortschritt, Inhalt, Abschlussleiste. */
-export function RunFrame({
-  back,
-  icon,
-  title,
-  subtitle,
-  save,
-  progress,
-  result,
-  extraResult,
-  hint,
-  error,
-  canSubmit,
-  submitting,
-  onSubmit,
-  submitLabel = 'Abschließen',
-  children,
-}: {
-  back: string;
-  icon: ReactNode;
-  title: ReactNode;
-  subtitle: ReactNode;
-  save: SaveState;
-  progress: number;
-  result: Result;
-  extraResult?: string;
-  hint?: string;
-  error?: string;
-  canSubmit: boolean;
-  submitting: boolean;
-  onSubmit: () => void;
-  submitLabel?: string;
-  children: ReactNode;
-}) {
-  return (
-    <div className="min-h-dvh bg-canvas pb-44">
-      <header className="sticky top-0 z-30 border-b border-line bg-surface/95 backdrop-blur">
-        <div className="mx-auto flex max-w-3xl items-center gap-3 px-4 py-3">
-          <Link to={back} className="rounded-lg p-1.5 hover:bg-sunken" aria-label="Zurück">
-            <ArrowLeft className="size-5" />
-          </Link>
-          {icon}
-          <div className="min-w-0 flex-1">
-            <p className="truncate text-sm font-semibold">{title}</p>
-            <p className="truncate text-xs text-ink-3">{subtitle}</p>
-          </div>
-          <SaveIndicator state={save} />
-        </div>
-        <div className="h-1 bg-sunken">
-          <div className="h-full bg-brand transition-all" style={{ width: `${Math.round(progress * 100)}%` }} />
-        </div>
-      </header>
-      <div className="mx-auto flex max-w-3xl flex-col gap-5 px-4 pt-5">{children}</div>
-      <div className="fixed inset-x-0 bottom-0 z-30 border-t border-line bg-surface/95 pb-[env(safe-area-inset-bottom)] backdrop-blur">
-        <div className="mx-auto flex max-w-3xl items-center gap-3 px-4 py-3">
-          <div className="min-w-0 flex-1">
-            <p className="text-xs text-ink-3">Ergebnis</p>
-            <p className={clsx('truncate text-sm font-semibold', { ok: 'text-ok', defects: 'text-warn', critical: 'text-bad', not_inspectable: 'text-ink-2' }[result])}>
-              {RESULT_META[result].label}
-              {extraResult && ` · ${extraResult}`}
-            </p>
-          </div>
-          {error && <span className="hidden max-w-60 text-xs text-bad sm:block">{error}</span>}
-          <Button size="lg" disabled={!canSubmit} loading={submitting} onClick={onSubmit}>
-            {submitLabel}
-          </Button>
-        </div>
-        {hint && <p className="mx-auto max-w-3xl px-4 pb-2 text-xs text-ink-3">{hint}</p>}
-        {error && <p className="mx-auto max-w-3xl px-4 pb-2 text-xs text-bad sm:hidden">{error}</p>}
-      </div>
-    </div>
-  );
-}
-
-export function SignatureBlock({ name, placeholder, signature, onName, onSignature }: { name: string; placeholder: string; signature: string | null; onName: (v: string) => void; onSignature: (v: string | null) => void }) {
-  return (
-    <section>
-      <h2 className="mb-3 text-[15px] font-semibold">Unterschrift</h2>
-      <div className="flex flex-col gap-3">
-        <Input value={name} onChange={(e) => onName(e.target.value)} placeholder={placeholder} />
-        <SignaturePad value={signature} onChange={onSignature} />
-      </div>
-    </section>
-  );
+/** Rahmen um den Mangel unter einem Prüfpunkt: eingerückt, mit Bernstein-Strich. */
+export function DefectPanel({ children }: { children: ReactNode }) {
+  return <div className="animate-pop rounded-lg border-l-2 border-warn bg-canvas py-3 pr-3 pl-3.5">{children}</div>;
 }
 
 /** Mit Verzögerung speichern, sobald sich der Wert ändert (erster Render zählt nicht). */
@@ -315,6 +176,25 @@ export function useAutosave<T>(value: T, persist: (v: T) => Promise<unknown>, de
   return state;
 }
 
+/** Knopf „Entwurf verwerfen“ mit Rückfrage. */
+export function DiscardButton({ onDiscard }: { onDiscard: () => Promise<void> | void }) {
+  const [confirm, confirmEl] = useConfirm();
+  return (
+    <>
+      {confirmEl}
+      <button
+        type="button"
+        onClick={async () => {
+          if (await confirm({ title: 'Entwurf verwerfen?', text: 'Alle Eingaben zu diesem Entwurf gehen verloren.', confirmLabel: 'Verwerfen', danger: true })) await onDiscard();
+        }}
+        className="inline-flex h-10 items-center gap-1.5 self-center rounded-lg px-3 text-meta text-ink-3 transition-colors hover:bg-bad-soft hover:text-bad"
+      >
+        <Trash2 className="size-4" /> Entwurf verwerfen
+      </button>
+    </>
+  );
+}
+
 // ---------- Komplettes Prüfformular für ein Element ----------
 export interface InspectionDraft {
   /** Arten der Prüfung (mindestens eine) */
@@ -337,59 +217,6 @@ export interface InspectionSubject {
   location: string;
   buildingName: string;
   propertyName: string;
-}
-
-/** Befund einsprechen: Mängel werden Prüfpunkten zugeordnet, Hinweise landen in den Bemerkungen. */
-function VoicePanel({ checkpoints, onApply }: { checkpoints: Checkpoint[]; onApply: (items: CaptureItem[]) => void }) {
-  const [text, setText] = useState('');
-  const [busy, setBusy] = useState(false);
-  const [msg, setMsg] = useState('');
-  const dict = useDictation((t) => setText(t));
-  if (dict.engine === null || dict.engine === 'none') return null;
-  const rec = dict.state === 'recording';
-  const apply = async () => {
-    setBusy(true);
-    setMsg('');
-    try {
-      const r = await api<{ items: CaptureItem[] }>('/ai/parse', { body: { text, checkpoints: checkpoints.map((c) => ({ id: c.id, label: c.label })) } });
-      onApply(r.items);
-      const n = r.items.filter((i) => i.kind === 'defect').length;
-      setMsg(n ? `${n} ${n === 1 ? 'Mangel' : 'Mängel'} übernommen – Rest prüfen oder „Rest i. O.“ tippen.` : 'Keine Mängel erkannt – Hinweise stehen in den Bemerkungen.');
-      setText('');
-    } catch (e) {
-      setMsg(e instanceof Error ? e.message : 'Auswerten fehlgeschlagen');
-    } finally {
-      setBusy(false);
-    }
-  };
-  return (
-    <Card className="flex flex-col gap-3 p-4">
-      <div className="flex items-center gap-3">
-        <button
-          type="button"
-          onClick={() => (rec ? dict.stop() : dict.start())}
-          disabled={dict.state === 'transcribing'}
-          aria-label={rec ? 'Aufnahme beenden' : 'Befund einsprechen'}
-          className={clsx('grid size-12 shrink-0 place-items-center rounded-full text-white transition active:scale-95', rec ? 'bg-bad' : 'bg-brand hover:bg-brand-strong')}
-        >
-          {dict.state === 'transcribing' ? <Loader2 className="size-5 animate-spin" /> : rec ? <Square className="size-4 fill-current" /> : <Mic className="size-5" />}
-        </button>
-        <div className="min-w-0 flex-1">
-          <p className="text-sm font-medium">Befund einsprechen</p>
-          <p className="text-xs text-ink-3">{dict.error || (rec ? `Aufnahme läuft · ${fmtSeconds(dict.seconds)}` : 'Mängel nennen – sie werden den passenden Prüfpunkten zugeordnet.')}</p>
-        </div>
-      </div>
-      {(text || rec) && (
-        <>
-          <Textarea dictate={false} aria-label="Eingesprochener Befund" value={text} onChange={(e) => setText(e.target.value)} className="min-h-20" />
-          <Button size="sm" className="self-end" loading={busy} disabled={!text.trim() || rec} onClick={apply} icon={<Sparkles className="size-4" />}>
-            Übernehmen
-          </Button>
-        </>
-      )}
-      {msg && <p className="text-xs text-ink-2">{msg}</p>}
-    </Card>
-  );
 }
 
 export function InspectionForm({
@@ -423,13 +250,18 @@ export function InspectionForm({
   const saveState = useAutosave(d, persist);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
+  const [confirm, confirmEl] = useConfirm();
+  const listRef = useRef<HTMLDivElement>(null);
   const update = useCallback((patch: Partial<InspectionDraft>) => setD((s) => ({ ...s, ...patch })), []);
   const ids = checkpoints.map((c) => c.id);
   const answered = ids.filter((i) => d.answers[i]).length;
+  const open = ids.length - answered;
   const complete = isComplete(ids, d.answers, d.notInspectable);
   const computed = computeResult({ notInspectable: d.notInspectable, answers: d.answers, defects: d.defects });
   const result = finalResult(computed, d.resultOverride, d.defects.length);
   const needsReason = !d.notInspectable && !!d.resultOverride && d.resultOverride !== computed && (d.resultReason ?? '').trim().length < 3;
+  const firstOpen = checkpoints.find((c) => !d.answers[c.id]);
+  const untitled = d.defects.some((x) => !x.title.trim());
 
   const setAnswer = (cp: Checkpoint, a: Answer) => {
     const answers = { ...d.answers, [cp.id]: a };
@@ -437,6 +269,17 @@ export function InspectionForm({
     if (a === 'defect' && !defects.some((x) => x.checkpointId === cp.id)) defects = [...defects, { checkpointId: cp.id, title: cp.label, note: '', severity: 'medium' }];
     if (a !== 'defect') defects = defects.filter((x) => x.checkpointId !== cp.id);
     update({ answers, defects });
+    // bei i. O./n. z. weiter zum nächsten offenen Punkt; bei Mangel bleibt der Blick hier
+    if (a !== 'defect') revealNextOpen(listRef.current, cp.id);
+  };
+
+  const restOk = async () => {
+    const ok = await confirm({
+      title: `${open} offene ${open === 1 ? 'Punkt' : 'Punkte'} auf „In Ordnung“ setzen?`,
+      text: 'Bestätige nur, wenn du diese Punkte vor Ort geprüft hast. Bereits beantwortete Punkte bleiben unverändert.',
+      confirmLabel: 'Alle i. O. setzen',
+    });
+    if (ok) update({ answers: Object.fromEntries(ids.map((i) => [i, d.answers[i] ?? 'ok'])) });
   };
 
   const onSubmit = async () => {
@@ -445,14 +288,30 @@ export function InspectionForm({
     try {
       await submit(d);
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Fehler');
+      setError(e instanceof Error ? e.message : 'Abschließen fehlgeschlagen');
     } finally {
       setSubmitting(false);
     }
   };
 
-  const noKind = !d.kinds?.length;
-  const missing = noKind ? 'Bitte mindestens eine Art der Prüfung auswählen' : !complete ? `Noch ${ids.length - answered} Prüfpunkte offen` : needsReason ? 'Begründung zur Gesamtbewertung fehlt' : !d.signature ? 'Unterschrift fehlt' : undefined;
+  const steps: RunStep[] = [
+    { key: 'kind', label: 'Art der Prüfung', todo: 'Art der Prüfung wählen', done: !!d.kinds?.length, go: () => jumpTo('ablauf') },
+    ...(!d.notInspectable
+      ? [
+          {
+            key: 'points',
+            label: 'Alle Prüfpunkte beantwortet',
+            todo: `Noch ${open} ${open === 1 ? 'Prüfpunkt' : 'Prüfpunkte'} offen`,
+            value: `${answered}/${ids.length}`,
+            done: complete,
+            go: () => reveal(firstOpen && listRef.current?.querySelector(`[data-cp="${firstOpen.id}"]`)),
+          },
+          { key: 'titles', label: 'Mängel benannt', todo: 'Mangel ohne Bezeichnung', done: !untitled, go: () => jumpTo('weitere-maengel') },
+          { key: 'reason', label: 'Gesamtbewertung', todo: 'Begründung zur Gesamtbewertung fehlt', done: !needsReason, go: () => jumpTo('gesamtbewertung') },
+        ]
+      : []),
+    { key: 'sign', label: 'Unterschrieben', todo: 'Unterschrift fehlt', done: !!d.signature, go: () => jumpTo('unterschrift') },
+  ];
 
   return (
     <RunFrame
@@ -463,40 +322,48 @@ export function InspectionForm({
           {subject.code} <span className="font-normal text-ink-3">· {def.label}</span>
         </>
       }
-      subtitle={[scheduleLabel, subject.location, subject.buildingName, subject.propertyName].filter(Boolean).join(' · ')}
+      subtitle={[scheduleLabel, subject.location, subject.buildingName].filter(Boolean).join(' · ')}
       save={offline && saveState === 'saved' ? 'local' : saveState}
-      progress={d.notInspectable ? 1 : answered / ids.length}
+      done={d.notInspectable ? ids.length : answered}
+      total={ids.length}
       result={result}
       extraResult={d.defects.length ? defectsLabel(d.defects.length) : undefined}
-      hint={missing}
+      steps={steps}
       error={error}
-      canSubmit={!noKind && complete && !needsReason && !!d.signature && !d.defects.some((x) => !x.title.trim())}
       submitting={submitting}
       onSubmit={onSubmit}
       submitLabel={offline ? 'Abschließen (offline)' : 'Abschließen'}
     >
-      {offline && (
-        <div className="rounded-xl border border-info/20 bg-info-soft px-4 py-3 text-sm text-info">
-          Offline-Prüfung: wird auf diesem Gerät gespeichert und übertragen, sobald wieder eine Verbindung besteht.
+      {confirmEl}
+      {(offline || banner) && (
+        <div className="-mb-3 flex flex-col gap-3">
+          {offline && (
+            <Notice tone="info" title="Offline-Prüfung">
+              Wird auf diesem Gerät gespeichert und übertragen, sobald du wieder Netz hast.
+            </Notice>
+          )}
+          {banner}
         </div>
       )}
-      {banner}
-      <Card className="flex flex-col gap-4 p-4">
-        <KindPicker value={d.kinds ?? []} onChange={(kinds) => update({ kinds })} />
-        <label className="flex cursor-pointer items-center justify-between gap-3 rounded-lg border border-line px-3 py-2.5 text-sm sm:max-w-sm">
-          <span>
-            <span className="block font-medium">Nicht prüfbar</span>
-            <span className="block text-xs text-ink-3">z. B. kein Zugang</span>
-          </span>
-          <input type="checkbox" role="switch" className="peer sr-only" checked={d.notInspectable} onChange={(e) => update({ notInspectable: e.target.checked })} />
-          <span className="relative h-6 w-10 rounded-full bg-line transition peer-checked:bg-ink after:absolute after:top-0.5 after:left-0.5 after:size-5 after:rounded-full after:bg-white after:shadow after:transition peer-checked:after:translate-x-4" />
-        </label>
-      </Card>
+
+      <section id="ablauf" className="scroll-mt-24">
+        <Card className="flex flex-col gap-4 p-4 sm:p-5">
+          <KindPicker value={d.kinds ?? []} onChange={(kinds) => update({ kinds })} />
+          <div className="border-t border-line pt-4">
+            <Switch
+              checked={d.notInspectable}
+              onChange={(notInspectable) => update({ notInspectable })}
+              label="Nicht prüfbar"
+              description="Zum Beispiel kein Zugang – Prüfpunkte entfallen."
+            />
+          </div>
+        </Card>
+      </section>
 
       {!d.notInspectable && !offline && (
         <VoicePanel
           checkpoints={checkpoints}
-          onApply={(items) => {
+          onApply={(items: CaptureItem[]) => {
             const answers = { ...d.answers };
             let defects = [...d.defects];
             const notes: string[] = [];
@@ -519,60 +386,55 @@ export function InspectionForm({
 
       {!d.notInspectable && (
         <section>
-          <div className="mb-3 flex items-center justify-between">
-            <h2 className="text-[15px] font-semibold">
-              Prüfpunkte{' '}
-              <span className="font-normal text-ink-3 tabular-nums">
-                {answered}/{ids.length}
-              </span>
-            </h2>
-            {answered < ids.length && (
-              <Button
-                size="sm"
-                variant="ghost"
-                icon={<CheckCheck className="size-4" />}
-                onClick={() => update({ answers: Object.fromEntries(ids.map((i) => [i, d.answers[i] ?? 'ok'])) })}
-              >
-                Rest i. O.
-              </Button>
-            )}
-          </div>
-          <Card className="divide-y divide-line overflow-hidden">
-            {checkpoints.map((cp, idx) => {
-              const a = d.answers[cp.id];
-              const defect = d.defects.find((x) => x.checkpointId === cp.id);
-              return (
-                <div key={cp.id} className={clsx('px-4 py-3.5', a === 'defect' && 'bg-bad-soft/40')}>
-                  <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
-                    <div className="flex min-w-0 flex-1 gap-3">
-                      <span className="mt-0.5 w-5 shrink-0 text-right text-xs text-ink-3 tabular-nums">{idx + 1}</span>
-                      <div>
-                        <p className="text-sm leading-snug">{cp.label}</p>
-                        {cp.hint && <p className="text-xs text-ink-3">{cp.hint}</p>}
-                      </div>
-                    </div>
-                    <div className="ml-8 sm:ml-0">
-                      <AnswerButtons value={a} label={cp.label} onChange={(v) => setAnswer(cp, v)} />
-                    </div>
-                  </div>
-                  {defect && (
-                    <DefectEditor defect={defect} onChange={(nd) => update({ defects: d.defects.map((x) => (x === defect ? nd : x)) })} className="mt-3 ml-8" />
-                  )}
-                </div>
-              );
-            })}
+          <SectionHeader
+            title="Prüfpunkte"
+            meta={`${answered} von ${ids.length}`}
+            action={
+              open > 0 ? (
+                <Button size="sm" variant="ghost" icon={<CheckCheck />} onClick={restOk}>
+                  Rest i. O.
+                </Button>
+              ) : (
+                <span className="text-meta font-medium text-ok">Alle beantwortet</span>
+              )
+            }
+          />
+          <Card className="overflow-hidden">
+            <div ref={listRef} className="divide-y divide-line">
+              {checkpoints.map((cp, idx) => {
+                const defect = d.defects.find((x) => x.checkpointId === cp.id);
+                return (
+                  <CheckpointRow
+                    key={cp.id}
+                    id={cp.id}
+                    n={idx + 1}
+                    label={cp.label}
+                    hint={cp.hint}
+                    answer={d.answers[cp.id]}
+                    current={firstOpen?.id === cp.id && answered > 0}
+                    onAnswer={(v) => setAnswer(cp, v)}
+                  >
+                    {defect && (
+                      <DefectPanel>
+                        <DefectEditor defect={defect} onChange={(nd) => update({ defects: d.defects.map((x) => (x === defect ? nd : x)) })} />
+                      </DefectPanel>
+                    )}
+                  </CheckpointRow>
+                );
+              })}
+            </div>
           </Card>
         </section>
       )}
 
       {!d.notInspectable && (
-        <section>
-          <h2 className="mb-3 text-[15px] font-semibold">Weitere Mängel</h2>
+        <section id="weitere-maengel" className="scroll-mt-24">
+          <SectionHeader title="Weitere Mängel" meta="ohne Prüfpunkt" />
           <div className="flex flex-col gap-3">
             {d.defects
               .filter((x) => !x.checkpointId)
               .map((x, i) => (
-                <Card key={i} className="p-4">
+                <Card key={i} className="animate-pop p-4">
                   <DefectEditor
                     defect={x}
                     editableTitle
@@ -581,46 +443,32 @@ export function InspectionForm({
                   />
                 </Card>
               ))}
-            <button
-              type="button"
-              onClick={() => update({ defects: [...d.defects, { title: '', note: '', severity: 'medium' }] })}
-              className="h-11 rounded-xl border border-dashed border-line-strong text-sm font-medium text-ink-2 hover:bg-sunken"
-            >
-              + Mangel ohne Prüfpunkt erfassen
-            </button>
+            <AddButton onClick={() => update({ defects: [...d.defects, { title: '', note: '', severity: 'medium' }] })}>Mangel ohne Prüfpunkt erfassen</AddButton>
           </div>
         </section>
       )}
 
-      <section>
-        <h2 className="mb-3 text-[15px] font-semibold">Durchgeführte Arbeiten</h2>
-        <div className="flex flex-wrap gap-2">
-          {def.maintenance.map((m) => {
-            const on = d.maintenance.includes(m.key);
-            return (
-              <button
-                key={m.key}
-                type="button"
-                aria-pressed={on}
-                onClick={() => update({ maintenance: on ? d.maintenance.filter((k) => k !== m.key) : [...d.maintenance, m.key] })}
-                className={clsx(
-                  'inline-flex h-9 items-center gap-1.5 rounded-full border px-3.5 text-[13px] font-medium transition',
-                  on ? 'border-ink bg-ink text-white' : 'border-line bg-surface text-ink-2 hover:border-line-strong',
-                )}
-              >
-                {on && <Check className="size-3.5" />}
-                {m.label}
-              </button>
-            );
-          })}
-        </div>
-      </section>
+      {def.maintenance.length > 0 && (
+        <section>
+          <SectionHeader title="Durchgeführte Arbeiten" meta={d.maintenance.length ? `${d.maintenance.length} gewählt` : 'optional'} />
+          <div className="flex flex-wrap gap-2">
+            {def.maintenance.map((m) => {
+              const on = d.maintenance.includes(m.key);
+              return (
+                <ToggleChip key={m.key} active={on} onClick={() => update({ maintenance: on ? d.maintenance.filter((k) => k !== m.key) : [...d.maintenance, m.key] })}>
+                  {m.label}
+                </ToggleChip>
+              );
+            })}
+          </div>
+        </section>
+      )}
 
       <PhotoSection photos={d.photos ?? []} onChange={(photos) => update({ photos })} />
 
       <section>
-        <h2 className="mb-3 text-[15px] font-semibold">Bemerkungen</h2>
-        <Textarea value={d.notes} onChange={(e) => update({ notes: e.target.value })} placeholder="Hinweise zur Prüfung, Absprachen vor Ort …" />
+        <SectionHeader title="Bemerkungen" meta="optional" />
+        <Textarea aria-label="Bemerkungen" value={d.notes} onChange={(e) => update({ notes: e.target.value })} placeholder="Hinweise zur Prüfung, Absprachen vor Ort …" />
       </section>
 
       {!d.notInspectable && (
@@ -633,22 +481,31 @@ export function InspectionForm({
         />
       )}
 
-      <SignatureBlock
+      <ReadyList steps={steps} />
+
+      <SignatureSection
         name={d.signerName}
-        placeholder={`Name Prüfer/in (Standard: ${inspectorName})`}
+        fallbackName={inspectorName}
         signature={d.signature}
         onName={(signerName) => update({ signerName })}
         onSignature={(signature) => update({ signature })}
       />
 
-      <button
-        type="button"
-        onClick={() => confirm('Entwurf verwerfen?') && discard()}
-        className="inline-flex items-center gap-1.5 self-start text-[13px] text-ink-3 hover:text-bad"
-      >
-        <Trash2 className="size-3.5" /> Entwurf verwerfen
-      </button>
+      <DiscardButton onDiscard={discard} />
     </RunFrame>
+  );
+}
+
+/** Gestrichelter Knopf zum Hinzufügen (volle Breite). */
+export function AddButton({ onClick, children }: { onClick: () => void; children: ReactNode }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className="flex h-12 items-center justify-center gap-2 rounded-xl border border-dashed border-line-strong text-body font-medium text-ink-2 transition-colors hover:bg-hover hover:text-ink sm:h-11"
+    >
+      <Plus className="size-4" /> {children}
+    </button>
   );
 }
 
@@ -659,26 +516,37 @@ function KindPicker({ value, onChange }: { value: string[]; onChange: (v: string
   const options: [string, string][] = [...Object.entries(INSPECTION_KINDS), ...custom.map((k) => [k.key, k.label] as [string, string])];
   // auch nicht mehr vorhandene Arten anzeigen, damit sie abgewählt werden können
   for (const k of value) if (!options.some(([o]) => o === k)) options.push([k, k]);
+  const [edit, setEdit] = useState(false);
+  const chosen = options.filter(([k]) => value.includes(k)).map(([, l]) => l);
+  if (!edit && chosen.length)
+    return (
+      <div className="flex items-center gap-3">
+        <div className="min-w-0 flex-1">
+          <p className="text-meta text-ink-3">Art der Prüfung</p>
+          <p className="truncate text-body font-medium">{chosen.join(', ')}</p>
+        </div>
+        <Button size="sm" variant="ghost" onClick={() => setEdit(true)}>
+          Ändern
+        </Button>
+      </div>
+    );
   return (
     <div>
-      <p className="mb-2 text-[13px] font-medium text-ink-2">Art der Prüfung</p>
+      <div className="mb-2 flex items-center justify-between gap-3">
+        <p className="text-meta font-medium text-ink-2">Art der Prüfung</p>
+        {chosen.length > 0 && (
+          <Button size="xs" variant="ghost" onClick={() => setEdit(false)}>
+            Fertig
+          </Button>
+        )}
+      </div>
       <div className="flex flex-wrap gap-2" role="group" aria-label="Art der Prüfung">
         {options.map(([k, label]) => {
           const on = value.includes(k);
           return (
-            <button
-              key={k}
-              type="button"
-              aria-pressed={on}
-              onClick={() => onChange(on ? value.filter((x) => x !== k) : [...value, k])}
-              className={clsx(
-                'inline-flex h-9 items-center gap-1.5 rounded-full border px-3.5 text-[13px] font-medium transition',
-                on ? 'border-ink bg-ink text-white' : 'border-line bg-surface text-ink-2 hover:border-line-strong',
-              )}
-            >
-              {on && <Check className="size-3.5" />}
+            <ToggleChip key={k} active={on} onClick={() => onChange(on ? value.filter((x) => x !== k) : [...value, k])}>
               {label}
-            </button>
+            </ToggleChip>
           );
         })}
       </div>
@@ -694,46 +562,28 @@ function OverallResult({
   defectCount,
   onChange,
 }: {
-  computed: Result;
+  computed: keyof typeof RESULT_META;
   override: ResultOverride | null;
   reason: string;
   defectCount: number;
   onChange: (o: ResultOverride | null, reason: string) => void;
 }) {
-  const options: [ResultOverride | null, string][] = [
-    [null, `Automatisch (${RESULT_META[computed].label})`],
-    ['ok', 'Ohne Mängel'],
-    ['defects', 'Mit Mängeln'],
-    ['critical', 'Kritisch'],
-  ];
   const differs = !!override && override !== computed;
   return (
-    <section>
-      <h2 className="mb-1 text-[15px] font-semibold">Gesamtbewertung</h2>
-      <p className="mb-3 text-[13px] text-ink-3">Wird aus den Befunden berechnet. Du kannst sie als Sachkundige/r abweichend festlegen.</p>
-      <div className="flex flex-wrap gap-2" role="radiogroup" aria-label="Gesamtbewertung">
-        {options.map(([k, label]) => {
-          const disabled = k === 'ok' && defectCount > 0;
-          const on = override === k;
-          return (
-            <button
-              key={label}
-              type="button"
-              role="radio"
-              aria-checked={on}
-              disabled={disabled}
-              title={disabled ? 'Nicht möglich, solange Mängel erfasst sind' : undefined}
-              onClick={() => onChange(k, k ? reason : '')}
-              className={clsx(
-                'inline-flex h-9 items-center rounded-full border px-3.5 text-[13px] font-medium transition disabled:opacity-40',
-                on ? 'border-ink bg-ink text-white' : 'border-line bg-surface text-ink-2 hover:border-line-strong',
-              )}
-            >
-              {label}
-            </button>
-          );
-        })}
-      </div>
+    <section id="gesamtbewertung" className="scroll-mt-24">
+      <SectionHeader title="Gesamtbewertung" />
+      <p className="-mt-1 mb-3 text-meta text-ink-3">Ergibt sich aus den Befunden. Als Sachkundige/r kannst du sie abweichend festlegen.</p>
+      <RadioChips<ResultOverride | null>
+        label="Gesamtbewertung"
+        value={override}
+        onChange={(k) => onChange(k, k ? reason : '')}
+        options={[
+          { value: null, label: `Automatisch (${RESULT_META[computed].label})` },
+          { value: 'ok', label: 'Ohne Mängel', disabled: defectCount > 0, title: defectCount > 0 ? 'Nicht möglich, solange Mängel erfasst sind' : undefined },
+          { value: 'defects', label: 'Mit Mängeln' },
+          { value: 'critical', label: 'Kritisch' },
+        ]}
+      />
       {differs && (
         <Textarea
           className="mt-3"
@@ -755,28 +605,27 @@ export function PhotoSection({ photos, onChange }: { photos: { key: string; capt
   const [err, setErr] = useState('');
   return (
     <section>
-      <h2 className="mb-3 text-[15px] font-semibold">
-        Fotos <span className="font-normal text-ink-3">{photos.length ? photos.length : ''}</span>
-      </h2>
-      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
+      <SectionHeader title="Fotos" count={photos.length || undefined} meta={photos.length ? undefined : 'optional'} />
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
         {photos.map((p, i) => (
-          <div key={p.key} className="overflow-hidden rounded-xl border border-line bg-surface">
+          <div key={p.key} className="overflow-hidden rounded-xl bg-surface shadow-card">
             <div className="relative aspect-[4/3] bg-sunken">
               <img src={store.src(p.key)} alt={p.caption || `Foto ${i + 1}`} className="absolute inset-0 size-full object-cover" />
               <button
                 type="button"
                 aria-label="Foto entfernen"
                 onClick={() => onChange(photos.filter((x) => x !== p))}
-                className="absolute top-1.5 right-1.5 grid size-7 place-items-center rounded-full bg-ink/80 text-white"
+                className="absolute top-1.5 right-1.5 grid size-8 place-items-center rounded-full bg-ink/80 text-white"
               >
                 <X className="size-4" />
               </button>
             </div>
             <input
               value={p.caption}
+              aria-label={`Beschriftung Foto ${i + 1}`}
               onChange={(e) => onChange(photos.map((x) => (x === p ? { ...x, caption: e.target.value } : x)))}
               placeholder="Beschriftung"
-              className="w-full border-t border-line px-2.5 py-2 text-xs outline-none"
+              className="h-10 w-full border-t border-line px-2.5 text-meta outline-none placeholder:text-ink-4"
             />
           </div>
         ))}
@@ -784,13 +633,13 @@ export function PhotoSection({ photos, onChange }: { photos: { key: string; capt
           type="button"
           onClick={() => ref.current?.click()}
           disabled={busy}
-          className="flex aspect-[4/3] flex-col items-center justify-center gap-1 rounded-xl border border-dashed border-line-strong text-sm text-ink-2 hover:bg-sunken"
+          className="flex aspect-[4/3] flex-col items-center justify-center gap-1.5 rounded-xl border border-dashed border-line-strong text-meta font-medium text-ink-2 transition-colors hover:bg-hover hover:text-ink"
         >
           {busy ? <Loader2 className="size-5 animate-spin" /> : <Camera className="size-5" />}
           Foto hinzufügen
         </button>
       </div>
-      {err && <p className="mt-2 text-xs text-bad">{err}</p>}
+      {err && <p className="mt-2 text-caption text-bad">{err}</p>}
       <input
         ref={ref}
         type="file"
@@ -808,7 +657,7 @@ export function PhotoSection({ photos, onChange }: { photos: { key: string; capt
             for (const f of files) added.push({ key: await store.upload(f), caption: '' });
             onChange([...photos, ...added]);
           } catch (x) {
-            setErr(x instanceof Error ? x.message : 'Upload fehlgeschlagen');
+            setErr(x instanceof Error ? x.message : 'Hochladen fehlgeschlagen');
           } finally {
             setBusy(false);
           }

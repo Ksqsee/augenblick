@@ -1,4 +1,4 @@
-import { Camera, CameraOff, Search } from 'lucide-react';
+import { ArrowRight, Camera, CameraOff } from 'lucide-react';
 import { type FormEvent, useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { api, ApiError } from '../api';
@@ -79,45 +79,60 @@ export function ScanPage() {
 
   return (
     <div className="mx-auto max-w-lg">
-      <PageHeader title="Code scannen" subtitle="QR-Etikett am Element scannen oder Code eintippen" />
+      <PageHeader title="Code scannen" subtitle="QR-Etikett am Element scannen – die Prüfung ist dann einen Tipp entfernt." />
       <Card className="overflow-hidden">
-        <div className="relative grid aspect-square place-items-center bg-ink text-white/70">
-          {camera === 'on' ? (
-            <>
-              <video ref={videoRef} playsInline muted className="absolute inset-0 size-full object-cover" />
-              <div className="relative size-3/5 rounded-3xl border-4 border-white/80 shadow-[0_0_0_9999px_rgba(0,0,0,0.35)]" />
-            </>
-          ) : (
-            <div className="flex flex-col items-center gap-4 p-8 text-center">
-              {camera === 'idle' ? <Camera className="size-10" /> : <CameraOff className="size-10" />}
-              <p className="text-sm">
-                {camera === 'idle' && 'Kamera starten, um ein Etikett zu scannen.'}
-                {camera === 'unsupported' && 'Dieser Browser kann keine Codes über die Kamera lesen. Bitte Code unten eingeben oder die Kamera-App des Handys nutzen – der QR-Code öffnet das Element direkt.'}
-                {camera === 'denied' && 'Kein Kamerazugriff. Bitte Berechtigung erteilen oder Code eingeben.'}
+        <div className="relative flex aspect-[4/5] flex-col items-center justify-center gap-6 overflow-hidden bg-ink px-6 text-white sm:aspect-square">
+          {camera === 'on' && <video ref={videoRef} playsInline muted className="absolute inset-0 size-full object-cover" />}
+          {/* Sucher: vier Ecken statt Rahmen */}
+          <div aria-hidden className="pointer-events-none relative size-44 shrink-0 sm:size-56">
+            {['top-0 left-0 border-t-[3px] border-l-[3px] rounded-tl-xl', 'top-0 right-0 border-t-[3px] border-r-[3px] rounded-tr-xl', 'bottom-0 left-0 border-b-[3px] border-l-[3px] rounded-bl-xl', 'bottom-0 right-0 border-r-[3px] border-b-[3px] rounded-br-xl'].map((c) => (
+              <span key={c} className={`absolute size-8 border-white/90 ${c}`} />
+            ))}
+          </div>
+          {camera !== 'on' && (
+            <div className="relative flex flex-col items-center gap-4 text-center">
+              <p className="max-w-xs text-meta text-white/75">
+                {camera === 'idle' && 'Halte die Kamera auf das QR-Etikett. Das Element öffnet sich von selbst.'}
+                {camera === 'unsupported' && 'Dieser Browser liest keine Codes über die Kamera. Gib den Code unten ein – oder öffne den QR-Code mit der Kamera-App des Handys.'}
+                {camera === 'denied' && 'Kein Kamerazugriff. Erlaube die Kamera in den Browser-Einstellungen oder gib den Code unten ein.'}
               </p>
               {camera === 'idle' && (
-                <Button variant="secondary" onClick={start}>
+                <Button size="lg" variant="secondary" icon={<Camera />} onClick={start}>
                   Kamera starten
                 </Button>
               )}
+              {camera !== 'idle' && <CameraOff className="size-6 text-white/60" />}
             </div>
           )}
+          {camera === 'on' && <p className="absolute inset-x-0 bottom-5 text-center text-meta text-white/85">Suche Code …</p>}
         </div>
         <form
-          className="flex gap-2 p-4"
+          className="flex flex-col gap-2 p-4 sm:p-5"
           onSubmit={(e: FormEvent) => {
             e.preventDefault();
             if (code.trim()) open(code);
           }}
         >
-          <Input value={code} onChange={(e) => setCode(e.target.value)} placeholder="Code, z. B. FST-7K2M" className="font-mono uppercase" />
-          <Button icon={<Search className="size-4" />}>Öffnen</Button>
-        </form>
-        {!!error && (
-          <div className="px-4 pb-4">
-            <ErrorBox error={error} />
+          <label htmlFor="scan-code" className="text-meta font-medium text-ink-2">
+            Oder Code eingeben
+          </label>
+          <div className="flex gap-2">
+            <Input
+              id="scan-code"
+              value={code}
+              onChange={(e) => setCode(e.target.value)}
+              placeholder="z. B. FST-7K2M"
+              autoCapitalize="characters"
+              autoComplete="off"
+              spellCheck={false}
+              className="font-mono uppercase"
+            />
+            <Button type="submit" variant="primary" disabled={!code.trim()} icon={<ArrowRight />}>
+              Öffnen
+            </Button>
           </div>
-        )}
+          {!!error && <ErrorBox error={error} className="mt-2" />}
+        </form>
       </Card>
     </div>
   );
