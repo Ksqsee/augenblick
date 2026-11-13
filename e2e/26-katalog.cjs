@@ -131,8 +131,11 @@ const check = (ok, m) => {
     await pg.goto(`${BASE}/elemente?neu=1`);
     await pg.getByRole('dialog').getByRole('button', { name: new RegExp(art) }).click();
     await pg.getByLabel('Objekt', { exact: true }).selectOption(P1.id);
-    await pg.getByLabel('Gebäude').locator(`option[value="${B1.id}"]`).waitFor({ state: 'attached' });
-    await pg.getByLabel('Gebäude').selectOption(B1.id);
+    // Einstieg v5: bei nur einem Gebäude ist es vorbelegt und das Feld unsichtbar
+    await pg.getByLabel('Standort').waitFor();
+    await pg.waitForTimeout(800);
+    const gebaeude = pg.getByLabel('Gebäude', { exact: true });
+    if ((await gebaeude.count()) && (await gebaeude.isVisible()) && (await gebaeude.isEnabled())) await gebaeude.selectOption(B1.id);
   };
   await openForm(p, 'Feuerschutztür');
   const dlg = p.getByRole('dialog');
