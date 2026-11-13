@@ -144,7 +144,9 @@ const check = (ok, m) => {
     check(over <= 0, `${path}: kein horizontaler Überlauf (${over})`);
   }
   await mp.goto(`${BASE}/objekte/${prop.id}`);
-  const actions = await mp.getByRole('button', { name: 'Begehung starten' }).boundingBox();
+  // Hauptknopf (Plan v5 Q): Rundgang, solange Elemente fällig oder nie geprüft sind; Begehung im ⋯-Menü
+  check(!(await mp.getByRole('button', { name: 'Begehung starten' }).count()), 'Begehung nicht im Kopf');
+  const actions = await mp.getByRole('link', { name: 'Rundgang starten' }).boundingBox();
   const share = await mp.getByRole('button', { name: 'Für Kunden freigeben' }).boundingBox();
   check(actions && share && Math.abs(actions.y - share.y) < 4, 'Aktionen am Objekt auf dem Handy in einer Zeile');
   await mp.screenshot({ path: OUT + 'm-objekt.png', fullPage: true });

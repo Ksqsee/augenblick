@@ -25,8 +25,18 @@ API: [`docs/api.md`](docs/api.md)
 - **Offen**: eine Arbeitsliste aus Mängeln und Aufgaben, Umschalter **Alle · Mängel · Aufgaben**; „Alle“ zeigt zuerst
   Dringendes (schwere Mängel ohne Aufgabe, überfällige Aufgaben), dann übrige Mängel ohne Aufgabe, dann Aufgaben nach
   Fälligkeit – ein Mangel mit offener Aufgabe steht nur einmal da
-- **Erfassen per Sprache** (zentraler Mikrofon-Knopf): einsprechen oder tippen, Prüfkompass zerlegt den Text in
-  Mängel (Schwere, Maßnahme), Aufgaben (Frist) und Notizen; Element-Codes werden erkannt, die aktuelle Seite gibt den Ort vor
+- **Einstieg mit einem Namen und einem Satz** (Plan v5 Q): im leeren Konto zeigt „Heute“ nur „Wie heißt dein erstes Objekt?“;
+  Anlegen erzeugt das Objekt samt Gebäude „Hauptgebäude“ (`POST /properties` mit `withBuilding`) und öffnet „Erfassen“ im
+  Modus Elemente. „Neues Objekt“ fragt überall nur Name und Adresse, der Rest steht unter Bearbeiten. Gebäude erscheinen erst
+  ab zwei Gebäuden (Objektseite, Formulare). Hauptknopf der Objektseite: „Rundgang starten“ bzw. „Elemente hinzufügen“;
+  „Begehung starten“ und „Gebäude hinzufügen“ im ⋯-Menü
+- **Erfassen per Sprache** (zentraler Mikrofon-Knopf): einsprechen oder tippen, Prüfkompass erkennt die Absicht und zerlegt
+  den Text in Elemente („Im EG Flur drei Feuerschutztüren von Hörmann T30 und eine Feststellanlage“ → Anzahl, Art, Etage,
+  Standort, Hersteller, Feuerwiderstand), Mängel (Schwere, Maßnahme), Aufgaben (Frist, auch „bis Freitag“) und Notizen;
+  gemischte Sätze werden getrennt. Modus „Elemente“ ist Vorgabe, solange der Ort keine Elemente hat; reine Elemente legt ein
+  Knopf „n Elemente anlegen“ unter der Vorschau direkt an. Fehlt der Ort, bietet das Sheet die Objekte an oder legt ein
+  neues an. Element-Codes werden erkannt, die aktuelle Seite gibt den Ort vor. Arten über die Katalog-Definitionen
+  (Bezeichnung, Mehrzahl, `synonyms`) und `CATEGORY_SYNONYMS` in `shared/smart.ts` (Werkstattsprache: Tür, Löscher, RWM, BSK, FSA …)
 - **Diktat in jedem Textfeld** und „Befund einsprechen“ im Prüfablauf (Mängel landen beim passenden Prüfpunkt);
   Vorschläge für Maßnahme und Schweregrad; Spracherkennung des Browsers und Regel-Parser (`shared/smart.ts`) – der Worker
   ruft **keine KI** auf (keine KI-Kosten bei Cloudflare); Hören, Lesen und Sehen übernimmt Claude über den MCP-Server
@@ -73,8 +83,8 @@ API: [`docs/api.md`](docs/api.md)
   ausgeschrieben. Lesen ab Prüfer, ändern Admins (bzw. Claude mit dem Schreib-Schlüssel einer Admin-Person, MCP `catalog`)
 - **Foto beim Anlegen** (optional, z. B. vom Typenschild): wird am Element gespeichert; Claude liest es über `get_photo`
   und trägt Stammdaten mit `update_asset` nach
-- **Sammelanlage per Diktat** unter „Erfassen“: „fünf Feuerlöscher im Erdgeschoss Flur“ → Anzahl, Art, Etage, Standort prüfen,
-  Gebäude wählen, anlegen (Zahlwörter eins–zwanzig und Ziffern; Regel-Parser als Rückfall)
+- **Sammelanlage per Diktat** unter „Erfassen“ (siehe oben): „fünf Feuerlöscher im Erdgeschoss Flur“ → Anzahl, Art, Etage,
+  Standort, Hersteller; mit „Anpassen“ einzeln prüfen (Zahlwörter eins–zwanzig, Ziffern, „3x“; höchstens 50 je Zeile)
 - **MCP-Server** im Worker (`/api/mcp`) mit **OAuth-Anmeldung** (Freigabe mit API-Schlüssel oder neuer Verbindung): 15 Werkzeuge
   nach Absicht (`briefing`, `tour`, `inspect`, `capture`, `get_photo` …) und sieben fertige Befehle – Claude ist die Oberfläche
   für Sprache: Rundgang führen, Befund eintragen, Typenschilder lesen, Plan einrichten – siehe `docs/api.md`
@@ -195,7 +205,7 @@ npm run check              # Typprüfung + Unit-Tests + Build
 ## Tests
 
 - **Unit-Tests** (`npm test`, Vitest): Fachlogik, Autopilot-Kreislauf, Rangfolge „Jetzt“, Import/Export, Übersetzungen, Ruhezeiten, Web Push.
-- **Browser-Tests** (`e2e/`, Playwright): Reihen von der Registrierung über Sicherheitskorrekturen und Massenoperationen bis zu Berichtigung, Nachprüfung sowie Aufgaben und Mängeln (`14-tasks-defects`), dem Autopiloten (`20-autopilot`) und den offenen Punkten aus der Analyse (`21-offene-punkte`: Offline-Fehlliste, Intervalle, Partner-Zugang), dem MCP-Server (`11-ai-mcp`) und „Sprache zuerst“ (`23-sprache`: Rundgang über Claude, Unterschrift mit einem Tipp; `24-unterschreiben-offline`: Seite „Unterschreiben“, Befund einsprechen, Erfassen und Rundgang ohne Netz) sowie der Navigation mit fünf Orten (`25-fuenf-orte`: Leisten, Umleitungen, Prüfen, Offen, Heute am Handy, 390 px) und dem Fachwissen (`26-katalog`: Feststellanlage, laufende Nummern, Typ- und Mangel-Vorschläge, Katalogseite, MCP `catalog`).
+- **Browser-Tests** (`e2e/`, Playwright): Reihen von der Registrierung über Sicherheitskorrekturen und Massenoperationen bis zu Berichtigung, Nachprüfung sowie Aufgaben und Mängeln (`14-tasks-defects`), dem Autopiloten (`20-autopilot`) und den offenen Punkten aus der Analyse (`21-offene-punkte`: Offline-Fehlliste, Intervalle, Partner-Zugang), dem MCP-Server (`11-ai-mcp`) und „Sprache zuerst“ (`23-sprache`: Rundgang über Claude, Unterschrift mit einem Tipp; `24-unterschreiben-offline`: Seite „Unterschreiben“, Befund einsprechen, Erfassen und Rundgang ohne Netz) sowie der Navigation mit fünf Orten (`25-fuenf-orte`: Leisten, Umleitungen, Prüfen, Offen, Heute am Handy, 390 px) und dem Fachwissen (`26-katalog`: Feststellanlage, laufende Nummern, Typ- und Mangel-Vorschläge, Katalogseite, MCP `catalog`) sowie dem Einstieg (`27-einstieg`: leeres Konto → Objektname → ein Satz → Elemente angelegt in 4 Tipps und 2 Eingaben, Erfassen ohne Ort, ein/zwei Gebäude, Hauptknopf der Objektseite, 390 px).
   Vor jeder Reihe wird die lokale D1 geleert und mit Demodaten befüllt.
 
 ```bash

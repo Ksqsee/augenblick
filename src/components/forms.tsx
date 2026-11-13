@@ -20,7 +20,7 @@ function FormSection({ title, children, className }: { title: string; children: 
   );
 }
 
-export function PropertyForm({ initial, onClose }: { initial?: PropertyDetail; onClose: () => void }) {
+export function PropertyForm({ initial, onClose, onCreated }: { initial?: PropertyDetail; onClose: () => void; onCreated?: (id: string) => void }) {
   const toast = useToast();
   const navigate = useNavigate();
   const [f, setF] = useState({
@@ -34,12 +34,21 @@ export function PropertyForm({ initial, onClose }: { initial?: PropertyDetail; o
     pdfPattern: initial?.pdfPattern ?? '',
   });
   const set = (k: keyof typeof f) => (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => setF({ ...f, [k]: e.target.value });
+  // Neu: nur Name und Adresse; ein Gebäude „Hauptgebäude“ entsteht still mit (Plan v5 Q). Der Rest steht unter Bearbeiten.
   const save = useAction(
-    () => (initial ? api(`/properties/${initial.id}`, { method: 'PATCH', body: f }) : api<{ id: string }>('/properties', { body: f })),
+    () =>
+      initial
+        ? api(`/properties/${initial.id}`, { method: 'PATCH', body: f })
+        : api<{ id: string }>('/properties', { body: { name: f.name, address: f.address, withBuilding: true } }),
     (r) => {
       toast(initial ? 'Objekt gespeichert' : 'Objekt angelegt');
       onClose();
-      if (!initial && r && typeof r === 'object' && 'id' in r) navigate(`/objekte/${(r as { id: string }).id}`);
+      if (!initial && r && typeof r === 'object' && 'id' in r) {
+        const pid = (r as { id: string }).id;
+        navigate(`/objekte/${pid}`);
+        // gleich weiter: Elemente einsprechen oder eintippen
+        onCreated?.(pid);
+      }
     },
   );
   const submit = (e: FormEvent) => {
@@ -49,7 +58,7 @@ export function PropertyForm({ initial, onClose }: { initial?: PropertyDetail; o
   return (
     <Modal
       title={initial ? 'Objekt bearbeiten' : 'Neues Objekt'}
-      description={initial ? undefined : 'Danach legst du Gebäude und Elemente an.'}
+      description={initial ? undefined : 'Danach sprichst oder tippst du die Elemente ein. Nutzung und Ansprechperson ergänzt du später unter Bearbeiten.'}
       onClose={onClose}
       footer={
         <>
@@ -69,36 +78,40 @@ export function PropertyForm({ initial, onClose }: { initial?: PropertyDetail; o
           <Field label="Adresse" optional>
             {(id) => <Textarea id={id} dictate={false} className="min-h-16" value={f.address} onChange={set('address')} placeholder={'Straße Nr.\nPLZ Ort'} />}
           </Field>
-          <Field label="Nutzung" hint="Bestimmt die Fragen der Brandschutzbegehung.">
-            {(id) => (
-              <Select id={id} value={f.buildingType} onChange={(e) => setF({ ...f, buildingType: e.target.value as BuildingType })}>
-                {Object.entries(BUILDING_TYPES).map(([k, v]) => (
-                  <option key={k} value={k}>
-                    {v}
-                  </option>
-                ))}
-              </Select>
-            )}
-          </Field>
+          {initial && (
+            <Field label="Nutzung" hint="Bestimmt die Fragen der Brandschutzbegehung.">
+              {(id) => (
+                <Select id={id} value={f.buildingType} onChange={(e) => setF({ ...f, buildingType: e.target.value as BuildingType })}>
+                  {Object.entries(BUILDING_TYPES).map(([k, v]) => (
+                    <option key={k} value={k}>
+                      {v}
+                    </option>
+                  ))}
+                </Select>
+              )}
+            </Field>
+          )}
         </div>
-        <FormSection title="Vor Ort">
-          <Field label="Ansprechperson" optional>
-            {(id) => <Input id={id} value={f.contactName} onChange={set('contactName')} />}
-          </Field>
-          <Field label="Telefon" optional>
-            {(id) => <Input id={id} type="tel" value={f.contactPhone} onChange={set('contactPhone')} />}
-          </Field>
-          <Field label="E-Mail" optional className="sm:col-span-2">
-            {(id) => <Input id={id} type="email" value={f.contactEmail} onChange={set('contactEmail')} />}
-          </Field>
-          <Field label="Notizen" optional className="sm:col-span-2">
-            {(id) => <Textarea id={id} value={f.description} onChange={set('description')} placeholder="Zugang, Schlüssel, Besonderheiten …" />}
-          </Field>
-        </FormSection>
         {initial && (
-          <Field label="PDF-Dateinamen (nur dieses Objekt)" optional hint="Leer = Vorgabe des Unternehmens. Platzhalter: {datum} {code} {art} {pruefart} {objekt} {gebaeude} {standort} {ergebnis}">
-            {(id) => <Input id={id} value={f.pdfPattern} onChange={set('pdfPattern')} className="font-mono" placeholder="{objekt}_{datum}_{code}" />}
-          </Field>
+          <>
+            <FormSection title="Vor Ort">
+              <Field label="Ansprechperson" optional>
+                {(id) => <Input id={id} value={f.contactName} onChange={set('contactName')} />}
+              </Field>
+              <Field label="Telefon" optional>
+                {(id) => <Input id={id} type="tel" value={f.contactPhone} onChange={set('contactPhone')} />}
+              </Field>
+              <Field label="E-Mail" optional className="sm:col-span-2">
+                {(id) => <Input id={id} type="email" value={f.contactEmail} onChange={set('contactEmail')} />}
+              </Field>
+              <Field label="Notizen" optional className="sm:col-span-2">
+                {(id) => <Textarea id={id} value={f.description} onChange={set('description')} placeholder="Zugang, Schlüssel, Besonderheiten …" />}
+              </Field>
+            </FormSection>
+            <Field label="PDF-Dateinamen (nur dieses Objekt)" optional hint="Leer = Vorgabe des Unternehmens. Platzhalter: {datum} {code} {art} {pruefart} {objekt} {gebaeude} {standort} {ergebnis}">
+              {(id) => <Input id={id} value={f.pdfPattern} onChange={set('pdfPattern')} className="font-mono" placeholder="{objekt}_{datum}_{code}" />}
+            </Field>
+          </>
         )}
       </form>
     </Modal>
@@ -164,6 +177,14 @@ export function BuildingPicker({ value, onChange, initialPropertyId }: { value: 
   useEffect(() => {
     if (value && detail.data && !detail.data.buildings.some((b) => b.id === value)) onChange('');
   }, [detail.data, value, onChange]);
+  // Nur ein Objekt: vorbelegen. Nur ein Gebäude: vorbelegen, das Feld bleibt unsichtbar (Plan v5 Q)
+  useEffect(() => {
+    if (!propertyId && props.data?.length === 1) setPropertyId(props.data[0]!.id);
+  }, [props.data, propertyId]);
+  const only = propertyId && detail.data?.buildings.length === 1 ? detail.data.buildings[0]! : null;
+  useEffect(() => {
+    if (only && value !== only.id) onChange(only.id);
+  }, [only, value, onChange]);
   return (
     <>
       <Field label="Objekt">
@@ -186,18 +207,20 @@ export function BuildingPicker({ value, onChange, initialPropertyId }: { value: 
           </Select>
         )}
       </Field>
-      <Field label="Gebäude" hint={propertyId && detail.data?.buildings.length === 0 ? 'Dieses Objekt hat noch kein Gebäude.' : undefined}>
-        {(id) => (
-          <Select id={id} required disabled={!propertyId} value={value} onChange={(e) => onChange(e.target.value)}>
-            <option value="">Bitte wählen …</option>
-            {(propertyId ? detail.data?.buildings : [])?.map((b) => (
-              <option key={b.id} value={b.id}>
-                {b.name}
-              </option>
-            ))}
-          </Select>
-        )}
-      </Field>
+      {!only && (
+        <Field label="Gebäude" hint={propertyId && detail.data?.buildings.length === 0 ? 'Dieses Objekt hat noch kein Gebäude.' : undefined}>
+          {(id) => (
+            <Select id={id} required disabled={!propertyId} value={value} onChange={(e) => onChange(e.target.value)}>
+              <option value="">Bitte wählen …</option>
+              {(propertyId ? detail.data?.buildings : [])?.map((b) => (
+                <option key={b.id} value={b.id}>
+                  {b.name}
+                </option>
+              ))}
+            </Select>
+          )}
+        </Field>
+      )}
     </>
   );
 }
@@ -423,7 +446,7 @@ export function AssetForm({
           </Notice>
         )}
         <FormSection title="Ort">
-          {buildings ? (
+          {buildings?.length === 1 ? null : buildings ? (
             <Field label="Gebäude" className="sm:col-span-2">
               {(id) => (
                 <Select id={id} required value={f.buildingId} onChange={(e) => setBuilding(e.target.value)}>

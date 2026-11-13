@@ -4,6 +4,7 @@ import { Plus } from 'lucide-react';
 import { useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { type PropertyRow, useMe, useProperties } from '../api';
+import { openCapture } from '../components/CaptureSheet';
 import { PropertyForm } from '../components/forms';
 import { ObjectViews } from '../components/objects/Views';
 import { PlainTable } from '../components/objects/PlainTable';
@@ -62,9 +63,10 @@ export function PropertiesPage() {
 
   return (
     <>
-      <PageHeader title="Objekte" subtitle="Liegenschaften mit ihren Gebäuden und Elementen" actions={newButton('Neues Objekt')} />
+      <PageHeader title="Objekte" subtitle="Liegenschaften mit ihren Elementen" actions={newButton('Neues Objekt')} />
       <ObjectViews current="objekte" />
-      {creating && <PropertyForm onClose={() => setParams({})} />}
+      {/* Neues Objekt: Name und Adresse, danach gleich die Elemente einsprechen (Plan v5 Q) */}
+      {creating && <PropertyForm onClose={() => setParams({})} onCreated={(id) => openCapture({ propertyId: id, mode: 'assets' })} />}
 
       {all.length > 0 && (
         <FilterBar search={{ value: q, onChange: setQ, placeholder: 'Name, Adresse, Ansprechperson' }}>
@@ -102,7 +104,7 @@ export function PropertiesPage() {
                   }
                 />
               ) : (
-                <Empty title="Noch keine Objekte" text="Lege ein Objekt an, um Gebäude und Elemente zu erfassen." action={newButton('Objekt anlegen')} />
+                <Empty title="Noch keine Objekte" text="Lege ein Objekt an, um seine Elemente zu erfassen." action={newButton('Objekt anlegen')} />
               )}
             </Section>
           ) : (

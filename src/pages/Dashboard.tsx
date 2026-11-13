@@ -4,12 +4,13 @@
 // Aufbau: docs/plan/v3.md 2.5, Regeln: docs/design.md
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import clsx from 'clsx';
-import { Plus, ScanLine } from 'lucide-react';
-import { type ReactNode, useState } from 'react';
+import { ScanLine } from 'lucide-react';
+import { type FormEvent, type ReactNode, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import type { NowItem } from '../../shared/now';
 import { api, useAutomationLog, useDashboard, useMe, useNow } from '../api';
-import { Button, ButtonLink, Empty, ErrorBox, PageSkeleton, Section, SectionLink, StatTile, Surface, useToast } from '../components/ui';
+import { openCapture } from '../components/CaptureSheet';
+import { Button, ButtonLink, Empty, ErrorBox, Input, PageSkeleton, Section, SectionLink, StatTile, Surface, useToast } from '../components/ui';
 import { fmtDate, type Tone } from '../format';
 
 export interface Round {
@@ -204,6 +205,50 @@ function DoneForYou({ isAdmin }: { isAdmin: boolean }) {
   );
 }
 
+/**
+ * Leeres Konto (Plan v5 Q): ein Feld, ein Knopf. Legt Objekt und still ein Gebäude „Hauptgebäude“ an (POST /properties
+ * mit withBuilding) und öffnet gleich „Erfassen“ im Modus Elemente mit diesem Objekt als Ort.
+ */
+function FirstProperty() {
+  const qc = useQueryClient();
+  const [name, setName] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const submit = async (e: FormEvent) => {
+    e.preventDefault();
+    if (!name.trim()) return;
+    setBusy(true);
+    setError(null);
+    try {
+      const r = await api<{ id: string }>('/properties', { body: { name: name.trim(), withBuilding: true } });
+      await qc.invalidateQueries({ predicate: (q) => q.queryKey[0] !== 'me' });
+      openCapture({ propertyId: r.id, mode: 'assets' });
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Anlegen fehlgeschlagen');
+      setBusy(false);
+    }
+  };
+  return (
+    <form onSubmit={submit} className="flex flex-col gap-3 px-(--row-px) pt-1 pb-8 sm:flex-row sm:items-start sm:pb-10" aria-label="Erstes Objekt anlegen">
+      <div className="flex min-w-0 flex-1 flex-col gap-1.5">
+        <Input
+          aria-label="Name des Objekts"
+          required
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+          placeholder="z. B. Grundschule Am Park"
+          autoComplete="off"
+          enterKeyHint="go"
+        />
+        <p className={clsx('text-meta', error ? 'text-shu' : 'text-ink-3')}>{error ?? 'Danach sprichst oder tippst du, was dort verbaut ist.'}</p>
+      </div>
+      <Button type="submit" size="lg" loading={busy} disabled={!name.trim()} className="sm:h-11">
+        Anlegen
+      </Button>
+    </form>
+  );
+}
+
 /** Am Handy zeigt „Jetzt“ höchstens so viele Zeilen, der Rest steht hinter „Alle n anzeigen“. */
 const MOBILE_NOW = 5;
 
@@ -218,6 +263,10 @@ export function Dashboard() {
   if (error || !data) return <ErrorBox error={error} onRetry={() => refetch()} />;
   const c = data.counts;
   const canWrite = me?.user.role !== 'viewer';
+  const canStructure = me?.user.role === 'owner' || me?.user.role === 'admin';
+  // Leeres Konto: nur die Frage nach dem ersten Objekt – kein Lagesatz, keine Kennzahlen, kein „Jetzt“
+  const first = c.properties === 0 && canStructure;
+  const onlyProperty = data.properties.length === 1 ? data.properties[0] : undefined;
   const topRound = rounds.data?.find((r) => r.overdue + r.due > 0);
   const next = now.data?.items ?? [];
   const more = now.data?.more ?? 0;
@@ -240,7 +289,7 @@ export function Dashboard() {
         <header className="flex flex-col gap-5 px-(--row-px) pt-5 pb-6 sm:pt-7 sm:pb-8">
           {/* Zeile 1: Datum + Aktionen; Zeile 2: die Lage als Satz (h1), darf unter die Aktionen laufen */}
           <div className="flex flex-col gap-1 sm:block">
-            {canWrite && (
+            {canWrite && c.assets > 0 && (
               <div className="order-last mt-4 flex items-center gap-1 sm:float-right sm:mt-0 sm:ml-6">
                 {topRound && <ButtonLink to={`/rundgang/${topRound.buildingId}`}>Rundgang starten</ButtonLink>}
                 <ButtonLink to="/scan" variant="ghost" icon={<ScanLine />} aria-label="Code scannen" title="Code scannen" className="px-2.5 sm:px-2.5">
@@ -250,22 +299,28 @@ export function Dashboard() {
             )}
             <p className="text-[24px] leading-[30px] font-semibold tracking-[-0.02em] text-ink sm:text-h1">{dayFmt.format(Date.now())}</p>
             <h1 className="text-[24px] leading-[30px] font-medium tracking-[-0.02em] text-pretty text-ink-3 sm:text-h1">
-              <Situation assets={c.assets} overdue={c.overdue} critical={c.criticalDefects} soon={c.soon} never={c.never} nextDue={nextDue} />
+              {first ? 'Wie heißt dein erstes Objekt?' : <Situation assets={c.assets} overdue={c.overdue} critical={c.criticalDefects} soon={c.soon} never={c.never} nextDue={nextDue} />}
             </h1>
           </div>
         </header>
 
-        {c.assets === 0 ? (
+        {first ? (
+          <FirstProperty />
+        ) : c.assets === 0 ? (
           <Section>
-            <Empty
-              title="Lege dein erstes Objekt an"
-              text="Objekte sind Liegenschaften, z. B. eine Schule oder ein Bürogebäude. Darin legst du Gebäude und die zu prüfenden Elemente an."
-              action={
-                <Link to="/objekte?neu=1">
-                  <Button icon={<Plus />}>Objekt anlegen</Button>
-                </Link>
-              }
-            />
+            {c.properties === 0 ? (
+              <Empty title="Noch kein Objekt" text="Objekte legt eine Admin-Person an. Danach erfasst du hier die Elemente." />
+            ) : (
+              <Empty
+                title="Noch keine Elemente"
+                text={`Sprich oder tippe, was ${onlyProperty ? `in „${onlyProperty.name}“` : 'im Objekt'} verbaut ist – z. B. „drei Feuerschutztüren im EG Flur“.`}
+                action={
+                  canWrite && me?.user.canCreate !== false && (
+                    <Button onClick={() => openCapture({ propertyId: onlyProperty?.id, mode: 'assets' })}>Elemente hinzufügen</Button>
+                  )
+                }
+              />
+            )}
           </Section>
         ) : (
           <Section title="Prüfstatus" action={<span className="text-meta text-ink-3">{`${c.assets} Elemente in ${c.properties} Objekten`}</span>}>
@@ -285,7 +340,7 @@ export function Dashboard() {
           </Section>
         )}
 
-        {next.length > 0 && (
+        {next.length > 0 && !first && (
           <Section title="Jetzt" count={total} flush>
             <ul className="pk-list" aria-label="Jetzt">
               {next.map((s, i) => (
@@ -309,7 +364,7 @@ export function Dashboard() {
           </Section>
         )}
 
-        <DoneForYou isAdmin={me?.user.role === 'owner' || me?.user.role === 'admin'} />
+        {!first && <DoneForYou isAdmin={canStructure} />}
       </Surface>
     </div>
   );

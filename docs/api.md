@@ -41,6 +41,7 @@ Für API-Schlüssel gelten diese Regeln:
 | `GET /dashboard` | Kennzahlen (überfällig, bald fällig, nie geprüft, nicht prüfbar, neue Elemente, Mängel …) |
 | `GET /search?q=&propertyId=` | Suche über Objekte, Gebäude, Elemente; „Tür 36“, „Nummer 36“, „FSA 2“ (mit `propertyId` auch „36“) finden Elemente über ihre laufende Nummer – zuerst |
 | `GET /properties` | Objekte mit Status (überfällig, bald fällig, Mängel, nächste Begehung) |
+| `POST /properties` | Objekt anlegen: `{ name, address?, description?, contactName?, …, withBuilding? }` → `{ id }`; mit `withBuilding: true` entsteht im selben Aufruf ein Gebäude „Hauptgebäude“ → `{ id, buildingId }` |
 | `GET /buildings` | Alle Gebäude (`id`, `name`, `propertyId`) |
 | `GET /properties/:id` | Objekt mit Gebäuden, Elementen, Grundrissen, Begehungen, Brandschutzbeauftragten |
 | `GET /assets` | Elemente. Filter: `due=overdue\|soon\|never\|not_inspectable\|new\|defects`, `schedule=<Prüfart>`, `propertyId`, `buildingId`, `category`, `q` |
@@ -167,7 +168,7 @@ Ungültige oder widerrufene Codes liefern `404` und werden je IP gedrosselt (`to
 | `POST /smart/intervals/reset` | Angepasstes Intervall auf den Standard zurücksetzen (Admin): `{ assetId, schedule }` |
 | `GET /smart/rounds?days=30` | Fällige Elemente je Gebäude in Laufreihenfolge (Etage, Standort) |
 | `GET /ai/status` | Fester Stand `{ transcribe: false, structure: "rules", vision: false }` – der Worker ruft keine KI auf |
-| `POST /ai/parse` | Text (z. B. Diktat) regelbasiert (`shared/smart.ts`) in Mängel/Aufgaben/Notizen/Sammelanlagen zerlegen: `{ text, checkpoints?, categories? }` → `{ items, source: "rules" }`. Sammelanlage: `kind: "asset"` mit `count` (max. 50), `category` (Schlüssel oder null), `floor`, `location`; `categories: []` schaltet sie ab, ohne Angabe gelten die Arten des Workspaces |
+| `POST /ai/parse` | Text (z. B. Diktat) regelbasiert (`shared/smart.ts`) in Elemente/Mängel/Aufgaben/Notizen zerlegen: `{ text, checkpoints?, categories?, prefer? }` → `{ items, source: "rules" }`. Elemente: `kind: "asset"` mit `count` (max. 50), `category` (Schlüssel oder null), `floor`, `location`, `manufacturer`, `attributes` (z. B. `rating`, `smoke`); `categories[].synonyms` ergänzt Wörter je Art; `prefer: "assets"` nimmt auch ein bloßes Artwort als Element, `"findings"` nur mit Anzahl oder Hersteller; `categories: []` schaltet sie ab, ohne Angabe gelten die Arten des Workspaces |
 
 Keine KI im Worker (seit v4): Sprache erkennt der Browser, Texte zerlegt der Regel-Parser. Server-Transkription
 (`/ai/transcribe`), Typenschild- und Bilderkennung (`/ai/typeplate`, `/ai/identify`) gibt es nicht mehr (`404`) –
