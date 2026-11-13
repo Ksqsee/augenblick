@@ -14,6 +14,7 @@ export const MCP_TOOLS: [name: string, purpose: string][] = [
   ['tour', 'Rundgang vor Ort führen'],
   ['inspect', 'Prüfung ausfüllen und zur Unterschrift bereitlegen'],
   ['setup', 'Objekt, Gebäude und Elemente in einem Rutsch anlegen'],
+  ['catalog', 'Fachwissen: Hersteller/Typen, typische Mängel, Begriffe'],
   ['autopilot', 'Autopilot ansehen, Schritt ausführen, rückgängig machen'],
   ['report', 'Kennzahlen für Zeitraum und Objekt'],
 ];

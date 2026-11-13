@@ -6,6 +6,7 @@ import { isCustomKindKey, ROLES } from '../shared/catalog';
 import { deviceLabel } from '../shared/device';
 import { DOC_LANGUAGES, type DocLanguage, isValidTimeZone } from '../shared/i18n';
 import { LEGAL_DOCS } from '../shared/legal';
+import { seedCatalogStatements } from './catalog';
 import { notifyTenant } from './notify';
 import { assertNotThrottled, clearFailures, clientIp, recordFailure } from './throttle';
 import {
@@ -76,6 +77,8 @@ auth.post('/register', async (c) => {
       t,
     ),
     c.env.DB.prepare('INSERT INTO memberships (tenant_id, user_id, role, created_at) VALUES (?,?,?,?)').bind(tenantId, userId, 'owner', t),
+    // Grundausstattung des Katalogs (Begriffe, typische Mängel)
+    ...seedCatalogStatements(c.env.DB, tenantId, t),
     // Die Registrierung gilt als Zustimmung zu den aktuellen Rechtstexten (Hinweis im Formular)
     ...LEGAL_DOCS.map((d) =>
       c.env.DB.prepare('INSERT INTO legal_acks (id, user_id, doc, version, accepted_at, user_agent) VALUES (?,?,?,?,?,?)').bind(
@@ -381,6 +384,7 @@ account.post('/workspaces', async (c) => {
     c.env.DB.prepare('INSERT INTO tenants (id, name, created_at) VALUES (?,?,?)').bind(tenantId, name, now()),
     c.env.DB.prepare('INSERT INTO memberships (tenant_id, user_id, role, created_at) VALUES (?,?,?,?)').bind(tenantId, u.userId, 'owner', now()),
     c.env.DB.prepare('UPDATE sessions SET tenant_id = ? WHERE id = ?').bind(tenantId, u.sessionId),
+    ...seedCatalogStatements(c.env.DB, tenantId),
   ]);
   return c.json({ id: tenantId });
 });

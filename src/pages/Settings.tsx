@@ -11,13 +11,14 @@ import { AccountTab } from './settings/Account';
 import { ActivityTab } from './settings/Activity';
 import { ApiTab } from './settings/Api';
 import { AutomationTab } from './settings/Automation';
+import { CatalogTab } from './settings/Katalog';
 import { CompanyTab } from './settings/Company';
 import { NotificationsTab } from './settings/Notifications';
 import { TasksTab } from './settings/Tasks';
 import { TemplatesTab } from './settings/Templates';
 
 // „privacy“ (früher eigener Reiter) zeigt jetzt das Konto – alte Links bleiben gültig.
-const TABS = ['profile', 'privacy', 'notifications', 'company', 'templates', 'tasks', 'automation', 'api', 'activity'] as const;
+const TABS = ['profile', 'privacy', 'notifications', 'company', 'templates', 'catalog', 'tasks', 'automation', 'api', 'activity'] as const;
 type Tab = (typeof TABS)[number];
 const ADMIN_ONLY: Tab[] = ['company', 'templates', 'tasks', 'automation', 'api'];
 type Page = 'team' | 'subunternehmer' | 'import' | 'hilfe';
@@ -27,6 +28,8 @@ interface Item {
   label: string;
   to: string;
   admin?: boolean;
+  /** ab Prüfer (nicht für Lesezugriff) */
+  inspector?: boolean;
 }
 const GROUPS: { title: string; items: Item[] }[] = [
   {
@@ -44,6 +47,7 @@ const GROUPS: { title: string; items: Item[] }[] = [
       { key: 'subunternehmer', label: 'Subunternehmer', to: '/einstellungen/subunternehmer' },
       { key: 'company', label: 'Unternehmen', to: '/einstellungen?tab=company', admin: true },
       { key: 'templates', label: 'Prüfvorlagen', to: '/einstellungen?tab=templates', admin: true },
+      { key: 'catalog', label: 'Katalog', to: '/einstellungen?tab=catalog', inspector: true },
       { key: 'tasks', label: 'Aufgaben', to: '/einstellungen?tab=tasks', admin: true },
       { key: 'automation', label: 'Automatik', to: '/einstellungen?tab=automation', admin: true },
       { key: 'api', label: 'API', to: '/einstellungen?tab=api', admin: true },
@@ -68,7 +72,7 @@ export function SettingsFrame({ current, children }: { current: Item['key']; chi
   const outbox = useOutbox();
   const isAdmin = !!me && ['owner', 'admin'].includes(me.user.role);
   const canImport = me?.user.role !== 'viewer' && me?.user.canCreate !== false;
-  const visible = (i: Item) => (!i.admin || isAdmin) && (i.key !== 'import' || canImport);
+  const visible = (i: Item) => (!i.admin || isAdmin) && (!i.inspector || (!!me && me.user.role !== 'viewer')) && (i.key !== 'import' || canImport);
   const link = (i: Item, vertical: boolean) => {
     const active = i.key === current;
     return (
@@ -114,7 +118,7 @@ export function SettingsPage() {
   const { data: me } = useMe();
   const isAdmin = !!me && ['owner', 'admin'].includes(me.user.role);
   const [raw] = useUrlTab<Tab>('tab', 'profile', TABS);
-  const tab: Tab = raw === 'privacy' || (!isAdmin && me && ADMIN_ONLY.includes(raw)) ? 'profile' : raw;
+  const tab: Tab = raw === 'privacy' || (!isAdmin && me && ADMIN_ONLY.includes(raw)) || (raw === 'catalog' && me?.user.role === 'viewer') ? 'profile' : raw;
   const label = GROUPS.flatMap((g) => g.items).find((i) => i.key === tab)?.label;
   return (
     <SettingsFrame current={tab}>
@@ -123,6 +127,7 @@ export function SettingsPage() {
       {tab === 'notifications' && <NotificationsTab />}
       {tab === 'company' && isAdmin && <CompanyTab />}
       {tab === 'templates' && isAdmin && <TemplatesTab />}
+      {tab === 'catalog' && <CatalogTab />}
       {tab === 'tasks' && isAdmin && <TasksTab />}
       {tab === 'automation' && isAdmin && <AutomationTab />}
       {tab === 'api' && isAdmin && <ApiTab />}

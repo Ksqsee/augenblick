@@ -10,6 +10,13 @@ import {
   suggestMeasure,
   suggestSeverity,
 } from "../shared/smart";
+import {
+  type CatalogDefect,
+  expandTerms,
+  matchCatalogDefects,
+  parseElementRef,
+  suggestProducts,
+} from "../shared/vocab";
 
 export type Json = Record<string, unknown>;
 export type Call = {
@@ -65,6 +72,7 @@ interface CategoryInfo {
   key: string;
   label: string;
   plural: string;
+  prefix: string;
   norm: string;
   intervalMonths: number;
   checkpoints: { id: string; label: string }[];
@@ -208,26 +216,51 @@ async function resolveCategory(x: Ctx, v: unknown) {
   return hit;
 }
 
-/** Element per Code oder Etikett → ID */
-async function assetId(x: Ctx, code: unknown): Promise<string> {
+/**
+ * Element per Code oder Etikett → ID. Versteht auch laufende Nummern wie „Tür 36“, „Nummer 36“ oder „36“
+ * (shared/vocab.ts): mit `property` im Objekt, sonst nur, wenn die Nummer im Workspace eindeutig ist.
+ */
+async function assetId(x: Ctx, code: unknown, property?: unknown): Promise<string> {
   const c = s(code).trim();
   if (!c)
     throw new ToolError(
-      'Element-Code fehlt, z. B. „FST-7K2M“. Codes liefert search oder list(what: "assets").',
+      'Element-Code fehlt, z. B. „FST-001“ oder „Tür 36“ mit property. Codes liefert search oder list(what: "assets").',
     );
+  const cats = await x.categories();
+  const ref = parseElementRef(
+    c,
+    cats.map((k) => ({ key: k.key, label: k.label, plural: k.plural, prefix: k.prefix })),
+  );
   try {
+    const prop = ref && lc(property) ? await resolveProperty(x, property) : null;
     return (
-      (await x.api({ method: "GET", path: `/assets/by-code/${enc(c)}` })) as {
-        id: string;
-      }
+      (await x.api({
+        method: "GET",
+        path: `/assets/by-code/${enc(c)}${prop ? `?propertyId=${enc(prop.id)}` : ""}`,
+      })) as { id: string }
     ).id;
   } catch (e) {
-    if (e instanceof ApiError && e.status === 404)
-      throw new ToolError(
-        `Kein Element mit Code „${c}“. Mit search nach Standort, Art oder Code-Teil suchen.`,
-      );
-    throw e;
+    if (!(e instanceof ApiError && e.status === 404)) throw e;
   }
+  if (ref) {
+    // ohne Objekt: Nummer im ganzen Workspace – nur eindeutig verwendbar
+    const r = (await x.api({
+      method: "GET",
+      path: `/search?q=${enc(c)}`,
+    })) as { assets: Json[] };
+    const hits = r.assets.filter((a) => a.number === ref.number);
+    if (hits.length === 1) return s(hits[0].id);
+    if (hits.length > 1)
+      throw new ToolError(
+        `„${c}“ gibt es in mehreren Objekten: ${hits
+          .slice(0, 8)
+          .map((a) => `${s(a.code)} (${s(a.propertyName)})`)
+          .join(", ")}. Bitte den Code nennen oder \`property\` angeben.`,
+      );
+  }
+  throw new ToolError(
+    `Kein Element „${c}“. Mit search nach Standort, Art, Nummer oder Code-Teil suchen.`,
+  );
 }
 
 interface PropertyRow {
@@ -1369,7 +1402,9 @@ export const TOOLS: Tool[] = [
                 enum: ["low", "medium", "high"],
               }),
               due: str("Aufgabe: Frist (ISO-Datum), z. B. „2026-11-20“"),
-              asset: str("Element-Code für diesen Eintrag"),
+              asset: str(
+                "Element-Code für diesen Eintrag – oder Nummer wie „Tür 36“ (mit `property`)",
+              ),
               property: str("Objekt (Name) für diesen Eintrag"),
               category: str(
                 "asset: Elementart (Schlüssel oder Bezeichnung, z. B. „Feuerlöscher“)",
@@ -1405,11 +1440,21 @@ export const TOOLS: Tool[] = [
         string,
         Promise<{ id: string; propertyId: string }>
       >();
-      const assetOf = (code: string) => {
-        if (!assetCache.has(code))
+      // Katalog des Workspaces für Schwere/Maßnahme-Vorschläge (einmal je Aufruf)
+      let vocab: Promise<{ defects: CatalogDefect[] }> | null = null;
+      const catalogDefects = async () =>
+        (
+          await (vocab ??= x
+            .api({ method: "GET", path: "/catalog" })
+            .then((r) => r as { defects: CatalogDefect[] })
+            .catch(() => ({ defects: [] })))
+        ).defects;
+      const assetOf = (code: string, property?: unknown) => {
+        const key = `${code}|${s(property)}`;
+        if (!assetCache.has(key))
           assetCache.set(
-            code,
-            assetId(x, code).then(async (id) => ({
+            key,
+            assetId(x, code, property).then(async (id) => ({
               id,
               propertyId: s(
                 (
@@ -1421,7 +1466,7 @@ export const TOOLS: Tool[] = [
               ),
             })),
           );
-        return assetCache.get(code)!;
+        return assetCache.get(key)!;
       };
       for (const [n, it] of items.entries()) {
         const label = `${n + 1}. ${s(it.title) || s(it.category) || it.kind}`;
@@ -1457,7 +1502,9 @@ export const TOOLS: Tool[] = [
           const title = s(it.title).trim();
           if (!title) throw new ToolError("Titel fehlt");
           const code = s(it.asset ?? (it.property ? "" : a.asset)).trim();
-          const asset = code ? await assetOf(code) : null;
+          const asset = code
+            ? await assetOf(code, it.property ?? a.property)
+            : null;
           const prop = asset
             ? null
             : it.property || a.property
@@ -1470,13 +1517,17 @@ export const TOOLS: Tool[] = [
               );
             const severity = SEVERITIES[it.severity as Severity]
               ? s(it.severity)
-              : suggestSeverity(`${title} ${s(it.note)}`);
+              : suggestSeverity(
+                  `${title} ${s(it.note)}`,
+                  await catalogDefects(),
+                );
             const body = {
               assetId: asset?.id ?? null,
               propertyId: asset?.propertyId ?? prop?.id ?? null,
               title,
               note: s(it.note),
-              measure: s(it.measure) || suggestMeasure(title),
+              measure:
+                s(it.measure) || suggestMeasure(title, await catalogDefects()),
               severity,
               force: !!a.force,
             };
@@ -1556,7 +1607,10 @@ export const TOOLS: Tool[] = [
       'Stammdaten eines Elements ergänzen oder korrigieren – typischerweise nach dem Lesen eines Typenschilds mit get_photo. Nur genannte Felder ändern sich. Felder: manufacturer, model, year (Baujahr), serial (Seriennummer), approval (Zulassungsnummer), location, floor, label (Etikett/QR-Code); weitere Felder der Elementart über `fields` (Schlüssel aus search(type: "categories"), z. B. {rating: "T30"}). Antwort nennt jede Änderung „vorher → nachher“. Beispiel: {asset: "FL-3MX9", manufacturer: "Gloria", model: "PD 6 GA", year: 2019, serial: "A1234567"}.',
     inputSchema: obj(
       {
-        asset: str("Element-Code, z. B. „FL-3MX9“"),
+        asset: str(
+          "Element-Code, z. B. „FL-3MX9“ – oder laufende Nummer wie „Tür 36“ zusammen mit `property`",
+        ),
+        property: str("Objekt (Name), wenn `asset` eine Nummer wie „Tür 36“ ist"),
         manufacturer: str("Hersteller"),
         model: str("Typ/Modell"),
         year: int("Baujahr", 1900, 2100),
@@ -1577,7 +1631,7 @@ export const TOOLS: Tool[] = [
     ),
     readOnly: false,
     run: async (a, x) => {
-      const id = await assetId(x, a.asset);
+      const id = await assetId(x, a.asset, a.property);
       const r = (await x.api({
         method: "GET",
         path: `/assets/${enc(id)}`,
@@ -2559,6 +2613,212 @@ export const TOOLS: Tool[] = [
           ? 'Rundgang starten mit tour(action: "start", building: …).'
           : null,
       });
+    },
+  },
+  {
+    name: "catalog",
+    title: "Katalog",
+    description:
+      'Fachwissen des Workspaces: Produkte (Hersteller, Typ, Art, Vorgabewerte der Stammdaten wie {rating: "T30", smoke: true}, Zulassung), typische Mängel (Titel, Synonyme, Schwere, Maßnahme, Art) und Begriffe (Abkürzung → Bedeutung, z. B. OTS → Obentürschließer). `action: "search"` mit `list` (products|defects|terms, ohne = alle) und optional `query`/`category`. `action: "suggest"` mit `text` (z. B. ein Befund „OTS zieht nicht zu“): passende Katalog-Mängel mit Schwere und Maßnahme und ausgeschriebene Begriffe; mit `manufacturer`/`model` passende Produkte. `action: "upsert"` mit `list` und `items` (höchstens 200): legt neu an oder ändert vorhandene Einträge mit gleichem Schlüssel (Hersteller+Typ, Art+Titel, Begriff) – so baust du den Katalog aus Datenblättern, Prüfprotokollen oder Preislisten auf. Immer zuerst mit `preview: true` (Standard) aufrufen und die Vorschau zeigen, nach Bestätigung mit `preview: false`. Anlegen/Ändern darf nur ein Schreib-Schlüssel einer Admin- oder Inhaber-Person; Löschen nur in der App (Einstellungen → Katalog). Beispiel: {action: "upsert", list: "defects", preview: true, items: [{title: "Haftmagnet brummt", severity: "low", measure: "Netzteil prüfen", category: "Feststellanlage"}]}.',
+    inputSchema: obj(
+      {
+        action: str("search, suggest oder upsert", {
+          enum: ["search", "suggest", "upsert"],
+        }),
+        list: str("Katalogliste", { enum: ["products", "defects", "terms"] }),
+        query: str("search: Suchbegriff"),
+        category: str(
+          "Elementart (Schlüssel oder Bezeichnung) zum Eingrenzen, z. B. „Feststellanlage“",
+        ),
+        text: str("suggest: Befund oder Diktat, z. B. „OTS schließt nicht“"),
+        manufacturer: str("suggest: Hersteller für Produktvorschläge"),
+        model: str("suggest: Typ/Modell für Produktvorschläge"),
+        preview: bool(
+          "upsert: true = nur Vorschau (Standard, zuerst!), false = speichern",
+        ),
+        items: arr(
+          obj({
+            manufacturer: str("products: Hersteller"),
+            model: str("products: Typ/Modell"),
+            defaults: {
+              type: "object",
+              description:
+                'products: Vorgabewerte der Stammdaten als {feld: wert}; Felder der Art aus search(type: "categories")',
+              additionalProperties: {
+                type: ["string", "number", "boolean", "null"],
+              },
+            },
+            approval: str(
+              "products: Zulassung/Prüfzeugnis, z. B. „Z-6.20-1234“",
+            ),
+            note: str("products: Notiz"),
+            title: str("defects: Bezeichnung des Mangels"),
+            synonyms: arr(
+              { type: "string" },
+              "defects: andere Formulierungen, wie man sie vor Ort sagt",
+              20,
+            ),
+            severity: SEVERITY,
+            measure: str("defects: übliche Maßnahme"),
+            term: str("terms: Abkürzung/Begriff, z. B. „OTS“"),
+            meaning: str("terms: Bedeutung, z. B. „Obentürschließer“"),
+            category: str(
+              "products/defects: Elementart (Schlüssel oder Bezeichnung) oder leer = alle",
+            ),
+          }),
+          "upsert: Einträge der Liste `list`",
+          200,
+        ),
+      },
+      ["action"],
+    ),
+    readOnly: false,
+    run: async (a, x) => {
+      const action = s(a.action);
+      const kind = s(a.list);
+      const cat = lc(a.category) ? await resolveCategory(x, a.category) : null;
+      const cats = await x.categories();
+      const label = (k: unknown) =>
+        k ? (cats.find((c) => c.key === k)?.label ?? s(k)) : null;
+      if (action === "search") {
+        const kinds = kind ? [kind] : ["products", "defects", "terms"];
+        const out: Json = {};
+        for (const k of kinds) {
+          const qs = new URLSearchParams();
+          if (lc(a.query)) qs.set("q", s(a.query));
+          if (cat) qs.set("category", cat.key);
+          const rows = (await x.api({
+            method: "GET",
+            path: `/catalog/${k}?${qs}`,
+          })) as Json[];
+          out[k] = rows.slice(0, 100).map((r) =>
+            k === "products"
+              ? compact({
+                  manufacturer: r.manufacturer,
+                  model: r.model,
+                  art: label(r.category),
+                  defaults:
+                    r.defaults && Object.keys(r.defaults as Json).length
+                      ? r.defaults
+                      : null,
+                  approval: r.approval,
+                })
+              : k === "defects"
+                ? compact({
+                    title: r.title,
+                    severity: sev(r.severity),
+                    measure: r.measure,
+                    art: label(r.category),
+                    synonyms: (r.synonyms as string[])?.length
+                      ? (r.synonyms as string[]).join("; ")
+                      : null,
+                  })
+                : { term: r.term, meaning: r.meaning },
+          );
+          if (rows.length > 100) out[`more_${k}`] = rows.length - 100;
+        }
+        return out;
+      }
+      if (action === "suggest") {
+        const c = (await x.api({ method: "GET", path: "/catalog" })) as {
+          products: Parameters<typeof suggestProducts>[1];
+          defects: CatalogDefect[];
+          terms: { term: string; meaning: string }[];
+        };
+        const text = s(a.text);
+        if (!text && !lc(a.manufacturer) && !lc(a.model))
+          throw new ToolError(
+            "suggest braucht `text` oder `manufacturer`/`model`.",
+          );
+        const expanded = expandTerms(text, c.terms);
+        const defects = text
+          ? matchCatalogDefects(expanded, c.defects, { category: cat?.key })
+          : [];
+        const products =
+          lc(a.manufacturer) || lc(a.model)
+            ? suggestProducts(
+                { manufacturer: s(a.manufacturer), model: s(a.model) },
+                c.products,
+                cat?.key,
+              )
+            : [];
+        return compact({
+          understood: expanded !== text ? expanded : null,
+          defects: defects.map((m) =>
+            compact({
+              title: m.defect.title,
+              severity: m.defect.severity,
+              measure: m.defect.measure,
+              art: label(m.defect.category),
+              match: `${Math.round(m.score * 100)} %`,
+            }),
+          ),
+          products: products.map((p) =>
+            compact({
+              manufacturer: p.manufacturer,
+              model: p.model,
+              defaults: Object.keys(p.defaults).length ? p.defaults : null,
+              approval: p.approval,
+            }),
+          ),
+          hint:
+            !defects.length && text
+              ? "Kein passender Katalog-Mangel – mit upsert ergänzen, wenn er öfter vorkommt."
+              : null,
+        });
+      }
+      if (action === "upsert") {
+        if (!["products", "defects", "terms"].includes(kind))
+          throw new ToolError("`list` fehlt: products, defects oder terms.");
+        const items = list(a.items);
+        if (!items.length) throw new ToolError("`items` ist leer.");
+        if (items.length > 200)
+          throw new ToolError(
+            "Höchstens 200 Einträge je Aufruf – bitte aufteilen.",
+          );
+        // Art als Bezeichnung („Feststellanlage“) → Schlüssel
+        const prepared: Json[] = [];
+        for (const it of items) {
+          const e: Json = { ...it };
+          if (kind === "terms") delete e.category;
+          else if (lc(e.category))
+            e.category = (await resolveCategory(x, e.category)).key;
+          else if (cat) e.category = cat.key;
+          prepared.push(e);
+        }
+        try {
+          const r = (await x.api({
+            method: "POST",
+            path: "/catalog/batch",
+            body: { kind, items: prepared, dryRun: a.preview !== false },
+          })) as Json;
+          return compact({
+            preview: r.dryRun
+              ? "nur Vorschau – nach Bestätigung mit preview: false speichern"
+              : null,
+            saved: r.dryRun ? null : true,
+            create: (r.create as string[])?.length ? r.create : null,
+            update: (r.update as Json[])?.length
+              ? (r.update as Json[]).map(
+                  (u) => `${s(u.entry)} (${(u.changes as string[]).join(", ")})`,
+                )
+              : null,
+            unchanged: r.unchanged || null,
+            errors: (r.errors as Json[])?.length
+              ? (r.errors as Json[]).map(
+                  (e) => `${Number(e.index) + 1}. ${s(e.error)}`,
+                )
+              : null,
+          });
+        } catch (e) {
+          if (e instanceof ApiError && e.status === 403)
+            throw new ToolError(
+              "Den Katalog ändern darf nur ein Schreib-Schlüssel einer Admin- oder Inhaber-Person (oder ein Admin in der App: Einstellungen → Katalog). Lesen und suggest gehen weiterhin.",
+            );
+          throw e;
+        }
+      }
+      throw new ToolError("`action` muss search, suggest oder upsert sein.");
     },
   },
   {

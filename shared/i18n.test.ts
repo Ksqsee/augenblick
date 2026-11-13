@@ -11,6 +11,12 @@ describe('Dokumentsprache', () => {
       texts.push(c.label, ...c.checkpoints.map((p) => p.label), ...c.maintenance.map((m) => m.label), ...c.attributes.map((a) => a.label));
       for (const s of c.schedules) texts.push(s.label, ...(s.checkpoints ?? []).map((p) => p.label));
     }
+    // Feststellanlage (v5) vollständig: Mehrzahl, Hinweise und Auswahlwerte
+    const fsa = CATEGORIES.hold_open;
+    texts.push(fsa.plural, ...fsa.checkpoints.flatMap((p) => (p.hint ? [p.hint] : [])), ...fsa.attributes.flatMap((a) => a.options ?? []));
+    for (const a of CATEGORIES.fire_door.attributes) texts.push(a.label);
+    {
+    }
     const missing = texts.filter((t) => tr('en', t) === t);
     expect(missing).toEqual([]);
   });

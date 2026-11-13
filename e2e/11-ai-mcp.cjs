@@ -1,4 +1,4 @@
-// E2E 11-ai-mcp: MCP-Server v2 – 15 Werkzeuge nach Absicht, Prompts, Rechte (Lese-/Schreibschlüssel, fremder
+// E2E 11-ai-mcp: MCP-Server v2 – 16 Werkzeuge nach Absicht, Prompts, Rechte (Lese-/Schreibschlüssel, fremder
 // Workspace), get_photo als Bildinhalt, capture mit Duplikaten, tour/inspect (nur zur Unterschrift bereit),
 // setup (Vorschau, Marker), keine KI im Worker (/ai/transcribe weg, /ai/parse nach Regeln). Nur lokal.
 if (!process.env.DEMO_PASSWORD) throw new Error("DEMO_PASSWORD fehlt");
@@ -20,6 +20,7 @@ const TOOLS = [
   "tour",
   "inspect",
   "setup",
+  "catalog",
   "autopilot",
   "report",
 ];
@@ -175,7 +176,7 @@ const call = async (key, name, args = {}) => {
   const tools = r.json.result.tools;
   check(
     JSON.stringify(tools.map((t) => t.name)) === JSON.stringify(TOOLS),
-    `15 Werkzeuge (${tools.map((t) => t.name)})`,
+    `16 Werkzeuge (${tools.map((t) => t.name)})`,
   );
   check(
     tools.every(

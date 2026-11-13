@@ -1,10 +1,10 @@
 // Kleine v3-Bausteine für den Bereich Prüfen: Elementart als 16-px-Liniensymbol (ohne Kachel)
 // und Fortschritt als dünne Tintenlinie.
 import clsx from 'clsx';
-import { Box, DoorClosed, Fan, FireExtinguisher, Siren } from 'lucide-react';
+import { Box, DoorClosed, Fan, FireExtinguisher, Magnet, Siren } from 'lucide-react';
 import type { Category } from '../../../shared/catalog';
 
-const BUILTIN: Record<string, typeof DoorClosed> = { fire_door: DoorClosed, damper: Fan, extinguisher: FireExtinguisher, smoke_alarm: Siren };
+const BUILTIN: Record<string, typeof DoorClosed> = { fire_door: DoorClosed, damper: Fan, extinguisher: FireExtinguisher, smoke_alarm: Siren, hold_open: Magnet };
 
 /** Elementart: 16-px-Linie in ink-3, kein Hintergrund. */
 export function CategoryGlyph({ category, className }: { category: Category | string; className?: string }) {

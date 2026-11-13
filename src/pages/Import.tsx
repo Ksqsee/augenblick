@@ -16,8 +16,9 @@ interface ImportResponse {
 
 function downloadTemplate() {
   const example = [
-    ['Grundschule Am Park', 'Haupthaus', 'Feuerschutztür', '', '', 'Treppenhaus Nord', 'EG', 'Hörmann', 'H3 OD', '2015', '15.03.2026'],
-    ['Grundschule Am Park', 'Turnhalle', 'Feuerlöscher', '', '', 'Geräteraum', 'EG', 'Gloria', 'PD6', '2020', ''],
+    ['Grundschule Am Park', 'Haupthaus', 'Feuerschutztür', '', '17', '', 'Treppenhaus Nord', 'EG', 'Hörmann', 'H3 OD', '2015', '15.03.2026'],
+    ['Grundschule Am Park', 'Haupthaus', 'Feststellanlage', '', '18', '', 'Treppenhaus Nord', 'EG', '', '', '2015', ''],
+    ['Grundschule Am Park', 'Turnhalle', 'Feuerlöscher', '', '', '', 'Geräteraum', 'EG', 'Gloria', 'PD6', '2020', ''],
   ];
   const csv = [IMPORT_COLUMNS.map((c) => c.label), ...example].map((r) => r.join(';')).join('\r\n');
   const url = URL.createObjectURL(new Blob(['﻿' + csv], { type: 'text/csv;charset=utf-8' }));
@@ -210,7 +211,8 @@ export function ImportPage() {
                     .join(', ')}
                   .
                 </li>
-                <li>Art z. B. „Feuerschutztür“, „BSK“, „Feuerlöscher“, „Rauchmelder“.</li>
+                <li>Art z. B. „Feuerschutztür“, „Feststellanlage“, „BSK“, „Feuerlöscher“, „Rauchmelder“.</li>
+                <li>Nummer = laufende Nummer im Objekt (z. B. Ident-Nr. aus dem Prüfprotokoll); leer = nächste freie.</li>
                 <li>Die Excel-Elementliste aus „Berichte“ lässt sich direkt wieder einlesen.</li>
               </ul>
               <details className="text-meta text-ink-3">

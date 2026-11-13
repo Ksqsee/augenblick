@@ -10,6 +10,7 @@ import { nowRoutes } from './now';
 import { sharePublic, shares } from './shares';
 import { calendar, calendarPublic } from './calendar';
 import { account, auth } from './auth';
+import { catalog } from './catalog';
 import { categories } from './categories';
 import { runDaily } from './cron';
 import { inspections } from './inspections';
@@ -62,6 +63,7 @@ app.route('/', mcpRoutes((req, c) => Promise.resolve(app.fetch(req, c.env, c.exe
 const secured = new Hono<AppEnv>();
 secured.use('*', requireAuth);
 secured.route('/', categories);
+secured.route('/', catalog);
 secured.route('/', offline);
 secured.route('/', inspections);
 secured.route('/', intervals);

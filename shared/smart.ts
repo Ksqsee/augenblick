@@ -1,6 +1,7 @@
 // Regelbasierte Auswertung von Diktaten und Vorschläge – läuft ohne KI im Browser und im Worker (/ai/parse);
 // freie Sprache und Bilder versteht Claude über den MCP-Server.
 import { CATEGORIES, type Severity } from './catalog';
+import { type CatalogDefect, clientVocabulary, expandTerms, matchCatalogDefect } from './vocab';
 
 export type CaptureKind = 'defect' | 'task' | 'note' | 'asset';
 
@@ -143,12 +144,16 @@ const FILLER = /^(also|äh+m?|ähm|ok(ay)?|ja|so|und|dann|außerdem|ausserdem|we
 /** Element-Code wie „FST-7K2M“ (auch gesprochen „FST 7K2M“); der zweite Teil braucht eine Ziffer, damit normale Wörter nicht greifen. */
 const CODE = /(?<![\p{L}\d])([A-Za-z]{2,4})[- ](?=[A-Za-z]*\d)([A-Za-z0-9]{3,6})(?![\p{L}\d])/u;
 
-export function suggestSeverity(text: string): Severity {
+/** Schwere: ausdrückliche Wörter („sofort“, „gering“) zuerst, dann typischer Mangel aus dem Katalog (shared/vocab.ts). */
+export function suggestSeverity(text: string, defects: CatalogDefect[] = clientVocabulary().defects): Severity {
   for (const [re, s] of SEVERITY_RULES) if (re.test(text)) return s;
-  return 'medium';
+  return matchCatalogDefect(text, defects)?.severity ?? 'medium';
 }
 
-export function suggestMeasure(text: string): string {
+/** Maßnahme: Katalog des Workspaces zuerst, sonst die eingebauten Regeln. */
+export function suggestMeasure(text: string, defects: CatalogDefect[] = clientVocabulary().defects): string {
+  const hit = matchCatalogDefect(text, defects);
+  if (hit?.measure) return hit.measure;
   for (const [re, m] of MEASURE_RULES) if (re.test(text)) return m;
   return '';
 }
@@ -197,7 +202,8 @@ const SPLIT = new RegExp(
 
 /** Diktat in einzelne Feststellungen, Aufgaben, Notizen und Sammelanlagen zerlegen. */
 export function parseCapture(text: string, ctx: CaptureContext = {}): CaptureItem[] {
-  const segments = text
+  // Begriffe des Katalogs („OTS“ → „Obentürschließer“, „FSA“ → „Feststellanlage“), shared/vocab.ts
+  const segments = expandTerms(text, clientVocabulary().terms)
     .replace(/\s+/g, ' ')
     .split(SPLIT)
     .map((s) => s.trim().replace(/[.;]+$/, ''))

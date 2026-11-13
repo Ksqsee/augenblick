@@ -6,7 +6,8 @@ import {
   Routes,
   useLocation,
 } from "react-router-dom";
-import { useCategories, useMe } from "./api";
+import { useCatalog, useCategories, useMe } from "./api";
+import { setClientVocab } from "../shared/vocab";
 import { autoMonthlyReports } from "./automation";
 import { registerCategories } from "./categories";
 import { setDisplayTimeZone } from "./format";
@@ -55,6 +56,8 @@ import { TeamPage } from "./pages/Team";
 function RequireAuth({ children }: { children: ReactNode }) {
   const me = useMe();
   const cats = useCategories();
+  // Katalog (Begriffe, typische Mängel) für Diktat und Vorschläge im Browser – ab Prüfer lesbar
+  const catalog = useCatalog(!!me.data && me.data.user.role !== "viewer");
   const loc = useLocation();
   const [, force] = useState(0);
   useEffect(() => {
@@ -63,6 +66,9 @@ function RequireAuth({ children }: { children: ReactNode }) {
       force((n) => n + 1);
     }
   }, [cats.data]);
+  useEffect(() => {
+    if (catalog.data) setClientVocab(catalog.data);
+  }, [catalog.data]);
   // Autopilot „Monatsberichte“ (Stufe Automatisch): einmal je Sitzung prüfen, PDFs entstehen im Hintergrund
   useEffect(() => {
     if (me.data) void autoMonthlyReports(me.data);

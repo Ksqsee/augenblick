@@ -39,13 +39,13 @@ Für API-Schlüssel gelten diese Regeln:
 | Endpunkt | Beschreibung |
 |----------|--------------|
 | `GET /dashboard` | Kennzahlen (überfällig, bald fällig, nie geprüft, nicht prüfbar, neue Elemente, Mängel …) |
-| `GET /search?q=` | Suche über Objekte, Gebäude, Elemente |
+| `GET /search?q=&propertyId=` | Suche über Objekte, Gebäude, Elemente; „Tür 36“, „Nummer 36“, „FSA 2“ (mit `propertyId` auch „36“) finden Elemente über ihre laufende Nummer – zuerst |
 | `GET /properties` | Objekte mit Status (überfällig, bald fällig, Mängel, nächste Begehung) |
 | `GET /buildings` | Alle Gebäude (`id`, `name`, `propertyId`) |
 | `GET /properties/:id` | Objekt mit Gebäuden, Elementen, Grundrissen, Begehungen, Brandschutzbeauftragten |
 | `GET /assets` | Elemente. Filter: `due=overdue\|soon\|never\|not_inspectable\|new\|defects`, `schedule=<Prüfart>`, `propertyId`, `buildingId`, `category`, `q` |
 | `GET /assets/:id` | Element mit Prüfarten, Historie, offenen Mängeln, Anhängen |
-| `GET /assets/by-code/:code` | Element über Code oder QR-Etikett |
+| `GET /assets/by-code/:code?propertyId=` | Element über Code oder QR-Etikett; mit `propertyId` auch über die laufende Nummer („Tür 36“, „36“), wenn eindeutig |
 | `GET /inspections?status=submitted\|draft\|ready&archived=1` | Prüfungen (ohne berichtigte); `superseded=1` liefert die durch eine Berichtigung ersetzten; `status=ready` = eigene Entwürfe, die zur Unterschrift bereitliegen (`readyAt`) |
 | `GET /inspections/:id` | Prüfung mit Prüfpunkten, Befunden, Mängeln (inkl. Maßnahme), Gesamtbewertung, Arten (`kinds`, `kindLabels`), Anlass (`purpose`: `regular`, `correction`, `follow_up`) und Verweisen (`supersedesId`, `supersededBy`, `followUpOf`) |
 | `GET /walkthroughs`, `GET /walkthroughs/:id` | Brandschutzbegehungen |
@@ -54,7 +54,9 @@ Für API-Schlüssel gelten diese Regeln:
 | `GET /smart/action-required` (auch `GET /defects/action-required`) | Alt-Pfad (Quellen wie `GET /now`; die Oberfläche nutzt ihn nicht mehr): kritische/hohe offene Mängel ohne offene Aufgabe, überfällige Aufgaben und überfällige Elemente, nach `urgency` absteigend; je Eintrag `kind` (`defect`/`task`/`asset`), `id`, `title`, `subtitle`, `reason`, `level`, `at` |
 | `GET /tasks`, `GET /tasks/:id/comments`, `GET /tasks/stats?days=30` | Aufgaben (mit `kind`: `inspection` = Prüfauftrag, `defect` = Mängelbehebung, `other`; `createdBy`, `watchers`, `watching`, `defectStatus`), Kommentare (mit `mentions`), Statistik |
 | `GET /tasks/:id/watchers` | Beobachter einer Aufgabe |
-| `GET /categories` | Elementarten mit Prüfarten und Prüfpunkten |
+| `GET /categories` | Elementarten mit Prüfarten und Prüfpunkten (eingebaut: `fire_door`, `hold_open` (Feststellanlage, FSA), `damper`, `extinguisher`, `smoke_alarm`) |
+| `GET /catalog` | Katalog des Workspaces `{ products, defects, terms }` (ab Prüfer, Leseschlüssel haben Rolle Lesezugriff → `403`); beim ersten Lesen bekommt ein Workspace die Grundausstattung |
+| `GET /catalog/:list?q=&category=` | eine Liste: `products`, `defects` oder `terms` |
 | `GET /reports`, `GET /reports/:id/file` | Archiv erstellter Berichte (PDF/ZIP) |
 | `GET /reports/annual?year=2026&propertyId=` | Daten des Jahresberichts je Objekt: Prüfungen nach Ergebnis/Art, Mängel mit Behebungsquote, Begehungen (mit Qualifikation der durchführenden Person), Brandschutzbeauftragte |
 | `GET /export/assets.xlsx`, `GET /export/assets.csv` | Elementliste in der Dokumentsprache des Workspaces |
@@ -63,8 +65,8 @@ Für API-Schlüssel gelten diese Regeln:
 
 | Endpunkt | Beschreibung |
 |----------|--------------|
-| `POST /assets` | Element anlegen: `{ buildingId, category, location, floor, manufacturer, model, attributes, code?, warnDays? }` (`warnDays`: eigene Vorwarnzeit in Tagen) |
-| `PATCH /assets/:id` | Element ändern |
+| `POST /assets` | Element anlegen: `{ buildingId, category, location, floor, manufacturer, model, attributes, number?, code?, warnDays? }` → `{ id, code, number }`. Ohne `code`/`number` nächste laufende Nummer im Objekt (`FST-001` …, über alle Arten; im Workspace schon vergebener Code → `FST-001-2`); `number` (1–99999) = feste Nummer, im Objekt schon vergeben → `409`; mit eigenem `code` ohne Nummer. `warnDays`: eigene Vorwarnzeit in Tagen |
+| `PATCH /assets/:id` | Element ändern; `number` setzt die laufende Nummer neu (Code bleibt), beim Umzug in ein anderes Objekt bekommt ein nummeriertes Element dort die nächste Nummer |
 | `PUT /assets/:id/schedules` | Prüfart aktivieren/deaktivieren: `{ key, enabled, nextDueAt? }` |
 | `POST /assets/:id/inspections` | Prüfungsentwurf anlegen: `{ schedule? }` oder Nachprüfung `{ purpose: "follow_up", followUpOf }`; `{ taskId }` = aus einer Aufgabe gestartet (Mängelbehebung → Nachprüfung der Ausgangsprüfung). Art vorbelegt: `initial` bei nie geprüften Elementen, sonst `periodic` |
 | `PUT /inspections/:id`, `POST /inspections/:id/submit` | Entwurf speichern bzw. abschließen. `PUT` mit `ready: true` legt einen vollständigen Entwurf **zur Unterschrift bereit** (Antwort `{ ok, ready, missing }` – `missing` nennt, was fehlt); unvollständig gespeichert oder `ready: false` nimmt das zurück; Arten als `kinds: ["periodic", …]` (eingebaute Schlüssel oder eigene `k_…`). Bekannte Mängel: `GET /inspections/:id` liefert im Entwurf `knownDefects` (offene Mängel des Elements); ein Mangel mit `knownId` wird verknüpft statt neu angelegt (ebenso ein gleich benannter offener Mangel), `resolvedDefects: [id, …]` schließt bekannte Mängel beim Abschluss („Bei Prüfung vom … behoben“). Gilt auch für `POST /inspections/offline` |
@@ -76,7 +78,9 @@ Für API-Schlüssel gelten diese Regeln:
 | `POST /tasks/bulk` | Mehrfachbearbeitung: `{ ids, status?, assigneeId? (null = niemand), priority?, dueAt? (null = ohne), resolveDefects? }` → `{ updated, skipped }`; nur Aufgaben im eigenen Bereich |
 | `POST /tasks/:id/watch`, `DELETE /tasks/:id/watch` | Aufgabe beobachten / nicht mehr beobachten (auch Lesezugriff) |
 | `POST /tasks/:id/comments` | Interne Notiz: `{ body, mentions? }` – `mentions` sind Nutzer-IDs von Mitgliedern, die die Aufgabe sehen dürfen (sonst 400); Erwähnte werden benachrichtigt und beobachten die Aufgabe. Notizen erscheinen nie im Link für Subunternehmer |
-| `POST /import/assets` | Massenimport (wie Import-Seite) |
+| `POST /import/assets` | Massenimport (wie Import-Seite); je Zeile optional `number` (Spalte „Nummer“/„Nr.“/„Ident-Nr.“) |
+| `POST /catalog/:list`, `PATCH /catalog/:list/:id`, `DELETE /catalog/:list/:id` | Katalogeintrag anlegen/ändern (teilweise)/löschen – nur Admin-Sitzung oder Schreib-Schlüssel einer Admin-/Inhaber-Person (#34). Produkte `{ manufacturer, model, category?, defaults?, approval?, note? }`, Mängel `{ title, synonyms?, severity, measure?, category? }`, Begriffe `{ term, meaning }`; gleicher Schlüssel (Hersteller+Typ, Art+Titel, Begriff – ohne Schreibweise) → `409` |
+| `POST /catalog/batch` | Stapel `{ kind, items (≤ 200), dryRun = true }` → `{ create, update: [{ entry, changes }], unchanged, errors }`; vorhandene Einträge (gleicher Schlüssel) werden geändert, mit `dryRun: false` in einer Transaktion gespeichert |
 | `POST /defects` | Mangel ohne Prüfung melden: `{ assetId? , propertyId?, title, severity, note?, measure?, photoKey? }` – Element oder Objekt ist Pflicht; bei `high`/`critical` (und Schweregraden aus Zuweisungsregeln) entsteht in Stufe „Automatisch“ der Regel `assign_defect_tasks` sofort eine Aufgabe, ggf. zugewiesen; Antwort `{ id, taskCreated }` |
 | `POST /smart/tasks-from-defects` | Für offene Mängel ohne Aufgabe je eine Aufgabe (Frist und Zuständige nach Zuweisungsregeln, sonst SLA-Frist): `{ severities? }` → `{ created }`; wird protokolliert |
 | `POST /inspections/offline` | Offline erfasste Prüfung übernehmen (idempotent über `clientId`): Prüfungsdaten wie beim Abschluss plus `{ clientId, assetId, schedule, inspectedAt, checkpoints }`. Inhaltliche Ablehnung (Validierung, Element gelöscht, Konflikt …) → Fehler mit `failureId`; die Übertragung bleibt dann unter `GET /offline/failures` (nicht bei 401/403/429) |
@@ -202,7 +206,7 @@ Folgeaufruf sie braucht; Fehler als `isError` mit Hinweis, was stattdessen geht)
 | `list` | Listen mit Filtern: `what: assets\|defects\|tasks\|inspections\|walkthroughs` |
 | `get` | Ein Ding vollständig (`kind` + `ref`: Code, Name oder ID) mit Verlauf und Foto-/Grundriss-Verweisen (`foto:…`, `plan:…`) |
 | `get_photo` | Foto oder Grundriss als MCP-Bildinhalt (JPEG/PNG/WebP bis 4 MB; SVG-Grundrisse als Text) |
-| `capture` | Mehrere Mängel, Aufgaben, Notizen, Elemente auf einmal; ähnliche offene Mängel → `skipped`, mit `force` trotzdem |
+| `capture` | Mehrere Mängel, Aufgaben, Notizen, Elemente auf einmal; ähnliche offene Mängel → `skipped`, mit `force` trotzdem. Element per Code oder – mit `property` – „Tür 36“; ohne Angabe Schwere/Maßnahme aus dem Katalog |
 | `update_asset` | Stammdaten nachtragen (Hersteller, Modell, Baujahr, Seriennummer, Zulassung, Standort, Etage, Etikett, weitere Felder) |
 | `update_tasks` | Status, Zuständige, Frist, Priorität, Kommentar – für eine oder mehrere Aufgaben |
 | `update_defect` | Mangel beheben (mit Notiz) oder wieder öffnen |
@@ -210,6 +214,7 @@ Folgeaufruf sie braucht; Fehler als `isError` mit Hinweis, was stattdessen geht)
 | `tour` | Rundgang führen: `start` (Gebäude) → nächstes fälliges Element mit Standort, Prüfpunkten und bekannten Mängeln; `next`; `status` |
 | `inspect` | Prüfung aus dem Gesagten ausfüllen (`allOk`, Mängel mit Prüfpunkt-Zuordnung, bekannte Mängel `still`/`fixed`, Arbeiten, Bemerkung, nicht prüfbar) und **zur Unterschrift bereitlegen** – nie abschließen |
 | `setup` | Objekt, Gebäude, Elemente (Etage, Standort, Art, Marker auf dem Grundriss) in einem Rutsch; zuerst `preview: true` (zeigt neue Objekte/Gebäude als „wird neu angelegt“). Neue Objekte/Gebäude nur mit Schreib-Schlüssel einer Admin-/Inhaber-Person, sonst weist die Vorschau darauf hin |
+| `catalog` | Fachwissen: `search` (Produkte, Mängel, Begriffe), `suggest` (Befund → typischer Mangel mit Schwere/Maßnahme, ausgeschriebene Begriffe; Hersteller/Typ → Produkte), `upsert` im Stapel mit Vorschau (`preview: true` zuerst; Art als Bezeichnung möglich); ändern nur mit Schreib-Schlüssel einer Admin-/Inhaber-Person |
 | `autopilot` | Schritte und Protokoll ansehen, Schritt einmal ausführen, Eintrag rückgängig machen; Stufen ändern nur Admins in der App |
 | `report` | Kennzahlen für Zeitraum (`month`, `year`, `from`/`to`) und Objekt als Text |
 

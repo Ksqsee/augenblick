@@ -17,7 +17,9 @@ const INSTRUCTIONS = [
   'Starte mit briefing („Was steht heute an?“); vor Ort führt tour Element für Element, und inspect trägt den gesprochenen Befund ein (alles i. O. außer den genannten Mängeln, bekannte Mängel als still/fixed).',
   'Du unterschreibst und schließt nie ab: inspect legt Prüfungen nur zur Unterschrift bereit, die prüfende Person unterschreibt in der App mit einem Tipp.',
   'Unterwegs Erfasstes legt capture an (Duplikate werden gemeldet, nicht doppelt angelegt), Typenschilder und Grundrisse siehst du mit get_photo und trägst sie mit update_asset bzw. setup (erst preview) ein.',
-  'Elemente heißen per Code (z. B. FST-7K2M), Daten sind deutsch, und der Autopilot erledigt Planen, Zuweisen und Nachhalten selbst – du siehst und steuerst ihn mit autopilot, Stufen ändern Admins nur in der App.',
+  'Elemente heißen per Code: neue laufend je Objekt (FST-001, FSA-002 …, über alle Arten), ältere z. B. FST-7K2M; „Tür 36“ oder „Nummer 36“ verstehen die Werkzeuge zusammen mit property (Objekt).',
+  'Fachwissen (Hersteller/Typen mit Vorgaben, typische Mängel mit Schwere und Maßnahme, Abkürzungen) liegt im Katalog: catalog sucht, schlägt vor und legt im Stapel an (erst preview).',
+  'Daten sind deutsch, und der Autopilot erledigt Planen, Zuweisen und Nachhalten selbst – du siehst und steuerst ihn mit autopilot, Stufen ändern Admins nur in der App.',
 ].join(' ');
 
 interface PromptDef {
