@@ -66,7 +66,7 @@ const check = (ok, m) => {
   check(!(await p.content()).includes('/api/mcp/k/'), 'keine Adresse mit Schlüssel im Pfad mehr');
   await p.getByText('Werkzeuge, Befehle und Claude Code').click();
   await p.getByRole('list', { name: 'MCP-Werkzeuge' }).getByText('capture', { exact: true }).waitFor();
-  check((await p.getByRole('list', { name: 'MCP-Werkzeuge' }).getByRole('listitem').count()) === 15, '15 Werkzeuge gelistet');
+  check((await p.getByRole('list', { name: 'MCP-Werkzeuge' }).getByRole('listitem').count()) === 16, '16 Werkzeuge gelistet');
   await p.screenshot({ path: OUT + '01-api.png', fullPage: true });
 
   step('Team: Rolle im Dialog ändern');

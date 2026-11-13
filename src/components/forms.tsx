@@ -4,7 +4,8 @@ import { type FormEvent, type ReactNode, useEffect, useRef, useState } from 'rea
 import { useNavigate } from 'react-router-dom';
 import { type Category } from '../../shared/catalog';
 import { BUILDING_TYPES, type BuildingType } from '../../shared/walkthrough';
-import { api, type Asset, type PropertyDetail, uploadPhoto, useAction, useProperties, useProperty } from '../api';
+import { api, type Asset, type PropertyDetail, uploadPhoto, useAction, useCatalog, useProperties, useProperty } from '../api';
+import { applyProductDefaults, foldText, suggestProducts } from '../../shared/vocab';
 import { CategoryIcon } from './CategoryIcon';
 import { lastFloor, readLastPlace, rememberPlace } from './objects/memory';
 import { Button, ErrorBox, Field, Input, Modal, Notice, Select, Textarea, useToast } from './ui';
@@ -316,6 +317,9 @@ export function AssetForm({
       labelCode: initial?.labelCode ?? defaultLabel ?? '',
     };
   });
+  /** laufende Nummer im Objekt (leer = nächste freie) */
+  const [number, setNumber] = useState<string>(initial?.number ? String(initial.number) : '');
+  const catalog = useCatalog();
   const [warnDays, setWarnDays] = useState<number | ''>(initial?.warnDays ?? '');
   const [attrs, setAttrs] = useState<Record<string, string | number | boolean | null>>(initial?.attributes ?? {});
   const [created, setCreated] = useState<string[]>([]);
@@ -328,8 +332,10 @@ export function AssetForm({
   const save = useAction(
     (_again: boolean) =>
       initial
-        ? api(`/assets/${initial.id}`, { method: 'PATCH', body: { ...f, labelCode: f.labelCode || undefined, attributes: attrs, warnDays: warnDays === '' ? null : warnDays } })
-        : api<{ id: string; code: string }>('/assets', { body: { ...f, code: f.code || undefined, labelCode: f.labelCode || undefined, category, attributes: attrs, warnDays: warnDays === '' ? null : warnDays } }),
+        ? api(`/assets/${initial.id}`, { method: 'PATCH', body: { ...f, number: number ? Number(number) : undefined, labelCode: f.labelCode || undefined, attributes: attrs, warnDays: warnDays === '' ? null : warnDays } })
+        : api<{ id: string; code: string }>('/assets', {
+            body: { ...f, code: f.code || undefined, number: number ? Number(number) : undefined, labelCode: f.labelCode || undefined, category, attributes: attrs, warnDays: warnDays === '' ? null : warnDays },
+          }),
     (r, again) => {
       const made = !initial && r && typeof r === 'object' ? (r as { id: string; code: string }) : undefined;
       if (made) rememberPlace({ propertyId: initial ? undefined : propertyId, buildingId: f.buildingId, floor: f.floor });
@@ -343,6 +349,7 @@ export function AssetForm({
         // gleiche Art, gleiches Gebäude, gleiche Etage – nur Standort und Kennungen leeren
         setCreated((c) => [...c, made.code]);
         setF((x) => ({ ...x, location: '', code: '', labelCode: '' }));
+        setNumber('');
         setRound((n) => n + 1);
         return;
       }
@@ -354,6 +361,14 @@ export function AssetForm({
 
   const def = getCategory(category);
   const buildingName = buildings?.find((b) => b.id === f.buildingId)?.name;
+  // Hersteller/Typ aus dem Katalog: Vorschläge zur Eingabe; Wählen füllt Hersteller, Typ und Vorgaben der Stammdaten
+  const products = catalog.data?.products ?? [];
+  const chosen = products.find((p) => foldText(p.manufacturer) === foldText(f.manufacturer) && foldText(p.model) === foldText(f.model));
+  const productHints = chosen ? [] : suggestProducts({ manufacturer: f.manufacturer, model: f.model }, products, category, 4).filter((p) => !p.category || p.category === category);
+  const pickProduct = (p: (typeof products)[number]) => {
+    setF((x) => ({ ...x, manufacturer: p.manufacturer, model: p.model }));
+    setAttrs((a) => applyProductDefaults(a, p, def.attributes.map((x) => x.key), true));
+  };
   return (
     <Modal
       wide
@@ -437,6 +452,30 @@ export function AssetForm({
           <Field label="Typ / Modell" optional>
             {(id) => <Input id={id} value={f.model} onChange={set('model')} />}
           </Field>
+          {(productHints.length > 0 || chosen) && (
+            <div className="sm:col-span-2" aria-label="Typen aus dem Katalog" role="group">
+              {chosen ? (
+                <p className="text-meta text-ink-3">
+                  Typ aus dem Katalog{chosen.approval ? ` · Zulassung ${chosen.approval}` : ''}
+                  {chosen.note ? ` · ${chosen.note}` : ''}
+                </p>
+              ) : (
+                <div className="flex flex-wrap items-baseline gap-x-4 gap-y-1">
+                  <span className="text-meta text-ink-3">Aus dem Katalog:</span>
+                  {productHints.map((p) => (
+                    <button
+                      key={p.id}
+                      type="button"
+                      onClick={() => pickProduct(p)}
+                      className="min-h-8 py-1 text-left text-meta text-ink-2 underline decoration-ink-4 underline-offset-4 transition-colors hover:text-ink hover:decoration-ink"
+                    >
+                      {p.manufacturer} {p.model}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
         </FormSection>
         {def.attributes.length > 0 && (
           <FormSection title="Stammdaten">
@@ -474,12 +513,26 @@ export function AssetForm({
           </FormSection>
         )}
         <FormSection title="Kennung und Erinnerung">
+          <Field label="Nummer" optional hint={initial ? 'Laufende Nummer im Objekt, z. B. aus dem Prüfprotokoll' : 'Leer = nächste freie Nummer im Objekt'}>
+            {(id) => (
+              <Input
+                id={id}
+                type="number"
+                min={1}
+                max={99999}
+                inputMode="numeric"
+                value={number}
+                onChange={(e) => setNumber(e.target.value.replace(/\D/g, '').slice(0, 5))}
+                placeholder="z. B. 36"
+              />
+            )}
+          </Field>
           {!initial && (
-            <Field label="Code" optional hint={`Leer lassen für ${def.prefix}-0001 usw.`}>
+            <Field label="Code" optional hint={`Leer lassen für ${def.prefix}-${number ? number.padStart(3, '0') : '001'} usw.`}>
               {(id) => <Input id={id} value={f.code} onChange={set('code')} placeholder={`${def.prefix}-…`} className="uppercase" />}
             </Field>
           )}
-          <Field label="QR-Etikett" optional hint="Code eines vorgedruckten Etiketts" className={initial ? 'sm:col-span-2' : undefined}>
+          <Field label="QR-Etikett" optional hint="Code eines vorgedruckten Etiketts" className={initial ? undefined : 'sm:col-span-2'}>
             {(id) => <Input id={id} value={f.labelCode} onChange={set('labelCode')} placeholder="z. B. PK-7Q2M9X" className="uppercase" />}
           </Field>
           <Field label="Vorwarnung (Tage vor Fälligkeit)" optional hint="Leer = Vorgabe des Workspaces" className="sm:col-span-2">

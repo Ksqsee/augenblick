@@ -8,6 +8,7 @@ import { type DocLanguage, tr } from "../shared/i18n";
 import { buildXlsx } from "../shared/xlsx";
 import { getCategoryDef, listCategories } from "./categories";
 import { similarity } from "../shared/smart";
+import { freeNumberCode, matchElementRef, numberCode, parseElementRef } from "../shared/vocab";
 import { autoDefectTasks, closeVerificationsOf } from "./automation";
 import { actionRequired } from "./smart";
 import {
@@ -161,10 +162,13 @@ data.get("/search", async (c) => {
         LIMIT 10`,
     ).bind(tid(c), like),
   ]);
+  // „Tür 36“, „Nummer 36“, „36“: Element-Nummern (mit `propertyId` nur in diesem Objekt) zuerst
+  const refs = await assetsByRef(c, q, c.req.query("propertyId"));
+  const seen = new Set(refs.map((r) => r.id));
   return c.json({
     properties: props.results,
     buildings: builds.results,
-    assets: assets.results,
+    assets: [...refs, ...(assets.results as { id: string }[]).filter((a) => !seen.has(a.id))].slice(0, 10),
   });
 });
 
@@ -474,7 +478,7 @@ data.delete("/buildings/:id", async (c) => {
 // ---------- Elemente ----------
 export function assetQuery(c: Ctx, where = "1=1", order = "a.code") {
   return c.env.DB.prepare(
-    `SELECT a.id, a.code, a.category, a.location, a.floor, a.manufacturer, a.model, a.attributes, a.label_code AS labelCode,
+    `SELECT a.id, a.code, a.number, a.category, a.location, a.floor, a.manufacturer, a.model, a.attributes, a.label_code AS labelCode,
             a.floor_plan_id AS floorPlanId, a.marker_x AS markerX, a.marker_y AS markerY,
             a.last_inspection_id AS lastInspectionId, a.last_inspected_at AS lastInspectedAt, a.last_result AS lastResult,
             a.next_due_at AS nextDueAt, a.created_at AS createdAt, a.schedules, a.warn_days AS warnDays,
@@ -511,8 +515,11 @@ data.get("/assets", async (c) => {
   if (q.q) {
     args.push(`%${q.q.toLowerCase()}%`);
     const i = args.length;
+    // „Tür 36“ / „36“: Element-Nummer (im Objekt, falls gefiltert)
+    args.push(JSON.stringify((await assetsByRef(c, q.q, q.propertyId)).map((r) => r.id)));
     where.push(
-      `(lower(a.code) LIKE ?${i} OR lower(a.location) LIKE ?${i} OR lower(a.manufacturer) LIKE ?${i} OR lower(b.name) LIKE ?${i} OR lower(p.name) LIKE ?${i} OR lower(COALESCE(a.label_code,'')) LIKE ?${i})`,
+      `(lower(a.code) LIKE ?${i} OR lower(a.location) LIKE ?${i} OR lower(a.manufacturer) LIKE ?${i} OR lower(b.name) LIKE ?${i} OR lower(p.name) LIKE ?${i} OR lower(COALESCE(a.label_code,'')) LIKE ?${i}
+        OR a.id IN (SELECT value FROM json_each(?${i + 1})))`,
     );
   }
   // Filter nach Prüfart: Termin dieser Prüfart statt des frühesten Termins
@@ -543,7 +550,7 @@ data.get("/assets", async (c) => {
       ? "a.created_at DESC"
       : q.due
         ? `COALESCE(${dueCol}, 0), a.code`
-        : "p.name, b.name, a.code";
+        : "p.name, b.name, COALESCE(a.number, 999999), a.code";
   const rows = await assetQuery(c, where.join(" AND ") || "1=1", order)
     .bind(...args)
     .all();
@@ -565,6 +572,8 @@ const assetBody = z.object({
   model: str(120).default(""),
   attributes: z.record(attrValue).default({}),
   code: str(40).optional(),
+  /** laufende Nummer im Objekt (Ident-Nr. aus Papierprotokollen); leer = nächste freie */
+  number: z.number().int().min(1).max(99999).optional(),
   labelCode: str(60).optional(),
   /** eigene Vorwarnzeit in Tagen (sonst Vorgabe des Workspaces) */
   warnDays: z.number().int().min(1).max(365).nullable().default(null),
@@ -579,18 +588,51 @@ export function randomCode(len: number) {
   ).join("");
 }
 
-export async function uniqueCode(c: Ctx, category: Category) {
-  const prefix = (await getCategoryDef(c, category)).prefix;
-  for (let i = 0; i < 12; i++) {
-    const code = `${prefix}-${randomCode(4)}`;
-    const hit = await c.env.DB.prepare(
-      "SELECT 1 FROM assets WHERE tenant_id = ? AND code = ?",
-    )
-      .bind(tid(c), code)
-      .first();
-    if (!hit) return code;
-  }
-  throw new HTTPException(500, { message: "Kein freier Code gefunden" });
+/**
+ * Nächste laufende Nummer im Objekt (über alle Arten). Der Zähler wird atomar hochgezählt (UPSERT … RETURNING) –
+ * gleichzeitige Anlagen bekommen dadurch nie dieselbe Nummer. Beim ersten Mal beginnt er hinter der höchsten
+ * vorhandenen Nummer; `atLeast` hebt ihn auf eine fest vergebene Nummer an.
+ */
+export async function nextAssetNumber(c: Ctx, propertyId: string, atLeast?: number): Promise<number> {
+  const seed = `COALESCE((SELECT MAX(a.number) FROM assets a JOIN buildings b ON b.id = a.building_id WHERE a.tenant_id = ?1 AND b.property_id = ?2), 0)`;
+  const sql =
+    atLeast == null
+      ? `INSERT INTO asset_counters (tenant_id, property_id, last) VALUES (?1, ?2, ${seed} + 1)
+         ON CONFLICT (tenant_id, property_id) DO UPDATE SET last = last + 1 RETURNING last`
+      : `INSERT INTO asset_counters (tenant_id, property_id, last) VALUES (?1, ?2, MAX(?3, ${seed}))
+         ON CONFLICT (tenant_id, property_id) DO UPDATE SET last = MAX(last, excluded.last) RETURNING last`;
+  const stmt = c.env.DB.prepare(sql);
+  const n = await (atLeast == null ? stmt.bind(tid(c), propertyId) : stmt.bind(tid(c), propertyId, atLeast)).first<number>("last");
+  return n ?? 1;
+}
+
+/** Ist die Nummer im Objekt frei (gelöschte Elemente zählen nicht)? */
+async function numberFree(c: Ctx, propertyId: string, n: number, exceptAssetId = "") {
+  const hit = await c.env.DB.prepare(
+    "SELECT a.code FROM assets a JOIN buildings b ON b.id = a.building_id WHERE a.tenant_id = ? AND b.property_id = ? AND a.number = ? AND a.deleted_at IS NULL AND a.id != ?",
+  )
+    .bind(tid(c), propertyId, n, exceptAssetId)
+    .first<{ code: string }>();
+  return hit ? hit.code : null;
+}
+
+/** Freier Code zur Nummer (Codes sind im Workspace eindeutig, auch gelöschte bleiben belegt). */
+async function codeForNumber(c: Ctx, prefix: string, n: number) {
+  const base = numberCode(prefix, n);
+  const rows = await c.env.DB.prepare("SELECT upper(code) AS code FROM assets WHERE tenant_id = ? AND (upper(code) = ? OR upper(code) LIKE ?)")
+    .bind(tid(c), base, `${base}-%`)
+    .all<{ code: string }>();
+  const taken = new Set(rows.results.map((r) => r.code));
+  return freeNumberCode(prefix, n, (x) => taken.has(x));
+}
+
+/** Gebäude im Workspace → Objekt (oder 404). */
+async function buildingProperty(c: Ctx, buildingId: string) {
+  const b = await c.env.DB.prepare("SELECT id, property_id AS propertyId FROM buildings WHERE id = ? AND tenant_id = ? AND deleted_at IS NULL")
+    .bind(buildingId, tid(c))
+    .first<{ id: string; propertyId: string }>();
+  if (!b) notFound("Gebäude");
+  return b;
 }
 
 async function assertLabelFree(c: Ctx, label: string, exceptAssetId?: string) {
@@ -613,54 +655,71 @@ data.post("/assets", async (c) => {
   requireCreate(c);
   const b = assetBody.parse(await c.req.json());
   assertInScope(c, "building", b.buildingId);
-  const building = await c.env.DB.prepare(
-    "SELECT id FROM buildings WHERE id = ? AND tenant_id = ? AND deleted_at IS NULL",
-  )
-    .bind(b.buildingId, tid(c))
-    .first();
-  if (!building) notFound("Gebäude");
+  const { propertyId } = await buildingProperty(c, b.buildingId);
   const def = await getCategoryDef(c, b.category);
-  const code = b.code?.toUpperCase() || (await uniqueCode(c, b.category));
-  const dup = await c.env.DB.prepare(
-    "SELECT 1 FROM assets WHERE tenant_id = ? AND code = ?",
-  )
-    .bind(tid(c), code)
-    .first();
-  if (dup)
-    throw new HTTPException(409, {
-      message: `Code ${code} ist bereits vergeben`,
-    });
   const label = b.labelCode?.toUpperCase() || null;
   if (label) await assertLabelFree(c, label);
+  // Laufende Nummer je Objekt: fest angegeben (muss frei sein) oder die nächste; mit eigenem Code ohne Nummer
+  let number: number | null = null;
+  if (b.number != null) {
+    const holder = await numberFree(c, propertyId, b.number);
+    if (holder) throw new HTTPException(409, { message: c.get("user").scope ? `Nummer ${b.number} ist in diesem Objekt schon vergeben` : `Nummer ${b.number} hat in diesem Objekt schon ${holder}` });
+    number = b.number;
+  } else if (!b.code) number = await nextAssetNumber(c, propertyId);
   const aid = id();
   const t = now();
-  await c.env.DB.prepare(
-    `INSERT INTO assets (id, tenant_id, building_id, category, code, location, floor, manufacturer, model, attributes, label_code, schedules, created_at, updated_at, warn_days)
-     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-  )
-    .bind(
-      aid,
-      tid(c),
-      b.buildingId,
-      b.category,
-      code,
-      b.location,
-      b.floor,
-      b.manufacturer,
-      b.model,
-      JSON.stringify(b.attributes),
-      label,
-      JSON.stringify({ main: { enabled: true } }),
-      t,
-      t,
-      b.warnDays,
-    )
-    .run();
-  await logActivity(c, "create", "asset", aid, `${def.label} ${code} angelegt`);
-  return c.json({ id: aid, code });
+  for (let attempt = 0; ; attempt++) {
+    const code = b.code?.toUpperCase() || (await codeForNumber(c, def.prefix, number!));
+    if (b.code) {
+      const dup = await c.env.DB.prepare("SELECT 1 FROM assets WHERE tenant_id = ? AND upper(code) = ?").bind(tid(c), code).first();
+      if (dup) throw new HTTPException(409, { message: `Code ${code} ist bereits vergeben` });
+    }
+    try {
+      // Feste Nummer: nur einfügen, wenn sie im Objekt noch frei ist (eine Anweisung = kein Wettlauf)
+      const r = await c.env.DB.prepare(
+        `INSERT INTO assets (id, tenant_id, building_id, category, code, number, location, floor, manufacturer, model, attributes, label_code, schedules, created_at, updated_at, warn_days)
+         SELECT ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?14, ?15
+          WHERE ?6 IS NULL OR NOT EXISTS (SELECT 1 FROM assets x JOIN buildings y ON y.id = x.building_id
+                                           WHERE x.tenant_id = ?2 AND y.property_id = ?16 AND x.number = ?6 AND x.deleted_at IS NULL)`,
+      )
+        .bind(aid, tid(c), b.buildingId, b.category, code, number, b.location, b.floor, b.manufacturer, b.model, JSON.stringify(b.attributes), label, JSON.stringify({ main: { enabled: true } }), t, b.warnDays, propertyId)
+        .run();
+      if (!r.meta.changes) throw new HTTPException(409, { message: `Nummer ${number} ist in diesem Objekt schon vergeben` });
+      if (b.number != null) await nextAssetNumber(c, propertyId, b.number);
+      await logActivity(c, "create", "asset", aid, `${def.label} ${code} angelegt`);
+      return c.json({ id: aid, code, number });
+    } catch (e) {
+      // gleichzeitig vergebener Code (anderes Objekt mit derselben Nummer): neuen Zusatz wählen
+      if (!b.code && attempt < 4 && e instanceof Error && /UNIQUE constraint failed: assets\.tenant_id, assets\.code/i.test(e.message)) continue;
+      if (e instanceof Error && /UNIQUE constraint failed/i.test(e.message)) throw new HTTPException(409, { message: "Code oder Etikett ist bereits vergeben" });
+      throw e;
+    }
+  }
 });
 
-/** Code oder zugeordnetes Etikett auflösen. */
+/**
+ * Elemente zu einem gesprochenen Verweis („Tür 36“, „Nummer 36“, „36“, „FSA 2“) – optional nur in einem Objekt.
+ * Liefert die passenden Elemente im Zugriffsbereich (shared/vocab.ts matchElementRef).
+ */
+export async function assetsByRef(c: Ctx, q: string, propertyId?: string | null) {
+  const cats = await listCategories(c);
+  const ref = parseElementRef(q, cats.map((x) => ({ key: x.key, label: x.label, plural: x.plural, prefix: x.prefix })));
+  if (!ref) return [];
+  // Kandidaten: gleiche Nummer oder älterer Code mit dieser Zahl am Ende
+  const rows = await c.env.DB.prepare(
+    `SELECT a.id, a.code, a.number, a.category, a.location, a.floor, b.name AS buildingName, p.id AS propertyId, p.name AS propertyName
+       FROM assets a JOIN buildings b ON b.id = a.building_id JOIN properties p ON p.id = b.property_id
+      WHERE a.tenant_id = ?1 AND a.deleted_at IS NULL AND b.deleted_at IS NULL AND p.deleted_at IS NULL
+        AND ${scopeSql(c, "a.building_id", "building")} AND (?3 = '' OR p.id = ?3)
+        AND (a.number = ?2 OR (a.number IS NULL AND (a.code LIKE '%-' || ?2 OR a.code LIKE '%-0' || ?2 OR a.code LIKE '%-00' || ?2)))
+      ORDER BY p.name, a.code LIMIT 50`,
+  )
+    .bind(tid(c), ref.number, propertyId ?? "")
+    .all<{ id: string; code: string; number: number | null; category: string }>();
+  return matchElementRef(ref, rows.results);
+}
+
+/** Code oder zugeordnetes Etikett auflösen; mit `propertyId` auch „Tür 36“/„36“ im Objekt (eindeutig, sonst 404). */
 data.get("/assets/by-code/:code", async (c) => {
   const code = c.req.param("code");
   const row = await c.env.DB.prepare(
@@ -668,8 +727,13 @@ data.get("/assets/by-code/:code", async (c) => {
   )
     .bind(tid(c), code, code)
     .first();
-  if (!row) notFound("Element");
-  return c.json(row);
+  if (row) return c.json(row);
+  const propertyId = c.req.query("propertyId");
+  if (propertyId) {
+    const hits = await assetsByRef(c, code, propertyId);
+    if (hits.length === 1) return c.json({ id: hits[0]!.id });
+  }
+  notFound("Element");
 });
 
 data.get("/assets/:id", async (c) => {
@@ -711,19 +775,26 @@ data.patch("/assets/:id", async (c) => {
   const b = assetBody
     .omit({ category: true, code: true })
     .parse(await c.req.json());
-  await assetInScope(c, c.req.param("id"));
+  const cur = await assetInScope(c, c.req.param("id"));
   assertInScope(c, "building", b.buildingId);
-  const building = await c.env.DB.prepare(
-    "SELECT id FROM buildings WHERE id = ? AND tenant_id = ? AND deleted_at IS NULL",
-  )
-    .bind(b.buildingId, tid(c))
-    .first();
-  if (!building) notFound("Gebäude");
+  const { propertyId } = await buildingProperty(c, b.buildingId);
   const label = b.labelCode?.toUpperCase() || null;
   if (label) await assertLabelFree(c, label, c.req.param("id"));
+  // Laufende Nummer: neu gesetzt (muss im Objekt frei sein) bzw. beim Umzug in ein anderes Objekt neu vergeben; Code bleibt
+  const old = await c.env.DB.prepare("SELECT a.number, b.property_id AS propertyId FROM assets a JOIN buildings b ON b.id = a.building_id WHERE a.id = ?")
+    .bind(cur.id)
+    .first<{ number: number | null; propertyId: string }>();
+  let number = old?.number ?? null;
+  if (b.number != null && (b.number !== number || old?.propertyId !== propertyId)) {
+    if (await numberFree(c, propertyId, b.number, cur.id)) throw new HTTPException(409, { message: `Nummer ${b.number} ist in diesem Objekt schon vergeben` });
+    number = b.number;
+    await nextAssetNumber(c, propertyId, b.number);
+  } else if (b.number == null && number != null && old?.propertyId !== propertyId) {
+    number = await nextAssetNumber(c, propertyId);
+  }
   const r = await c.env.DB.prepare(
     `UPDATE assets SET building_id=?, location=?, floor=?, manufacturer=?, model=?, attributes=?, label_code=?, updated_at=?, warn_days=?,
-            floor_plan_id = CASE WHEN building_id = ? THEN floor_plan_id ELSE NULL END
+            floor_plan_id = CASE WHEN building_id = ? THEN floor_plan_id ELSE NULL END, number=?
       WHERE id=? AND tenant_id=? AND deleted_at IS NULL`,
   )
     .bind(
@@ -737,12 +808,13 @@ data.patch("/assets/:id", async (c) => {
       now(),
       b.warnDays,
       b.buildingId,
+      number,
       c.req.param("id"),
       tid(c),
     )
     .run();
   if (!r.meta.changes) notFound("Element");
-  return c.json({ ok: true });
+  return c.json({ ok: true, number });
 });
 
 /** Vorgedrucktes Etikett einem Element zuordnen (oder lösen mit null). */

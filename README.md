@@ -1,7 +1,7 @@
 # Prüfkompass
 
 Web-App für wiederkehrende Brandschutzprüfungen: Objekte → Gebäude → Elemente
-(Feuerschutztüren, Brandschutzklappen, Feuerlöscher, Rauchwarnmelder und eigene Elementarten),
+(Feuerschutztüren, Feststellanlagen, Brandschutzklappen, Feuerlöscher, Rauchwarnmelder und eigene Elementarten),
 Prüfung vor Ort mit Unterschrift, Mängel- und Aufgabenverfolgung, Berichte, QR-Etiketten und API.
 
 Live: https://pruefkompass.ksqsebastian.workers.dev ·
@@ -56,6 +56,21 @@ API: [`docs/api.md`](docs/api.md)
   braucht – Unterschriften, abgelehnte Offline-Übertragungen, schwere Mängel ohne Aufgabe, eigene überfällige Aufgaben,
   Rundgänge, Begehungen, Autopilot-Vorschläge, angefangene Prüfungen, Intervall-Vorschläge; je Zeile eine Aktion, nach
   Dringlichkeit, höchstens 12 (Rest hinter „Alle … anzeigen“)
+- **Feststellanlage** als eingebaute Elementart (`hold_open`, Präfix FSA, jährlich, monatliche Sichtkontrolle optional)
+  mit 20 Prüfpunkten (Dokumentation/Zulassung, Abschluss und Schließmittel, Feststellvorrichtung, Auslösevorrichtung,
+  Funktionsprüfung Simulation/Handauslösung/Energieausfall, Komponenten, Herstellerwartung), Stammdaten und Wartungsarbeiten.
+  Türen haben zusätzlich Türtyp/Bauart, Absenkdichtung, Obentürschließer und Türspion
+- **Laufende Nummern je Objekt**: neue Elemente heißen `<Präfix>-<Nr.>` (FST-001, FSA-002 …), fortlaufend je Objekt über
+  alle Arten; vergeben über einen atomaren Zähler (`asset_counters`), auch bei gleichzeitigem Anlegen ohne Doppelte. Eine
+  feste Nummer (Ident-Nr. aus dem Papierprotokoll) lässt sich beim Anlegen, Ändern und im Import (Spalte „Nummer“) setzen.
+  Codes sind im Workspace eindeutig: ist „FST-001“ schon in einem anderen Objekt vergeben, heißt das Element „FST-001-2“.
+  Vorhandene Codes bleiben. Suche, Element-API und MCP verstehen „Tür 36“, „Nummer 36“, „FSA 2“ und – im Objekt – „36“
+  (`shared/vocab.ts`)
+- **Katalog** (Einstellungen → Katalog): je Workspace Produkte (Hersteller/Typ mit Vorgabewerten und Zulassung), typische
+  Mängel (Schwere, Maßnahme, Synonyme) und Begriffe (OTS → Obentürschließer). Neue Workspaces bekommen eine Grundausstattung
+  (15 Begriffe, 25 Tür-/FSA-Mängel), bestehende beim ersten Lesen. Im Elementformular füllt ein Typ aus dem Katalog Hersteller,
+  Typ und Stammdaten; Diktat und Prüfablauf schlagen Schwere und Maßnahme aus dem Katalog vor; Abkürzungen werden beim Auswerten
+  ausgeschrieben. Lesen ab Prüfer, ändern Admins (bzw. Claude mit dem Schreib-Schlüssel einer Admin-Person, MCP `catalog`)
 - **Foto beim Anlegen** (optional, z. B. vom Typenschild): wird am Element gespeichert; Claude liest es über `get_photo`
   und trägt Stammdaten mit `update_asset` nach
 - **Sammelanlage per Diktat** unter „Erfassen“: „fünf Feuerlöscher im Erdgeschoss Flur“ → Anzahl, Art, Etage, Standort prüfen,
@@ -180,7 +195,7 @@ npm run check              # Typprüfung + Unit-Tests + Build
 ## Tests
 
 - **Unit-Tests** (`npm test`, Vitest): Fachlogik, Autopilot-Kreislauf, Rangfolge „Jetzt“, Import/Export, Übersetzungen, Ruhezeiten, Web Push.
-- **Browser-Tests** (`e2e/`, Playwright): Reihen von der Registrierung über Sicherheitskorrekturen und Massenoperationen bis zu Berichtigung, Nachprüfung sowie Aufgaben und Mängeln (`14-tasks-defects`), dem Autopiloten (`20-autopilot`) und den offenen Punkten aus der Analyse (`21-offene-punkte`: Offline-Fehlliste, Intervalle, Partner-Zugang), dem MCP-Server (`11-ai-mcp`) und „Sprache zuerst“ (`23-sprache`: Rundgang über Claude, Unterschrift mit einem Tipp; `24-unterschreiben-offline`: Seite „Unterschreiben“, Befund einsprechen, Erfassen und Rundgang ohne Netz) sowie der Navigation mit fünf Orten (`25-fuenf-orte`: Leisten, Umleitungen, Prüfen, Offen, Heute am Handy, 390 px).
+- **Browser-Tests** (`e2e/`, Playwright): Reihen von der Registrierung über Sicherheitskorrekturen und Massenoperationen bis zu Berichtigung, Nachprüfung sowie Aufgaben und Mängeln (`14-tasks-defects`), dem Autopiloten (`20-autopilot`) und den offenen Punkten aus der Analyse (`21-offene-punkte`: Offline-Fehlliste, Intervalle, Partner-Zugang), dem MCP-Server (`11-ai-mcp`) und „Sprache zuerst“ (`23-sprache`: Rundgang über Claude, Unterschrift mit einem Tipp; `24-unterschreiben-offline`: Seite „Unterschreiben“, Befund einsprechen, Erfassen und Rundgang ohne Netz) sowie der Navigation mit fünf Orten (`25-fuenf-orte`: Leisten, Umleitungen, Prüfen, Offen, Heute am Handy, 390 px) und dem Fachwissen (`26-katalog`: Feststellanlage, laufende Nummern, Typ- und Mangel-Vorschläge, Katalogseite, MCP `catalog`).
   Vor jeder Reihe wird die lokale D1 geleert und mit Demodaten befüllt.
 
 ```bash

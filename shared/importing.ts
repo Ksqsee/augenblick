@@ -6,6 +6,7 @@ export const IMPORT_COLUMNS = [
   { key: 'building', label: 'Gebäude', required: true },
   { key: 'category', label: 'Art', required: true },
   { key: 'code', label: 'Code', required: false },
+  { key: 'number', label: 'Nummer', required: false },
   { key: 'labelCode', label: 'Etikett', required: false },
   { key: 'location', label: 'Standort', required: false },
   { key: 'floor', label: 'Etage', required: false },
@@ -37,6 +38,11 @@ Object.assign(CATEGORY_ALIASES, {
   [norm('Löscher')]: 'extinguisher',
   [norm('Rauchmelder')]: 'smoke_alarm',
   [norm('Melder')]: 'smoke_alarm',
+  [norm('Feststeller')]: 'hold_open',
+  [norm('Feststellanlage Tür')]: 'hold_open',
+  [norm('FSA-Anlage')]: 'hold_open',
+  [norm('Hold-open system')]: 'hold_open',
+  [norm('Hold-open device')]: 'hold_open',
   // englischer Export
   [norm('Fire door')]: 'fire_door',
   [norm('Fire damper')]: 'damper',
@@ -61,6 +67,14 @@ export function mapHeader(header: string[]): (ImportKey | null)[] {
     typ: 'category',
     elementart: 'category',
     elementcode: 'code',
+    nr: 'number',
+    identnr: 'number',
+    identnummer: 'number',
+    ident: 'number',
+    laufendenummer: 'number',
+    lfdnr: 'number',
+    no: 'number',
+    number: 'number',
     qr: 'labelCode',
     qrcode: 'labelCode',
     etikettcode: 'labelCode',
@@ -153,6 +167,7 @@ export interface ImportRow {
   building: string;
   category: Category;
   code?: string;
+  number?: number;
   labelCode?: string;
   location: string;
   floor: string;
@@ -183,12 +198,15 @@ export function toImportRows(table: unknown[][], extra?: { key: string; label: s
     const last = rec.lastInspectedAt != null && s('lastInspectedAt') ? parseDate(rec.lastInspectedAt) : null;
     if (s('lastInspectedAt') && last == null) return errors.push({ line, message: `Datum nicht lesbar „${s('lastInspectedAt')}“` });
     const year = s('year') ? Number(s('year')) : undefined;
+    const num = s('number') ? Number(s('number').replace(/^#/, '')) : undefined;
+    if (num !== undefined && !(Number.isInteger(num) && num >= 1 && num <= 99999)) return errors.push({ line, message: `Nummer nicht lesbar „${s('number')}“` });
     rows.push({
       line,
       property: s('property'),
       building: s('building'),
       category,
       code: s('code').toUpperCase() || undefined,
+      number: num,
       labelCode: s('labelCode').toUpperCase() || undefined,
       location: s('location'),
       floor: s('floor'),

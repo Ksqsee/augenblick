@@ -1,7 +1,7 @@
 // Prüfkataloge – eigene Formulierungen, orientiert an den einschlägigen Normen
 // (DIN 14677, DIN EN 15650 / DIN 31051, DIN 14406-4, DIN 14676).
 
-export type BuiltinCategory = 'fire_door' | 'damper' | 'extinguisher' | 'smoke_alarm';
+export type BuiltinCategory = 'fire_door' | 'damper' | 'extinguisher' | 'smoke_alarm' | 'hold_open';
 /** Eingebaute Kategorie oder eigener Typ des Workspaces (Schlüssel „c_…“). */
 export type Category = string;
 
@@ -79,6 +79,10 @@ export const CATEGORIES: Record<BuiltinCategory, CategoryDef> = {
       { key: 'smoke', label: 'Rauchschutz (RS)', type: 'boolean' },
       { key: 'leaves', label: 'Flügel', type: 'select', options: ['1-flügelig', '2-flügelig'] },
       { key: 'holdOpen', label: 'Feststellanlage', type: 'boolean' },
+      { key: 'doorType', label: 'Türtyp / Bauart' },
+      { key: 'dropSeal', label: 'Absenkdichtung', type: 'boolean' },
+      { key: 'closer', label: 'Obentürschließer', type: 'boolean' },
+      { key: 'peephole', label: 'Türspion', type: 'boolean' },
     ],
     schedules: [
       { key: 'main', label: 'Jährliche Prüfung und Wartung', intervalMonths: 12, optional: false },
@@ -237,6 +241,69 @@ export const CATEGORIES: Record<BuiltinCategory, CategoryDef> = {
       { key: 'other', label: 'Sonstige Arbeiten' },
     ],
   },
+  hold_open: {
+    key: 'hold_open',
+    label: 'Feststellanlage',
+    plural: 'Feststellanlagen',
+    prefix: 'FSA',
+    norm: 'DIN 14677',
+    intervalMonths: 12,
+    checkpoints: cp([
+      ['Anlage gekennzeichnet, Zulassung und Abnahme belegt', 'Schild an der Anlage, Abnahmebescheinigung'],
+      'Prüfbuch bzw. Wartungsnachweis vorhanden und fortgeschrieben',
+      'Zugehöriger Abschluss (Tür, Tor) ohne erkennbare Schäden',
+      'Abschluss schließt nach der Freigabe selbsttätig und vollständig',
+      'Schließmittel (Türschließer, Federband) wirkt, Schließgeschwindigkeit angemessen',
+      ['Schließfolge bei zweiflügeligen Abschlüssen eingehalten', 'nur wenn vorhanden'],
+      'Feststellvorrichtung (Haftmagnet, Gleitschiene) fest montiert und unbeschädigt',
+      'Haltekraft ausreichend, Gegenplatte sauber und richtig ausgerichtet',
+      'Auslösevorrichtung vollständig, Melder an den vorgesehenen Stellen',
+      'Melder sauber, Raucheintritt frei, nicht überstrichen oder abgedeckt',
+      'Melder innerhalb der Austauschfrist, keine Verschmutzungs- oder Störmeldung',
+      'Handauslösetaster vorhanden, gekennzeichnet und gut erreichbar',
+      'Energieversorgung und Leitungen intakt und gesichert',
+      ['Funktionsprüfung Simulation: Prüfrauch löst die Freigabe aus', 'Prüfaerosol nach Herstellerangabe'],
+      'Funktionsprüfung Handauslösung: Taster gibt den Abschluss frei',
+      'Funktionsprüfung Energieausfall: Unterbrechung der Versorgung gibt frei',
+      'Störung oder Entfernen eines Melders führt zur Freigabe',
+      'Schließbereich frei, keine zusätzlichen Festhaltungen',
+      'Verbaute Komponenten entsprechen der Zulassung',
+      'Abschließende Funktionsprüfung bestanden, Prüfbuch ergänzt',
+    ]),
+    attributes: [
+      { key: 'year', label: 'Baujahr', type: 'number' },
+      { key: 'approval', label: 'Zulassungsnummer' },
+      { key: 'holdDevice', label: 'Feststellvorrichtung', type: 'select', options: ['Haftmagnet', 'Freilauftürschließer', 'Gleitschiene mit Feststellung', 'Federband mit Feststellung'] },
+      { key: 'trigger', label: 'Auslösevorrichtung', type: 'select', options: ['Rauchschalter im Sturz', 'Deckenmelder', 'Sturz- und Deckenmelder'] },
+      { key: 'detectors', label: 'Anzahl Melder', type: 'number' },
+      { key: 'manualRelease', label: 'Handauslösetaster', type: 'boolean' },
+      { key: 'door', label: 'Zugehöriger Abschluss' },
+    ],
+    schedules: [
+      { key: 'main', label: 'Jährliche Prüfung und Wartung', intervalMonths: 12, optional: false },
+      {
+        key: 'visual',
+        label: 'Monatliche Sichtkontrolle',
+        intervalMonths: 1,
+        optional: true,
+        checkpoints: cp([
+          'Handauslösung gibt frei, Abschluss schließt ins Schloss',
+          'Melder sichtbar unbeschädigt und frei',
+          'Schließbereich frei von Hindernissen',
+          'Keine Stör- oder Verschmutzungsanzeige',
+        ]),
+      },
+    ],
+    maintenance: [
+      { key: 'detectorCleaned', label: 'Melder gereinigt' },
+      { key: 'detectorReplaced', label: 'Melder getauscht' },
+      { key: 'magnet', label: 'Haftmagnet und Gegenplatte gereinigt' },
+      { key: 'closer', label: 'Schließer nachjustiert' },
+      { key: 'component', label: 'Komponente getauscht' },
+      { key: 'vendor', label: 'Herstellerwartung durchgeführt' },
+      { key: 'other', label: 'Sonstige Arbeiten' },
+    ],
+  },
 };
 
 export const isBuiltin = (k: string): k is BuiltinCategory => k in CATEGORIES;
@@ -300,3 +367,94 @@ export const ROLES = {
   viewer: 'Lesezugriff',
 } as const;
 export type Role = keyof typeof ROLES;
+
+// ---------- Katalog je Workspace: Produkte, typische Mängel, Begriffe (Migration 0023, worker/catalog.ts) ----------
+
+/** Hersteller/Typ mit Vorgabewerten für die Stammdaten (Typ wählen füllt das Elementformular). */
+export interface CatalogProduct {
+  id: string;
+  manufacturer: string;
+  model: string;
+  /** Elementart (Schlüssel) oder leer = alle */
+  category: string;
+  /** Vorgabewerte der Stammdaten, z. B. {rating: "T30", smoke: true} */
+  defaults: Record<string, string | number | boolean | null>;
+  approval: string;
+  note: string;
+}
+
+/** Typischer Mangel mit Schwere und Maßnahme; Synonyme helfen beim Erkennen im Diktat. */
+export interface CatalogDefect {
+  id: string;
+  title: string;
+  synonyms: string[];
+  severity: Severity;
+  measure: string;
+  /** Elementart (Schlüssel) oder leer = alle */
+  category: string;
+}
+
+/** Abkürzung bzw. Fachbegriff → Bedeutung (z. B. OTS → Obentürschließer). */
+export interface CatalogTerm {
+  id: string;
+  term: string;
+  meaning: string;
+}
+
+/** Höchstzahl je Liste und Workspace. */
+export const CATALOG_LIMITS = { products: 2000, defects: 1000, terms: 500 } as const;
+
+/** Grundausstattung für neue Workspaces – eigene Formulierungen. */
+export const CATALOG_SEED_TERMS: Omit<CatalogTerm, 'id'>[] = [
+  { term: 'OTS', meaning: 'Obentürschließer' },
+  { term: 'RS', meaning: 'Rauchschutz' },
+  { term: 'OL', meaning: 'Oberlicht' },
+  { term: 'ST', meaning: 'Seitenteil' },
+  { term: 'FSA', meaning: 'Feststellanlage' },
+  { term: 'FST', meaning: 'Feuerschutztür' },
+  { term: 'HM', meaning: 'Haftmagnet' },
+  { term: 'HAT', meaning: 'Handauslösetaster' },
+  { term: 'SFR', meaning: 'Schließfolgeregler' },
+  { term: 'GLS', meaning: 'Gleitschiene' },
+  { term: 'BSK', meaning: 'Brandschutzklappe' },
+  { term: 'RWM', meaning: 'Rauchwarnmelder' },
+  { term: 'abZ', meaning: 'allgemeine bauaufsichtliche Zulassung' },
+  { term: 'abP', meaning: 'allgemeines bauaufsichtliches Prüfzeugnis' },
+  { term: 'DIBt', meaning: 'Deutsches Institut für Bautechnik' },
+];
+
+const seedDefect = (category: string, title: string, severity: Severity, measure: string, synonyms: string[] = []): Omit<CatalogDefect, 'id'> => ({
+  title,
+  synonyms,
+  severity,
+  measure,
+  category,
+});
+
+export const CATALOG_SEED_DEFECTS: Omit<CatalogDefect, 'id'>[] = [
+  seedDefect('fire_door', 'Tür schließt nicht vollständig', 'high', 'Obentürschließer einstellen, bei Verschleiß tauschen', ['fällt nicht ins Schloss', 'Schließer zu schwach', 'Obentürschließer schließt nicht']),
+  seedDefect('fire_door', 'Tür mit Keil oder Haken offen gehalten', 'high', 'Festhaltung entfernen, Nutzer unterweisen; bei Bedarf zugelassene Feststellanlage vorsehen', ['verkeilt', 'Keil untergelegt', 'festgebunden']),
+  seedDefect('fire_door', 'Dichtung beschädigt oder fehlend', 'medium', 'Dichtung nach Herstellerangabe ersetzen', ['Dichtung fehlt', 'Rauchschutzdichtung lose', 'Dichtung gerissen']),
+  seedDefect('fire_door', 'Dichtung überstrichen', 'medium', 'Überstrichene Dichtung ersetzen', ['Dichtung übermalt', 'Dichtung lackiert']),
+  seedDefect('fire_door', 'Absenkdichtung ohne Funktion', 'medium', 'Absenkdichtung einstellen oder ersetzen', ['Bodendichtung senkt nicht ab', 'Bodenspalt zu groß']),
+  seedDefect('fire_door', 'Falle rastet nicht ein', 'high', 'Schloss und Schließblech justieren, bei Bedarf Schloss tauschen', ['Schloss klemmt', 'Falle klemmt']),
+  seedDefect('fire_door', 'Türblatt beschädigt oder nachträglich durchbohrt', 'high', 'Instandsetzung nur nach Herstellervorgabe, sonst Türblatt tauschen', ['Loch im Türblatt', 'Bohrung im Türblatt', 'Türblatt verzogen']),
+  seedDefect('fire_door', 'Zarge lose oder Anschlussfuge offen', 'high', 'Zarge nachbefestigen, Fuge mit zugelassenem Material schließen', ['Fuge offen', 'Zarge locker']),
+  seedDefect('fire_door', 'Bänder mit Spiel', 'medium', 'Bänder nachstellen oder tauschen, schmieren', ['Band ausgeschlagen', 'Tür hängt']),
+  seedDefect('fire_door', 'Kennzeichnungsschild fehlt oder unleserlich', 'low', 'Zulassung klären, Kennzeichnung über den Hersteller nachrüsten', ['Typenschild fehlt', 'Schild unleserlich']),
+  seedDefect('fire_door', 'Schließfolgeregelung wirkungslos', 'high', 'Schließfolgeregler einstellen oder tauschen', ['Gangflügel schließt zuerst', 'Schließfolge falsch']),
+  seedDefect('fire_door', 'Verglasung gesprungen', 'high', 'Glas durch zugelassenes Brandschutzglas ersetzen', ['Scheibe gesprungen', 'Glas Riss']),
+  seedDefect('fire_door', 'Nicht zugelassenes Bauteil nachgerüstet', 'medium', 'Bauteil entfernen, zugelassenes Teil einbauen', ['Türspion nachgerüstet', 'fremder Beschlag']),
+  seedDefect('fire_door', 'Drücker oder Panikbeschlag defekt', 'medium', 'Beschlag instand setzen oder tauschen', ['Drücker lose', 'Panikstange klemmt']),
+  seedDefect('fire_door', 'Schwenkbereich zugestellt', 'high', 'Schwenkbereich freiräumen', ['Tür verstellt', 'Tür blockiert']),
+  seedDefect('hold_open', 'Feststellanlage löst bei Rauch nicht aus', 'critical', 'Abschluss geschlossen halten, Melder und Steuerung sofort instand setzen', ['Melder löst nicht aus', 'Rauchschalter reagiert nicht']),
+  seedDefect('hold_open', 'Handauslösetaster ohne Funktion', 'high', 'Taster und Verdrahtung prüfen und instand setzen', ['Handtaster defekt', 'Taster löst nicht aus']),
+  seedDefect('hold_open', 'Keine Freigabe bei Energieausfall', 'critical', 'Netzteil und Haftmagnet prüfen, Anlage bis zur Instandsetzung außer Betrieb nehmen', ['hält bei Stromausfall', 'Netzausfall ohne Freigabe']),
+  seedDefect('hold_open', 'Melder verschmutzt', 'medium', 'Melder reinigen oder tauschen', ['Verschmutzungsanzeige', 'Melder staubig']),
+  seedDefect('hold_open', 'Melder über der Austauschfrist', 'medium', 'Melder gegen zugelassenes Ersatzteil tauschen', ['Melder zu alt', 'Austauschfrist überschritten']),
+  seedDefect('hold_open', 'Haltekraft des Haftmagneten zu gering', 'low', 'Haftmagnet und Gegenplatte reinigen, ausrichten oder tauschen', ['Magnet hält nicht', 'Gegenplatte verschmutzt']),
+  seedDefect('hold_open', 'Prüfbuch oder Abnahme fehlt', 'medium', 'Abnahmeprüfung nachholen und Prüfbuch anlegen', ['keine Abnahme', 'Prüfbuch fehlt', 'keine Dokumentation']),
+  seedDefect('hold_open', 'Nicht zugelassene Komponente verbaut', 'high', 'Komponente gemäß Zulassung tauschen und Abnahme wiederholen', ['Fremdkomponente', 'falscher Melder']),
+  seedDefect('hold_open', 'Melder fehlt oder falsch angeordnet', 'high', 'Melder nach Zulassung ergänzen bzw. versetzen', ['Deckenmelder fehlt', 'Sturzmelder fehlt']),
+  seedDefect('hold_open', 'Herstellerwartung überfällig', 'medium', 'Wartung durch Hersteller oder autorisierten Fachbetrieb beauftragen', ['Wartung überfällig']),
+];

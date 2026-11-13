@@ -10,6 +10,7 @@ import { decideKnown, groupKnownDefects, type KnownDecision, knownDecision, type
 import { Button, DictateInput, Notice, Section, StatusText, Surface, Switch, Textarea, toneDot, SEVERITY_TONE, useConfirm } from './ui';
 import { CategoryGlyph } from './inspect/Glyph';
 import { type CaptureItem, suggestMeasure, suggestSeverity } from '../../shared/smart';
+import { clientVocabulary, expandTerms, matchCatalogDefect } from '../../shared/vocab';
 import { CheckpointRow, reveal, revealNextOpen } from './inspect/Checkpoint';
 import { RadioChips, ToggleChip } from './inspect/Choice';
 import { ReadyList, RunFrame, type RunStep, type SaveState } from './inspect/RunFrame';
@@ -43,14 +44,28 @@ export interface DefectLike {
 function SmartHints<T extends DefectLike>({ defect, onChange }: { defect: T; onChange: (d: T) => void }) {
   const text = `${defect.title} ${defect.note}`.trim();
   if (text.length < 4) return null;
-  const measure = !defect.measure?.trim() ? suggestMeasure(text) : '';
+  // Typischer Mangel aus dem Katalog des Workspaces (Einstellungen → Katalog): Schwere und Maßnahme mit einem Tipp
+  const known = matchCatalogDefect(expandTerms(text, clientVocabulary().terms), clientVocabulary().defects);
+  const knownHint = known && (known.severity !== defect.severity || (known.measure && known.measure !== defect.measure?.trim())) ? known : null;
+  const measure = !defect.measure?.trim() && !knownHint ? suggestMeasure(text) : '';
   const sev = suggestSeverity(text);
-  const sevHint = sev !== defect.severity && (sev === 'critical' || sev === 'high') ? sev : null;
-  if (!measure && !sevHint) return null;
+  const sevHint = !knownHint && sev !== defect.severity && (sev === 'critical' || sev === 'high') ? sev : null;
+  if (!measure && !sevHint && !knownHint) return null;
   // grau mit Unterstreichung – ein Tipp übernimmt den Vorschlag
   const chip = 'min-h-8 py-1 text-left text-meta text-ink-2 underline decoration-ink-4 underline-offset-4 transition-colors hover:text-ink hover:decoration-ink';
   return (
     <div className="flex flex-wrap items-baseline gap-x-4 gap-y-0.5" aria-label="Vorschläge">
+      {knownHint && (
+        <button
+          type="button"
+          onClick={() => onChange({ ...defect, severity: knownHint.severity, measure: knownHint.measure || defect.measure })}
+          className={chip}
+          title={`Typischer Mangel aus dem Katalog: ${knownHint.title}`}
+        >
+          Wie „{knownHint.title}“: {SEVERITIES[knownHint.severity]}
+          {knownHint.measure ? `, ${knownHint.measure}` : ''}
+        </button>
+      )}
       {measure && (
         <button type="button" onClick={() => onChange({ ...defect, measure })} className={chip}>
           Maßnahme: {measure}

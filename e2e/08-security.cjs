@@ -1,4 +1,4 @@
-// E2E 08-security: stellt die Angriffswege aus dem Sicherheitsaudit nach und erwartet, dass sie blockiert sind.
+// E2E 08-security (inkl. #34 Katalog/Nummern): stellt die Angriffswege aus dem Sicherheitsaudit nach und erwartet, dass sie blockiert sind.
 // Nur lokal ausführen (legt einen zweiten Workspace an).
 if (!process.env.DEMO_PASSWORD) throw new Error("DEMO_PASSWORD fehlt");
 const BASE = process.env.BASE || "http://localhost:5173";
@@ -1588,6 +1588,162 @@ function client() {
     // Aufräumen (Admin-Sitzung)
     await owner(`/account/api-keys/${admWrite.id}`, { method: "DELETE" });
     await owner(`/account/api-keys/${admRead.id}`, { method: "DELETE" });
+  }
+
+
+  console.log("· #34 Katalog und laufende Nummern: Rechte, Workspace-Grenzen, Eingabegrenzen");
+  {
+    const withKey =
+      (k) =>
+      async (path, { method, body } = {}) => {
+        const r = await fetch(BASE + "/api" + path, {
+          method: method ?? (body !== undefined ? "POST" : "GET"),
+          headers: {
+            authorization: `Bearer ${k}`,
+            ...(body !== undefined ? { "content-type": "application/json" } : {}),
+          },
+          body: body !== undefined ? JSON.stringify(body) : undefined,
+        });
+        const text = await r.text();
+        let json = null;
+        try {
+          json = JSON.parse(text);
+        } catch {
+          /* kein JSON */
+        }
+        return { status: r.status, json };
+      };
+    // Lesen: ab Prüfer, Lesezugriff nie; Grundausstattung vorhanden
+    const cat = await owner("/catalog");
+    check(
+      cat.status === 200 && cat.json.terms.some((t) => t.term === "OTS") && cat.json.defects.length >= 24,
+      `Grundausstattung beim ersten Lesen (${cat.status}, ${cat.json?.defects?.length})`,
+    );
+    check((await insp("/catalog")).status === 200, "Prüfer liest den Katalog");
+    check((await reader("/catalog")).status === 403, "Lesezugriff liest den Katalog nicht");
+    check((await reader("/catalog/terms")).status === 403, "Lesezugriff: Liste → 403");
+    // Schreiben: Prüfer-Sitzung nie
+    const newTerm = { term: `S34-${Date.now() % 100000}`, meaning: "Sicherheitstest" };
+    check((await insp("/catalog/terms", { body: newTerm })).status === 403, "Prüfer legt keinen Begriff an");
+    const ownTerm = cat.json.terms[0];
+    check(
+      (await insp(`/catalog/terms/${ownTerm.id}`, { method: "PATCH", body: { meaning: "x" } })).status === 403,
+      "Prüfer ändert keinen Begriff",
+    );
+    check((await insp(`/catalog/terms/${ownTerm.id}`, { method: "DELETE" })).status === 403, "Prüfer löscht keinen Begriff");
+    check(
+      (await insp("/catalog/batch", { body: { kind: "terms", items: [newTerm], dryRun: true } })).status === 403,
+      "Prüfer: Stapel (auch Vorschau) → 403",
+    );
+    // Schlüssel: Schreib-Schlüssel einer Admin-Person ja, Leseschlüssel nie, herabgestufte Person sofort nicht mehr
+    const email = `admin34-${Date.now()}@example.com`;
+    const invA = await owner("/account/members/invite", { body: { email, role: "admin" } });
+    const adm = client();
+    await adm(`/auth/invite/${invA.json.token}`, { body: { name: "Admin 34", password: PW } });
+    const admId = (await owner("/account/members")).json.members.find((m) => m.email === email).id;
+    const wKey = (await adm("/account/api-keys", { body: { name: "sec34-write", scope: "write", expiresInDays: 1 } })).json;
+    const rKey = (await adm("/account/api-keys", { body: { name: "sec34-read", scope: "read", expiresInDays: 1 } })).json;
+    const aw = withKey(wKey.key);
+    const ar = withKey(rKey.key);
+    const created = await aw("/catalog/terms", { body: newTerm });
+    check(created.status === 200 && created.json?.term === newTerm.term, `Schreib-Schlüssel (Admin) legt Begriff an (${created.status})`);
+    check((await aw("/catalog/terms", { body: newTerm })).status === 409, "Dublette → 409");
+    check(
+      (await aw("/catalog/terms", { body: { term: newTerm.term.toLowerCase(), meaning: "anders" } })).status === 409,
+      "Dublette in anderer Schreibweise → 409",
+    );
+    check((await ar("/catalog/terms", { body: { term: "S34R", meaning: "x" } })).status === 403, "Leseschlüssel legt nichts an");
+    // Leseschlüssel haben die Rolle „Lesezugriff“ – der Katalog ist erst ab Prüfer lesbar
+    check((await ar("/catalog")).status === 403, "Leseschlüssel liest den Katalog nicht (Rolle Lesezugriff)");
+    check((await aw("/catalog")).status === 200, "Schreib-Schlüssel liest");
+    check(
+      (await ar("/catalog/batch", { body: { kind: "terms", items: [{ term: "S34R", meaning: "x" }], dryRun: true } })).status === 403,
+      "Leseschlüssel: Stapel → 403",
+    );
+    // Workspace-Grenzen: fremde Einträge nie sichtbar, nie änder- oder löschbar
+    const mCat = await mallory("/catalog");
+    check(mCat.status === 200 && !mCat.json.terms.some((t) => t.term === newTerm.term), "anderer Workspace sieht den Begriff nicht");
+    check(
+      (await mallory(`/catalog/terms/${created.json.id}`, { method: "PATCH", body: { meaning: "übernommen" } })).status === 404,
+      "fremden Begriff ändern → 404",
+    );
+    check((await mallory(`/catalog/terms/${created.json.id}`, { method: "DELETE" })).status === 404, "fremden Begriff löschen → 404");
+    check(
+      (await owner("/catalog/terms")).json.find((t) => t.id === created.json.id)?.meaning === "Sicherheitstest",
+      "eigener Begriff unverändert",
+    );
+    // Eingabegrenzen
+    const bad = [
+      ["/catalog/terms", { term: "x".repeat(41), meaning: "zu lang" }, "Begriff > 40 Zeichen"],
+      ["/catalog/terms", { term: "", meaning: "leer" }, "leerer Begriff"],
+      ["/catalog/defects", { title: "Test", severity: "extrem" }, "unbekannte Schwere"],
+      ["/catalog/defects", { title: "Test", synonyms: Array.from({ length: 21 }, (_, i) => `s${i}`) }, "mehr als 20 Synonyme"],
+      ["/catalog/defects", { title: "Test", category: "c_gibtsnicht_x" }, "unbekannte Elementart"],
+      ["/catalog/products", { manufacturer: "A", model: "B", defaults: Object.fromEntries(Array.from({ length: 31 }, (_, i) => [`f${i}`, i])) }, "mehr als 30 Vorgabewerte"],
+      ["/catalog/products", { manufacturer: "A", model: "B", defaults: { "a.b": 1 } }, "ungültiger Feldname"],
+      ["/catalog/products", { manufacturer: "A", model: "B", defaults: { rating: { nested: true } } }, "verschachtelter Wert"],
+    ];
+    for (const [path, body, what] of bad) check((await aw(path, { body })).status === 400, `${what} → 400`);
+    check(
+      (await aw("/catalog/batch", { body: { kind: "terms", items: Array.from({ length: 201 }, (_, i) => ({ term: `B${i}`, meaning: "x" })) } })).status === 400,
+      "Stapel > 200 → 400",
+    );
+    check((await aw("/catalog/users", { body: { term: "x", meaning: "y" } })).status === 404, "unbekannte Liste → 404");
+    check((await owner("/catalog/sessions")).status === 404, "unbekannte Liste lesen → 404");
+    const batchErr = await aw("/catalog/batch", { body: { kind: "defects", items: [{ title: "ok Test 34", severity: "low" }, { title: "" }], dryRun: true } });
+    check(
+      batchErr.status === 200 && batchErr.json.create.length === 1 && batchErr.json.errors.length === 1,
+      "Stapel: fehlerhafte Einträge einzeln gemeldet, Vorschau schreibt nichts",
+    );
+    check(!(await owner("/catalog/defects")).json.some((d) => d.title === "ok Test 34"), "Vorschau hat nichts gespeichert");
+    // Herabgestuft: Schlüssel schreibt sofort nicht mehr
+    await owner(`/account/members/${admId}`, { method: "PATCH", body: { role: "inspector" } });
+    check((await aw("/catalog/terms", { body: { term: "S34P", meaning: "x" } })).status === 403, "Schlüssel einer Prüfer-Person → 403");
+    // Aufräumen
+    await owner(`/catalog/terms/${created.json.id}`, { method: "DELETE" });
+    await owner(`/account/api-keys/${wKey.id}`, { method: "DELETE" });
+    await owner(`/account/api-keys/${rKey.id}`, { method: "DELETE" });
+
+    // Laufende Nummern: nur im eigenen Bereich und Workspace, Grenzen der Nummer
+    const sb = (await owner(`/properties/${S.id}`)).json.buildings[0];
+    for (const n of [0, 100000, 1.5, "7"])
+      check(
+        (await owner("/assets", { body: { buildingId: sb.id, category: "hold_open", number: n } })).status === 400,
+        `Nummer ${JSON.stringify(n)} → 400`,
+      );
+    const fsa = await owner("/assets", { body: { buildingId: sb.id, category: "hold_open", location: "Sec34" } });
+    check(fsa.status === 200 && /^FSA-\d{3}/.test(fsa.json.code) && fsa.json.number > 0, `Feststellanlage mit laufender Nummer (${fsa.json?.code})`);
+    check(
+      (await owner("/assets", { body: { buildingId: sb.id, category: "fire_door", number: fsa.json.number } })).status === 409,
+      "vergebene Nummer im Objekt → 409",
+    );
+    const mB = (await mallory("/buildings")).json[0];
+    check(
+      (await owner("/assets", { body: { buildingId: mB.id, category: "fire_door", number: 1 } })).status === 404,
+      "Element in fremdem Gebäude → 404",
+    );
+    check(
+      (await mallory(`/assets/by-code/${encodeURIComponent(`Nummer ${fsa.json.number}`)}?propertyId=${S.id}`)).status === 404,
+      "Nummer im fremden Objekt nicht auflösbar",
+    );
+    check(
+      !JSON.stringify((await mallory(`/search?q=${encodeURIComponent(`Nummer ${fsa.json.number}`)}&propertyId=${S.id}`)).json).includes(fsa.json.code),
+      "Suche nach Nummer im fremden Objekt leer",
+    );
+    // eingeschränkter Prüfer: Nummern außerhalb seines Bereichs bleiben unsichtbar
+    await owner(`/account/members/${pid2}/access`, { method: "PUT", body: { scope: { propertyIds: [S.id], buildingIds: [] }, canCreate: true } });
+    const oB = (await owner(`/properties/${O.id}`)).json.buildings[0];
+    const outside = await owner("/assets", { body: { buildingId: oB.id, category: "hold_open", location: "Sec34 außen" } });
+    check(
+      (await insp(`/assets/by-code/${encodeURIComponent(`Nummer ${outside.json.number}`)}?propertyId=${O.id}`)).status === 404,
+      "eingeschränkter Prüfer: Nummer außerhalb des Bereichs → 404",
+    );
+    check(
+      !JSON.stringify((await insp(`/search?q=${encodeURIComponent(`FSA ${outside.json.number}`)}`)).json).includes(outside.json.code),
+      "eingeschränkter Prüfer: Suche nach Nummer ohne fremde Elemente",
+    );
+    await owner(`/assets/${fsa.json.id}`, { method: "DELETE" });
+    await owner(`/assets/${outside.json.id}`, { method: "DELETE" });
   }
 
   console.log(

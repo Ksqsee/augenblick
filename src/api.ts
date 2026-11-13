@@ -1,7 +1,7 @@
 import { keepPreviousData, QueryClient, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import type { AssignRule, AutomationKey, AutomationMode, Recurrence } from '../shared/automation';
 import type { NowItem } from '../shared/now';
-import type { AttributeField, Category, CategoryDef, Checkpoint, CustomKind, InspectionKind, InspectionPurpose, Role, Severity, WalkPurpose } from '../shared/catalog';
+import type { AttributeField, CatalogDefect, CatalogProduct, CatalogTerm, Category, CategoryDef, Checkpoint, CustomKind, InspectionKind, InspectionPurpose, Role, Severity, WalkPurpose } from '../shared/catalog';
 import type { Answer, Result, ResultOverride, Schedules } from '../shared/logic';
 import type { TaskKind } from '../shared/tasks';
 import type { KnownDefect } from '../shared/carry';
@@ -103,6 +103,8 @@ export interface PropertyRow {
 export interface Asset {
   id: string;
   code: string;
+  /** laufende Nummer im Objekt (neue Elemente); ältere ohne */
+  number?: number | null;
   category: Category;
   location: string;
   floor: string;
@@ -647,6 +649,13 @@ export const useBuildings = (enabled = true) => useQuery({ queryKey: ['buildings
 export const useFlagHistory = (userId: string) =>
   useQuery({ queryKey: ['flag-history', userId], queryFn: () => api<FlagHistory>(`/account/members/${userId}/fire-officer-history`) });
 export const useCategories = () => useQuery({ queryKey: ['categories'], queryFn: () => api<CategoryInfo[]>('/categories'), staleTime: 5 * 60_000 });
+/** Katalog des Workspaces (ab Prüfer lesbar): Produkte, typische Mängel, Begriffe. */
+export interface Catalog {
+  products: CatalogProduct[];
+  defects: CatalogDefect[];
+  terms: CatalogTerm[];
+}
+export const useCatalog = (enabled = true) => useQuery({ queryKey: ['catalog'], queryFn: () => api<Catalog>('/catalog'), staleTime: 5 * 60_000, enabled });
 export const useNotifications = () =>
   useQuery({ queryKey: ['notifications'], queryFn: () => api<{ items: Notification[]; unread: number }>('/notifications'), refetchInterval: 60_000 });
 export const useTaskLabels = () => useQuery({ queryKey: ['task-labels'], queryFn: () => api<TaskLabel[]>('/tasks/labels') });
@@ -695,7 +704,7 @@ export const fileUrl = (key: string) => `/api/files/${key}`;
 export interface SearchResult {
   properties: { id: string; name: string; address: string }[];
   buildings: { id: string; name: string; propertyId: string; propertyName: string }[];
-  assets: { id: string; code: string; category: Category; location: string; buildingName: string; propertyName: string }[];
+  assets: { id: string; code: string; number?: number | null; category: Category; location: string; buildingName: string; propertyName: string }[];
 }
 
 // ---------- Berichtsarchiv ----------

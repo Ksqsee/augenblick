@@ -6,7 +6,8 @@ import { DEFAULT_SLA, HOUR } from '../shared/sla';
 import { addMonths } from '../shared/logic';
 import { getCategoryDef, getSchedule } from './categories';
 import { defaultTaskKind, type TaskKind, taskKindError } from '../shared/tasks';
-import { assetInScope, defectInScope, randomCode, str, taskScope, tid } from './data';
+import { assetInScope, defectInScope, str, taskScope, tid } from './data';
+import { freeNumberCode } from '../shared/vocab';
 import { type AppEnv, assertInScope, type Ctx, type Env, id, logActivity, notFound, now, parseJson, RANK, requireRole, type ScopeSetting, token } from './lib';
 import { afterTasksDone, closeVerificationsOf, systemCtx, verifyActive } from './automation';
 import { notify, notifyTenant } from './notify';
@@ -636,6 +637,8 @@ const importRow = z.object({
   building: str(160).min(1),
   category: z.string().min(1).max(40),
   code: str(40).optional(),
+  /** laufende Nummer im Objekt (Ident-Nr.); leer = nächste freie */
+  number: z.number().int().min(1).max(99999).optional(),
   labelCode: str(60).optional(),
   location: str(200).default(''),
   floor: str(60).default(''),
@@ -662,6 +665,17 @@ work.post('/import/assets', async (c) => {
   const propByName = new Map((props.results as { id: string; name: string }[]).map((p) => [lower(p.name), p.id]));
   const buildByKey = new Map((builds.results as { id: string; name: string; propertyId: string }[]).map((b) => [`${b.propertyId}|${lower(b.name)}`, b.id]));
   const usedCodes = new Set((codes.results as { code: string; label: string }[]).flatMap((r) => [r.code, r.label].filter(Boolean)));
+  // Laufende Nummern je Objekt: Zählerstand bzw. höchste vorhandene Nummer, belegte Nummern
+  const [counters, numbers] = await c.env.DB.batch([
+    c.env.DB.prepare('SELECT property_id AS pid, last FROM asset_counters WHERE tenant_id = ?').bind(tid(c)),
+    c.env.DB.prepare('SELECT b.property_id AS pid, a.number FROM assets a JOIN buildings b ON b.id = a.building_id WHERE a.tenant_id = ? AND a.number IS NOT NULL AND a.deleted_at IS NULL').bind(tid(c)),
+  ]);
+  const lastNo = new Map((counters.results as { pid: string; last: number }[]).map((r) => [r.pid, r.last]));
+  const usedNo = new Set<string>();
+  for (const r of numbers.results as { pid: string; number: number }[]) {
+    usedNo.add(`${r.pid}|${r.number}`);
+    lastNo.set(r.pid, Math.max(lastNo.get(r.pid) ?? 0, r.number));
+  }
 
   const newProps: { id: string; name: string }[] = [];
   const newBuilds: { id: string; pid: string; name: string }[] = [];
@@ -703,14 +717,24 @@ work.post('/import/assets', async (c) => {
       buildByKey.set(bKey, bid);
       newBuilds.push({ id: bid, pid, name: r.building });
     }
+    // Nummer: aus der Datei (im Objekt frei) oder die nächste; mit eigenem Code nur, wenn angegeben
+    if (r.number != null && pid && usedNo.has(`${pid}|${r.number}`)) {
+      results.push({ line, status: 'error', message: `Nummer ${r.number} ist in „${r.property}“ schon vergeben` });
+      continue;
+    }
+    const number = r.number ?? (code ? null : (lastNo.get(pid) ?? 0) + 1);
+    if (number != null) {
+      usedNo.add(`${pid}|${number}`);
+      lastNo.set(pid, Math.max(lastNo.get(pid) ?? 0, number));
+    }
     let finalCode = code;
-    while (!finalCode || usedCodes.has(finalCode)) finalCode = `${kind.prefix}-${randomCode(4)}`;
+    if (!finalCode) finalCode = freeNumberCode(kind.prefix, number!, (x) => usedCodes.has(x));
     usedCodes.add(finalCode);
     if (label) usedCodes.add(label);
     const next = r.lastInspectedAt ? addMonths(r.lastInspectedAt, kind.interval) : null;
     const attrs = r.year ? { [r.category === 'smoke_alarm' ? 'manufactured' : 'year']: r.category === 'smoke_alarm' ? `${r.year}-01-01` : r.year } : {};
     newAssets.push({
-      id: id(), bid, category: r.category, code: finalCode, label: label ?? null, location: r.location, floor: r.floor, manufacturer: r.manufacturer, model: r.model,
+      id: id(), bid, category: r.category, code: finalCode, number, label: label ?? null, location: r.location, floor: r.floor, manufacturer: r.manufacturer, model: r.model,
       attributes: JSON.stringify(attrs), last: r.lastInspectedAt ?? null, next,
       // Übernommene letzte Prüfung als Ausgangsstand (bleibt bei Neuberechnung erhalten)
       schedules: JSON.stringify({ main: r.lastInspectedAt ? { enabled: true, lastAt: r.lastInspectedAt, nextDueAt: next, baseline: { lastAt: r.lastInspectedAt, nextDueAt: next } } : { enabled: true } }),
@@ -733,9 +757,14 @@ work.post('/import/assets', async (c) => {
         `INSERT INTO buildings (id, tenant_id, property_id, name, created_at, updated_at) SELECT ${j('id')}, ?1, ${j('pid')}, ${j('name')}, ?2, ?2 FROM json_each(?3)`,
       ).bind(tid(c), t, JSON.stringify(newBuilds)),
       c.env.DB.prepare(
-        `INSERT INTO assets (id, tenant_id, building_id, category, code, label_code, location, floor, manufacturer, model, attributes, last_inspected_at, next_due_at, schedules, created_at, updated_at)
-         SELECT ${['id', 'bid', 'category', 'code', 'label', 'location', 'floor', 'manufacturer', 'model', 'attributes', 'last', 'next', 'schedules'].map((k, n) => (n === 0 ? j(k) + ', ?1' : j(k))).join(', ')}, ?2, ?2 FROM json_each(?3)`,
+        `INSERT INTO assets (id, tenant_id, building_id, category, code, number, label_code, location, floor, manufacturer, model, attributes, last_inspected_at, next_due_at, schedules, created_at, updated_at)
+         SELECT ${['id', 'bid', 'category', 'code', 'number', 'label', 'location', 'floor', 'manufacturer', 'model', 'attributes', 'last', 'next', 'schedules'].map((k, n) => (n === 0 ? j(k) + ', ?1' : j(k))).join(', ')}, ?2, ?2 FROM json_each(?3)`,
       ).bind(tid(c), t, JSON.stringify(newAssets)),
+      // Zähler je Objekt nachziehen (nie zurück)
+      c.env.DB.prepare(
+        `INSERT INTO asset_counters (tenant_id, property_id, last) SELECT ?1, json_extract(value, '$.pid'), json_extract(value, '$.last') FROM json_each(?2) WHERE true
+         ON CONFLICT (tenant_id, property_id) DO UPDATE SET last = MAX(last, excluded.last)`,
+      ).bind(tid(c), JSON.stringify([...lastNo].map(([pid, last]) => ({ pid, last })))),
     ]);
     await logActivity(c, 'import', 'asset', null, `${summary.created} Elemente importiert`);
   }
