@@ -1,8 +1,8 @@
-import type { Context, MiddlewareHandler } from 'hono';
-import { getCookie } from 'hono/cookie';
-import { HTTPException } from 'hono/http-exception';
-import type { Role } from '../shared/catalog';
-import { assertNotThrottled, clientIp, recordFailure } from './throttle';
+import type { Context, MiddlewareHandler } from "hono";
+import { getCookie } from "hono/cookie";
+import { HTTPException } from "hono/http-exception";
+import type { Role } from "../shared/catalog";
+import { assertNotThrottled, clientIp, recordFailure } from "./throttle";
 
 export interface Env {
   DB: D1Database;
@@ -49,20 +49,23 @@ export interface ScopeSetting {
 export type AppEnv = { Bindings: Env; Variables: { user: SessionUser } };
 export type Ctx = Context<AppEnv>;
 
-export const SESSION_COOKIE = 'pk_session';
+export const SESSION_COOKIE = "pk_session";
 export const SESSION_TTL_MS = 30 * 86_400_000;
 
 export const now = () => Date.now();
 
 export function id(len = 16): string {
-  const alphabet = 'abcdefghijkmnopqrstuvwxyz23456789';
+  const alphabet = "abcdefghijkmnopqrstuvwxyz23456789";
   const bytes = crypto.getRandomValues(new Uint8Array(len));
-  return Array.from(bytes, (b) => alphabet[b % alphabet.length]).join('');
+  return Array.from(bytes, (b) => alphabet[b % alphabet.length]).join("");
 }
 
 export function token(): string {
   const bytes = crypto.getRandomValues(new Uint8Array(32));
-  return btoa(String.fromCharCode(...bytes)).replace(/[+/=]/g, (c) => ({ '+': '-', '/': '_', '=': '' })[c]!);
+  return btoa(String.fromCharCode(...bytes)).replace(
+    /[+/=]/g,
+    (c) => ({ "+": "-", "/": "_", "=": "" })[c]!,
+  );
 }
 
 const ITERATIONS = 100_000;
@@ -74,9 +77,23 @@ function unb64(s: string): Uint8Array {
   return Uint8Array.from(atob(s), (c) => c.charCodeAt(0));
 }
 
-async function derive(password: string, salt: Uint8Array, iterations: number): Promise<ArrayBuffer> {
-  const key = await crypto.subtle.importKey('raw', new TextEncoder().encode(password), 'PBKDF2', false, ['deriveBits']);
-  return crypto.subtle.deriveBits({ name: 'PBKDF2', hash: 'SHA-256', salt, iterations }, key, 256);
+async function derive(
+  password: string,
+  salt: Uint8Array,
+  iterations: number,
+): Promise<ArrayBuffer> {
+  const key = await crypto.subtle.importKey(
+    "raw",
+    new TextEncoder().encode(password),
+    "PBKDF2",
+    false,
+    ["deriveBits"],
+  );
+  return crypto.subtle.deriveBits(
+    { name: "PBKDF2", hash: "SHA-256", salt, iterations },
+    key,
+    256,
+  );
 }
 
 export async function hashPassword(password: string): Promise<string> {
@@ -85,10 +102,15 @@ export async function hashPassword(password: string): Promise<string> {
   return `pbkdf2$${ITERATIONS}$${b64(salt)}$${b64(hash)}`;
 }
 
-export async function verifyPassword(password: string, stored: string): Promise<boolean> {
-  const [scheme, iter, salt, hash] = stored.split('$');
-  if (scheme !== 'pbkdf2') return false;
-  const actual = new Uint8Array(await derive(password, unb64(salt), Number(iter)));
+export async function verifyPassword(
+  password: string,
+  stored: string,
+): Promise<boolean> {
+  const [scheme, iter, salt, hash] = stored.split("$");
+  if (scheme !== "pbkdf2") return false;
+  const actual = new Uint8Array(
+    await derive(password, unb64(salt), Number(iter)),
+  );
   const expected = unb64(hash);
   if (actual.length !== expected.length) return false;
   let diff = 0;
@@ -98,9 +120,12 @@ export async function verifyPassword(password: string, stored: string): Promise<
 
 /** Nur Browser-Sitzung (Konto, Benachrichtigungen, Push). */
 export const requireSession: MiddlewareHandler<AppEnv> = async (c, next) => {
-  if (bearer(c)) throw new HTTPException(403, { message: 'Mit API-Schlüssel nicht verfügbar' });
+  if (bearer(c))
+    throw new HTTPException(403, {
+      message: "Mit API-Schlüssel nicht verfügbar",
+    });
   const sid = getCookie(c, SESSION_COOKIE);
-  if (!sid) throw new HTTPException(401, { message: 'Nicht angemeldet' });
+  if (!sid) throw new HTTPException(401, { message: "Nicht angemeldet" });
   const row = await c.env.DB.prepare(
     `SELECT s.id AS sessionId, s.user_id AS userId, s.tenant_id AS tenantId, s.expires_at, m.role, m.scope AS rawScope, m.can_create AS canCreate, u.name, u.email
        FROM sessions s
@@ -109,23 +134,42 @@ export const requireSession: MiddlewareHandler<AppEnv> = async (c, next) => {
       WHERE s.id = ?`,
   )
     .bind(sid)
-    .first<Omit<SessionUser, 'scope' | 'canCreate'> & { expires_at: number; rawScope: string | null; canCreate: number }>();
-  if (!row || row.expires_at < now()) throw new HTTPException(401, { message: 'Sitzung abgelaufen' });
+    .first<
+      Omit<SessionUser, "scope" | "canCreate"> & {
+        expires_at: number;
+        rawScope: string | null;
+        canCreate: number;
+      }
+    >();
+  if (!row || row.expires_at < now())
+    throw new HTTPException(401, { message: "Sitzung abgelaufen" });
   const { rawScope, canCreate, expires_at: _, ...user } = row;
-  const resolved = await resolveScope(c, user.tenantId, user.role, rawScope, canCreate);
-  c.set('user', { ...user, ...resolved, canStructure: RANK[user.role] >= RANK.admin && !resolved.scope });
+  const resolved = await resolveScope(
+    c,
+    user.tenantId,
+    user.role,
+    rawScope,
+    canCreate,
+  );
+  c.set("user", {
+    ...user,
+    ...resolved,
+    canStructure: RANK[user.role] >= RANK.admin && !resolved.scope,
+  });
   await next();
 };
 
-export const API_KEY_PREFIX = 'pk_';
+export const API_KEY_PREFIX = "pk_";
 const bearer = (c: Ctx) => {
-  const h = c.req.header('authorization') ?? '';
-  return h.startsWith('Bearer ') ? h.slice(7).trim() : null;
+  const h = c.req.header("authorization") ?? "";
+  return h.startsWith("Bearer ") ? h.slice(7).trim() : null;
 };
 
 export async function sha256Hex(s: string) {
-  const d = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(s));
-  return Array.from(new Uint8Array(d), (b) => b.toString(16).padStart(2, '0')).join('');
+  const d = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(s));
+  return Array.from(new Uint8Array(d), (b) =>
+    b.toString(16).padStart(2, "0"),
+  ).join("");
 }
 
 /**
@@ -135,54 +179,85 @@ export async function sha256Hex(s: string) {
 export const requireAuth: MiddlewareHandler<AppEnv> = async (c, next) => {
   const key = bearer(c);
   if (!key) return requireSession(c, next);
-  await assertNotThrottled(c, 'token-ip', clientIp(c));
+  await assertNotThrottled(c, "token-ip", clientIp(c));
   const reject = async (message: string): Promise<never> => {
-    await recordFailure(c, 'token-ip', clientIp(c));
+    await recordFailure(c, "token-ip", clientIp(c));
     throw new HTTPException(401, { message });
   };
   // OAuth-Access-Token (MCP-Verbindung) → zugehöriger API-Schlüssel; gleiche Rechte wie dieser
-  let where = 'k.key_hash = ?';
+  let where = "k.key_hash = ?";
   let arg = await sha256Hex(key);
-  if (key.startsWith('pko_')) {
-    const t = await c.env.DB.prepare("SELECT api_key_id FROM oauth_tokens WHERE token_hash = ? AND kind = 'access' AND revoked_at IS NULL AND expires_at > ?")
+  if (key.startsWith("pko_")) {
+    const t = await c.env.DB.prepare(
+      "SELECT api_key_id FROM oauth_tokens WHERE token_hash = ? AND kind = 'access' AND revoked_at IS NULL AND expires_at > ?",
+    )
       .bind(arg, now())
-      .first<string>('api_key_id');
-    if (!t) return reject('Zugriffstoken ungültig oder abgelaufen');
-    where = 'k.id = ?';
+      .first<string>("api_key_id");
+    if (!t) return reject("Zugriffstoken ungültig oder abgelaufen");
+    where = "k.id = ?";
     arg = t;
-  } else if (!key.startsWith(API_KEY_PREFIX)) return reject('Ungültiger API-Schlüssel');
+  } else if (!key.startsWith(API_KEY_PREFIX))
+    return reject("Ungültiger API-Schlüssel");
   const row = await c.env.DB.prepare(
     `SELECT k.id, k.tenant_id, k.scope, k.name, k.expires_at, k.revoked_at, k.last_used_at, k.created_by, m.role, m.scope AS rawScope, m.can_create AS canCreate
        FROM api_keys k JOIN memberships m ON m.user_id = k.created_by AND m.tenant_id = k.tenant_id
       WHERE ${where}`,
   )
     .bind(arg)
-    .first<{ id: string; tenant_id: string; scope: 'read' | 'write'; name: string; expires_at: number | null; revoked_at: number | null; last_used_at: number | null; created_by: string; role: Role; rawScope: string | null; canCreate: number }>();
-  if (!row || row.revoked_at || (row.expires_at && row.expires_at < now())) return reject('Ungültiger oder widerrufener API-Schlüssel');
-  const cap: Role = row.scope === 'write' ? 'inspector' : 'viewer';
+    .first<{
+      id: string;
+      tenant_id: string;
+      scope: "read" | "write";
+      name: string;
+      expires_at: number | null;
+      revoked_at: number | null;
+      last_used_at: number | null;
+      created_by: string;
+      role: Role;
+      rawScope: string | null;
+      canCreate: number;
+    }>();
+  if (!row || row.revoked_at || (row.expires_at && row.expires_at < now()))
+    return reject("Ungültiger oder widerrufener API-Schlüssel");
+  const cap: Role = row.scope === "write" ? "inspector" : "viewer";
   const role = RANK[row.role] < RANK[cap] ? row.role : cap;
   // Bereich der Person, die den Schlüssel erstellt hat (falls sie inzwischen eingeschränkt wurde)
-  const resolved = await resolveScope(c, row.tenant_id, row.role, row.rawScope, row.canCreate);
-  c.set('user', {
+  const resolved = await resolveScope(
+    c,
+    row.tenant_id,
+    row.role,
+    row.rawScope,
+    row.canCreate,
+  );
+  c.set("user", {
     sessionId: `api:${row.id}`,
     userId: row.created_by,
     tenantId: row.tenant_id,
     role,
     name: `API: ${row.name}`,
-    email: '',
+    email: "",
     apiKeyId: row.id,
     ...resolved,
     // Befund #33: Objekte/Gebäude anlegen (nur das) mit Schreib-Schlüssel einer Person, die bei diesem Aufruf
     // laut memberships Admin/Inhaber ohne Bereichseinschränkung ist – die Rolle des Schlüssels bleibt „Prüfer“.
-    canStructure: row.scope === 'write' && RANK[row.role] >= RANK.admin && !resolved.scope,
+    canStructure:
+      row.scope === "write" && RANK[row.role] >= RANK.admin && !resolved.scope,
   });
-  if ((row.last_used_at ?? 0) < now() - 60_000) c.executionCtx.waitUntil(c.env.DB.prepare('UPDATE api_keys SET last_used_at = ? WHERE id = ?').bind(now(), row.id).run());
+  if ((row.last_used_at ?? 0) < now() - 60_000)
+    c.executionCtx.waitUntil(
+      c.env.DB.prepare("UPDATE api_keys SET last_used_at = ? WHERE id = ?")
+        .bind(now(), row.id)
+        .run(),
+    );
   await next();
 };
 
 /** Persönliche Bereiche (Benachrichtigungen, Push) nur mit Browser-Sitzung. */
 export const sessionOnly: MiddlewareHandler<AppEnv> = async (c, next) => {
-  if (c.get('user')?.apiKeyId) throw new HTTPException(403, { message: 'Mit API-Schlüssel nicht verfügbar' });
+  if (c.get("user")?.apiKeyId)
+    throw new HTTPException(403, {
+      message: "Mit API-Schlüssel nicht verfügbar",
+    });
   await next();
 };
 
@@ -190,22 +265,42 @@ export const sessionOnly: MiddlewareHandler<AppEnv> = async (c, next) => {
 export const csrfGuard: MiddlewareHandler<AppEnv> = async (c, next) => {
   // Mit API-Schlüssel (Authorization-Header) gibt es kein Cookie-Risiko
   // MCP nutzt keine Cookies (nur Bearer: API-Schlüssel oder OAuth-Token) – CSRF ist dort kein Thema
-  const mcpKeyPath = c.req.path === '/api/mcp';
+  const mcpKeyPath = c.req.path === "/api/mcp";
   // OAuth-Token/Registrierung/Widerruf: Clients sind keine Browser-Sitzungen, Cookies werden dort nie gelesen
-  const oauthPublicPath = ['/api/oauth/token', '/api/oauth/register', '/api/oauth/revoke'].includes(c.req.path);
+  const oauthPublicPath = [
+    "/api/oauth/token",
+    "/api/oauth/register",
+    "/api/oauth/revoke",
+  ].includes(c.req.path);
   if (oauthPublicPath) return next();
-  if (!['GET', 'HEAD', 'OPTIONS'].includes(c.req.method) && c.req.header('x-pk') !== '1' && !c.req.header('authorization')?.startsWith('Bearer ') && !mcpKeyPath) {
-    throw new HTTPException(403, { message: 'Ungültige Anfrage' });
+  if (
+    !["GET", "HEAD", "OPTIONS"].includes(c.req.method) &&
+    c.req.header("x-pk") !== "1" &&
+    !c.req.header("authorization")?.startsWith("Bearer ") &&
+    !mcpKeyPath
+  ) {
+    throw new HTTPException(403, { message: "Ungültige Anfrage" });
   }
   await next();
 };
 
-export const RANK: Record<Role, number> = { viewer: 0, inspector: 1, admin: 2, owner: 3 };
+export const RANK: Record<Role, number> = {
+  viewer: 0,
+  inspector: 1,
+  admin: 2,
+  owner: 3,
+};
 
 const SAFE_ID = /^[a-z0-9]{1,40}$/;
 
 /** Gespeicherten Bereich in erlaubte Gebäude/Objekte auflösen. Admins und Inhaber sind nie eingeschränkt. */
-export async function resolveScope(c: Ctx, tenantId: string, role: Role, raw: string | null, canCreate: number): Promise<Pick<SessionUser, 'scope' | 'canCreate'>> {
+export async function resolveScope(
+  c: Ctx,
+  tenantId: string,
+  role: Role,
+  raw: string | null,
+  canCreate: number,
+): Promise<Pick<SessionUser, "scope" | "canCreate">> {
   if (RANK[role] >= RANK.admin) return { scope: null, canCreate: true };
   const set = parseJson<ScopeSetting | null>(raw, null);
   if (!set) return { scope: null, canCreate: !!canCreate };
@@ -214,13 +309,22 @@ export async function resolveScope(c: Ctx, tenantId: string, role: Role, raw: st
       `SELECT id, property_id FROM buildings WHERE tenant_id = ? AND deleted_at IS NULL
           AND (property_id IN (SELECT value FROM json_each(?)) OR id IN (SELECT value FROM json_each(?)))`,
     )
-      .bind(tenantId, JSON.stringify(set.propertyIds ?? []), JSON.stringify(set.buildingIds ?? []))
+      .bind(
+        tenantId,
+        JSON.stringify(set.propertyIds ?? []),
+        JSON.stringify(set.buildingIds ?? []),
+      )
       .all<{ id: string; property_id: string }>()
   ).results;
   return {
     scope: {
       buildings: rows.map((r) => r.id),
-      properties: [...new Set([...(set.propertyIds ?? []), ...rows.map((r) => r.property_id)])],
+      properties: [
+        ...new Set([
+          ...(set.propertyIds ?? []),
+          ...rows.map((r) => r.property_id),
+        ]),
+      ],
       fullProperties: set.propertyIds ?? [],
     },
     canCreate: !!canCreate,
@@ -231,58 +335,101 @@ export async function resolveScope(c: Ctx, tenantId: string, role: Role, raw: st
  * SQL-Bedingung für den Zugriffsbereich: `col` ist eine Gebäude- bzw. Objekt-ID-Spalte.
  * Die IDs stammen aus der Datenbank und werden zusätzlich auf [a-z0-9] geprüft, bevor sie als Literale eingesetzt werden.
  */
-export function scopeSql(c: Ctx, col: string, kind: 'building' | 'property' | 'fullProperty'): string {
-  const s = c.get('user').scope;
-  if (!s) return '1=1';
-  const ids = (kind === 'building' ? s.buildings : kind === 'property' ? s.properties : s.fullProperties).filter((x) => SAFE_ID.test(x));
-  return ids.length ? `${col} IN (${ids.map((x) => `'${x}'`).join(',')})` : '0=1';
+export function scopeSql(
+  c: Ctx,
+  col: string,
+  kind: "building" | "property" | "fullProperty",
+): string {
+  const s = c.get("user").scope;
+  if (!s) return "1=1";
+  const ids = (
+    kind === "building"
+      ? s.buildings
+      : kind === "property"
+        ? s.properties
+        : s.fullProperties
+  ).filter((x) => SAFE_ID.test(x));
+  return ids.length
+    ? `${col} IN (${ids.map((x) => `'${x}'`).join(",")})`
+    : "0=1";
 }
 
 /**
  * Begehungen im Zugriffsbereich: Objekt erlaubt und – falls auf ein Gebäude bezogen – das Gebäude erlaubt.
  * Begehungen eines ganzen Objekts (ohne Gebäude) nur bei voller Freigabe des Objekts.
  */
-export function walkScope(c: Ctx, w = 'w'): string {
-  if (!c.get('user').scope) return '1=1';
-  return `(CASE WHEN ${w}.building_id IS NULL THEN ${scopeSql(c, `${w}.property_id`, 'fullProperty')} ELSE ${scopeSql(c, `${w}.building_id`, 'building')} END)`;
+export function walkScope(c: Ctx, w = "w"): string {
+  if (!c.get("user").scope) return "1=1";
+  return `(CASE WHEN ${w}.building_id IS NULL THEN ${scopeSql(c, `${w}.property_id`, "fullProperty")} ELSE ${scopeSql(c, `${w}.building_id`, "building")} END)`;
 }
 
 /** Gebäude/Objekt im Zugriffsbereich? Sonst 404 (Existenz nicht verraten). */
-export function assertInScope(c: Ctx, kind: 'building' | 'property', idValue: string | null | undefined) {
-  const s = c.get('user').scope;
+export function assertInScope(
+  c: Ctx,
+  kind: "building" | "property",
+  idValue: string | null | undefined,
+) {
+  const s = c.get("user").scope;
   if (!s) return;
-  if (!idValue || !(kind === 'building' ? s.buildings : s.properties).includes(idValue)) notFound(kind === 'building' ? 'Gebäude' : 'Objekt');
+  if (
+    !idValue ||
+    !(kind === "building" ? s.buildings : s.properties).includes(idValue)
+  )
+    notFound(kind === "building" ? "Gebäude" : "Objekt");
 }
 
 /** Eingeschränkte Mitglieder ohne Anlegerecht dürfen keine neuen Elemente anlegen. */
 export function requireCreate(c: Ctx) {
-  if (c.get('user').canCreate === false) throw new HTTPException(403, { message: 'Keine Berechtigung, neue Einträge anzulegen' });
+  if (c.get("user").canCreate === false)
+    throw new HTTPException(403, {
+      message: "Keine Berechtigung, neue Einträge anzulegen",
+    });
 }
 
 /** Für Bereiche ohne Objektbezug (Import, Workspace-Berichte): nur ohne Einschränkung. */
 export function requireUnscoped(c: Ctx) {
-  if (c.get('user').scope) throw new HTTPException(403, { message: 'Nur ohne eingeschränkten Zugriffsbereich möglich' });
+  if (c.get("user").scope)
+    throw new HTTPException(403, {
+      message: "Nur ohne eingeschränkten Zugriffsbereich möglich",
+    });
 }
 
 /** Neue Objekte/Gebäude anlegen: Admin-Sitzung oder Schreib-Schlüssel einer Admin-/Inhaber-Person (Befund #33). */
 export function requireStructure(c: Ctx) {
-  if (!c.get('user').canStructure) throw new HTTPException(403, { message: 'Keine Berechtigung' });
+  if (!c.get("user").canStructure)
+    throw new HTTPException(403, { message: "Keine Berechtigung" });
 }
 
 export function requireRole(c: Ctx, min: Role) {
-  if (RANK[c.get('user').role] < RANK[min]) throw new HTTPException(403, { message: 'Keine Berechtigung' });
+  if (RANK[c.get("user").role] < RANK[min])
+    throw new HTTPException(403, { message: "Keine Berechtigung" });
 }
 
-export async function logActivity(c: Ctx, action: string, entity: string, entityId: string | null, summary: string) {
-  const u = c.get('user');
+export async function logActivity(
+  c: Ctx,
+  action: string,
+  entity: string,
+  entityId: string | null,
+  summary: string,
+) {
+  const u = c.get("user");
   await c.env.DB.prepare(
-    'INSERT INTO activity (id, tenant_id, user_id, action, entity, entity_id, summary, created_at) VALUES (?,?,?,?,?,?,?,?)',
+    "INSERT INTO activity (id, tenant_id, user_id, action, entity, entity_id, summary, created_at) VALUES (?,?,?,?,?,?,?,?)",
   )
-    .bind(id(), u.tenantId, u.userId, action, entity, entityId, u.apiKeyId ? `${summary} (${u.name})` : summary, now())
+    .bind(
+      id(),
+      u.tenantId,
+      u.userId,
+      action,
+      entity,
+      entityId,
+      u.apiKeyId ? `${summary} (${u.name})` : summary,
+      now(),
+    )
     .run();
 }
 
-export function notFound(what = 'Eintrag'): never {
+export function notFound(what = "Eintrag"): never {
   throw new HTTPException(404, { message: `${what} nicht gefunden` });
 }
 
