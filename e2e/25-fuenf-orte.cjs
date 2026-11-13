@@ -113,7 +113,10 @@ const PLACES = ['Heute', 'Objekte', 'Prüfen', 'Offen', 'Berichte'];
 
   step('Prüfen: ein Überblick in einer Fläche');
   await p.goto(BASE + '/pruefen');
-  for (const h of ['Rundgänge', 'Fällig', 'Angefangen', 'Begehungen', 'Zuletzt abgeschlossen']) await p.getByRole('heading', { name: new RegExp(`^${h}( \\d+)?$`) }).waitFor();
+  for (const h of ['Rundgänge', 'Fällig', 'Begehungen', 'Zuletzt abgeschlossen']) await p.getByRole('heading', { name: new RegExp(`^${h}( \\d+)?$`) }).waitFor();
+  // v5: leere Abschnitte fehlen ganz – „Angefangen“ nur mit Entwürfen
+  const drafts = (await api('/inspections?status=draft')).json;
+  check((await p.getByRole('heading', { name: /^Angefangen( \d+)?$/ }).count()) === (drafts.length ? 1 : 0), `„Angefangen“ nur mit Entwürfen (${drafts.length})`);
   check((await p.locator('main .bg-surface.sm\\:rounded-xl').count()) === 1, 'eine weiße Fläche');
   const rounds = (await api('/smart/rounds?days=30')).json;
   check((await p.getByRole('list', { name: 'Rundgänge' }).getByRole('link').count()) === Math.min(6, rounds.filter((r) => r.overdue + r.due + r.never > 0).length), 'Rundgänge aus /smart/rounds');
@@ -130,7 +133,7 @@ const PLACES = ['Heute', 'Objekte', 'Prüfen', 'Offen', 'Berichte'];
   await p.getByRole('tab', { name: /Überfällig/, selected: true }).waitFor();
   await p.getByRole('link', { name: 'Prüfen', exact: true }).first().waitFor();
   await p.getByRole('main').getByRole('link', { name: 'Prüfen' }).click();
-  await p.getByRole('heading', { name: /^Angefangen/ }).waitFor();
+  await p.getByRole('heading', { name: /^Rundgänge/ }).waitFor();
   await p.locator('section', { has: p.getByRole('heading', { name: 'Begehungen', exact: true }) }).getByRole('link', { name: 'Alle' }).click();
   await p.waitForURL((u) => u.pathname === '/pruefen/begehungen');
   await p.getByRole('heading', { name: 'Begehungen', level: 1 }).waitFor();

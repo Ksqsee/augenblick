@@ -16,6 +16,7 @@ import { scheduleLabel } from "../categories";
 import { CategoryGlyph } from "../components/inspect/Glyph";
 import {
   ButtonLink,
+  Empty,
   ErrorBox,
   List,
   ListRow,
@@ -75,7 +76,7 @@ function PruefenHub() {
   const due = (rounds.data ?? []).filter(
     (r) => r.overdue + r.due + r.never > 0,
   );
-  const topRound = due.find((r) => r.overdue + r.due > 0);
+  const topRound = due[0];
   const shownRounds = allRounds ? due : due.slice(0, 6);
   const dueRows: { tab: string; label: string; tone: Tone; value: number }[] = [
     { tab: "overdue", label: "Überfällig", tone: "bad", value: c.overdue },
@@ -97,6 +98,10 @@ function PruefenHub() {
   ];
   const recent = (done.data ?? []).slice(0, 5);
   const draftRows = (drafts.data ?? []).slice(0, 5);
+  // v5: leere Abschnitte ausblenden, keine Reihen voller Nullen; ganz leer → ein Satz mit dem nächsten Schritt
+  const shownDue = dueRows.filter((d) => d.value > 0);
+  const loaded = !!(rounds.data && drafts.data && done.data && walks.data);
+  const empty = loaded && !due.length && !shownDue.length && !draftRows.length && !lastWalks.length && !recent.length;
 
   return (
     <>
@@ -144,6 +149,24 @@ function PruefenHub() {
       {starting && <StartWalkthrough onClose={() => setStarting(false)} />}
       <ReadyBanner />
       <Surface>
+        {empty && (
+          <Empty
+            title={c.assets ? "Gerade ist nichts zu prüfen." : "Noch nichts zu prüfen."}
+            text={
+              c.assets
+                ? "In den nächsten 30 Tagen wird nichts fällig. Neue Elemente erscheinen hier als Rundgang."
+                : "Lege unter Objekte ein Objekt mit seinen Elementen an – danach startest du hier den ersten Rundgang."
+            }
+            action={
+              !c.assets && canWrite ? (
+                <ButtonLink to="/objekte" variant="ghost">
+                  Zu den Objekten
+                </ButtonLink>
+              ) : undefined
+            }
+          />
+        )}
+        {due.length > 0 && (
         <Section
           title="Rundgänge"
           count={due.length || undefined}
@@ -152,12 +175,7 @@ function PruefenHub() {
           }
           flush
         >
-          {rounds.data && due.length === 0 ? (
-            <p className="px-(--row-px) pb-3 text-body text-ink-2">
-              In den nächsten 30 Tagen ist nichts fällig.
-            </p>
-          ) : (
-            <List plain aria-label="Rundgänge">
+          <List plain aria-label="Rundgänge">
               {shownRounds.map((r) => {
                 const st = roundStatus(r);
                 return (
@@ -184,7 +202,6 @@ function PruefenHub() {
                 );
               })}
             </List>
-          )}
           {!allRounds && due.length > 6 && (
             <p className="px-(--row-px) pt-1 pb-3">
               <button
@@ -197,7 +214,9 @@ function PruefenHub() {
             </p>
           )}
         </Section>
+        )}
 
+        {shownDue.length > 0 && (
         <Section
           title="Fällig"
           action={
@@ -206,7 +225,7 @@ function PruefenHub() {
           flush
         >
           <List plain aria-label="Fällig">
-            {dueRows.map((d) => (
+            {shownDue.map((d) => (
               <ListRow
                 key={d.tab}
                 to={`/pruefen?tab=${d.tab}`}
@@ -230,7 +249,9 @@ function PruefenHub() {
             ))}
           </List>
         </Section>
+        )}
 
+        {draftRows.length > 0 && (
         <Section
           title="Angefangen"
           count={drafts.data?.length || undefined}
@@ -241,12 +262,7 @@ function PruefenHub() {
           }
           flush
         >
-          {drafts.data && draftRows.length === 0 ? (
-            <p className="px-(--row-px) pb-3 text-body text-ink-2">
-              Keine angefangenen Prüfungen.
-            </p>
-          ) : (
-            <List plain aria-label="Angefangene Prüfungen">
+          <List plain aria-label="Angefangene Prüfungen">
               {draftRows.map((i) => (
                 <ListRow
                   key={i.id}
@@ -272,39 +288,30 @@ function PruefenHub() {
                 />
               ))}
             </List>
-          )}
         </Section>
+        )}
 
+        {lastWalks.length > 0 && (
         <Section
           title="Begehungen"
           action={<SectionLink to="/pruefen/begehungen">Alle</SectionLink>}
           flush
         >
-          {walks.data && lastWalks.length === 0 ? (
-            <p className="px-(--row-px) pb-3 text-body text-ink-2">
-              Noch keine Begehung. Bei einer Begehung prüfst du ein ganzes
-              Objekt mit Fragenkatalog.
-            </p>
-          ) : (
-            <List plain aria-label="Begehungen">
+          <List plain aria-label="Begehungen">
               {lastWalks.map((w) => (
                 <WalkListRow key={w.id} w={w} />
               ))}
             </List>
-          )}
         </Section>
+        )}
 
+        {recent.length > 0 && (
         <Section
           title="Zuletzt abgeschlossen"
           action={<SectionLink to="/pruefen?tab=done">Alle</SectionLink>}
           flush
         >
-          {done.data && recent.length === 0 ? (
-            <p className="px-(--row-px) pb-3 text-body text-ink-2">
-              Noch keine Prüfung abgeschlossen.
-            </p>
-          ) : (
-            <List plain aria-label="Zuletzt abgeschlossen">
+          <List plain aria-label="Zuletzt abgeschlossen">
               {recent.map((i) => (
                 <ListRow
                   key={i.id}
@@ -336,8 +343,8 @@ function PruefenHub() {
                 />
               ))}
             </List>
-          )}
         </Section>
+        )}
       </Surface>
     </>
   );

@@ -218,7 +218,8 @@ export function Dashboard() {
   if (error || !data) return <ErrorBox error={error} onRetry={() => refetch()} />;
   const c = data.counts;
   const canWrite = me?.user.role !== 'viewer';
-  const topRound = rounds.data?.find((r) => r.overdue + r.due > 0);
+  // Hauptknopf „Rundgang starten“, sobald etwas prüfbar ist – auch nie geprüfte Elemente (v5)
+  const topRound = rounds.data?.find((r) => r.overdue + r.due + r.never > 0);
   const next = now.data?.items ?? [];
   const more = now.data?.more ?? 0;
   const total = next.length + more;

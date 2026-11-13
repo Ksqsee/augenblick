@@ -36,6 +36,7 @@ import {
 import type { Role } from '../shared/catalog';
 import { zonedDay } from '../shared/i18n';
 import { DAY } from '../shared/logic';
+import { monthBounds } from '../shared/now';
 import { DEFAULT_SLA, HOUR } from '../shared/sla';
 import { defectScope, taskScope, tid } from './data';
 import { type AppEnv, type Ctx, type Env, id, logActivity, notFound, now, parseJson, RANK, requireRole, type ScopeSetting, scopeSql, type SessionUser, token } from './lib';
@@ -882,14 +883,27 @@ export async function closeVerificationsOf(c: Ctx, defectIds: string[], n = now(
 async function monthlyState(env: Env, tenantId: string, n: number) {
   const tz = (await env.DB.prepare('SELECT timezone FROM tenants WHERE id = ?').bind(tenantId).first<string>('timezone')) ?? 'Europe/Berlin';
   const { period, label } = reportPeriod(zonedDay(n, tz).ymd);
-  const [done, props] = await env.DB.batch([
+  const [from, to] = monthBounds(period, tz);
+  const [done, props, insp] = await env.DB.batch([
     env.DB.prepare(
       `SELECT 1 FROM automation_log WHERE tenant_id = ?1 AND key = 'monthly_report' AND entity_id = ?2 AND undone_at IS NULL
           AND NOT (COALESCE(json_extract(undo, '$.pending'), 0) = 1 AND at < ?3) LIMIT 1`,
     ).bind(tenantId, period, n - 30 * 60_000),
     env.DB.prepare('SELECT COUNT(*) AS n FROM properties WHERE tenant_id = ? AND deleted_at IS NULL').bind(tenantId),
+    // Prüfungen, die im Berichtsmonat abgeschlossen wurden – ohne sie gibt es nichts zu berichten
+    env.DB.prepare("SELECT COUNT(*) AS n FROM inspections WHERE tenant_id = ? AND status = 'submitted' AND inspected_at >= ? AND inspected_at < ?").bind(
+      tenantId,
+      from,
+      to,
+    ),
   ]);
-  return { period, label, done: done.results.length > 0, properties: (props.results[0] as { n: number }).n };
+  return {
+    period,
+    label,
+    done: done.results.length > 0,
+    properties: (props.results[0] as { n: number }).n,
+    inspections: (insp.results[0] as { n: number }).n,
+  };
 }
 
 // ---------- Ausführung (Cron) ----------
@@ -1028,7 +1042,8 @@ export async function automationSuggestions(c: Ctx): Promise<AutomationSuggestio
   }
   if (s.monthly_report.effective === 'suggest' && RANK[u.role] >= RANK.admin && !u.scope) {
     const m = await monthlyState(c.env, tid(c), n);
-    if (!m.done && m.properties)
+    // v5: nur wenn im Vormonat Prüfungen abgeschlossen wurden – ein neues Konto hat nichts zu berichten
+    if (!m.done && m.properties && m.inspections)
       out.push({
         id: 'auto-monthly_report',
         kind: 'automation',

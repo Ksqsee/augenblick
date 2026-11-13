@@ -171,9 +171,16 @@ export function SignatureSection({
     setSaved(v);
     setOptIn(!!v);
   }, [userId]);
-  // Pad nach „gemerkte einsetzen“ neu einhängen, damit es das Bild zeigt
+  // Pad neu einhängen, wenn die Unterschrift von außen kommt („gemerkte einsetzen“, „Alles in Ordnung“, Rückgängig),
+  // damit es das Bild zeigt – nicht bei eigenen Strichen
   const [padKey, setPadKey] = useState(0);
+  const fromPad = useRef(signature);
+  useEffect(() => {
+    if (signature !== fromPad.current) setPadKey((k) => k + 1);
+    fromPad.current = signature;
+  }, [signature]);
   const setSignature = (v: string | null) => {
+    fromPad.current = v;
     onSignature(v);
     // gemerkte Unterschrift aktuell halten, solange „merken“ an ist
     if (v && optIn && userId) {
@@ -184,7 +191,6 @@ export function SignatureSection({
   const applySaved = () => {
     if (!saved) return;
     onSignature(saved);
-    setPadKey((k) => k + 1);
   };
 
   return (

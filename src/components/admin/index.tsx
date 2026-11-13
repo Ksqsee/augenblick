@@ -209,7 +209,7 @@ export function Stepper({ steps, current, className }: { steps: string[]; curren
 export function SaveBar({ dirty, saving, onReset, children = 'Speichern' }: { dirty: boolean; saving?: boolean; onReset: () => void; children?: ReactNode }) {
   if (!dirty) return null;
   return (
-    <div className="animate-in sticky bottom-24 z-20 mx-(--row-px,0) mb-6 lg:bottom-6">
+    <div data-toast-avoid="" className="animate-in sticky bottom-24 z-20 mx-(--row-px,0) mb-6 lg:bottom-6">
       <div className="flex items-center gap-3 rounded-lg bg-ink py-2.5 pr-2.5 pl-4 text-white shadow-pop">
         <span className="min-w-0 flex-1 truncate text-body font-medium">Ungespeicherte Änderungen</span>
         <button type="button" onClick={onReset} className="h-9 shrink-0 rounded-md px-3 text-meta font-medium text-white/75 hover:bg-white/10 hover:text-white">

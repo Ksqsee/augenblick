@@ -79,8 +79,12 @@ API: [`docs/api.md`](docs/api.md)
   geschlossen); gleich benannte Mängel werden auch offline nicht doppelt angelegt
 - **Art der Prüfung vorbelegt**: Erstprüfung bei nie geprüften Elementen, sonst wiederkehrend; aus einer Mängelbehebung
   gestartet wird es eine Nachprüfung
-- **Unterschrift merken** (freiwillig, nur auf dem Gerät): „Mit gemerkter Unterschrift abschließen“ mit einem Tipp,
-  vergessen unter Einstellungen → Konto
+- **Prüfen in zwei Tipps** (v5): oben „Alles in Ordnung“ und „Abweichung einsprechen“, die Prüfpunkte darunter nach
+  Gruppen eingeklappt („6 von 6 i. O.“), selten Gebrauchtes unter „Weitere Angaben“. „Alles in Ordnung“ setzt alle
+  offenen Punkte ohne Rückfrage, fünf Sekunden „Rückgängig“, weiter zur Unterschrift – mit gemerkter Unterschrift reicht
+  dann „Abschließen“; mit Mangel: einsprechen, „Alles andere in Ordnung“, „Abschließen“ (`docs/design.md` 5.1c)
+- **Unterschrift merken** (freiwillig, nur auf dem Gerät): wird bei „Alles in Ordnung“ eingesetzt, sonst „Mit gemerkter
+  Unterschrift abschließen“ mit einem Tipp; vergessen unter Einstellungen → Konto
 - **Gesamtbewertung** automatisch oder vom Prüfer festgelegt (mit Pflicht-Begründung im Protokoll)
 - **Mehrere Arten der Prüfung** je Prüfung, auch eigene Arten des Workspaces
 - **Berichtigung** abgeschlossener Prüfungen: neue Fassung ersetzt die alte, die als Nachweis erhalten bleibt
@@ -180,7 +184,9 @@ npm run check              # Typprüfung + Unit-Tests + Build
 ## Tests
 
 - **Unit-Tests** (`npm test`, Vitest): Fachlogik, Autopilot-Kreislauf, Rangfolge „Jetzt“, Import/Export, Übersetzungen, Ruhezeiten, Web Push.
-- **Browser-Tests** (`e2e/`, Playwright): Reihen von der Registrierung über Sicherheitskorrekturen und Massenoperationen bis zu Berichtigung, Nachprüfung sowie Aufgaben und Mängeln (`14-tasks-defects`), dem Autopiloten (`20-autopilot`) und den offenen Punkten aus der Analyse (`21-offene-punkte`: Offline-Fehlliste, Intervalle, Partner-Zugang), dem MCP-Server (`11-ai-mcp`) und „Sprache zuerst“ (`23-sprache`: Rundgang über Claude, Unterschrift mit einem Tipp; `24-unterschreiben-offline`: Seite „Unterschreiben“, Befund einsprechen, Erfassen und Rundgang ohne Netz) sowie der Navigation mit fünf Orten (`25-fuenf-orte`: Leisten, Umleitungen, Prüfen, Offen, Heute am Handy, 390 px).
+- **Browser-Tests** (`e2e/`, Playwright): Reihen von der Registrierung über Sicherheitskorrekturen und Massenoperationen bis zu Berichtigung, Nachprüfung sowie Aufgaben und Mängeln (`14-tasks-defects`), dem Autopiloten (`20-autopilot`) und den offenen Punkten aus der Analyse (`21-offene-punkte`: Offline-Fehlliste, Intervalle, Partner-Zugang), dem MCP-Server (`11-ai-mcp`) und „Sprache zuerst“ (`23-sprache`: Rundgang über Claude, Unterschrift mit einem Tipp; `24-unterschreiben-offline`: Seite „Unterschreiben“, Befund einsprechen, Erfassen und Rundgang ohne Netz) sowie der Navigation mit fünf Orten (`25-fuenf-orte`: Leisten, Umleitungen, Prüfen, Offen, Heute am Handy, 390 px) und
+  dem Prüfen in zwei Tipps (`28-zwei-tipps`: Tipps zählen, Rückgängig, Mangel eingesprochen, Gruppen, Meldungen über keiner
+  Leiste, „Jetzt“ im neuen Konto, leere Seiten Prüfen/Offen).
   Vor jeder Reihe wird die lokale D1 geleert und mit Demodaten befüllt.
 
 ```bash

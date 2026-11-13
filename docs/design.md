@@ -200,7 +200,7 @@ Baustein erweitern.
 | `Timeline` | Kreis weiß mit Haarlinie, Symbol `ink-3`; Textblock mit Linie links statt grauem Kasten. |
 | `Avatar` | Gedämpfte Töne aus den Status-Flächen. |
 | `ErrorBox` | Zinnober-Fläche (erlaubt: Fehler ist „kritisch“). |
-| `Toast` | Tinte, Radius 8, Häkchen statt farbigem Kreis. |
+| `Toast` | Tinte, Radius 8, Häkchen statt farbigem Kreis. **v5:** immer nur eine Meldung (die neue ersetzt die alte), nie über Bedienelementen: am Handy über der Navigation bzw. über jeder Leiste mit `data-toast-avoid` (Abschlussleiste im Prüfablauf, klebende Aktionsleisten), am Desktop unten mittig. Optional ein Knopf: `toast(text, 'ok', { action: { label: 'Rückgängig', onClick }, duration })` – mit Aktion 5 s, sonst 3,5 s. |
 
 ### 4.3 Unverändert (nur Tokens)
 `IconButton`, `Kbd`, `Field`, `Input`, `Select`, `Textarea`, `DictateInput`, `SearchField`,
@@ -254,12 +254,15 @@ Leere Lage: „Alles geprüft. Nächste Fälligkeit am 03.12.“ – sonst nicht
 PageHeader  „Prüfen“ · [Rundgang starten] (Scannen ghost) ⋯ (Begehung starten, Offline)
 Surface
   Section „Rundgänge“ n · „fällig in 30 Tagen“   Gebäude · Objekt / n Elemente · ● seit 5 Monaten überfällig  ›  (6, dann „Alle n anzeigen“)
-  Section „Fällig“ · „Neue Elemente ›“           ● Überfällig ……… 14 ›   (Zahl Zinnober nur bei Überfällig)
+  Section „Fällig“ · „Neue Elemente ›“           ● Überfällig ……… 14 ›   (nur Zeilen mit Wert > 0; Zinnober nur bei Überfällig)
   Section „Angefangen“                           Entwürfe (5, „Alle“ → ?tab=drafts)
   Section „Begehungen“ · „Alle ›“                laufende zuerst, dann die letzten
   Section „Zuletzt abgeschlossen“ · „Alle ›“     5 Prüfungen mit Ergebnis als Punkt + Wort
 ```
 Mit `?tab=…` zeigt `/pruefen` die ausführliche Prüfungsliste (Vorlage 5.2) mit Zurück-Link „Prüfen“.
+**Leer (v5):** Abschnitte ohne Inhalt fehlen ganz (keine Nullreihen, kein „Keine …“-Satz je Abschnitt); ist alles leer,
+steht ein `Empty` mit dem nächsten Schritt („Noch nichts zu prüfen.“ → „Zu den Objekten“). „Rundgang starten“ im Kopf,
+sobald ein Gebäude Fälliges oder nie Geprüftes hat.
 
 ### 5.1b Offen (umgesetzt in `Offen.tsx`)
 ```
@@ -271,6 +274,37 @@ Mängel:     Suche · Segmented Offen/Behoben/Ausgeblendet · Segmented Alle/Ele
 Aufgaben:   Suche · Segmented Offen/Erledigt · Meine · Filter · (Handy) Auswählen
 ```
 Detail als Drawer über `?mangel=…` bzw. `?aufgabe=…` aus jeder Ansicht.
+**Leer (v5):** Reiter ohne Zahl statt „0“; ist nichts offen, entfällt in „Alle“ das Suchfeld und ein Satz nennt den
+nächsten Schritt („Nichts offen.“ → „Zum Prüfen“).
+
+### 5.1c Prüfablauf (umgesetzt in `components/run.tsx`, `components/inspect/*`; online und offline gleich)
+```
+RunFrame    Kopf: Zurück · Code · Art / Prüfart · Ort · Speichern · 3/16 · Fortschrittslinie
+Surface
+  Section   [✓✓ Alles in Ordnung      ]  [🎤 Abweichung einsprechen        ]   je 64 px; Handy untereinander
+            „alle 16 Prüfpunkte“           „Mangel nennen – landet beim …“
+            → nach der ersten Antwort bzw. mit Befund im Feld: „Alles andere in Ordnung“; alles beantwortet: „Alle 16 Punkte beantwortet · 1 Mangel“
+  Section   „Befund einsprechen“ (nur nach „Abweichung einsprechen“): Mikrofon/Textfeld, Übernehmen
+  Section   „Prüfpunkte“ 3 von 16   › Kennzeichnung und Zugang      1 von 1 i. O.
+                                   ⌄ Beschläge und Mechanik        4 von 6 i. O. · 1 Mangel   → Punkte mit i. O. / Mangel / n. z.
+  Section   „Bekannte Mängel“ (ohne Prüfpunkt) · „Weitere Mängel“ (ohne Prüfpunkt) · „Fotos“
+  Section   › Weitere Angaben   „Erstprüfung · 1 Arbeit“ → Art der Prüfung, Nicht prüfbar, Durchgeführte Arbeiten, Bemerkungen
+  Section   „Gesamtbewertung“ · „Vor dem Abschluss“ · „Unterschrift“
+Leiste      was fehlt („Noch 16 Prüfpunkte offen“) · [Weiter] bzw. „Alles erledigt“ · [Abschließen]
+```
+- **Gruppen** entstehen aus Schlüsselwörtern der Prüfpunkte (`components/inspect/groups.ts`; bis 6 Punkte eine Gruppe
+  „Alle Punkte“; ein Prüfpunkt mit eigenem `group` hat Vorrang). Am Anfang ist alles eingeklappt; aufgeklappt sind nur
+  Gruppen mit Mangel, offenem bekanntem Mangel oder – sobald etwas beantwortet ist – offenen Punkten. Von Hand auf-/
+  zugeklappt bleibt so; wer in einer Gruppe antwortet, behält sie offen. Nummern bleiben die der Liste.
+- **„Alles in Ordnung“** setzt alle offenen Punkte auf i. O. ohne Rückfrage (ein Befund im Feld wird vorher eingetragen),
+  setzt die gemerkte Unterschrift ein, zeigt fünf Sekunden „Rückgängig“ und springt zur Unterschrift. Mängelfrei mit
+  gemerkter Unterschrift: **zwei Tipps** („Alles in Ordnung“, „Abschließen“); mit einem Mangel: „Abweichung einsprechen“,
+  ein Satz, „Alles andere in Ordnung“, „Abschließen“. Im Rundgang geht es danach zum nächsten Element.
+- Selten Gebrauchtes liegt unter **Weitere Angaben** (eingeklappt; offen, solange die Art der Prüfung fehlt oder „Nicht
+  prüfbar“ gilt). Fachlich bleibt alles wie zuvor: Pflichtangaben bei Mängeln, bekannte Mängel, Fotos, Berichtigung,
+  Nachprüfung mit nur den betroffenen Punkten.
+- Bilder (390 und 1360 px): `docs/design/v3/v5/` (`m-/d-pruefung-start`, `-alles-ok`, `m-pruefung-abweichung`,
+  `m-pruefung-mangel`, `m-heute-neu`/`d-heute`, `m-pruefen-leer`, `m-offen-leer`; erzeugt von `e2e/28-zwei-tipps`).
 
 ### 5.2 Liste (Objekte, Elemente, Prüfungen, Mängel, Aufgaben, Begehungen)
 Objekte und „Alle Elemente“ sind zwei Ansichten eines Orts: Reiter `ObjectViews` unter dem Kopf.

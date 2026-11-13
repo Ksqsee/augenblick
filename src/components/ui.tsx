@@ -1485,29 +1485,99 @@ export function Menu({
 // Toasts
 // =====================================================================
 
-type ToastMsg = { id: number; text: string; tone: 'ok' | 'bad' };
-const ToastCtx = createContext<(text: string, tone?: 'ok' | 'bad') => void>(() => {});
+export interface ToastOptions {
+  /** ein Knopf in der Meldung, z. B. „Rückgängig“ */
+  action?: { label: string; onClick: () => void };
+  /** Anzeigedauer in ms (Standard 3,5 s, mit Aktion 5 s) */
+  duration?: number;
+}
+type ToastMsg = { id: number; text: string; tone: 'ok' | 'bad' } & ToastOptions;
+type ToastFn = (text: string, tone?: 'ok' | 'bad', opts?: ToastOptions) => void;
+const ToastCtx = createContext<ToastFn>(() => {});
 export const useToast = () => useContext(ToastCtx);
 
+/**
+ * Feste Leisten am unteren Rand, über denen Meldungen stehen: die Handy-Navigation und alles mit `data-toast-avoid`
+ * (Abschlussleiste im Prüfablauf, klebende Aktionsleisten). Liefert den Abstand vom unteren Rand in px.
+ */
+function toastOffset(): number {
+  const h = window.innerHeight;
+  let top = h;
+  for (const el of document.querySelectorAll<HTMLElement>('[data-toast-avoid], nav[aria-label="Hauptnavigation"]')) {
+    const r = el.getBoundingClientRect();
+    // nur sichtbare Leisten, die unten im Blick stehen (fest oder gerade angeklebt)
+    if (!r.height || r.top >= h || r.bottom < h - 160) continue;
+    top = Math.min(top, r.top);
+  }
+  return h - top;
+}
+const toastBottom = () => {
+  const o = toastOffset();
+  return o ? o + 12 : 24;
+};
+
+/**
+ * Meldungen (v5): immer nur eine (die neueste ersetzt die vorige, nichts stapelt sich), kurz, und nie über
+ * Bedienelementen – am Handy oberhalb der unteren Leiste bzw. der festen Aktionsleiste, am Desktop unten mittig.
+ */
 export function ToastProvider({ children }: { children: ReactNode }) {
-  const [items, setItems] = useState<ToastMsg[]>([]);
-  const push = useCallback((text: string, tone: 'ok' | 'bad' = 'ok') => {
+  const [item, setItem] = useState<ToastMsg | null>(null);
+  const [bottom, setBottom] = useState(24);
+  const timer = useRef<ReturnType<typeof setTimeout>>();
+  const push = useCallback<ToastFn>((text, tone = 'ok', opts = {}) => {
     const id = Date.now() + Math.random();
-    setItems((s) => [...s, { id, text, tone }]);
-    setTimeout(() => setItems((s) => s.filter((t) => t.id !== id)), 3500);
+    setBottom(toastBottom());
+    setItem({ id, text, tone, ...opts });
+    clearTimeout(timer.current);
+    timer.current = setTimeout(() => setItem((t) => (t?.id === id ? null : t)), opts.duration ?? (opts.action ? 5000 : 3500));
   }, []);
+  // Leisten können nach dem Seitenwechsel erscheinen oder verschwinden (z. B. nach „Abschließen“)
+  useEffect(() => {
+    if (!item) return;
+    const upd = () => setBottom(toastBottom());
+    const raf = requestAnimationFrame(upd);
+    const iv = setInterval(upd, 400);
+    window.addEventListener('resize', upd);
+    return () => {
+      cancelAnimationFrame(raf);
+      clearInterval(iv);
+      window.removeEventListener('resize', upd);
+    };
+  }, [item]);
   return (
     <ToastCtx.Provider value={push}>
       {children}
-      <div className="no-print pointer-events-none fixed inset-x-0 bottom-24 z-[60] flex flex-col items-center gap-2 px-4 lg:bottom-6" role="status" aria-live="polite">
-        {items.map((t) => (
-          <div key={t.id} className="animate-in pointer-events-auto flex max-w-md items-center gap-2.5 rounded-lg bg-ink py-2.5 pr-4 pl-3 text-body text-white shadow-pop">
-            <span className={clsx('grid size-4 shrink-0 place-items-center', t.tone === 'ok' ? 'text-white/70' : 'text-[#f0a093]')}>
-              {t.tone === 'ok' ? <Check className="size-4" strokeWidth={2.5} /> : <X className="size-4" strokeWidth={2.5} />}
+      <div
+        className="no-print pointer-events-none fixed inset-x-0 z-[60] flex justify-center px-4"
+        style={{ bottom: `max(${bottom}px, calc(env(safe-area-inset-bottom) + 12px))` }}
+        role="status"
+        aria-live="polite"
+      >
+        {item && (
+          <div
+            key={item.id}
+            data-toast=""
+            className="animate-in pointer-events-auto flex max-w-md min-w-0 items-center gap-2.5 rounded-lg bg-ink py-2 pr-2 pl-3 text-body text-white shadow-pop"
+          >
+            <span className={clsx('grid size-4 shrink-0 place-items-center', item.tone === 'ok' ? 'text-white/70' : 'text-[#f0a093]')}>
+              {item.tone === 'ok' ? <Check className="size-4" strokeWidth={2.5} /> : <X className="size-4" strokeWidth={2.5} />}
             </span>
-            {t.text}
+            <span className={clsx('min-w-0 py-0.5', !item.action && 'pr-2')}>{item.text}</span>
+            {item.action && (
+              <button
+                type="button"
+                onClick={() => {
+                  item.action!.onClick();
+                  clearTimeout(timer.current);
+                  setItem(null);
+                }}
+                className="ml-1 h-9 shrink-0 rounded-md px-2.5 text-body font-medium text-white underline-offset-4 hover:bg-white/10 hover:underline"
+              >
+                {item.action.label}
+              </button>
+            )}
           </div>
-        ))}
+        )}
       </div>
     </ToastCtx.Provider>
   );

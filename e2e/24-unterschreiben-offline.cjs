@@ -216,8 +216,11 @@ const overflow = (p) => p.evaluate(() => document.documentElement.scrollWidth - 
   const banner = m.getByLabel('Offline-Rundgang');
   await banner.waitFor();
   check(/1 von \d+/.test(await banner.innerText()), `Position im Rundgang (${await banner.innerText()})`);
+  // v5: „Abweichung einsprechen“ öffnet das Feld; Prüfpunkte nach Gruppen eingeklappt
+  await m.getByRole('button', { name: 'Abweichung einsprechen' }).click();
   const voice = m.getByRole('region', { name: 'Befund einsprechen' });
   check(await voice.getByText(/Mikrofon der Tastatur nutzen/).isVisible(), 'Hinweis auf das Tastatur-Diktat');
+  await m.locator('[data-group] > button').first().click();
   const groups = m.locator('[data-cp] [role=radiogroup]');
   const cpLabel = await groups.nth(0).getAttribute('aria-label');
   await voice.getByLabel('Eingesprochener Befund').fill(`${cpLabel} – defekt, mittel`);
@@ -227,9 +230,9 @@ const overflow = (p) => p.evaluate(() => document.documentElement.scrollWidth - 
   check((await groups.nth(0).getByRole('radio', { name: 'Mangel' }).getAttribute('aria-checked')) === 'true', `Mangel lokal beim Prüfpunkt „${cpLabel}“`);
   check((await overflow(m)) <= 0, 'kein Überlauf (Offline-Prüfung)');
   await shot(m, 'm-offline-befund-zugeordnet', voice);
-  await m.getByRole('button', { name: 'Rest i. O.' }).click();
-  await m.getByRole('dialog').getByRole('button', { name: 'Alle i. O. setzen' }).click();
-  await m.getByRole('button', { name: 'Mit gemerkter Unterschrift abschließen' }).click();
+  // „Alles andere in Ordnung“ setzt die gemerkte Unterschrift ein – ein Tipp zum Abschluss
+  await m.getByRole('button', { name: 'Alles andere in Ordnung' }).click();
+  await m.getByRole('button', { name: 'Abschließen, weiter' }).click();
   await m.waitForURL((u) => !u.pathname.endsWith(firstId) && u.pathname.startsWith('/offline/pruefen/'));
   const secondId = m.url().split('/offline/pruefen/')[1].split('?')[0];
   check(secondId === walk[1].id, `automatisch weiter zum nächsten Element (${secondId} / ${walk[1].id})`);

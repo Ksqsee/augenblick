@@ -1,20 +1,21 @@
 import { getCategory } from '../categories';
 import clsx from 'clsx';
-import { Camera, CheckCheck, Loader2, Plus, Trash2, X } from 'lucide-react';
-import { createContext, type ReactNode, useCallback, useContext, useEffect, useRef, useState } from 'react';
+import { Camera, Check, CheckCheck, ChevronRight, Loader2, Mic, Plus, Trash2, X } from 'lucide-react';
+import { createContext, type ReactNode, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { type Category, type Checkpoint, type CustomKind, INSPECTION_KINDS, SEVERITIES, type Severity } from '../../shared/catalog';
 import { type Answer, computeResult, finalResult, isComplete, type ResultOverride } from '../../shared/logic';
 import { type DefectDraft, fileUrl, uploadPhoto, useMe } from '../api';
 import { defectsLabel, fmtDate, RESULT_META } from '../format';
 import { decideKnown, groupKnownDefects, type KnownDecision, knownDecision, type KnownDefect } from '../../shared/carry';
-import { Button, DictateInput, Notice, Section, StatusText, Surface, Switch, Textarea, toneDot, SEVERITY_TONE, useConfirm } from './ui';
+import { Button, DictateInput, Notice, Section, StatusText, Surface, Switch, Textarea, toneDot, SEVERITY_TONE, useConfirm, useToast } from './ui';
 import { CategoryGlyph } from './inspect/Glyph';
 import { type CaptureItem, suggestMeasure, suggestSeverity } from '../../shared/smart';
 import { CheckpointRow, reveal, revealNextOpen } from './inspect/Checkpoint';
 import { RadioChips, ToggleChip } from './inspect/Choice';
 import { ReadyList, RunFrame, type RunStep, type SaveState } from './inspect/RunFrame';
-import { SignatureSection } from './inspect/Signature';
-import { VoicePanel } from './inspect/VoicePanel';
+import { rememberedSignature, SignatureSection } from './inspect/Signature';
+import { parseFinding, VoicePanel } from './inspect/VoicePanel';
+import { countGroup, groupCheckpoints, groupSummary } from './inspect/groups';
 
 export { AnswerSegment as AnswerButtons } from './inspect/Checkpoint';
 export { RunFrame, SaveIndicator, ReadyList, type RunStep, type SaveState } from './inspect/RunFrame';
@@ -260,7 +261,8 @@ export function InspectionForm({
   const saveState = useAutosave(d, persist);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
-  const [confirm, confirmEl] = useConfirm();
+  const { data: me } = useMe();
+  const toast = useToast();
   const listRef = useRef<HTMLDivElement>(null);
   const update = useCallback((patch: Partial<InspectionDraft>) => setD((s) => ({ ...s, ...patch })), []);
   const ids = checkpoints.map((c) => c.id);
@@ -276,7 +278,32 @@ export function InspectionForm({
   const known = groupKnownDefects(knownDefects, ids);
   const decide = (k: KnownDefect, decision: KnownDecision) => setD((s) => decideKnown(s, k, decision, ids));
 
+  // ---------- Gruppen (v5): eingeklappt, außer mit Mangel oder offenen Punkten ----------
+  const groups = useMemo(() => groupCheckpoints(checkpoints), [checkpoints]);
+  const groupOf = useMemo(() => new Map(groups.flatMap((g) => g.items.map((i) => [i.cp.id, g.key] as const))), [groups]);
+  // von Hand auf- oder zugeklappt (sonst gilt die Regel)
+  const [manual, setManual] = useState<Record<string, boolean>>({});
+  const groupRows = groups.map((g) => {
+    const gids = g.items.map((i) => i.cp.id);
+    const c = countGroup(gids, d.answers);
+    const knownOpen = gids.some((i) => (known.byCheckpoint.get(i) ?? []).some((k) => knownDecision(d, k.id) !== 'resolved'));
+    const auto = c.defect > 0 || knownOpen || (answered > 0 && c.open > 0);
+    return { g, c, expanded: manual[g.key] ?? auto };
+  });
+  const keepOpen = (cpId: string) => {
+    const k = groupOf.get(cpId);
+    if (k) setManual((m) => (k in m ? m : { ...m, [k]: true }));
+  };
+
+  // ---------- Abweichung einsprechen / Weitere Angaben ----------
+  const [voiceOpen, setVoiceOpen] = useState(false);
+  const [voiceText, setVoiceText] = useState('');
+  const [allBusy, setAllBusy] = useState(false);
+  const [moreOpen, setMoreOpen] = useState(() => initial.maintenance.length > 0 || !!initial.notes.trim());
+  const showMore = moreOpen || !d.kinds?.length || d.notInspectable;
+
   const setAnswer = (cp: Checkpoint, a: Answer) => {
+    keepOpen(cp.id);
     const here = known.byCheckpoint.get(cp.id) ?? [];
     // Antwort ≠ i. O. nimmt „Behoben“ bei bekannten Mängeln dieses Punktes zurück
     const resolvedDefects = a === 'ok' ? d.resolvedDefects : d.resolvedDefects?.filter((x) => !here.some((k) => k.id === x));
@@ -294,13 +321,65 @@ export function InspectionForm({
     if (a !== 'defect') revealNextOpen(listRef.current, cp.id);
   };
 
-  const restOk = async () => {
-    const ok = await confirm({
-      title: `${open} offene ${open === 1 ? 'Punkt' : 'Punkte'} auf „In Ordnung“ setzen?`,
-      text: 'Bestätige nur, wenn du diese Punkte vor Ort geprüft hast. Bereits beantwortete Punkte bleiben unverändert.',
-      confirmLabel: 'Alle i. O. setzen',
+  /** Eingesprochene Befunde in den Entwurf: Mängel zum passenden Punkt, Übriges in die Bemerkungen. */
+  const applyCapture = (s: InspectionDraft, items: CaptureItem[]): InspectionDraft => {
+    const answers = { ...s.answers };
+    let defects = [...s.defects];
+    const notes: string[] = [];
+    for (const it of items) {
+      if (it.kind === 'asset') continue; // Sammelanlagen gibt es nur unter „Erfassen“
+      if (it.kind !== 'defect') {
+        notes.push(it.title + (it.note ? ` – ${it.note}` : ''));
+        continue;
+      }
+      const cp = checkpoints.find((c) => c.id === it.checkpointId);
+      const nd = { checkpointId: cp?.id, title: it.title, note: it.note, measure: it.measure, severity: it.severity };
+      if (cp) {
+        answers[cp.id] = 'defect';
+        defects = [...defects.filter((x) => x.checkpointId !== cp.id), nd];
+      } else defects = [...defects, nd];
+    }
+    return { ...s, answers, defects, notes: notes.length ? [s.notes.trim(), ...notes].filter(Boolean).join('\n') : s.notes };
+  };
+
+  /**
+   * „Alles in Ordnung“ / „Alles andere in Ordnung“: ohne Rückfrage alle offenen Punkte auf i. O. (ein noch nicht
+   * übernommener Befund wird vorher eingetragen), gemerkte Unterschrift einsetzen, fünf Sekunden „Rückgängig“,
+   * weiter zur Unterschrift. Danach reicht „Abschließen“.
+   */
+  const allOk = async () => {
+    if (allBusy) return;
+    let base = d;
+    let found = 0;
+    if (voiceText.trim()) {
+      setAllBusy(true);
+      try {
+        const r = await parseFinding(voiceText, checkpoints.map((c) => ({ id: c.id, label: c.label })), !navigator.onLine);
+        base = applyCapture(base, r.items);
+        found = r.items.filter((i) => i.kind === 'defect').length;
+        setVoiceText('');
+      } catch (e) {
+        toast(e instanceof Error ? e.message : 'Auswerten fehlgeschlagen', 'bad');
+        return;
+      } finally {
+        setAllBusy(false);
+      }
+    }
+    const n = ids.filter((i) => !base.answers[i]).length;
+    const next: InspectionDraft = {
+      ...base,
+      answers: Object.fromEntries(ids.map((i) => [i, base.answers[i] ?? 'ok'])),
+      signature: base.signature ?? rememberedSignature(me?.user.id),
+    };
+    setD(next);
+    setManual({});
+    setVoiceOpen(false);
+    const what = n === ids.length ? 'Alle Punkte in Ordnung' : `${n} ${n === 1 ? 'Punkt' : 'Punkte'} in Ordnung`;
+    toast(found ? `${found === 1 ? '1 Mangel' : `${found} Mängel`} eingetragen, ${what.replace(/^Alle/, 'alle')}` : what, 'ok', {
+      action: { label: 'Rückgängig', onClick: () => setD(base) },
+      duration: 5000,
     });
-    if (ok) update({ answers: Object.fromEntries(ids.map((i) => [i, d.answers[i] ?? 'ok'])) });
+    window.setTimeout(() => jumpTo('unterschrift'), 60);
   };
 
   const onSubmit = () => finish(d);
@@ -318,8 +397,24 @@ export function InspectionForm({
     }
   };
 
+  const showFirstOpen = () => {
+    if (!firstOpen) return;
+    const k = groupOf.get(firstOpen.id);
+    if (k) setManual((m) => ({ ...m, [k]: true }));
+    window.setTimeout(() => reveal(listRef.current?.querySelector(`[data-cp="${firstOpen.id}"]`)), 30);
+  };
+
   const steps: RunStep[] = [
-    { key: 'kind', label: 'Art der Prüfung', todo: 'Art der Prüfung wählen', done: !!d.kinds?.length, go: () => jumpTo('ablauf') },
+    {
+      key: 'kind',
+      label: 'Art der Prüfung',
+      todo: 'Art der Prüfung wählen',
+      done: !!d.kinds?.length,
+      go: () => {
+        setMoreOpen(true);
+        window.setTimeout(() => jumpTo('ablauf'), 30);
+      },
+    },
     ...(!d.notInspectable
       ? [
           {
@@ -328,7 +423,7 @@ export function InspectionForm({
             todo: `Noch ${open} ${open === 1 ? 'Prüfpunkt' : 'Prüfpunkte'} offen`,
             value: `${answered}/${ids.length}`,
             done: complete,
-            go: () => reveal(firstOpen && listRef.current?.querySelector(`[data-cp="${firstOpen.id}"]`)),
+            go: showFirstOpen,
           },
           { key: 'titles', label: 'Mängel benannt', todo: 'Mangel ohne Bezeichnung', done: !untitled, go: () => jumpTo('weitere-maengel') },
           { key: 'reason', label: 'Gesamtbewertung', todo: 'Begründung zur Gesamtbewertung fehlt', done: !needsReason, go: () => jumpTo('gesamtbewertung') },
@@ -336,6 +431,9 @@ export function InspectionForm({
       : []),
     { key: 'sign', label: 'Unterschrieben', todo: 'Unterschrift fehlt', done: !!d.signature, go: () => jumpTo('unterschrift') },
   ];
+
+  const okLabel = answered > 0 || voiceText.trim() ? 'Alles andere in Ordnung' : 'Alles in Ordnung';
+  const defectCount = d.defects.length;
 
   return (
     <RunFrame
@@ -351,14 +449,13 @@ export function InspectionForm({
       done={d.notInspectable ? ids.length : answered}
       total={ids.length}
       result={result}
-      extraResult={d.defects.length ? defectsLabel(d.defects.length) : undefined}
+      extraResult={defectCount ? defectsLabel(defectCount) : undefined}
       steps={steps}
       error={error}
       submitting={submitting}
       onSubmit={onSubmit}
       submitLabel={submitLabel ?? (offline ? 'Abschließen (offline)' : 'Abschließen')}
     >
-      {confirmEl}
       {(offline || banner) && (
         <div className="flex flex-col gap-3">
           {offline && (
@@ -371,170 +468,300 @@ export function InspectionForm({
       )}
 
       <Surface>
-      <Section id="ablauf" className="scroll-mt-24">
-        <div className="flex flex-col gap-4">
-          <KindPicker value={d.kinds ?? []} onChange={(kinds) => update({ kinds })} />
-          <Switch
-            checked={d.notInspectable}
-            onChange={(notInspectable) => update({ notInspectable })}
-            label="Nicht prüfbar"
-            description="Zum Beispiel kein Zugang – Prüfpunkte entfallen."
+        {!d.notInspectable && ids.length > 0 && (
+          <Section aria-label="Ergebnis">
+            <div className="grid gap-3 sm:grid-cols-2">
+              {open > 0 ? (
+                <BigChoice primary icon={<CheckCheck />} label={okLabel} sub={voiceText.trim() ? 'Befund übernehmen, Rest i. O.' : open === ids.length ? `alle ${ids.length} Prüfpunkte` : `${open} offene ${open === 1 ? 'Punkt' : 'Punkte'}`} busy={allBusy} onClick={allOk} />
+              ) : (
+                <div className="flex min-h-16 items-center gap-3 rounded-md border border-line px-4" role="status">
+                  <span className="grid size-5 shrink-0 place-items-center rounded-full bg-ink text-white" aria-hidden>
+                    <Check className="size-3" strokeWidth={3} />
+                  </span>
+                  <span className="min-w-0">
+                    <span className="block text-body text-ink">Alle {ids.length} Punkte beantwortet</span>
+                    <span className="block text-meta text-ink-3">{defectCount ? defectsLabel(defectCount) : 'ohne Mangel'}</span>
+                  </span>
+                </div>
+              )}
+              <BigChoice
+                icon={<Mic />}
+                label="Abweichung einsprechen"
+                sub="Mangel nennen – landet beim passenden Punkt"
+                expanded={voiceOpen}
+                onClick={() => setVoiceOpen((v) => !v)}
+              />
+            </div>
+          </Section>
+        )}
+
+        {!d.notInspectable && (voiceOpen || !!voiceText.trim()) && (
+          <VoicePanel
+            checkpoints={checkpoints}
+            text={voiceText}
+            onText={setVoiceText}
+            autoFocus
+            hint={open ? 'den Rest mit „Alles andere in Ordnung“ bestätigen' : 'weiter zur Unterschrift'}
+            onApply={(items: CaptureItem[]) => {
+              const nd = applyCapture(d, items);
+              for (const id of ids) if (nd.answers[id] === 'defect' && d.answers[id] !== 'defect') keepOpen(id);
+              setD(nd);
+            }}
           />
-        </div>
-      </Section>
+        )}
 
-      {!d.notInspectable && (
-        <VoicePanel
-          checkpoints={checkpoints}
-          onApply={(items: CaptureItem[]) => {
-            const answers = { ...d.answers };
-            let defects = [...d.defects];
-            const notes: string[] = [];
-            for (const it of items) {
-              if (it.kind === 'asset') continue; // Sammelanlagen gibt es nur unter „Erfassen“
-              if (it.kind !== 'defect') {
-                notes.push(it.title + (it.note ? ` – ${it.note}` : ''));
-                continue;
-              }
-              const cp = checkpoints.find((c) => c.id === it.checkpointId);
-              const nd = { checkpointId: cp?.id, title: it.title, note: it.note, measure: it.measure, severity: it.severity };
-              if (cp) {
-                answers[cp.id] = 'defect';
-                defects = [...defects.filter((x) => x.checkpointId !== cp.id), nd];
-              } else defects = [...defects, nd];
-            }
-            update({ answers, defects, notes: notes.length ? [d.notes.trim(), ...notes].filter(Boolean).join('\n') : d.notes });
-          }}
-        />
-      )}
-
-      {!d.notInspectable && (
-        <Section
-          title="Prüfpunkte"
-          flush
-          action={
-            <>
+        {!d.notInspectable && (
+          <Section
+            title="Prüfpunkte"
+            flush
+            action={
               <span className="text-meta text-ink-3 tabular-nums">
                 {answered} von {ids.length}
               </span>
-              {open > 0 && (
-                <Button size="sm" variant="ghost" icon={<CheckCheck />} onClick={restOk} className="-mr-2">
-                  Rest i. O.
-                </Button>
-              )}
-            </>
-          }
-        >
-            <div ref={listRef} className="divide-y divide-line">
-              {checkpoints.map((cp, idx) => {
-                const defect = d.defects.find((x) => x.checkpointId === cp.id && !x.knownId);
-                const here = known.byCheckpoint.get(cp.id) ?? [];
-                return (
-                  <CheckpointRow
-                    key={cp.id}
-                    id={cp.id}
-                    n={idx + 1}
-                    label={cp.label}
-                    hint={cp.hint}
-                    answer={d.answers[cp.id]}
-                    current={firstOpen?.id === cp.id && answered > 0}
-                    onAnswer={(v) => setAnswer(cp, v)}
+            }
+          >
+            <div ref={listRef}>
+              {groupRows.map(({ g, c, expanded }) => (
+                <div key={g.key} data-group={g.key} className="border-t border-line first:border-t-0">
+                  <button
+                    type="button"
+                    aria-expanded={expanded}
+                    onClick={() => setManual((m) => ({ ...m, [g.key]: !expanded }))}
+                    className="flex min-h-13 w-full items-center gap-3 px-(--row-px) py-2 text-left transition-colors hover:bg-hover sm:min-h-12"
                   >
-                    {(here.length > 0 || defect) && (
-                      <div className="flex flex-col gap-3">
-                        {here.map((k) => (
-                          <KnownDefectCard key={k.id} k={k} decision={knownDecision(d, k.id)} onDecide={(x) => decide(k, x)} />
-                        ))}
-                        {defect && (
-                          <DefectPanel>
-                            <DefectEditor defect={defect} onChange={(nd) => update({ defects: d.defects.map((x) => (x === defect ? nd : x)) })} />
-                          </DefectPanel>
-                        )}
-                      </div>
-                    )}
-                  </CheckpointRow>
-                );
-              })}
-            </div>
-        </Section>
-      )}
-
-      {!d.notInspectable && known.loose.length > 0 && (
-        <Section id="bekannte-maengel" title="Bekannte Mängel" action={<span className="text-meta text-ink-3">ohne passenden Prüfpunkt</span>} className="scroll-mt-24">
-          <div className="flex flex-col gap-5">
-            {known.loose.map((k) => (
-              <KnownDefectCard key={k.id} k={k} decision={knownDecision(d, k.id)} onDecide={(x) => decide(k, x)} />
-            ))}
-          </div>
-        </Section>
-      )}
-
-      {!d.notInspectable && (
-        <Section id="weitere-maengel" title="Weitere Mängel" action={<span className="text-meta text-ink-3">ohne Prüfpunkt</span>} className="scroll-mt-24">
-          <div className="flex flex-col gap-4">
-            {d.defects
-              .filter((x) => !x.checkpointId && !x.knownId)
-              .map((x, i) => (
-                <DefectPanel key={i}>
-                  <DefectEditor
-                    defect={x}
-                    editableTitle
-                    onChange={(nd) => update({ defects: d.defects.map((y) => (y === x ? nd : y)) })}
-                    onRemove={() => update({ defects: d.defects.filter((y) => y !== x) })}
-                  />
-                </DefectPanel>
+                    <ChevronRight aria-hidden className={clsx('size-4 shrink-0 text-ink-3 transition-transform duration-150', expanded && 'rotate-90')} />
+                    <span className="flex min-w-0 flex-1 flex-col sm:flex-row sm:items-baseline sm:justify-between sm:gap-4">
+                      <span className="truncate text-body text-ink">{g.label}</span>
+                      <span className={clsx('shrink-0 text-meta tabular-nums', c.defect ? 'text-ink' : 'text-ink-3')}>{groupSummary(c)}</span>
+                    </span>
+                  </button>
+                  {expanded && (
+                    <div className="animate-pop divide-y divide-line border-t border-line">
+                      {g.items.map(({ cp, n }) => {
+                        const defect = d.defects.find((x) => x.checkpointId === cp.id && !x.knownId);
+                        const here = known.byCheckpoint.get(cp.id) ?? [];
+                        return (
+                          <CheckpointRow
+                            key={cp.id}
+                            id={cp.id}
+                            n={n}
+                            label={cp.label}
+                            hint={cp.hint}
+                            answer={d.answers[cp.id]}
+                            current={firstOpen?.id === cp.id && answered > 0}
+                            onAnswer={(v) => setAnswer(cp, v)}
+                          >
+                            {(here.length > 0 || defect) && (
+                              <div className="flex flex-col gap-3">
+                                {here.map((k) => (
+                                  <KnownDefectCard key={k.id} k={k} decision={knownDecision(d, k.id)} onDecide={(x) => decide(k, x)} />
+                                ))}
+                                {defect && (
+                                  <DefectPanel>
+                                    <DefectEditor defect={defect} onChange={(nd) => update({ defects: d.defects.map((x) => (x === defect ? nd : x)) })} />
+                                  </DefectPanel>
+                                )}
+                              </div>
+                            )}
+                          </CheckpointRow>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
               ))}
-            <AddButton onClick={() => update({ defects: [...d.defects, { title: '', note: '', severity: 'medium' }] })}>Mangel ohne Prüfpunkt erfassen</AddButton>
-          </div>
-        </Section>
-      )}
+            </div>
+          </Section>
+        )}
 
-      {def.maintenance.length > 0 && (
-        <Section title="Durchgeführte Arbeiten" action={<span className="text-meta text-ink-3">{d.maintenance.length ? `${d.maintenance.length} gewählt` : 'optional'}</span>}>
-          <div className="flex flex-wrap gap-2">
-            {def.maintenance.map((m) => {
-              const on = d.maintenance.includes(m.key);
-              return (
-                <ToggleChip key={m.key} active={on} onClick={() => update({ maintenance: on ? d.maintenance.filter((k) => k !== m.key) : [...d.maintenance, m.key] })}>
-                  {m.label}
-                </ToggleChip>
-              );
-            })}
-          </div>
-        </Section>
-      )}
+        {!d.notInspectable && known.loose.length > 0 && (
+          <Section id="bekannte-maengel" title="Bekannte Mängel" action={<span className="text-meta text-ink-3">ohne passenden Prüfpunkt</span>} className="scroll-mt-24">
+            <div className="flex flex-col gap-5">
+              {known.loose.map((k) => (
+                <KnownDefectCard key={k.id} k={k} decision={knownDecision(d, k.id)} onDecide={(x) => decide(k, x)} />
+              ))}
+            </div>
+          </Section>
+        )}
 
-      <PhotoSection photos={d.photos ?? []} onChange={(photos) => update({ photos })} />
+        {!d.notInspectable && (
+          <Section id="weitere-maengel" title="Weitere Mängel" action={<span className="text-meta text-ink-3">ohne Prüfpunkt</span>} className="scroll-mt-24">
+            <div className="flex flex-col gap-4">
+              {d.defects
+                .filter((x) => !x.checkpointId && !x.knownId)
+                .map((x, i) => (
+                  <DefectPanel key={i}>
+                    <DefectEditor
+                      defect={x}
+                      editableTitle
+                      onChange={(nd) => update({ defects: d.defects.map((y) => (y === x ? nd : y)) })}
+                      onRemove={() => update({ defects: d.defects.filter((y) => y !== x) })}
+                    />
+                  </DefectPanel>
+                ))}
+              <AddButton onClick={() => update({ defects: [...d.defects, { title: '', note: '', severity: 'medium' }] })}>Mangel ohne Prüfpunkt erfassen</AddButton>
+            </div>
+          </Section>
+        )}
 
-      <Section title="Bemerkungen" action={<span className="text-meta text-ink-3">optional</span>}>
-        <Textarea aria-label="Bemerkungen" value={d.notes} onChange={(e) => update({ notes: e.target.value })} placeholder="Hinweise zur Prüfung, Absprachen vor Ort …" />
-      </Section>
+        <PhotoSection photos={d.photos ?? []} onChange={(photos) => update({ photos })} />
 
-      {!d.notInspectable && (
-        <OverallResult
-          computed={computed}
-          override={d.resultOverride ?? null}
-          reason={d.resultReason ?? ''}
-          defectCount={d.defects.length}
-          onChange={(resultOverride, resultReason) => update({ resultOverride, resultReason })}
+        <MoreDetails
+          open={showMore}
+          locked={!d.kinds?.length || d.notInspectable}
+          onToggle={() => setMoreOpen(!showMore)}
+          draft={d}
+          maintenance={def.maintenance}
+          update={update}
         />
-      )}
 
-      <ReadyList steps={steps} />
+        {!d.notInspectable && (
+          <OverallResult
+            computed={computed}
+            override={d.resultOverride ?? null}
+            reason={d.resultReason ?? ''}
+            defectCount={defectCount}
+            onChange={(resultOverride, resultReason) => update({ resultOverride, resultReason })}
+          />
+        )}
 
-      <SignatureSection
-        name={d.signerName}
-        fallbackName={inspectorName}
-        signature={d.signature}
-        onName={(signerName) => update({ signerName })}
-        onSignature={(signature) => update({ signature })}
-        onQuickFinish={steps.every((x) => x.done || x.key === 'sign') ? (signature) => void finish({ ...d, signature }) : undefined}
-      />
+        <ReadyList steps={steps} />
+
+        <SignatureSection
+          name={d.signerName}
+          fallbackName={inspectorName}
+          signature={d.signature}
+          onName={(signerName) => update({ signerName })}
+          onSignature={(signature) => update({ signature })}
+          onQuickFinish={steps.every((x) => x.done || x.key === 'sign') ? (signature) => void finish({ ...d, signature }) : undefined}
+        />
       </Surface>
 
       <DiscardButton onDiscard={discard} />
     </RunFrame>
   );
+}
+
+/** Große Wahlfläche oben im Prüfablauf (64 px): Hauptweg in Tinte, Abweichung weiß mit Haarlinie. */
+function BigChoice({
+  primary,
+  icon,
+  label,
+  sub,
+  busy,
+  expanded,
+  onClick,
+}: {
+  primary?: boolean;
+  icon: ReactNode;
+  label: string;
+  sub: string;
+  busy?: boolean;
+  expanded?: boolean;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      aria-label={label}
+      aria-expanded={expanded}
+      disabled={busy}
+      onClick={onClick}
+      className={clsx(
+        'flex min-h-16 w-full items-center gap-3 rounded-md px-4 py-2.5 text-left transition-[background-color,border-color,opacity] duration-150 select-none active:opacity-85 disabled:opacity-60 [&_svg]:size-5 [&_svg]:shrink-0',
+        primary ? 'bg-ink text-white hover:bg-brand-strong' : 'border border-line-strong bg-surface text-ink hover:bg-hover',
+        expanded && 'bg-selected hover:bg-selected',
+      )}
+    >
+      {busy ? <Loader2 className="animate-spin" /> : icon}
+      <span className="min-w-0">
+        <span className="block text-title font-semibold">{label}</span>
+        <span className={clsx('block truncate text-meta', primary ? 'text-white/70' : 'text-ink-3')}>{sub}</span>
+      </span>
+    </button>
+  );
+}
+
+/** Selten Gebrauchtes, eingeklappt: Art der Prüfung, nicht prüfbar, durchgeführte Arbeiten, Bemerkung. */
+function MoreDetails({
+  open,
+  locked,
+  onToggle,
+  draft: d,
+  maintenance,
+  update,
+}: {
+  open: boolean;
+  /** bleibt offen, solange dort etwas fehlt bzw. „nicht prüfbar“ gilt */
+  locked: boolean;
+  onToggle: () => void;
+  draft: InspectionDraft;
+  maintenance: { key: string; label: string }[];
+  update: (p: Partial<InspectionDraft>) => void;
+}) {
+  const kinds = useKindLabels(d.kinds ?? []);
+  const summary = [
+    kinds.join(', ') || 'Art der Prüfung fehlt',
+    d.notInspectable && 'nicht prüfbar',
+    d.maintenance.length > 0 && (d.maintenance.length === 1 ? '1 Arbeit' : `${d.maintenance.length} Arbeiten`),
+    d.notes.trim() && 'Bemerkung',
+  ]
+    .filter(Boolean)
+    .join(' · ');
+  return (
+    <Section aria-label="Weitere Angaben" className="scroll-mt-24">
+      <button
+        type="button"
+        aria-expanded={open}
+        disabled={locked && open}
+        onClick={onToggle}
+        className="-mx-2 -my-1 flex w-[calc(100%+1rem)] items-center gap-3 rounded-md px-2 py-1 text-left transition-colors enabled:hover:bg-hover"
+      >
+        <span className="min-w-0 flex-1">
+          <span className="block text-body text-ink">Weitere Angaben</span>
+          <span className="block truncate text-meta text-ink-3">{summary}</span>
+        </span>
+        {!(locked && open) && <ChevronRight aria-hidden className={clsx('size-4 shrink-0 text-ink-3 transition-transform duration-150', open && 'rotate-90')} />}
+      </button>
+      {open && (
+        <div className="animate-pop flex flex-col gap-6 pt-5">
+          <div id="ablauf" className="flex scroll-mt-24 flex-col gap-4">
+            <KindPicker value={d.kinds ?? []} onChange={(kinds) => update({ kinds })} />
+            <Switch checked={d.notInspectable} onChange={(notInspectable) => update({ notInspectable })} label="Nicht prüfbar" description="Zum Beispiel kein Zugang – Prüfpunkte entfallen." />
+          </div>
+          {maintenance.length > 0 && (
+            <div>
+              <p className="mb-2 flex items-baseline justify-between text-meta text-ink-3">
+                Durchgeführte Arbeiten <span>{d.maintenance.length ? `${d.maintenance.length} gewählt` : 'optional'}</span>
+              </p>
+              <div className="flex flex-wrap gap-2">
+                {maintenance.map((m) => {
+                  const on = d.maintenance.includes(m.key);
+                  return (
+                    <ToggleChip key={m.key} active={on} onClick={() => update({ maintenance: on ? d.maintenance.filter((k) => k !== m.key) : [...d.maintenance, m.key] })}>
+                      {m.label}
+                    </ToggleChip>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+          <div>
+            <p className="mb-2 text-meta text-ink-3">Bemerkungen</p>
+            <Textarea aria-label="Bemerkungen" value={d.notes} onChange={(e) => update({ notes: e.target.value })} placeholder="Hinweise zur Prüfung, Absprachen vor Ort …" />
+          </div>
+        </div>
+      )}
+    </Section>
+  );
+}
+
+/** Bezeichnungen der gewählten Prüfungsarten (eingebaut und eigene des Workspaces). */
+function useKindLabels(value: string[]): string[] {
+  const { data: me } = useMe();
+  const custom: CustomKind[] = me?.tenant.inspectionKinds ?? [];
+  const all: Record<string, string> = { ...INSPECTION_KINDS, ...Object.fromEntries(custom.map((k) => [k.key, k.label])) };
+  return value.map((k) => all[k] ?? k);
 }
 
 /** Offener Mangel aus einer früheren Prüfung: weiterhin vorhanden oder behoben? */

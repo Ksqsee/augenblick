@@ -109,8 +109,7 @@ const check = (ok, m) => {
   check((await p.locator(`[data-cp="${cps[0].id}"]`).getByRole('radio', { name: 'Mangel' }).getAttribute('aria-checked')) === 'true', 'Prüfpunkt als „Mangel“ beantwortet');
   await loose.getByRole('button', { name: 'Behoben' }).click();
   check((await loose.getByRole('button', { name: 'Behoben' }).getAttribute('aria-pressed')) === 'true', '„Behoben“ gewählt');
-  await p.getByRole('button', { name: 'Rest i. O.' }).click();
-  await p.getByRole('button', { name: 'Alle i. O. setzen' }).click();
+  await p.getByRole('button', { name: 'Alles andere in Ordnung' }).click();
   await p.locator('canvas').scrollIntoViewIfNeeded();
   await p.mouse.wheel(0, 200);
   await p.waitForTimeout(300);
@@ -175,16 +174,14 @@ const check = (ok, m) => {
   check(r.status === 200 && r.json.result === 'ok', `offline: behoben gemeldet (${r.status})`);
   check((await api(`/assets/${door.id}`)).json.defects.every((d) => d.status === 'resolved'), 'alle Mängel behoben');
 
-  step('Gemerkte Unterschrift: ein Tipp zum Abschluss');
+  step('Gemerkte Unterschrift: „Alles in Ordnung“ setzt sie ein, ein Tipp zum Abschluss');
   r = await api(`/assets/${door.id}/inspections`, { data: {} });
   const quick = r.json.id;
   await p.goto(BASE + '/pruefung/' + quick);
-  await p.getByRole('button', { name: 'Rest i. O.' }).click();
-  await p.getByRole('button', { name: 'Alle i. O. setzen' }).click();
-  const one = p.getByRole('button', { name: 'Mit gemerkter Unterschrift abschließen' });
-  await one.waitFor();
+  await p.getByRole('button', { name: 'Alles in Ordnung' }).click();
+  await p.getByRole('button', { name: 'Neu unterschreiben' }).waitFor();
   check(await p.locator('canvas').isVisible(), 'neu unterschreiben bleibt möglich');
-  await one.click();
+  await p.getByRole('button', { name: 'Abschließen', exact: true }).click();
   await p.waitForURL(/\/druck\/protokoll\//);
   const q = (await api(`/inspections/${quick}`)).json;
   check(q.status === 'submitted' && q.signature === stored, 'mit gemerkter Unterschrift abgeschlossen');
