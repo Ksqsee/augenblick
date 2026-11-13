@@ -247,6 +247,7 @@ Bewertung und Status aller Befunde: [`docs/security.md`](docs/security.md).
 - Sperre nach zu vielen Fehlversuchen (Login, Passwort, Links, API-Schlüssel), HTTP 429 mit `Retry-After`
 - Content-Security-Policy, HSTS, `X-Frame-Options: DENY` (`public/_headers`, API-Middleware); Schrift selbst gehostet
 - Schreibende Requests aus dem Browser brauchen den Header `x-pk: 1` (CSRF-Schutz)
-- API-Schlüssel: nur SHA-256-Hash gespeichert, Rechte auf Prüfer begrenzt, Ablauf und Widerruf
+- API-Schlüssel: nur SHA-256-Hash gespeichert, Rechte auf Prüfer begrenzt (einzige Ausnahme: Schreib-Schlüssel einer
+  Admin-/Inhaber-Person dürfen neue Objekte und Gebäude anlegen, `docs/security.md` #33), Ablauf und Widerruf
 - Alle Abfragen sind auf den Workspace (`tenant_id`) beschränkt; Dateien nur mit Workspace-Präfix
 - Zugangsdaten und Tokens gehören nie ins Repo, in Commits oder Logs

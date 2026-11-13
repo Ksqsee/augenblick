@@ -26,6 +26,11 @@ export interface SessionUser {
   scope?: Scope | null;
   /** darf neue Elemente anlegen */
   canCreate?: boolean;
+  /**
+   * darf neue Objekte und Gebäude anlegen (sonst nichts Admin-Pflichtiges): Browser-Sitzung ab Admin oder
+   * Schreib-Schlüssel/-Token einer Person, die aktuell Admin/Inhaber ohne Bereichseinschränkung ist (Befund #33)
+   */
+  canStructure?: boolean;
 }
 
 /** Aufgelöster Zugriffsbereich: erlaubte Gebäude und die Objekte, zu denen sie gehören. */
@@ -107,7 +112,8 @@ export const requireSession: MiddlewareHandler<AppEnv> = async (c, next) => {
     .first<Omit<SessionUser, 'scope' | 'canCreate'> & { expires_at: number; rawScope: string | null; canCreate: number }>();
   if (!row || row.expires_at < now()) throw new HTTPException(401, { message: 'Sitzung abgelaufen' });
   const { rawScope, canCreate, expires_at: _, ...user } = row;
-  c.set('user', { ...user, ...(await resolveScope(c, user.tenantId, user.role, rawScope, canCreate)) });
+  const resolved = await resolveScope(c, user.tenantId, user.role, rawScope, canCreate);
+  c.set('user', { ...user, ...resolved, canStructure: RANK[user.role] >= RANK.admin && !resolved.scope });
   await next();
 };
 
@@ -155,6 +161,8 @@ export const requireAuth: MiddlewareHandler<AppEnv> = async (c, next) => {
   if (!row || row.revoked_at || (row.expires_at && row.expires_at < now())) return reject('Ungültiger oder widerrufener API-Schlüssel');
   const cap: Role = row.scope === 'write' ? 'inspector' : 'viewer';
   const role = RANK[row.role] < RANK[cap] ? row.role : cap;
+  // Bereich der Person, die den Schlüssel erstellt hat (falls sie inzwischen eingeschränkt wurde)
+  const resolved = await resolveScope(c, row.tenant_id, row.role, row.rawScope, row.canCreate);
   c.set('user', {
     sessionId: `api:${row.id}`,
     userId: row.created_by,
@@ -163,8 +171,10 @@ export const requireAuth: MiddlewareHandler<AppEnv> = async (c, next) => {
     name: `API: ${row.name}`,
     email: '',
     apiKeyId: row.id,
-    // Bereich der Person, die den Schlüssel erstellt hat (falls sie inzwischen eingeschränkt wurde)
-    ...(await resolveScope(c, row.tenant_id, row.role, row.rawScope, row.canCreate)),
+    ...resolved,
+    // Befund #33: Objekte/Gebäude anlegen (nur das) mit Schreib-Schlüssel einer Person, die bei diesem Aufruf
+    // laut memberships Admin/Inhaber ohne Bereichseinschränkung ist – die Rolle des Schlüssels bleibt „Prüfer“.
+    canStructure: row.scope === 'write' && RANK[row.role] >= RANK.admin && !resolved.scope,
   });
   if ((row.last_used_at ?? 0) < now() - 60_000) c.executionCtx.waitUntil(c.env.DB.prepare('UPDATE api_keys SET last_used_at = ? WHERE id = ?').bind(now(), row.id).run());
   await next();
@@ -252,6 +262,11 @@ export function requireCreate(c: Ctx) {
 /** Für Bereiche ohne Objektbezug (Import, Workspace-Berichte): nur ohne Einschränkung. */
 export function requireUnscoped(c: Ctx) {
   if (c.get('user').scope) throw new HTTPException(403, { message: 'Nur ohne eingeschränkten Zugriffsbereich möglich' });
+}
+
+/** Neue Objekte/Gebäude anlegen: Admin-Sitzung oder Schreib-Schlüssel einer Admin-/Inhaber-Person (Befund #33). */
+export function requireStructure(c: Ctx) {
+  if (!c.get('user').canStructure) throw new HTTPException(403, { message: 'Keine Berechtigung' });
 }
 
 export function requireRole(c: Ctx, min: Role) {

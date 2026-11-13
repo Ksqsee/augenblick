@@ -78,7 +78,7 @@ function KeysSection() {
   return (
     <SettingsSection
       title="API-Schlüssel"
-      description="Für Fremdsysteme wie CAFM, ERP oder BI und für Verbindungen mit Claude. Ein Schlüssel handelt im Namen der Person, die ihn erstellt – höchstens mit Prüfer-Rechten."
+      description="Für Fremdsysteme wie CAFM, ERP oder BI und für Verbindungen mit Claude. Ein Schlüssel handelt im Namen der Person, die ihn erstellt – höchstens mit Prüfer-Rechten; Schreib-Schlüssel von Admins dürfen zusätzlich neue Objekte und Gebäude anlegen."
     >
       {confirmEl}
       {revoke.error && <ErrorBox error={revoke.error} />}

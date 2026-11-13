@@ -278,9 +278,24 @@ function findCheckpoint(cps: { id: string; label: string }[], ref: unknown, text
   return text ? matchCheckpoint(text, cps) : null;
 }
 
-const NEW_STRUCTURE_NOTE = 'neue Objekte und Gebäude legen Admins in der App an; über Claude/API-Schlüssel klappt das nur mit Admin-Rechten.';
+const NEW_STRUCTURE_NOTE = 'neue Objekte und Gebäude anlegen darf dieser Zugang nicht – dafür braucht es einen Schreib-Schlüssel einer Admin- oder Inhaber-Person (oder in der App: Objekte → Neu).';
 const NEW_STRUCTURE_HINT = (what: string) =>
-  `${what} konnte nicht angelegt werden: Neue Objekte und Gebäude legen Admins in der App an (Objekte → Neu). Danach setup erneut aufrufen – Elemente legt es dann an.`;
+  `${what} konnte nicht angelegt werden: Neue Objekte und Gebäude legt nur ein Schreib-Schlüssel einer Admin- oder Inhaber-Person an (oder ein Admin in der App: Objekte → Neu). Danach setup erneut aufrufen – Elemente legt es dann an.`;
+
+/**
+ * Darf dieser Zugang neue Objekte/Gebäude anlegen (Befund #33)? Prüft ohne zu schreiben: Die Route prüft das
+ * Recht vor dem Inhalt – ein leerer Name ergibt mit Recht 400, ohne Recht 403.
+ */
+async function canCreateStructure(x: Ctx) {
+  try {
+    await x.api({ method: 'POST', path: '/properties', body: { name: '' } });
+    return true; // nicht erreichbar (leerer Name wird abgelehnt) – zur Sicherheit trotzdem „ja“
+  } catch (e) {
+    if (e instanceof ApiError && e.status === 403) return false;
+    if (e instanceof ApiError && e.status === 400) return true;
+    throw e;
+  }
+}
 
 // ---------- Werkzeuge ----------
 export const TOOLS: Tool[] = [
@@ -1255,7 +1270,7 @@ export const TOOLS: Tool[] = [
     name: 'setup',
     title: 'Struktur anlegen',
     description:
-      'Legt Objekt, Gebäude und Elemente in einem Rutsch an – z. B. nach dem Auswerten eines Grundrisses (get_photo mit „plan:…“) oder einer Liste. Immer zuerst mit `preview: true` aufrufen: zeigt je Gebäude Anzahl je Art und Etage und was neu entsteht, ohne etwas zu schreiben. Nach Bestätigung dasselbe mit `preview: false`. Elemente in Laufreihenfolge angeben (Etage, dann Weg); `count` für gleiche Elemente am selben Standort; `x`/`y` (0–1, relativ zur Bildbreite/-höhe) setzen einen Marker auf dem Grundriss `plan` (Name oder Ebene) des Gebäudes. Vorhandene Objekte/Gebäude (gleicher Name) werden genutzt. Neue Objekte und Gebäude brauchen Admin-Rechte, die ein API-Schlüssel nie hat – die Vorschau weist darauf hin; dann zuerst in der App anlegen. Elemente brauchen das Recht „darf anlegen“.',
+      'Legt Objekt, Gebäude und Elemente in einem Rutsch an – z. B. nach dem Auswerten eines Grundrisses (get_photo mit „plan:…“) oder einer Liste. Immer zuerst mit `preview: true` aufrufen: zeigt je Gebäude Anzahl je Art und Etage und was neu entsteht, ohne etwas zu schreiben. Nach Bestätigung dasselbe mit `preview: false`. Elemente in Laufreihenfolge angeben (Etage, dann Weg); `count` für gleiche Elemente am selben Standort; `x`/`y` (0–1, relativ zur Bildbreite/-höhe) setzen einen Marker auf dem Grundriss `plan` (Name oder Ebene) des Gebäudes. Vorhandene Objekte/Gebäude (gleicher Name) werden genutzt, fehlende neu angelegt – das darf nur ein Schreib-Schlüssel (bzw. die Verbindung) einer Person, die Admin oder Inhaber ist; die Vorschau zeigt „wird neu angelegt“ oder sagt, dass das Recht fehlt. Ändern, Löschen und Archivieren von Objekten/Gebäuden gehen über diesen Zugang nie. Elemente brauchen das Recht „darf anlegen“.',
     inputSchema: obj(
       {
         preview: bool('true = nur Vorschau (zuerst!), false = anlegen'),
@@ -1329,11 +1344,16 @@ export const TOOLS: Tool[] = [
         plan.push({ name, id: found ? s(found.id) : null, planId, elements });
       }
       if (preview) {
-        if (!existing) problems.push(`Objekt „${pName}“ ist neu – ${NEW_STRUCTURE_NOTE}`);
-        for (const b of plan) if (!b.id) problems.push(`Gebäude „${b.name}“ ist neu – ${NEW_STRUCTURE_NOTE}`);
+        // nur die Vorschau fragt das Recht vorab ab; beim Anlegen entscheidet die API (403 → Hinweis unten)
+        const structureOk = !existing || plan.some((b) => !b.id) ? await canCreateStructure(x) : true;
+        const isNew = structureOk ? 'wird neu angelegt' : 'neu – fehlt';
+        if (!structureOk) {
+          if (!existing) problems.push(`Objekt „${pName}“ ist neu – ${NEW_STRUCTURE_NOTE}`);
+          for (const b of plan) if (!b.id) problems.push(`Gebäude „${b.name}“ ist neu – ${NEW_STRUCTURE_NOTE}`);
+        }
         return compact({
           preview: true,
-          property: `${pName} (${existing ? 'vorhanden' : 'neu'})`,
+          property: `${pName} (${existing ? 'vorhanden' : isNew})`,
           buildings: plan.map((b) => {
             const byArt: Record<string, number> = {};
             const byFloor: Record<string, number> = {};
@@ -1341,7 +1361,7 @@ export const TOOLS: Tool[] = [
               byArt[e.cat.label] = (byArt[e.cat.label] ?? 0) + e.count;
               byFloor[e.floor || 'ohne Etage'] = (byFloor[e.floor || 'ohne Etage'] ?? 0) + e.count;
             }
-            return compact({ building: `${b.name} (${b.id ? 'vorhanden' : 'neu'})`, elements: b.elements.reduce((n, e) => n + e.count, 0), byArt, byFloor, markers: b.elements.filter((e) => e.x != null).length || null });
+            return compact({ building: `${b.name} (${b.id ? 'vorhanden' : isNew})`, elements: b.elements.reduce((n, e) => n + e.count, 0), byArt, byFloor, markers: b.elements.filter((e) => e.x != null).length || null });
           }),
           total,
           problems,

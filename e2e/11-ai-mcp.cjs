@@ -192,15 +192,28 @@ const call = async (key, name, args = {}) => {
   const setupArgs = { property: { name: pd.name }, buildings: [{ name: b0.name, plan: 'MCP Plan', elements: [{ category: 'Rauchwarnmelder', floor: '7. OG', location: 'MCP Raum 701', x: 0.25, y: 0.5 }, { category: 'extinguisher', floor: '7. OG', location: 'MCP Flur 7', count: 2 }] }, { name: 'MCP Neubau', elements: [{ category: 'Feuerschutztür', floor: 'EG' }] }] };
   const before = (await api('/assets')).json.length;
   t = await call(write, 'setup', { ...setupArgs, preview: true });
-  check(t.data?.preview === true && t.data.total === 4 && t.data.buildings[0].byArt.Feuerlöscher === 2 && t.data.problems?.some((p) => /MCP Neubau/.test(p)), `setup Vorschau (${t.text?.slice(0, 240)})`);
+  check(t.data?.preview === true && t.data.total === 4 && t.data.buildings[0].byArt.Feuerlöscher === 2 && t.data.buildings[1].building === 'MCP Neubau (wird neu angelegt)' && !t.data.problems?.some((p) => /MCP Neubau/.test(p)), `setup Vorschau (${t.text?.slice(0, 240)})`);
   check((await api('/assets')).json.length === before, 'Vorschau schreibt nichts');
   t = await call(write, 'setup', { ...setupArgs, preview: false });
-  check(t.data?.created?.[0]?.elements === 3 && t.data.created[0].markers === 1 && t.data.failed?.some((f) => /Admins in der App/.test(f)), `setup legt Elemente an, Gebäude nur Admins (${t.text?.slice(0, 240)})`);
+  check(t.data?.created?.[0]?.elements === 3 && t.data.created[0].markers === 1 && t.data.created[1]?.building === 'MCP Neubau' && t.data.created[1].elements === 1 && !t.data.failed?.length, `setup legt Elemente und neues Gebäude an (Schlüssel der Inhaberin) (${t.text?.slice(0, 240)})`);
+  check((await api(`/properties/${pd.id}`)).json.buildings.some((b) => b.name === 'MCP Neubau'), 'neues Gebäude im vorhandenen Objekt');
   const plan = (await api(`/floor-plans/${planId}`)).json;
   const marked = plan.assets.find((a) => a.location === 'MCP Raum 701');
   check(marked?.floorPlanId === planId && marked.markerX === 0.25, 'Marker gesetzt');
   t = await call(read, 'setup', { ...setupArgs, preview: false });
   check(t.isError === true, 'Leseschlüssel richtet nichts ein');
+  // „Plan hochladen, fertig“: ganz neues Objekt mit zwei Gebäuden und Elementen
+  const newArgs = { property: { name: 'MCP Neues Objekt', address: 'Planweg 1' }, buildings: [{ name: 'Nord', elements: [{ category: 'Feuerlöscher', floor: 'EG', location: 'Eingang', count: 2 }] }, { name: 'Süd', elements: [{ category: 'Rauchwarnmelder', floor: '1. OG' }] }] };
+  const propsBefore = (await api('/properties')).json.length;
+  t = await call(write, 'setup', { ...newArgs, preview: true });
+  check(t.data?.property === 'MCP Neues Objekt (wird neu angelegt)' && t.data.buildings.every((b) => /wird neu angelegt/.test(b.building)) && !t.data.problems?.length, `setup Vorschau neues Objekt (${t.text?.slice(0, 240)})`);
+  check((await api('/properties')).json.length === propsBefore, 'Vorschau legt kein Objekt an');
+  t = await call(write, 'setup', { ...newArgs, preview: false });
+  check(t.data?.created?.length === 2 && t.data.created[0].elements === 2 && t.data.created[1].elements === 1 && !t.data.failed?.length, `setup legt Objekt, Gebäude und Elemente an (${t.text?.slice(0, 240)})`);
+  const np = (await api('/properties')).json.find((p) => p.name === 'MCP Neues Objekt');
+  const npd = np && (await api(`/properties/${np.id}`)).json;
+  check(npd?.address === 'Planweg 1' && npd.buildings.map((b) => b.name).sort().join() === 'Nord,Süd', 'neues Objekt mit zwei Gebäuden');
+  check((await api('/account/activity')).json.some((e) => /MCP Neues Objekt/.test(e.summary) && /MCP Test/.test(e.summary)), 'Protokoll nennt den Schlüssel');
 
   step('tour + inspect: Rundgang führen, zur Unterschrift bereitlegen');
   const rounds = (await api('/smart/rounds?days=14')).json;
