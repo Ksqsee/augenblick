@@ -95,7 +95,7 @@ export function RunFrame({
 
       <div className="animate-in mx-auto flex max-w-3xl flex-col gap-6 px-4 pt-4 sm:pt-6">{children}</div>
 
-      <div className="fixed inset-x-0 bottom-0 z-30 border-t border-line bg-surface pb-[env(safe-area-inset-bottom)]">
+      <div data-toast-avoid="" className="fixed inset-x-0 bottom-0 z-30 border-t border-line bg-surface pb-[env(safe-area-inset-bottom)]">
         {error && (
           <p role="alert" className="mx-auto max-w-3xl px-4 pt-2.5 text-meta text-shu">
             {error}

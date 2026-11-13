@@ -27,8 +27,27 @@ export async function parseFinding(text: string, checkpoints: { id: string; labe
   return { items: parseCapture(text, { checkpoints, categories: [] }), local: true };
 }
 
-export function VoicePanel({ checkpoints, onApply }: { checkpoints: Pick<Checkpoint, 'id' | 'label'>[]; onApply: (items: CaptureItem[]) => void }) {
-  const [text, setText] = useState('');
+export function VoicePanel({
+  checkpoints,
+  onApply,
+  text: outerText,
+  onText,
+  autoFocus,
+  hint = 'den Rest weiter prüfen',
+}: {
+  checkpoints: Pick<Checkpoint, 'id' | 'label'>[];
+  onApply: (items: CaptureItem[]) => void;
+  /** Text von außen führen (der Prüfablauf übernimmt ihn mit „Alles andere in Ordnung“ gleich mit) */
+  text?: string;
+  onText?: (t: string) => void;
+  /** Textfeld beim Öffnen fokussieren (Handy: Tastatur mit Diktat erscheint) */
+  autoFocus?: boolean;
+  /** Nach dem Übernehmen: was als Nächstes zu tun ist */
+  hint?: string;
+}) {
+  const [ownText, setOwnText] = useState('');
+  const text = outerText ?? ownText;
+  const setText = onText ?? setOwnText;
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
   const online = useOnline();
@@ -52,7 +71,7 @@ export function VoicePanel({ checkpoints, onApply }: { checkpoints: Pick<Checkpo
       const where = r.local ? ' Auf dem Gerät ausgewertet.' : '';
       setMsg({
         ok: true,
-        text: (n ? `${n} ${n === 1 ? 'Mangel' : 'Mängel'} eingetragen – den Rest weiter prüfen.` : 'Keine Mängel erkannt – der Text steht in den Bemerkungen.') + where,
+        text: (n ? `${n} ${n === 1 ? 'Mangel' : 'Mängel'} eingetragen – ${hint}.` : 'Keine Mängel erkannt – der Text steht in den Bemerkungen.') + where,
       });
       setText('');
     } catch (e) {
@@ -102,6 +121,7 @@ export function VoicePanel({ checkpoints, onApply }: { checkpoints: Pick<Checkpo
         <div className="flex flex-col gap-2">
           <Textarea
             dictate={false}
+            autoFocus={autoFocus}
             aria-label="Eingesprochener Befund"
             placeholder={rec ? 'Sprich jetzt …' : 'z. B. „Schließer zieht nicht ganz zu, mittel“'}
             value={text}

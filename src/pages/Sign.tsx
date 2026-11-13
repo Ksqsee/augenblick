@@ -127,6 +127,7 @@ export function SignPage() {
 
               {/* Unterschrift: feste Leiste über der Handy-Navigation */}
               <div
+                data-toast-avoid=""
                 className="sticky bottom-[calc(4rem+env(safe-area-inset-bottom))] z-20 flex items-center gap-3 border-t border-line bg-surface px-(--row-px) py-3 sm:rounded-b-xl lg:bottom-0"
                 aria-label="Unterschrift"
                 role="group"

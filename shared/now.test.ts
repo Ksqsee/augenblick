@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { weekSummary } from './automation';
 import { DAY } from './logic';
-import { hasOneAction, NOW_LIMIT, type NowItem, nowUrgency, rankNow } from './now';
+import { hasOneAction, monthBounds, neverItem, NOW_LIMIT, type NowItem, nowUrgency, rankNow } from './now';
 
 const NOW = Date.UTC(2026, 10, 12, 9);
 const item = (p: Partial<NowItem> & Pick<NowItem, 'id' | 'kind'>): NowItem => ({
@@ -69,6 +69,58 @@ describe('Jetzt: Rangfolge', () => {
   it('bei Gleichstand zuerst die Zeile mit mehr Dingen', () => {
     const r = rankNow([item({ id: 'a', kind: 'walkthrough_due', count: 1 }), item({ id: 'b', kind: 'walkthrough_due', count: 3 })], NOW);
     expect(r.items.map((i) => i.id)).toEqual(['b', 'a']);
+  });
+});
+
+describe('Jetzt: noch nie geprüft (v5)', () => {
+  const g = { buildingId: 'b1', buildingName: 'Hauptgebäude', propertyName: 'Seehafer', never: 3, overdue: 0, due: 0, earliest: null };
+
+  it('steht direkt nach den Unterschriften – vor kritischen Mängeln, Offline-Fehlern und Rundgängen, auch wenn diese lange liegen', () => {
+    const r = rankNow(
+      [
+        item({ id: 'round', kind: 'round', tone: 'bad', at: NOW - 400 * DAY }),
+        item({ id: 'crit', kind: 'defects_without_task', tone: 'bad', at: NOW - 400 * DAY }),
+        item({ id: 'offline', kind: 'offline_failures', tone: 'bad', at: NOW - 400 * DAY }),
+        neverItem(g),
+        item({ id: 'sign', kind: 'sign', tone: 'warn', action: { verb: 'sign', label: 'Unterschreiben', link: '/unterschreiben' } }),
+        item({ id: 'walk', kind: 'walkthrough_due', tone: 'bad' }),
+        item({ id: 'auto', kind: 'automation', tone: 'info', action: { verb: 'open', label: 'Öffnen', link: '/berichte?monatsbericht=1' } }),
+      ],
+      NOW,
+    );
+    expect(r.items.map((i) => i.id)).toEqual(['sign', 'never-b1', 'offline', 'crit', 'round', 'walk', 'auto']);
+  });
+
+  it('Unterschriften bleiben vorn, auch wenn die nie geprüften Elemente schon lange überfällig sind', () => {
+    const late = { ...neverItem({ ...g, overdue: 2, earliest: NOW - 1000 * DAY }) };
+    expect(nowUrgency(late, NOW)).toBeLessThan(nowUrgency({ kind: 'sign', tone: 'warn', at: null }, NOW));
+  });
+
+  it('eine Zeile je Gebäude mit genau einer Aktion „Rundgang starten“', () => {
+    const one = neverItem({ ...g, never: 1 });
+    expect(one.title).toBe('Ein Element noch nie geprüft');
+    expect(one.text).toBe('Hauptgebäude · Seehafer');
+    expect(one.action).toEqual({ verb: 'start', label: 'Rundgang starten', link: '/rundgang/b1' });
+    expect(hasOneAction(one.action)).toBe(true);
+    const mixed = neverItem({ ...g, overdue: 2, due: 1 });
+    expect(mixed.title).toBe('3 Elemente noch nie geprüft');
+    expect(mixed.text).toBe('Hauptgebäude · Seehafer – außerdem 2 überfällig, 1 bald fällig');
+    expect(mixed.tone).toBe('bad');
+    expect(mixed.count).toBe(6);
+  });
+});
+
+describe('Jetzt: Berichtsmonat in der Zeitzone des Workspaces', () => {
+  it('Oktober in Berlin beginnt um 22 Uhr UTC am Vortag (Sommerzeit) und endet um 23 Uhr UTC (Winterzeit)', () => {
+    const [from, to] = monthBounds('2026-10', 'Europe/Berlin');
+    expect(new Date(from).toISOString()).toBe('2026-09-30T22:00:00.000Z');
+    expect(new Date(to).toISOString()).toBe('2026-10-31T23:00:00.000Z');
+  });
+
+  it('Dezember läuft ins neue Jahr; UTC ohne Versatz', () => {
+    const [from, to] = monthBounds('2026-12', 'UTC');
+    expect(from).toBe(Date.UTC(2026, 11, 1));
+    expect(to).toBe(Date.UTC(2027, 0, 1));
   });
 });
 

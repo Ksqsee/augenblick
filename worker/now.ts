@@ -3,7 +3,7 @@
 // Dieselben Quellen speisen die Alt-Pfade /smart/suggestions und /smart/action-required (worker/smart.ts) und das MCP.
 import { Hono } from "hono";
 import { DAY } from "../shared/logic";
-import { NOW_LIMIT, type NowItem, NOW_VERBS, rankNow } from "../shared/now";
+import { neverItem, NOW_LIMIT, type NowItem, NOW_VERBS, rankNow } from "../shared/now";
 import { automationSuggestions } from "./automation";
 import { defectScope, taskScope, tid } from "./data";
 import { adaptMode, intervalSuggestions } from "./intervals";
@@ -136,7 +136,7 @@ export async function collectNow(c: Ctx): Promise<NowItem[]> {
   if (RANK[u.role] < RANK.inspector) return [];
   const n = now();
   const t = tid(c);
-  const [rounds, defects, tasks, drafts, sign, offline, walks, roundOrders] =
+  const [rounds, defects, tasks, drafts, sign, offline, walks, roundOrders, walkedEver] =
     await Promise.all([
       dueRounds(c, 14),
       severeDefectsWithoutTask(c),
@@ -170,6 +170,10 @@ export async function collectNow(c: Ctx): Promise<NowItem[]> {
       )
         .bind(t, u.userId)
         .all<{ bid: string }>(),
+      // Begehungs-Zeilen erst, wenn der Workspace je eine Begehung begonnen hat (sonst Lärm für Wartungsbetriebe)
+      c.env.DB.prepare("SELECT 1 AS x FROM walkthroughs WHERE tenant_id = ? LIMIT 1")
+        .bind(t)
+        .first<{ x: number }>(),
     ]);
   const out: NowItem[] = [];
   const action = (
@@ -249,8 +253,16 @@ export async function collectNow(c: Ctx): Promise<NowItem[]> {
         at: k.dueAt,
       });
   const taken = new Set(roundOrders.results.map((r) => r.bid));
-  for (const g of rounds
-    .filter((r) => (r.overdue || r.due) && !taken.has(r.buildingId))
+  const open = rounds.filter((r) => !taken.has(r.buildingId));
+  // „noch nie geprüft“ je Gebäude, direkt nach den Unterschriften; ein Gebäude steht nur einmal da – hier oder als Rundgang
+  const never = open
+    .filter((r) => r.never > 0)
+    .sort((a, b) => b.never - a.never)
+    .slice(0, 3);
+  for (const g of never) out.push(neverItem(g));
+  const listed = new Set(never.map((g) => g.buildingId));
+  for (const g of open
+    .filter((r) => (r.overdue || r.due) && !listed.has(r.buildingId))
     .slice(0, 3))
     out.push({
       id: `round-${g.buildingId}`,
@@ -262,7 +274,7 @@ export async function collectNow(c: Ctx): Promise<NowItem[]> {
       count: g.overdue + g.due,
       at: g.earliest,
     });
-  for (const w of walks.results) {
+  for (const w of walkedEver ? walks.results : []) {
     if (w.due != null && w.due > n + 30 * DAY) continue;
     out.push({
       id: `walk-${w.id}`,

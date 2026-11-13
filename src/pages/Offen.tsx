@@ -9,7 +9,7 @@ import { groupByDue, urgency } from '../../shared/tasks';
 import { type Defect, type Task, useDefects, useMe, useTasks } from '../api';
 import { useStartInspection } from '../components/AssetDrawer';
 import { ResolveDefectDialog } from '../components/DefectResolve';
-import { Button, Empty, ErrorBox, Kbd, PageHeader, SearchField, SkeletonList, Surface, Tabs, useUrlTab } from '../components/ui';
+import { Button, ButtonLink, Empty, ErrorBox, Kbd, PageHeader, SearchField, SkeletonList, Surface, Tabs, useUrlTab } from '../components/ui';
 import { DefectPanel } from '../components/work/DefectPanel';
 import { DefectRow } from '../components/work/DefectRow';
 import { isOpenTask, taskFromDefect, typing } from '../components/work/model';
@@ -96,12 +96,13 @@ export function OffenPage() {
         value={art}
         onChange={setArt}
         tabs={[
-          { value: 'alle', label: 'Alle', count: tasks.data && defects.data ? openTasks.length + freeDefects.length : undefined, tone: overdue ? 'bad' : undefined },
-          { value: 'maengel', label: 'Mängel', count: defects.data?.length },
-          { value: 'aufgaben', label: 'Aufgaben', count: tasks.data ? openTasks.length : undefined },
+          // keine Nullen (v5): ein leerer Reiter trägt keine Zahl
+          { value: 'alle', label: 'Alle', count: (tasks.data && defects.data && openTasks.length + freeDefects.length) || undefined, tone: overdue ? 'bad' : undefined },
+          { value: 'maengel', label: 'Mängel', count: defects.data?.length || undefined },
+          { value: 'aufgaben', label: 'Aufgaben', count: openTasks.length || undefined },
         ]}
       />
-      {art === 'alle' && <AllOpen canEdit={canEdit} onDefect={(id) => setParam('mangel', id)} onTask={(id) => setParam('aufgabe', id)} onResolve={setResolveId} onCreate={() => setCreating(true)} />}
+      {art === 'alle' && <AllOpen canEdit={canEdit} onDefect={(id) => setParam('mangel', id)} onTask={(id) => setParam('aufgabe', id)} onResolve={setResolveId} />}
       {art === 'maengel' && <DefectsView canEdit={canEdit} onOpen={(id) => setParam('mangel', id)} onResolve={setResolveId} />}
       {art === 'aufgaben' && <TasksView canEdit={canEdit} onOpen={(id) => setParam('aufgabe', id)} onCreate={() => setCreating(true)} />}
     </>
@@ -116,13 +117,11 @@ function AllOpen({
   onDefect,
   onTask,
   onResolve,
-  onCreate,
 }: {
   canEdit: boolean;
   onDefect: (id: string) => void;
   onTask: (id: string) => void;
   onResolve: (id: string) => void;
-  onCreate: () => void;
 }) {
   const tasks = useTasks();
   const defects = useDefects('open', '', false);
@@ -151,6 +150,8 @@ function AllOpen({
   ).map((g) => ({ ...g, items: [...g.items].sort((a, b) => (a.dueAt ?? 0) - (b.dueAt ?? 0)) }));
 
   const total = urgent.length + minor.length + later.reduce((s, g) => s + g.items.length, 0);
+  // ganz leer (nichts offen, keine Suche): kein Suchfeld, nur ein Satz mit dem nächsten Schritt
+  const nothing = !(defects.data ?? []).some(free) && !(tasks.data ?? []).some(isOpenTask);
   const defectRow = (d: Defect) => <DefectRow key={d.id} d={d} canEdit={canEdit} onOpen={() => onDefect(d.id)} onResolve={() => onResolve(d.id)} onReopen={() => {}} />;
   const taskRow = (t: Task) => (
     <TaskRow
@@ -170,7 +171,7 @@ function AllOpen({
   return (
     <>
       {dialog}
-      <div className="mb-4">
+      <div className={nothing ? 'hidden' : 'mb-4'}>
         <SearchField value={q} onChange={setQ} placeholder="Mängel und Aufgaben durchsuchen …" />
       </div>
       {total === 0 ? (
@@ -178,7 +179,11 @@ function AllOpen({
           {needle ? (
             <Empty title="Nichts passt zur Suche." action={<TextAction onClick={() => setQ('')}>Suche zurücksetzen</TextAction>} />
           ) : (
-            <Empty title="Nichts offen." text="Neue Mängel kommen aus Prüfungen, Begehungen oder über Erfassen." action={canEdit && <TextAction onClick={onCreate}>Neue Aufgabe</TextAction>} />
+            <Empty
+              title="Nichts offen."
+              text="Mängel erscheinen hier, sobald du sie beim Prüfen findest."
+              action={canEdit && <ButtonLink to="/pruefen" variant="ghost">Zum Prüfen</ButtonLink>}
+            />
           )}
         </Surface>
       ) : (

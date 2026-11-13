@@ -724,7 +724,7 @@ export const offlineBody = inspectionBody
     assetId: z.string().max(40),
     schedule: z.string().max(40).default('main'),
     inspectedAt: z.number().int(),
-    checkpoints: z.array(z.object({ id: str(40).min(1), label: str(300).min(1), hint: str(300).optional() })).min(1).max(100),
+    checkpoints: z.array(z.object({ id: str(40).min(1), label: str(300).min(1), hint: str(300).optional(), group: str(60).optional() })).min(1).max(100),
   });
 
 /**

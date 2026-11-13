@@ -110,7 +110,7 @@ export const categories = new Hono<AppEnv>();
 
 categories.get('/categories', async (c) => c.json(await listCategories(c)));
 
-const checkpointList = z.array(z.object({ id: str(40).min(1), label: str(300).min(2), hint: str(300).optional() })).min(1).max(100);
+const checkpointList = z.array(z.object({ id: str(40).min(1), label: str(300).min(2), hint: str(300).optional(), group: str(60).optional() })).min(1).max(100);
 
 categories.put('/templates/:category', async (c) => {
   requireRole(c, 'admin');

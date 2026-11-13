@@ -142,6 +142,8 @@ const check = (ok, m) => {
   step('Befund einsprechen (Text) → Prüfpunkt zugeordnet');
   const insp = (await api(`/inspections/${p.url().split('/pruefung/')[1].split('?')[0]}`)).json;
   const cp = insp.checkpoints[0];
+  await p.getByRole('button', { name: 'Abweichung einsprechen' }).click();
+  await p.getByRole('region', { name: 'Befund einsprechen' }).waitFor();
   const voice = p.getByRole('button', { name: 'Befund einsprechen' });
   if (engines && (await voice.count())) {
     // ohne echtes Mikrofon: Textfeld erscheint erst nach Aufnahme – daher direkt über die API prüfen
@@ -152,6 +154,8 @@ const check = (ok, m) => {
   step('Prüfablauf v3: neutrale Antworten, Fortschritt als Linie');
   check(await p.getByRole('progressbar', { name: 'Fortschritt' }).waitFor().then(() => true, () => false), 'Fortschrittslinie im Kopf');
   {
+    // Prüfpunkte nach Gruppen eingeklappt (v5): erste Gruppe öffnen
+    await p.locator('[data-group] > button').first().click();
     const first = p.locator('[data-cp] [role=radiogroup]').first();
     await first.getByRole('radio', { name: 'Mangel' }).click();
     await p.waitForTimeout(400); // Farbübergang 150 ms abwarten
@@ -166,14 +170,17 @@ const check = (ok, m) => {
     const okOn = await first.getByRole('radio', { name: 'In Ordnung' }).evaluate((e) => getComputedStyle(e).backgroundColor);
     check(okOn === 'rgb(233, 233, 230)', `gewählt = selected (${okOn})`);
   }
-  step('Rest i. O. nur nach Bestätigung, Abschlussleiste springt zur Lücke');
-  const okBefore = await p.getByRole('radio', { name: 'In Ordnung', checked: true }).count();
-  await p.getByRole('button', { name: 'Rest i. O.' }).click();
-  await p.getByRole('dialog').getByRole('button', { name: 'Abbrechen' }).click();
-  check((await p.getByRole('radio', { name: 'In Ordnung', checked: true }).count()) === okBefore, 'Abbrechen ändert nichts');
-  await p.getByRole('button', { name: 'Rest i. O.' }).click();
-  await p.getByRole('dialog').getByRole('button', { name: 'Alle i. O. setzen' }).click();
-  check((await p.getByRole('radio', { name: 'In Ordnung', checked: true }).count()) === insp.checkpoints.length, 'alle Punkte i. O. nach Bestätigung');
+  step('„Alles andere in Ordnung“ ohne Dialog, mit Rückgängig; Abschlussleiste springt zur Lücke');
+  const total = insp.checkpoints.length;
+  const counter = p.getByLabel(/von \d+ beantwortet/);
+  check((await counter.getAttribute('aria-label')) === `1 von ${total} beantwortet`, `ein Punkt beantwortet (${await counter.getAttribute('aria-label')})`);
+  await p.getByRole('button', { name: 'Alles andere in Ordnung' }).click();
+  check(!(await p.getByRole('dialog').count()), 'kein Bestätigungsdialog');
+  check((await counter.getAttribute('aria-label')) === `${total} von ${total} beantwortet`, 'alle Punkte i. O.');
+  await p.locator('[data-toast]').getByRole('button', { name: 'Rückgängig' }).click();
+  check((await counter.getAttribute('aria-label')) === `1 von ${total} beantwortet`, 'Rückgängig stellt den Stand wieder her');
+  await p.getByRole('button', { name: 'Alles andere in Ordnung' }).click();
+  check((await counter.getAttribute('aria-label')) === `${total} von ${total} beantwortet`, 'alle Punkte i. O. nach erneutem Tipp');
   check(await p.getByText('Unterschrift fehlt').first().isVisible(), 'Leiste nennt die fehlende Unterschrift');
   await p.getByRole('button', { name: 'Weiter', exact: true }).click();
   await p.waitForTimeout(900);

@@ -267,7 +267,8 @@ export function Dashboard() {
   // Leeres Konto: nur die Frage nach dem ersten Objekt – kein Lagesatz, keine Kennzahlen, kein „Jetzt“
   const first = c.properties === 0 && canStructure;
   const onlyProperty = data.properties.length === 1 ? data.properties[0] : undefined;
-  const topRound = rounds.data?.find((r) => r.overdue + r.due > 0);
+  // Hauptknopf „Rundgang starten“, sobald etwas prüfbar ist – auch nie geprüfte Elemente (v5)
+  const topRound = rounds.data?.find((r) => r.overdue + r.due + r.never > 0);
   const next = now.data?.items ?? [];
   const more = now.data?.more ?? 0;
   const total = next.length + more;
