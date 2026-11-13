@@ -37,6 +37,16 @@ API: [`docs/api.md`](docs/api.md)
   Knopf „n Elemente anlegen“ unter der Vorschau direkt an. Fehlt der Ort, bietet das Sheet die Objekte an oder legt ein
   neues an. Element-Codes werden erkannt, die aktuelle Seite gibt den Ort vor. Arten über die Katalog-Definitionen
   (Bezeichnung, Mehrzahl, `synonyms`) und `CATEGORY_SYNONYMS` in `shared/smart.ts` (Werkstattsprache: Tür, Löscher, RWM, BSK, FSA …)
+  - **Zerlegung**: jedes Artwort ist ein Anker, davor Ort und Anzahl, dahinter Nummer, Hersteller, Stammdaten; „und im
+    ersten OG …“ beginnt einen neuen Ort, der für alle folgenden Elemente gilt. Artwörter mit Bedeutung (`TYPE_WORDS`:
+    Rauchschutztür, RS-Tür, Stahltür, Alu-Rohrrahmentür, Doppeltür, Haftmagnet-Anlage, CO2-Löscher …) setzen Stammdaten;
+    „mit Feststellanlage/OTS/Absenkdichtung/Spion“ sind Türfelder, „und eine Feststellanlage“ ein eigenes Element.
+    Spracherkennung wird geglättet („T 30“, „t dreißig“, „O G“, „Erd Geschoss“, Zahlwörter bis hundert).
+  - **Nummern**: „Tür 36“, „Türen 12 bis 15“, „Nummer 36 bis 40“ legen feste Nummern an (`POST /assets` mit `number`);
+    im Modus Mängel hängt „Tür 36 schließt nicht“ am Element Nr. 36 des gewählten Objekts (`matchElementRef`).
+  - **Unsicher**: Reste, die keinem Feld zuzuordnen sind, stehen in der Vorschau als Punkt + „bitte prüfen“, nie im Standort.
+  - **Korpus**: `shared/corpus.test.ts` (über 160 gesprochene Sätze mit Erwartung, mit und ohne Katalog-Begriffe;
+    Ungelöstes als `todo` mit Grund). Neue Regeln dort zuerst als Satz ergänzen.
 - **Diktat in jedem Textfeld** und „Befund einsprechen“ im Prüfablauf (Mängel landen beim passenden Prüfpunkt);
   Vorschläge für Maßnahme und Schweregrad; Spracherkennung des Browsers und Regel-Parser (`shared/smart.ts`) – der Worker
   ruft **keine KI** auf (keine KI-Kosten bei Cloudflare); Hören, Lesen und Sehen übernimmt Claude über den MCP-Server
@@ -209,7 +219,7 @@ npm run check              # Typprüfung + Unit-Tests + Build
 ## Tests
 
 - **Unit-Tests** (`npm test`, Vitest): Fachlogik, Autopilot-Kreislauf, Rangfolge „Jetzt“, Import/Export, Übersetzungen, Ruhezeiten, Web Push.
-- **Browser-Tests** (`e2e/`, Playwright): Reihen von der Registrierung über Sicherheitskorrekturen und Massenoperationen bis zu Berichtigung, Nachprüfung sowie Aufgaben und Mängeln (`14-tasks-defects`), dem Autopiloten (`20-autopilot`) und den offenen Punkten aus der Analyse (`21-offene-punkte`: Offline-Fehlliste, Intervalle, Partner-Zugang), dem MCP-Server (`11-ai-mcp`) und „Sprache zuerst“ (`23-sprache`: Rundgang über Claude, Unterschrift mit einem Tipp; `24-unterschreiben-offline`: Seite „Unterschreiben“, Befund einsprechen, Erfassen und Rundgang ohne Netz) sowie der Navigation mit fünf Orten (`25-fuenf-orte`: Leisten, Umleitungen, Prüfen, Offen, Heute am Handy, 390 px) und dem Fachwissen (`26-katalog`: Feststellanlage, laufende Nummern, Typ- und Mangel-Vorschläge, Katalogseite, MCP `catalog`) sowie dem Einstieg (`27-einstieg`: leeres Konto → Objektname → ein Satz → Elemente angelegt in 4 Tipps und 2 Eingaben, Erfassen ohne Ort, ein/zwei Gebäude, Hauptknopf der Objektseite, 390 px) sowie dem Prüfen in zwei Tipps (`28-zwei-tipps`: Tipps zählen, Rückgängig, Mangel eingesprochen, Gruppen, Meldungen über keiner Leiste, „Jetzt“ im neuen Konto, leere Seiten Prüfen/Offen).
+- **Browser-Tests** (`e2e/`, Playwright): Reihen von der Registrierung über Sicherheitskorrekturen und Massenoperationen bis zu Berichtigung, Nachprüfung sowie Aufgaben und Mängeln (`14-tasks-defects`), dem Autopiloten (`20-autopilot`) und den offenen Punkten aus der Analyse (`21-offene-punkte`: Offline-Fehlliste, Intervalle, Partner-Zugang), dem MCP-Server (`11-ai-mcp`) und „Sprache zuerst“ (`23-sprache`: Rundgang über Claude, Unterschrift mit einem Tipp; `24-unterschreiben-offline`: Seite „Unterschreiben“, Befund einsprechen, Erfassen und Rundgang ohne Netz) sowie der Navigation mit fünf Orten (`25-fuenf-orte`: Leisten, Umleitungen, Prüfen, Offen, Heute am Handy, 390 px) und dem Fachwissen (`26-katalog`: Feststellanlage, laufende Nummern, Typ- und Mangel-Vorschläge, Katalogseite, MCP `catalog`) sowie dem Einstieg (`27-einstieg`: leeres Konto → Objektname → ein Satz → Elemente angelegt in 4 Tipps und 2 Eingaben, Erfassen ohne Ort, ein/zwei Gebäude, Hauptknopf der Objektseite, 390 px) sowie dem Prüfen in zwei Tipps (`28-zwei-tipps`: Tipps zählen, Rückgängig, Mangel eingesprochen, Gruppen, Meldungen über keiner Leiste, „Jetzt“ im neuen Konto, leere Seiten Prüfen/Offen) und dem Durchgang bis zur ersten unterschriebenen Prüfung (`29-erste-pruefung`: Objektname → ein Satz mit drei Orten/Arten/Herstellern → Rundgang → Unterschrift zeichnen und merken; 8 Tipps + 1 Satz + Unterschrift, feste Nummern, Mangel per Nummer, „bitte prüfen“).
   Vor jeder Reihe wird die lokale D1 geleert und mit Demodaten befüllt.
 
 ```bash
