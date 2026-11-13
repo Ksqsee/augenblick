@@ -25,7 +25,10 @@ Für API-Schlüssel gelten diese Regeln:
 - Ein Schlüssel handelt im Namen der Person, die ihn erstellt hat. Er hat nie mehr Rechte als diese Person.
 - Entfernt man die Person aus dem Workspace, wird der Schlüssel ungültig.
 - Ist die Person auf bestimmte Objekte/Gebäude eingeschränkt (Team → Zugriff), gilt das auch für den Schlüssel – auch wenn die Einschränkung erst später gesetzt wird. Einträge außerhalb des Bereichs liefern `404`.
-- Admin-Funktionen sind per API nicht erreichbar, auch nicht mit Schreibrechten. Dazu gehören Objekte anlegen, Team, Vorlagen und das JSON-Backup.
+- Admin-Funktionen sind per API nicht erreichbar, auch nicht mit Schreibrechten. Dazu gehören Objekte/Gebäude ändern, löschen und archivieren, Team, Einstellungen, Autopilot-Stufen, Freigaben, Vorlagen und das JSON-Backup.
+- Einzige Ausnahme: **neue Objekte und Gebäude anlegen** (`POST /properties`, `POST /properties/:id/buildings`) geht mit einem
+  Schreib-Schlüssel (bzw. der OAuth-Verbindung dazu), wenn die Person, die ihn erstellt hat, **bei der Anfrage** Admin oder
+  Inhaber ist. Wird sie herabgestuft, liefert das sofort `403`; Leseschlüssel nie. Die Rolle des Schlüssels bleibt sonst „Prüfer“.
 - Konto, Benachrichtigungen und Push sind ebenfalls nicht erreichbar. Anfragen darauf liefern `403`.
 - Änderungen per API erscheinen im Aktivitätsprotokoll mit dem Namen des Schlüssels.
 - Schlüssel können ablaufen und jederzeit widerrufen werden. Danach liefern Anfragen `401`.
@@ -206,7 +209,7 @@ Folgeaufruf sie braucht; Fehler als `isError` mit Hinweis, was stattdessen geht)
 | `plan` | Rundgänge ansehen, Wochenplanung auslösen, Aufgaben aus Mängeln |
 | `tour` | Rundgang führen: `start` (Gebäude) → nächstes fälliges Element mit Standort, Prüfpunkten und bekannten Mängeln; `next`; `status` |
 | `inspect` | Prüfung aus dem Gesagten ausfüllen (`allOk`, Mängel mit Prüfpunkt-Zuordnung, bekannte Mängel `still`/`fixed`, Arbeiten, Bemerkung, nicht prüfbar) und **zur Unterschrift bereitlegen** – nie abschließen |
-| `setup` | Objekt, Gebäude, Elemente (Etage, Standort, Art, Marker auf dem Grundriss) in einem Rutsch; zuerst `preview: true`. Neue Objekte/Gebäude nur mit Admin-Rechten, also nicht per Schlüssel |
+| `setup` | Objekt, Gebäude, Elemente (Etage, Standort, Art, Marker auf dem Grundriss) in einem Rutsch; zuerst `preview: true` (zeigt neue Objekte/Gebäude als „wird neu angelegt“). Neue Objekte/Gebäude nur mit Schreib-Schlüssel einer Admin-/Inhaber-Person, sonst weist die Vorschau darauf hin |
 | `autopilot` | Schritte und Protokoll ansehen, Schritt einmal ausführen, Eintrag rückgängig machen; Stufen ändern nur Admins in der App |
 | `report` | Kennzahlen für Zeitraum (`month`, `year`, `from`/`to`) und Objekt als Text |
 

@@ -10,7 +10,7 @@ import { getCategoryDef, listCategories } from './categories';
 import { similarity } from '../shared/smart';
 import { autoDefectTasks, closeVerificationsOf } from './automation';
 import { actionRequired } from './smart';
-import { type AppEnv, assertInScope, type Ctx, id, logActivity, notFound, now, parseJson, requireCreate, requireRole, scopeSql, walkScope } from './lib';
+import { type AppEnv, assertInScope, type Ctx, id, logActivity, notFound, now, parseJson, requireCreate, requireRole, requireStructure, scopeSql, walkScope } from './lib';
 
 export const data = new Hono<AppEnv>();
 
@@ -155,7 +155,7 @@ data.get('/properties', async (c) => {
 });
 
 data.post('/properties', async (c) => {
-  requireRole(c, 'admin');
+  requireStructure(c); // Befund #33: auch Schreib-Schlüssel einer Admin-/Inhaber-Person
   const b = propertyBody.parse(await c.req.json());
   const pid = id();
   const t = now();
@@ -310,7 +310,7 @@ data.get('/buildings', async (c) => {
 const buildingBody = z.object({ name: str(160).min(1, 'Name fehlt'), address: str(400).default('') });
 
 data.post('/properties/:id/buildings', async (c) => {
-  requireRole(c, 'admin');
+  requireStructure(c); // Befund #33: auch Schreib-Schlüssel einer Admin-/Inhaber-Person
   const b = buildingBody.parse(await c.req.json());
   const p = await c.env.DB.prepare('SELECT id FROM properties WHERE id = ? AND tenant_id = ? AND deleted_at IS NULL')
     .bind(c.req.param('id'), tid(c))

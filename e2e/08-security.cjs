@@ -397,8 +397,10 @@ function client() {
     check(after.manufacturer === before.manufacturer && JSON.stringify(after.attributes) === JSON.stringify(before.attributes), 'Stammdaten unverändert (auch keine Fremdfelder)');
     t = await tool(malloryKey, 'inspect', { asset: sAsset.code, allOk: true });
     check(t.isError === true, 'inspect: fremdes Element nicht prüfbar');
+    // Mallory ist Inhaberin ihres Workspaces: setup legt Objekt/Gebäude dort an (#33) – nie bei uns
     t = await tool(malloryKey, 'setup', { preview: false, property: { name: S.name }, buildings: [{ name: 'Mallory Anbau', elements: [{ category: 'smoke_alarm' }] }] });
     check(!(await owner('/assets')).json.some((a) => a.buildingName === 'Mallory Anbau'), 'setup: nichts im fremden Workspace');
+    check((await owner('/properties')).json.filter((p) => p.name === S.name).length === 1, 'setup: kein zweites Objekt gleichen Namens bei uns');
     // Unterschrift: nie per Schlüssel, nur eigene, bereite Entwürfe
     t = await tool(ownerWrite, 'inspect', { asset: sAsset.code, allOk: true });
     const readyId = JSON.parse(t.text || '{}').inspectionId;
@@ -433,6 +435,98 @@ function client() {
   check(![S.id, O.id, sAsset.id, oAsset.id].some((x) => mNow.includes(x)), 'anderer Workspace: /now ohne fremde Daten');
   check((await reader('/now')).json.items.length === 0, 'Lesezugriff: /now leer');
   check((await owner('/now?limit=99999')).json.items.length <= 50, '/now: limit gedeckelt');
+
+  console.log('· #33 Objekte/Gebäude per Schlüssel einer Admin-/Inhaber-Person – sonst nichts Admin-Pflichtiges');
+  {
+    const tool = async (k, name, args) => {
+      const r = await fetch(BASE + '/api/mcp', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', authorization: `Bearer ${k}` },
+        body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name, arguments: args } }),
+      }).then((x) => x.json());
+      const text = r.result?.content?.[0]?.text ?? '';
+      let data = null;
+      try {
+        data = r.result?.isError ? null : JSON.parse(text);
+      } catch {
+        /* kein JSON */
+      }
+      return { isError: r.result?.isError, text, data };
+    };
+    const withKey = (k) => async (path, { method, body } = {}) => {
+      const r = await fetch(BASE + '/api' + path, {
+        method: method ?? (body !== undefined ? 'POST' : 'GET'),
+        headers: { authorization: `Bearer ${k}`, ...(body !== undefined ? { 'content-type': 'application/json' } : {}) },
+        body: body !== undefined ? JSON.stringify(body) : undefined,
+      });
+      const text = await r.text();
+      let json = null;
+      try {
+        json = JSON.parse(text);
+      } catch {
+        /* kein JSON */
+      }
+      return { status: r.status, json };
+    };
+    // Neue Admin-Person mit eigenem Schreib- und Leseschlüssel
+    const email = `admin33-${Date.now()}@example.com`;
+    const invA = await owner('/account/members/invite', { body: { email, role: 'admin' } });
+    const adm = client();
+    check((await adm(`/auth/invite/${invA.json.token}`, { body: { name: 'Admin 33', password: PW } })).status === 200, 'Admin-Person tritt bei');
+    const admId = (await owner('/account/members')).json.members.find((m) => m.email === email).id;
+    const admWrite = (await adm('/account/api-keys', { body: { name: 'sec33-write', scope: 'write', expiresInDays: 1 } })).json;
+    const admRead = (await adm('/account/api-keys', { body: { name: 'sec33-read', scope: 'read', expiresInDays: 1 } })).json;
+    const aw = withKey(admWrite.key);
+    const ar = withKey(admRead.key);
+    // Admins/Inhaber sind nie bereichseingeschränkt – der Zustand lässt sich gar nicht herstellen
+    check((await owner(`/account/members/${admId}/access`, { method: 'PUT', body: { scope: { propertyIds: [S.id], buildingIds: [] }, canCreate: true } })).status === 400, 'Admin lässt sich nicht einschränken');
+
+    // Erlaubt: Objekt + Gebäude per Schreibschlüssel der Admin-Person
+    const np = await aw('/properties', { body: { name: 'Sec33 Objekt', address: 'Teststraße 33' } });
+    check(np.status === 200 && !!np.json?.id, `Schreibschlüssel (Admin) legt Objekt an (${np.status})`);
+    const nb = await aw(`/properties/${np.json?.id}/buildings`, { body: { name: 'Sec33 Haus' } });
+    check(nb.status === 200 && !!nb.json?.id, `Schreibschlüssel (Admin) legt Gebäude an (${nb.status})`);
+    const act = (await owner('/account/activity')).json;
+    const actList = Array.isArray(act) ? act : (act?.items ?? []);
+    check(actList.some((e) => /Sec33 Objekt/.test(e.summary) && /sec33-write/.test(e.summary)), 'Protokoll nennt den Schlüssel');
+    // Fremde ID als Objekt: Gebäude nur im eigenen Workspace
+    const mProp = (await mallory('/properties')).json[0];
+    check((await aw(`/properties/${mProp.id}/buildings`, { body: { name: 'Sec33 fremd' } })).status === 404, 'Gebäude in fremdem Objekt → 404');
+    check(!JSON.stringify((await mallory(`/properties/${mProp.id}`)).json).includes('Sec33'), 'anderer Workspace unberührt');
+
+    // Weiterhin verboten mit dem Schlüssel der Admin-Person
+    check((await aw(`/properties/${np.json.id}`, { method: 'PATCH', body: { name: 'Sec33 geändert' } })).status === 403, 'Schlüssel ändert kein Objekt');
+    check((await aw(`/properties/${np.json.id}`, { method: 'DELETE' })).status === 403, 'Schlüssel löscht kein Objekt');
+    check((await aw(`/buildings/${nb.json.id}`, { method: 'PATCH', body: { name: 'x' } })).status === 403, 'Schlüssel ändert kein Gebäude');
+    check((await aw(`/buildings/${nb.json.id}`, { method: 'DELETE' })).status === 403, 'Schlüssel löscht kein Gebäude');
+    check((await aw('/automation', { method: 'PUT', body: { key: 'plan_week', mode: 'auto' } })).status === 403, 'Schlüssel setzt keine Autopilot-Stufe');
+    check((await aw('/automation/autopilot', { method: 'PUT', body: { enabled: false } })).status === 403, 'Schlüssel schaltet den Autopiloten nicht');
+    check([401, 403].includes((await aw(`/account/members/${admId}`, { method: 'PATCH', body: { role: 'owner' } })).status), 'Schlüssel ändert kein Team');
+    check([401, 403].includes((await aw('/account/members/invite', { body: { email: 'x33@example.com', role: 'admin' } })).status), 'Schlüssel lädt niemanden ein');
+    check([401, 403].includes((await aw('/account/api-keys', { body: { name: 'neu', scope: 'write' } })).status), 'Schlüssel erzeugt keine Schlüssel');
+    check((await owner(`/properties/${np.json.id}`)).json.name === 'Sec33 Objekt', 'Objekt unverändert');
+
+    // Leseschlüssel der Admin-Person: nichts
+    check((await ar('/properties', { body: { name: 'Sec33 lesend' } })).status === 403, 'Leseschlüssel (Admin) legt kein Objekt an');
+    check((await ar(`/properties/${np.json.id}/buildings`, { body: { name: 'Sec33 lesend' } })).status === 403, 'Leseschlüssel (Admin) legt kein Gebäude an');
+    let t = await tool(admRead.key, 'setup', { preview: false, property: { name: 'Sec33 lesend' }, buildings: [{ name: 'L', elements: [{ category: 'smoke_alarm' }] }] });
+    check(t.isError === true && !(await owner('/properties')).json.some((p) => p.name === 'Sec33 lesend'), 'setup mit Leseschlüssel legt nichts an');
+
+    // Herabgestuft zum Prüfer: Recht sofort weg (gleicher Schlüssel, ohne Neuanmeldung)
+    check((await owner(`/account/members/${admId}`, { method: 'PATCH', body: { role: 'inspector' } })).status === 200, 'Admin-Person zum Prüfer herabgestuft');
+    check((await aw('/properties', { body: { name: 'Sec33 Prüfer' } })).status === 403, 'Schlüssel einer Prüfer-Person: Objekt → 403');
+    check((await aw(`/properties/${np.json.id}/buildings`, { body: { name: 'Sec33 Prüfer' } })).status === 403, 'Schlüssel einer Prüfer-Person: Gebäude → 403');
+    t = await tool(admWrite.key, 'setup', { preview: true, property: { name: 'Sec33 Prüfer' }, buildings: [{ name: 'P', elements: [{ category: 'smoke_alarm' }] }] });
+    check(t.data?.preview === true && t.data.problems?.some((p) => /Admin- oder Inhaber-Person/.test(p)) && !/wird neu angelegt/.test(t.text), `setup-Vorschau (Prüfer) nennt fehlendes Recht (${t.text.slice(0, 160)})`);
+    t = await tool(admWrite.key, 'setup', { preview: false, property: { name: 'Sec33 Prüfer' }, buildings: [{ name: 'P', elements: [{ category: 'smoke_alarm' }] }] });
+    check(t.isError === true && /Admin- oder Inhaber-Person/.test(t.text), `setup (Prüfer) bricht mit Hinweis ab (${t.text.slice(0, 120)})`);
+    t = await tool(admWrite.key, 'setup', { preview: false, property: { name: 'Sec33 Objekt' }, buildings: [{ name: 'Sec33 Prüferhaus', elements: [{ category: 'smoke_alarm' }] }] });
+    const after33 = (await owner(`/properties/${np.json.id}`)).json;
+    check(!(await owner('/properties')).json.some((p) => p.name === 'Sec33 Prüfer') && !after33.buildings.some((b) => b.name === 'Sec33 Prüferhaus'), 'setup (Prüfer): nichts angelegt');
+    // Aufräumen (Admin-Sitzung)
+    await owner(`/account/api-keys/${admWrite.id}`, { method: 'DELETE' });
+    await owner(`/account/api-keys/${admRead.id}`, { method: 'DELETE' });
+  }
 
   console.log(fail.length ? `FAILED ${fail.length}: ${fail.join('; ')}` : 'ALL CHECKS OK');
   if (fail.length) process.exitCode = 1;
