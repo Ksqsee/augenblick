@@ -31,6 +31,8 @@ const stems = (s: string) =>
 
 // ---------- Begriffe ----------
 const escapeRe = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+/** Gewöhnliche deutsche Wörter, die zugleich als Abkürzung im Katalog stehen können (HAT, TOR, OST …) */
+const COMMON_WORDS = new Set(['hat', 'tor', 'ost', 'bad', 'rat', 'tag', 'alt', 'art', 'not', 'rot', 'gut', 'mal', 'das', 'der', 'die', 'den', 'dem', 'ist', 'und', 'mit', 'von', 'vor', 'aus', 'bei', 'ein', 'man', 'nur', 'neu', 'oft', 'wer', 'wie', 'was', 'wo', 'zur', 'zum']);
 
 /**
  * Abkürzungen im Text durch ihre Bedeutung ersetzen („OTS schließt nicht“ → „Obentürschließer schließt nicht“).
@@ -45,7 +47,8 @@ export function expandTerms(text: string, terms: Pick<CatalogTerm, 'term' | 'mea
     if (!term || !t.meaning.trim() || term.length > 40) continue;
     // nicht vor einem Code-Teil oder einer Nummer („FST-7K2M“, „FSA 2“ bleiben Codes bzw. Element-Verweise)
     const re = new RegExp(`(?<![\\p{L}\\d-])${escapeRe(term)}(?![\\p{L}\\d]|[- ]?[A-Za-z]{0,5}\\d)`, term.length <= 2 ? 'gu' : 'giu');
-    out = out.replace(re, t.meaning.trim());
+    // klein bzw. anders geschrieben nur, wenn es kein gewöhnliches Wort ist („Zarge hat Rost“ bleibt, „HAT“ wird erklärt)
+    out = out.replace(re, (m) => (m !== term && COMMON_WORDS.has(m.toLowerCase()) ? m : t.meaning.trim()));
   }
   return out;
 }

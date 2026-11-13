@@ -9,6 +9,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { SEVERITIES, type Severity } from '../../shared/catalog';
 import { type CaptureCategory, type CaptureItem, MAX_BULK_ASSETS, parseCapture } from '../../shared/smart';
+import { matchElementRef } from '../../shared/vocab';
 import { allCategories, getCategory } from '../categories';
 import { api, ApiError, type Asset, useAssets, useBuildings, useMe, useProperties } from '../api';
 import { useDictation } from '../dictate';
@@ -238,7 +239,7 @@ function WherePicker({ where, onChange, emphasize }: { where: Where; onChange: (
 }
 
 /** Eine erkannte Zeile zum Prüfen: Art umschalten, Titel, bei Mängeln Schwere und Maßnahme. Ohne Karte – Haarlinie dazwischen. */
-function ItemCard({ item, onChange, onRemove }: { item: CaptureItem; onChange: (i: CaptureItem) => void; onRemove: () => void }) {
+function ItemCard({ item, onChange, onRemove, target }: { item: CaptureItem; onChange: (i: CaptureItem) => void; onRemove: () => void; target?: Asset }) {
   const M = KIND_META[item.kind];
   return (
     <div className="animate-pop flex flex-col gap-3 py-4">
@@ -273,15 +274,30 @@ function ItemCard({ item, onChange, onRemove }: { item: CaptureItem; onChange: (
           <Input aria-label="Maßnahme" placeholder="Maßnahme (optional)" value={item.measure} onChange={(e) => onChange({ ...item, measure: e.target.value })} />
         </>
       )}
-      {(item.assetCode || item.dueInDays != null) && (
+      {(item.assetCode || item.elementRef || item.dueInDays != null) && (
         <p className="flex flex-wrap gap-x-3 text-meta text-ink-3">
           {item.assetCode && <span>Element {item.assetCode}</span>}
+          {!item.assetCode && item.elementRef && (target ? <span data-target>Element {target.code}</span> : <StatusText tone="warn">Nr. {item.elementRef.number} im Objekt nicht gefunden</StatusText>)}
           {item.dueInDays != null && <span>Frist in {item.dueInDays} Tagen</span>}
         </p>
       )}
     </div>
   );
 }
+
+/** Nicht Verstandenes ruhig zeigen: Punkt + „bitte prüfen“ und der Rest – statt ihn in den Standort zu schreiben. */
+function Unsure({ text }: { text?: string }) {
+  if (!text) return null;
+  return (
+    <span className="flex min-w-0 items-center gap-2" data-unsure>
+      <StatusText tone="warn">bitte prüfen</StatusText>
+      <span className="min-w-0 truncate text-meta text-ink-3">{text}</span>
+    </span>
+  );
+}
+
+/** Feste Nummern: „Nr. 36“ bzw. „Nr. 12–15“. */
+const numberText = (i: CaptureItem) => (i.number == null ? '' : assetCount(i) > 1 ? `Nr. ${i.number}–${i.number + assetCount(i) - 1}` : `Nr. ${i.number}`);
 
 /** Stammdaten als kurze Zeile: „T30 · Rauchschutz“. */
 function attributeText(category: string | null | undefined, attrs: CaptureItem['attributes']): string {
@@ -309,6 +325,7 @@ function AssetItemCard({ item, onChange, onRemove, canCreate }: { item: Item; on
         </button>
       </div>
       {!canCreate && <Notice tone="warn">Du darfst keine neuen Elemente anlegen – dieser Eintrag wird übersprungen.</Notice>}
+      <Unsure text={item.unsure} />
       <div className="grid grid-cols-[6rem_minmax(0,1fr)] gap-3">
         <Field label="Anzahl">
           {(id) => (
@@ -347,6 +364,18 @@ function AssetItemCard({ item, onChange, onRemove, canCreate }: { item: Item; on
         <Field label="Hersteller" optional>
           {(id) => <Input id={id} value={item.manufacturer ?? ''} onChange={(e) => onChange({ ...item, manufacturer: e.target.value })} />}
         </Field>
+        <Field label={n > 1 ? 'Nummer ab' : 'Nummer'} optional hint="Ohne Angabe fortlaufend">
+          {(id) => (
+            <Input
+              id={id}
+              type="number"
+              inputMode="numeric"
+              min={1}
+              value={item.number ?? ''}
+              onChange={(e) => onChange({ ...item, number: e.target.value === '' ? null : Math.max(Math.round(Number(e.target.value)), 1) })}
+            />
+          )}
+        </Field>
       </div>
     </div>
   );
@@ -367,12 +396,22 @@ function LivePreview({ items }: { items: CaptureItem[] }) {
                 <span className="block truncate text-ink">
                   <span className="tabular-nums">{assetCount(i)}</span> × {categoryLabel(i.category ?? '') || i.title}
                 </span>
-                {(i.floor || i.location || i.manufacturer || attributeText(i.category, i.attributes)) && (
-                  <span className="block truncate text-meta text-ink-3">{[i.floor, i.location, i.manufacturer, attributeText(i.category, i.attributes)].filter(Boolean).join(' · ')}</span>
+                {(i.floor || i.location || i.manufacturer || i.number != null || attributeText(i.category, i.attributes)) && (
+                  <span className="block truncate text-meta text-ink-3">
+                    {[numberText(i), i.floor, i.location, i.manufacturer, attributeText(i.category, i.attributes)].filter(Boolean).join(' · ')}
+                  </span>
                 )}
+                <Unsure text={i.unsure} />
               </span>
             ) : (
-              <span className="min-w-0 flex-1 truncate text-ink">{i.title}</span>
+              <span className="min-w-0 flex-1">
+                <span className="block truncate text-ink">{i.title}</span>
+                {i.unsure && (
+                  <span className="block">
+                    <StatusText tone="warn">bitte prüfen</StatusText>
+                  </span>
+                )}
+              </span>
             )}
             {i.kind === 'defect' && <StatusText tone={i.severity === 'low' ? 'muted' : SEVERITY_TONE[i.severity]}>{SEVERITIES[i.severity]}</StatusText>}
             {i.dueInDays != null && <span className="shrink-0 text-meta text-ink-3 tabular-nums">in {i.dueInDays} T.</span>}
@@ -473,7 +512,16 @@ export function CaptureSheet({ initial, onClose }: { initial: CaptureContext; on
   }
 
   const byCode = (code: string | null) => (code ? assets.data?.find((a) => a.code.toLowerCase() === code.toLowerCase()) : undefined);
-  const needsPlace = items?.some((i) => i.kind === 'defect' && !byCode(i.assetCode)) && !where;
+  /** „Tür 36“: Element Nr. 36 im gewählten Objekt (ohne Ort: nur wenn es im Konto genau eines gibt) */
+  const byRef = (ref: CaptureItem['elementRef']) => {
+    if (!ref) return undefined;
+    const pid = where?.kind === 'asset' ? where.asset.propertyId : where?.kind === 'property' ? where.id : null;
+    const pool = (assets.data ?? []).filter((a) => !pid || a.propertyId === pid);
+    const hits = matchElementRef({ number: ref.number, category: ref.category, match: '' }, pool);
+    return hits.length === 1 ? hits[0] : undefined;
+  };
+  const targetOf = (i: CaptureItem) => byCode(i.assetCode) ?? byRef(i.elementRef);
+  const needsPlace = items?.some((i) => i.kind === 'defect' && !targetOf(i)) && !where;
   const assetItems = (items ?? []).filter((i) => i.kind === 'asset' && canCreate);
   const needsBuilding = assetItems.some((i) => !i.buildingId || !i.category);
 
@@ -502,13 +550,15 @@ export function CaptureSheet({ initial, onClose }: { initial: CaptureContext; on
             location: i.location ?? '',
             manufacturer: i.manufacturer ?? '',
             attributes,
+            // „Türen 12 bis 15“: feste Nummern fortlaufend, sonst vergibt der Server die nächste freie
+            ...(i.number != null ? { number: i.number + n } : {}),
           });
         rememberPlace({ propertyId: i.propertyId, buildingId: i.buildingId, floor: i.floor ?? '' });
         propertyId ??= i.propertyId;
         continue;
       }
       if (!i.title.trim()) continue;
-      const a = byCode(i.assetCode) ?? (where?.kind === 'asset' ? where.asset : undefined);
+      const a = targetOf(i) ?? (where?.kind === 'asset' ? where.asset : undefined);
       const pid = a?.propertyId ?? (where?.kind === 'property' ? where.id : null);
       if (i.kind === 'defect') op('defect', i.title, '/defects', { assetId: a?.id ?? null, propertyId: pid, title: i.title, note: i.note, measure: i.measure, severity: i.severity });
       else
@@ -688,7 +738,13 @@ export function CaptureSheet({ initial, onClose }: { initial: CaptureContext; on
                   onRemove={() => setItems(items.filter((_, j) => j !== n))}
                 />
               ) : (
-                <ItemCard key={n} item={it} onChange={(v) => setItems(items.map((x, j) => (j === n ? v : x)))} onRemove={() => setItems(items.filter((_, j) => j !== n))} />
+                <ItemCard
+                  key={n}
+                  item={it}
+                  target={targetOf(it)}
+                  onChange={(v) => setItems(items.map((x, j) => (j === n ? v : x)))}
+                  onRemove={() => setItems(items.filter((_, j) => j !== n))}
+                />
               ),
             )}
           </div>
