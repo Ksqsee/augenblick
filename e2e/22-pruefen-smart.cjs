@@ -246,7 +246,7 @@ const check = (ok, m) => {
   await card.getByLabel('Gebäude').locator(`option[value="${buildingId}"]`).waitFor({ state: 'attached' });
   await card.getByLabel('Gebäude').selectOption(buildingId);
   await p.screenshot({ path: OUT + '02-sammelanlage.png' });
-  await sheet.getByRole('button', { name: /Übernehmen/ }).click();
+  await sheet.getByRole('button', { name: '3 Elemente anlegen' }).click();
   await sheet.getByText('3 Elemente angelegt').waitFor();
   const after = (await api('/assets')).json.filter((a) => a.location === 'E2E Flur');
   check(after.length - before === 3 && after.every((a) => a.floor === 'EG' && a.category === 'extinguisher' && a.buildingId === buildingId), `3 Feuerlöscher angelegt (${after.length - before})`);

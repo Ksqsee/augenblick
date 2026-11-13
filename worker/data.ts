@@ -188,12 +188,19 @@ data.get("/properties", async (c) => {
   return c.json(rows.results);
 });
 
+/** Name des still mitangelegten Gebäudes (Plan v5 Q: Gebäude erst sichtbar, wenn es mehr als eines gibt). */
+export const DEFAULT_BUILDING = "Hauptgebäude";
+
 data.post("/properties", async (c) => {
   requireStructure(c); // Befund #33: auch Schreib-Schlüssel einer Admin-/Inhaber-Person
-  const b = propertyBody.parse(await c.req.json());
+  const raw = await c.req.json();
+  const b = propertyBody.parse(raw);
+  // withBuilding: Objekt und ein Gebäude „Hauptgebäude“ in einem Aufruf (Einstieg im leeren Konto)
+  const withBuilding = z.object({ withBuilding: z.boolean().default(false) }).parse(raw ?? {}).withBuilding;
   const pid = id();
+  const bid = withBuilding ? id() : null;
   const t = now();
-  await c.env.DB.prepare(
+  const insert = c.env.DB.prepare(
     `INSERT INTO properties (id, tenant_id, name, address, description, contact_name, contact_phone, contact_email, building_type, created_at, updated_at)
      VALUES (?,?,?,?,?,?,?,?,?,?,?)`,
   )
@@ -209,8 +216,15 @@ data.post("/properties", async (c) => {
       b.buildingType,
       t,
       t,
-    )
-    .run();
+    );
+  if (bid)
+    await c.env.DB.batch([
+      insert,
+      c.env.DB.prepare(
+        "INSERT INTO buildings (id, tenant_id, property_id, name, address, created_at, updated_at) VALUES (?,?,?,?,?,?,?)",
+      ).bind(bid, tid(c), pid, DEFAULT_BUILDING, "", t, t),
+    ]);
+  else await insert.run();
   await logActivity(
     c,
     "create",
@@ -218,7 +232,7 @@ data.post("/properties", async (c) => {
     pid,
     `Objekt „${b.name}“ angelegt`,
   );
-  return c.json({ id: pid });
+  return c.json(bid ? { id: pid, buildingId: bid } : { id: pid });
 });
 
 data.get("/properties/:id", async (c) => {

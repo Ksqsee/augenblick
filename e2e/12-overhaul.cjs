@@ -107,7 +107,7 @@ const check = (ok, m) => {
   check((await dlg.getByRole('button', { name: 'Mangel' }).count()) >= 1, 'Mangel erkannt');
   await p.screenshot({ path: OUT + '02-erfassen-items.png' });
   check((await dlg.getByRole('list', { name: 'Erkannt' }).count()) === 0, 'Vorschau nur im ersten Schritt');
-  await dlg.getByRole('button', { name: /übernehmen/i }).click();
+  await dlg.getByRole('button', { name: '1 Mangel und 1 Aufgabe anlegen' }).click();
   await dlg.getByText('angelegt').waitFor();
   const after = (await api('/defects?status=open')).json;
   check(after.length === before + 1, `Mangel angelegt (${before} → ${after.length})`);

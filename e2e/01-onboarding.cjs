@@ -1,4 +1,5 @@
-// E2E 01-onboarding: Registrierung, erstes Objekt, Gebäude, Element, Prüfung mit Mangel, Protokoll, mobile Ansicht
+// E2E 01-onboarding: Registrierung, erstes Objekt (ein Feld auf „Heute“, Gebäude still mit), Element per Satz und per
+// Formular, Objekt nachträglich bearbeiten, Prüfung mit Mangel, Protokoll, mobile Ansicht
 // Start über `npm run e2e` (lokale D1 mit Demodaten, Dev-Server auf BASE). Passwort aus DEMO_PASSWORD.
 const { chromium } = require('playwright');
 if (!process.env.DEMO_PASSWORD) throw new Error('DEMO_PASSWORD fehlt');
@@ -22,22 +23,28 @@ require('fs').mkdirSync(OUT, { recursive: true });
   await p.getByLabel('Passwort').fill('sicheres-passwort-1');
   await shot('01-register');
   await p.getByRole('button', { name: 'Kostenlos starten' }).click();
-  await p.getByText('Lege dein erstes Objekt an').waitFor();
+  await p.getByText('Wie heißt dein erstes Objekt?').waitFor();
   await shot('02-dashboard-empty');
 
-  // Objekt
-  await p.getByRole('button', { name: 'Objekt anlegen' }).click();
-  await p.getByLabel('Name').fill('Grundschule Am Park');
+  // Objekt: ein Feld auf „Heute“; danach öffnet „Erfassen“ im Modus Elemente mit dem Objekt als Ort
+  await p.getByLabel('Name des Objekts').fill('Grundschule Am Park');
+  await p.getByRole('button', { name: 'Anlegen', exact: true }).click();
+  const sheet = p.getByRole('dialog');
+  await sheet.getByRole('tab', { name: 'Elemente', selected: true }).waitFor();
+  await sheet.getByLabel('Erfasster Text').fill('Feuerschutztür Treppenhaus Nord von Hörmann T30');
+  await sheet.getByRole('button', { name: '1 Element anlegen' }).click();
+  await sheet.getByText('1 Element angelegt').waitFor();
+  await sheet.getByRole('button', { name: 'Ansehen' }).click();
+  await p.waitForURL(/\/objekte\//);
+  // Adresse und Ansprechperson später unter Bearbeiten
+  await p.getByRole('button', { name: 'Weitere Aktionen zum Objekt' }).click();
+  await p.getByRole('menuitem', { name: 'Objekt bearbeiten' }).click();
   await p.getByLabel('Adresse').fill('Parkweg 3\n22041 Hamburg');
   await p.getByLabel('Ansprechperson').fill('Hausmeister Meier');
   await p.getByRole('button', { name: 'Speichern', exact: true }).click();
-  await p.getByText('Noch kein Gebäude').waitFor();
-  await p.getByRole('button', { name: 'Gebäude anlegen' }).click();
-  await p.getByLabel('Name').fill('Haupthaus');
-  await p.getByRole('button', { name: 'Speichern', exact: true }).click();
-  await p.getByText('Keine Elemente in diesem Gebäude').waitFor();
+  await p.getByText('Hausmeister Meier').waitFor();
 
-  // Elemente
+  // Weitere Elemente per Formular (ein Gebäude: kein Gebäudefeld)
   const addAsset = async (cat, loc, extra) => {
     await p.getByRole('button', { name: 'Element', exact: true }).click();
     await p.getByRole('button', { name: new RegExp(cat) }).click();
@@ -46,10 +53,6 @@ require('fs').mkdirSync(OUT, { recursive: true });
     await p.getByRole('button', { name: 'Speichern', exact: true }).click();
     await p.waitForTimeout(600);
   };
-  await addAsset('Feuerschutztür', 'Treppenhaus Nord', async () => {
-    await p.getByLabel('Hersteller').fill('Hörmann');
-    await p.getByLabel('Feuerwiderstand').selectOption('T30');
-  });
   await addAsset('Feuerlöscher', 'Flur EG');
   await addAsset('Rauchwarnmelder', 'Klassenraum 1.04');
   await shot('03-property');

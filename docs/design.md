@@ -249,6 +249,11 @@ eine Spalte, ab lg höchstens 52rem breit
 Keine Seitenspalte mehr: Objekte, offene Aufgaben und Rundgänge haben eigene Orte (Objekte, Offen, Prüfen).
 Leere Lage: „Alles geprüft. Nächste Fälligkeit am 03.12.“ – sonst nichts Zusätzliches.
 
+**Leeres Konto (v5 Q):** statt Lagesatz die Frage „Wie heißt dein erstes Objekt?“ (h1, `ink-3`), darunter **ein** Feld
+und **ein** Knopf „Anlegen“ (Handy volle Breite), ein grauer Hinweis. Kein Scannen, keine Kennzahlen, kein „Jetzt“.
+Anlegen öffnet „Erfassen“ im Modus Elemente. Objekt ohne Elemente: `Empty` mit „Elemente hinzufügen“.
+Bilder: `docs/design/v3/v5/` (`m-/d-leer`, `m-/d-erfassen-elemente`, `m-/d-objekt`).
+
 ### 5.1a Prüfen (umgesetzt in `Pruefen.tsx`)
 ```
 PageHeader  „Prüfen“ · [Rundgang starten] (Scannen ghost) ⋯ (Begehung starten, Offline)
@@ -295,6 +300,15 @@ Grid lg:[1fr_280px]
   aside     PropertyList auf dem Grund, Gruppen durch Haarlinie getrennt (keine Karten)
 Handy: aside unter den Kopf, vor die Surface.
 ```
+**Objekt (v5 Q):** Hauptknopf „Rundgang starten“ (Gebäude mit den meisten fälligen/nie geprüften Elementen), sonst
+„Elemente hinzufügen“ (öffnet Erfassen im Modus Elemente); „Begehung starten“, „Gebäude hinzufügen“ und bei einem
+Gebäude „Für offline speichern“ im ⋯-Menü. Ein Gebäude ist unsichtbar: eine Section „Elemente“; ab zwei Gebäuden je
+Gebäude eine Section. Formulare belegen das einzige Gebäude vor und zeigen das Feld nicht.
+
+**Erfassen (Sheet):** oben `Segmented` Elemente | Mängel & Aufgaben (Vorgabe Elemente, solange der Ort keine hat),
+Mikrofon, Textfeld, Vorschau „Wird erkannt“ (je Zeile Art + Anzahl, darunter Etage · Standort · Hersteller · T30), Ort.
+Fuß: reine Elemente → „Anpassen“ (secondary) + „n Elemente anlegen“ (primary); sonst „Auswerten“ → Karten → ein Knopf
+„3 Elemente und 1 Mangel anlegen“. Fehlt der Ort, steht die Objektliste bzw. „Neues Objekt „…“ anlegen“ gleich da.
 
 ### 5.4 Formular / Dialog
 - Kurze Formulare im `Modal` (Handy: Sheet mit Griff, Titel zentriert, Fußknöpfe volle Breite).

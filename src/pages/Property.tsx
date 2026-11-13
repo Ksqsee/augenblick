@@ -1,13 +1,16 @@
 // Objekt (Design v3, Vorlage „Detail“ docs/design.md 5.3): Kopf mit einer Hauptaktion, Reiter auf dem Grund,
-// eine Surface mit Sections (je Gebäude, Grundrisse, Begehungen); rechts Prüfstatus, Begehung,
-// Brandschutzbeauftragte/r und „Vor Ort“ als Text auf dem Grund. Belege: docs/design/objekte-elemente.md
-import { Building2, CloudDownload, Footprints, Mail, Pencil, Phone, Plus, Trash2, Upload, User } from 'lucide-react';
+// eine Surface mit Sections (Elemente – je Gebäude erst ab zwei Gebäuden –, Grundrisse, Begehungen); rechts Prüfstatus,
+// Begehung, Brandschutzbeauftragte/r und „Vor Ort“ als Text auf dem Grund. Belege: docs/design/objekte-elemente.md
+// Hauptknopf (Plan v5 Q): „Rundgang starten“, wenn Elemente fällig oder nie geprüft sind, sonst „Elemente hinzufügen“;
+// „Begehung starten“ und „Gebäude hinzufügen“ stehen im ⋯-Menü.
+import { Building2, CloudDownload, Footprints, Mail, Mic, Pencil, Phone, Plus, Route, Trash2, Upload, User } from 'lucide-react';
 import { type ReactNode, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { BUILDING_TYPES } from '../../shared/walkthrough';
 import { api, type Asset, type FireOfficer, fileUrl, type PropertyDetail, useAction, useMe, useProperty } from '../api';
 import { AssetDrawer } from '../components/AssetDrawer';
 import { AssetList } from '../components/AssetList';
+import { openCapture } from '../components/CaptureSheet';
 import { AssetForm, BuildingForm, PropertyForm } from '../components/forms';
 import { AsideAction, AsideList, AsideRow, AsideSection } from '../components/objects/Aside';
 import { countDue, DUE_ORDER, DuePhrase } from '../components/objects/status';
@@ -15,6 +18,7 @@ import { PropertyReportButton } from '../components/PropertyReportButton';
 import { SharePropertyButton } from '../components/ShareProperty';
 import {
   Button,
+  ButtonLink,
   Empty,
   ErrorBox,
   Field,
@@ -39,7 +43,7 @@ import {
   useToast,
   useUrlTab,
 } from '../components/ui';
-import { categoryLabel, defectsLabel, fmtDate, fmtDateTime } from '../format';
+import { assetDue, categoryLabel, defectsLabel, fmtDate, fmtDateTime } from '../format';
 import { prepareBuilding } from '../offline';
 import { FloorPlanUpload } from './FloorPlan';
 import { StartWalkthrough } from './Walkthroughs';
@@ -96,8 +100,22 @@ export function PropertyPage() {
   const due = countDue(p.assets);
   const openDefects = p.assets.reduce((s, a) => s + a.openDefects, 0);
   const needle = q.trim().toLowerCase();
+  // Gebäude erst sichtbar, wenn es mehr als eines gibt (Plan v5 Q)
+  const single = p.buildings.length === 1 ? p.buildings[0]! : null;
+  // Hauptknopf: Rundgang im Gebäude mit den meisten fälligen/nie geprüften Elementen, sonst Elemente hinzufügen
+  const toCheck = p.assets.filter((a) => a.lastResult !== 'not_inspectable' && ['overdue', 'soon', 'never'].includes(assetDue(a.nextDueAt)));
+  const roundBuilding = p.buildings
+    .map((b) => ({ id: b.id, n: toCheck.filter((a) => a.buildingId === b.id).length }))
+    .sort((x, y) => y.n - x.n)
+    .find((x) => x.n > 0);
+  const addAssets = () => openCapture({ propertyId: p.id, mode: 'assets' });
   const menu: MenuItem[] = [];
+  if (canInspect) menu.push({ label: 'Begehung starten', icon: <Footprints />, onClick: () => setWalk(true) });
+  if (canCreate && roundBuilding) menu.push({ label: 'Elemente hinzufügen', icon: <Mic />, onClick: addAssets });
+  if (single)
+    menu.push({ label: preparing === single.id ? 'Wird gespeichert …' : 'Für offline speichern', icon: <CloudDownload />, disabled: preparing === single.id, onClick: () => offline(single.id) });
   if (isAdmin) {
+    if (menu.length) menu.push('separator');
     menu.push({ label: 'Objekt bearbeiten', icon: <Pencil />, onClick: () => setEdit(true) });
     menu.push({ label: 'Gebäude hinzufügen', icon: <Building2 />, onClick: () => setBuilding('new') });
     if (p.buildings.length) menu.push({ label: 'Grundriss hochladen', icon: <Upload />, onClick: () => setUpload(true) });
@@ -148,10 +166,16 @@ export function PropertyPage() {
             </span>
             {isAdmin && <SharePropertyButton propertyId={p.id} propertyName={p.name} />}
             {menu.length > 0 && <Menu items={menu} label="Weitere Aktionen zum Objekt" />}
-            {canInspect && (
-              <Button icon={<Footprints className="size-4" />} onClick={() => setWalk(true)}>
-                Begehung starten
-              </Button>
+            {canInspect && roundBuilding ? (
+              <ButtonLink to={`/rundgang/${roundBuilding.id}`} icon={<Route className="size-4" />}>
+                Rundgang starten
+              </ButtonLink>
+            ) : (
+              canCreate && (
+                <Button icon={<Plus className="size-4" />} onClick={addAssets}>
+                  Elemente hinzufügen
+                </Button>
+              )
             )}
           </>
         }
@@ -203,7 +227,32 @@ export function PropertyPage() {
                       <SearchField value={q} onChange={setQ} placeholder="Code, Standort, Art …" label="In diesem Objekt suchen" className="sm:max-w-none" />
                     </Section>
                   )}
-                  {p.buildings.map((b) => {
+                  {single && !(needle && !p.assets.some((a) => matches(a, needle))) && (
+                    <Section
+                      aria-label="Elemente"
+                      flush
+                      title="Elemente"
+                      count={p.assets.length}
+                      action={
+                        canCreate && (
+                          <Button size="sm" variant="ghost" icon={<Plus />} onClick={() => setAssetFor(single.id)}>
+                            Element
+                          </Button>
+                        )
+                      }
+                    >
+                      {p.assets.length === 0 ? (
+                        <Empty
+                          compact
+                          title="Noch keine Elemente"
+                          text="Sprich oder tippe, was hier verbaut ist – z. B. „drei Feuerschutztüren im EG Flur, T30 von Hörmann“."
+                        />
+                      ) : (
+                        <AssetList assets={needle ? p.assets.filter((a) => matches(a, needle)) : p.assets} onSelect={setSelected} showPlace={false} aria-label="Elemente" />
+                      )}
+                    </Section>
+                  )}
+                  {!single && p.buildings.map((b) => {
                     const inBuilding = p.assets.filter((a) => a.buildingId === b.id);
                     const assets = needle ? inBuilding.filter((a) => matches(a, needle)) : inBuilding;
                     if (needle && !assets.length) return null;
@@ -259,13 +308,6 @@ export function PropertyPage() {
                           </Button>
                         }
                       />
-                    </Section>
-                  )}
-                  {isAdmin && !needle && (
-                    <Section className="py-3 sm:py-3">
-                      <Button variant="ghost" size="sm" className="-ml-3" icon={<Plus />} onClick={() => setBuilding('new')}>
-                        Gebäude hinzufügen
-                      </Button>
                     </Section>
                   )}
                 </>
