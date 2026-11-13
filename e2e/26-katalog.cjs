@@ -173,6 +173,8 @@ const check = (ok, m) => {
   const run = (await api(`/assets/${fsa41.id}/inspections`, { data: {} })).json;
   await p.goto(`${BASE}/pruefung/${run.id}`);
   const cp = p.locator('[data-cp="p10"]');
+  // Prüfen in zwei Tipps: Gruppen sind eingeklappt – die Gruppe des Punkts erst öffnen
+  await p.getByRole('button', { name: /Auslösung und Melder/ }).click();
   await cp.getByRole('radio', { name: 'Mangel' }).click();
   await cp.getByLabel('Beschreibung').fill('Melder ist stark verschmutzt');
   const sug = cp.getByRole('button', { name: /^Wie „Melder verschmutzt“/ });

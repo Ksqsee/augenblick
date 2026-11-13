@@ -150,4 +150,12 @@ describe('Vorgabe des Sheets', () => {
   it('ohne Arten (Prüfablauf) entstehen keine Elemente', () => {
     expect(parseCapture('drei Feuerlöscher im Flur', { categories: [] }).map((i) => i.kind)).toEqual(['defect']);
   });
+  it('im Prüfablauf (mit Prüfpunkten) entsteht nie ein Element', () => {
+    const cps = [{ id: 'p1', label: 'Melder am vorgesehenen Ort montiert' }];
+    const items = parseCapture('Melder am vorgesehenen Ort montiert mangelhaft, Gefahr im Verzug', { checkpoints: cps });
+    expect(items.map((i) => i.kind)).toEqual(['defect']);
+    expect(items[0].checkpointId).toBe('p1');
+    expect(items[0].severity).toBe('critical');
+    expect(parseCapture('zwei Rauchwarnmelder im Flur', { checkpoints: cps }).some((i) => i.kind === 'asset')).toBe(false);
+  });
 });

@@ -160,7 +160,7 @@ export function findCategory(text: string, categories: CaptureCategory[]): { key
 
 /** Feststellungen, die auf einen Mangel statt eine Anlage hinweisen */
 const DEFECT_HINT =
-  /(?<![\p{L}])(nicht|fehlt|fehlen|fehlend\w*|kein(e|en|er)?|defekt\w*|kaputt|beschädigt|beschaedigt|abgelaufen|blockiert|verstellt|zugestellt|versperrt|undicht|verschmutzt|klemmt|klemmen|schleift|schleifen|lose|locker|gerissen|abgerissen|riss|risse|rissig|gebrochen|verbogen|verzogen|verkeilt|festgekeilt|unterkeilt|keil|übermalt|überstrichen|überklebt|piept|ausgelöst|verdeckt|aufgehalten|offen gehalten|steht offen|schadhaft|korrodiert|rostet|verrostet|tropft|quietscht|mangel|mängel|schaden|abgängig|überfällig|ohne plombe|plombe fehlt|zu alt)(?![\p{L}])/iu;
+  /(?<![\p{L}])(nicht|mangel|mängel|mangelhaft\w*|bemängelt|gefahr|fehlt|fehlen|fehlend\w*|kein(e|en|er)?|defekt\w*|kaputt|beschädigt|beschaedigt|abgelaufen|blockiert|verstellt|zugestellt|versperrt|undicht|verschmutzt|klemmt|klemmen|schleift|schleifen|lose|locker|gerissen|abgerissen|riss|risse|rissig|gebrochen|verbogen|verzogen|verkeilt|festgekeilt|unterkeilt|keil|übermalt|überstrichen|überklebt|piept|ausgelöst|verdeckt|aufgehalten|offen gehalten|steht offen|schadhaft|korrodiert|rostet|verrostet|tropft|quietscht|mangel|mängel|schaden|abgängig|überfällig|ohne plombe|plombe fehlt|zu alt)(?![\p{L}])/iu;
 /** Aufträge an jemanden („Hausmeister informieren bis Freitag“) */
 const TASK_HINT =
   /(?<![\p{L}])(aufgabe|erledigen|bestellen|nachbestellen|beauftragen|anrufen|termin|nachfassen|informieren|benachrichtigen|bescheid (geben|sagen)|mitteilen|klären|erinnern|besorgen|veranlassen|kümmern|angebot (einholen|anfordern)|rückruf)(?![\p{L}])/iu;
@@ -423,7 +423,8 @@ function parseSentence(sentence: string, ctx: CaptureContext, cats: CaptureCateg
 
 /** Diktat in einzelne Feststellungen, Aufgaben, Notizen und Elemente zerlegen. */
 export function parseCapture(text: string, ctx: CaptureContext = {}): CaptureItem[] {
-  const cats = ctx.categories ?? Object.values(CATEGORIES);
+  // Im Prüfablauf (Prüfpunkte bekannt) geht es nur um Befunde – dort entsteht nie ein neues Element
+  const cats = ctx.checkpoints?.length ? [] : (ctx.categories ?? Object.values(CATEGORIES));
   // Begriffe des Katalogs („OTS“ → „Obentürschließer“, „FSA“ → „Feststellanlage“), shared/vocab.ts
   const sentences = expandTerms(text, clientVocabulary().terms)
     .replace(/[ \t]+/g, ' ')
