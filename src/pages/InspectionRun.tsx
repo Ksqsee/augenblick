@@ -1,4 +1,4 @@
-import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
+import { useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { markRoundDone } from './Round';
 import { api, type AssetDetail, type Inspection, queryClient, useInspection } from '../api';
 import { InspectionForm } from '../components/run';
@@ -38,13 +38,32 @@ function Online({ insp }: { insp: Inspection }) {
   const round = params.get('rundgang');
   // aus „Unterschreiben“ geöffnet: zurück dorthin
   const fromSign = params.get('von') === 'unterschreiben';
+  // aus „Tür ansagen“ (Plan v7 W): „Bereit · nächste Tür“ statt Unterschrift, Befund aus der Ansage vorbelegt
+  const announced = params.get('ansage') === '1';
+  const finding = (useLocation().state as { finding?: string } | null)?.finding;
   return (
     <InspectionForm
+      announce={
+        announced
+          ? {
+              onReady: async (d) => {
+                const r = await api<{ ready: boolean; missing: string[] }>(`/inspections/${insp.id}`, { method: 'PUT', body: { ...d, ready: true } });
+                if (!r.ready) throw new Error(`Noch nicht bereit: ${r.missing.join('; ') || 'bitte prüfen'}`);
+                await queryClient.invalidateQueries();
+                toast(`${insp.asset.code} bereit zur Unterschrift`);
+                navigate('/pruefen?ansage=weiter', { replace: true });
+              },
+            }
+          : undefined
+      }
+      initialVoice={finding}
+      onRawNote={(n) => api(`/inspections/${insp.id}/raw-notes`, { body: { notes: [n] } })}
+      onRawEvaluated={() => api(`/inspections/${insp.id}/raw-notes`, { method: 'PATCH', body: { all: true, evaluated: true } })}
       subject={insp.asset}
       scheduleLabel={insp.scheduleLabel}
       checkpoints={insp.checkpoints}
       inspectorName={insp.inspectorName}
-      back={round ? `/rundgang/${round}` : fromSign ? '/unterschreiben' : `/elemente/${insp.assetId}`}
+      back={round ? `/rundgang/${round}` : fromSign ? '/unterschreiben' : announced ? '/pruefen' : `/elemente/${insp.assetId}`}
       banner={
         insp.purpose === 'correction' ? (
           <Notice tone="warn" title={`Berichtigung der Prüfung vom ${insp.supersedesDate ? fmtDate(insp.supersedesDate) : '–'}`}>
@@ -69,6 +88,7 @@ function Online({ insp }: { insp: Inspection }) {
         resultOverride: insp.resultOverride ?? null,
         resultReason: insp.resultReason ?? '',
         resolvedDefects: insp.resolvedDefects ?? [],
+        rawNotes: insp.rawNotes ?? [],
       }}
       knownDefects={insp.knownDefects}
       onAttribute={async (attr, value) => {
@@ -102,7 +122,7 @@ function Online({ insp }: { insp: Inspection }) {
       discard={async () => {
         await api(`/inspections/${insp.id}`, { method: 'DELETE' });
         await queryClient.invalidateQueries();
-        navigate(round ? `/rundgang/${round}` : fromSign ? '/unterschreiben' : `/elemente/${insp.assetId}`, { replace: true });
+        navigate(round ? `/rundgang/${round}` : fromSign ? '/unterschreiben' : announced ? '/pruefen?ansage=weiter' : `/elemente/${insp.assetId}`, { replace: true });
       }}
     />
   );

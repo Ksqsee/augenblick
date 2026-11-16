@@ -10,7 +10,7 @@ import { computeResult, finalResult, type Result } from '../../shared/logic';
 import { api, type Inspection, type InspectionRow, useInspections, useMe } from '../api';
 import { CategoryGlyph } from '../components/inspect/Glyph';
 import { rememberedSignature, rememberSignature, SignaturePad } from '../components/inspect/Signature';
-import { Button, ButtonLink, Empty, ErrorBox, Modal, PageHeader, ResultBadge, Section, SeverityBadge, SkeletonList, Surface, useToast } from '../components/ui';
+import { Button, ButtonLink, Empty, ErrorBox, Modal, PageHeader, ResultBadge, Section, SeverityBadge, SkeletonList, StatusText, Surface, useToast } from '../components/ui';
 import { categoryLabel, defectsLabel } from '../format';
 
 type SignResponse = { signed: { id: string; code: string; result: Result; nextDueAt: number | null }[]; failed: { id: string; error: string }[] };
@@ -175,6 +175,8 @@ function ReadyRow({ row, detail, open, onToggle, onHold }: { row: InspectionRow;
   const result = detail ? draftResult(detail) : null;
   const defects = detail?.defects.length ?? 0;
   const meta = [row.location, row.buildingName, defects ? defectsLabel(defects) : null].filter(Boolean).join(' · ');
+  // Plan v7 W: Rohdiktat wartet noch auf die Auswertung durch Claude
+  const rawPending = row.rawPending ?? 0;
   return (
     <li data-ready={row.id} className="flex flex-col">
       <button type="button" onClick={onToggle} aria-expanded={open} className="group flex min-h-[52px] w-full items-center gap-3 px-(--row-px) py-2 text-left transition-colors hover:bg-hover sm:min-h-11">
@@ -186,6 +188,11 @@ function ReadyRow({ row, detail, open, onToggle, onHold }: { row: InspectionRow;
             {row.code} <span className="text-ink-3">· {categoryLabel(row.category)}</span>
           </span>
           <span className="mt-0.5 block truncate text-meta text-ink-3">{meta || '–'}</span>
+          {rawPending > 0 && (
+            <span className="mt-0.5 block truncate text-meta" data-raw-pending={rawPending}>
+              <StatusText tone="warn">Diktat noch nicht ausgewertet</StatusText>
+            </span>
+          )}
         </span>
         {result && <ResultBadge result={result} className="shrink-0" />}
         <ChevronDown className={clsx('size-4 shrink-0 text-ink-4 transition-transform', open && 'rotate-180')} />

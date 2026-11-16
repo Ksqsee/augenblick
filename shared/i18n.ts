@@ -392,6 +392,26 @@ const EN: Record<string, string> = {
   'Foto nach Behebung': 'Photo after rectification',
   Behebungsnotiz: 'Rectification note',
   'Ausgeblendet': 'Hidden',
+  // Checkliste je Typ (Plan v7 W, shared/checklist.ts, src/pdf/checklist.ts)
+  Checkliste: 'Checklist',
+  Typ: 'Type',
+  Anforderung: 'Requirement',
+  Zulassung: 'Approval',
+  Element: 'Item',
+  'Türen mit Abweichung / Notiz': 'Doors with deviation / note',
+  'falls vorhanden': 'if fitted',
+  'Nur Abweichungen ansagen – alles Übrige gilt als in Ordnung.': 'Only report deviations – everything else counts as OK.',
+  'Entfällt nach den Stammdaten': 'Not applicable according to item data',
+  'Geprüfte Türen (Nummern)': 'Doors inspected (numbers)',
+  Notizen: 'Notes',
+  'Prüfpunkte nach Bauteil': 'Checkpoints by component',
+  'Typ unbekannt': 'Type unknown',
+  'Alle Punkte': 'All points',
+  'Kennzeichnung und Zugang': 'Marking and access',
+  'Auslösung und Funktion': 'Release and function',
+  'Beschläge und Mechanik': 'Hardware and mechanics',
+  'Bauteil und Einbau': 'Component and installation',
+  'Weitere Punkte': 'Further points',
 };
 
 /** Standardtext in die Dokumentsprache übersetzen; unbekannte Texte bleiben unverändert. */

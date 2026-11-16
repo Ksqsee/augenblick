@@ -1,6 +1,7 @@
 // Einstellungen → Katalog (v5 Paket P): drei schlichte Listen – typische Mängel, Produkte (Hersteller/Typ mit Vorgaben),
 // Begriffe. Lesen ab Prüfer, Anlegen/Ändern/Löschen nur Admins (Server prüft, worker/catalog.ts).
 import { Plus, Trash2 } from 'lucide-react';
+import { Link } from 'react-router-dom';
 import { type FormEvent, useMemo, useState } from 'react';
 import { type CatalogDefect, type CatalogProduct, type CatalogTerm, SEVERITIES, type Severity } from '../../../shared/catalog';
 import { foldText } from '../../../shared/vocab';
@@ -233,6 +234,12 @@ function EntryDialog({ kind, entry, onClose }: { kind: Kind; entry: Entry | null
             <Field label="Zulassung / Prüfzeugnis" optional>
               {(id) => <Input id={id} value={str('approval')} onChange={set('approval')} placeholder="z. B. Z-6.20-1234" />}
             </Field>
+            {/* Plan v7 W: Checkliste je Typ zum Ausdrucken (src/pages/Checklist.tsx) */}
+            {entry && (
+              <Link to={`/druck/checkliste?produkt=${encodeURIComponent(entry.id)}`} className="text-meta text-ink-2 underline underline-offset-4 hover:text-ink sm:col-span-2">
+                Checkliste zum Ausdrucken
+              </Link>
+            )}
             {attrs.length > 0 && (
               <fieldset className="grid grid-cols-1 gap-4 sm:col-span-2 sm:grid-cols-2">
                 <legend className="mb-3 text-meta font-medium text-ink-3">Vorgabewerte der Stammdaten</legend>

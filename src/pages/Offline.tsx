@@ -2,8 +2,10 @@ import { getCategory } from '../categories';
 import { useQuery } from '@tanstack/react-query';
 import { Check, CloudDownload, CloudOff, Footprints, Loader2, RefreshCw, Trash2 } from 'lucide-react';
 import { useEffect, useState } from 'react';
-import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
+import { useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { summarizeSchedules } from '../../shared/logic';
+import type { RawNote } from '../../shared/announce';
+import { conditionOf } from '../../shared/applies';
 import { registerCategories } from '../categories';
 import { api, type PropertyDetail, queryClient, useAssets, useMe, useProperties } from '../api';
 import { CategoryGlyph } from '../components/inspect/Glyph';
@@ -597,6 +599,9 @@ export function OfflineRun() {
   useOfflineVersion(); // für lokale Fotos neu rendern
   const [params] = useSearchParams();
   const round = params.get('rundgang');
+  // „Tür ansagen“ ohne Netz (Plan v7 W): Befund aus der Ansage, Typ unbekannt → allgemeine Checkliste, Typ als Rohnotiz
+  const announced = params.get('ansage') === '1';
+  const navState = (useLocation().state ?? null) as { finding?: string; general?: boolean; rawNote?: RawNote } | null;
   const [state, setState] = useState<{ found: Awaited<ReturnType<typeof findAsset>>; draft: InspectionDraft | undefined; schedule: string; done: string[] } | null>(null);
   useEffect(() => {
     let alive = true;
@@ -619,6 +624,19 @@ export function OfflineRun() {
   const cat = bundle.categories?.find((t) => t.key === asset.category);
   const sched = cat?.schedulesEffective.find((s) => s.key === state.schedule) ?? cat?.schedulesEffective[0];
   if (!cat || !sched) return <NotOnDevice title="Offline-Daten veraltet" text="Lade das Gebäude bei bestehender Verbindung neu." />;
+  const general = announced && !!navState?.general;
+  const plain = general ? sched.checkpoints.filter((p) => !conditionOf(p, asset.category)) : [];
+  const checkpoints = plain.length ? plain : sched.checkpoints;
+  // ohne Netz angesagte Tür: wird vor der Prüfung auf dem Server angelegt
+  const newAsset =
+    asset.id.startsWith('local:') && asset.number != null
+      ? {
+          localId: asset.id,
+          propertyId: bundle.building.propertyId,
+          buildingId: bundle.building.id,
+          body: { category: asset.category, number: asset.number, location: asset.location, manufacturer: asset.manufacturer, model: asset.model, attributes: asset.attributes },
+        }
+      : undefined;
   // Offline-Rundgang: fällige Elemente des Gebäudes in Laufreihenfolge, lokal Erledigtes (Warteschlange) fällt heraus
   const walk = round === bundle.building.id ? walkOrder(bundle) : null;
   const nextIn = (done: string[]) => {
@@ -635,6 +653,31 @@ export function OfflineRun() {
       <InspectionForm
         key={asset.id}
         offline
+        initialVoice={announced && !state.draft ? navState?.finding : undefined}
+        announce={
+          announced
+            ? {
+                onReady: async (d) => {
+                  await enqueue({
+                    clientId: crypto.randomUUID(),
+                    assetId: asset.id,
+                    code: asset.code,
+                    buildingId: bundle.building.id,
+                    schedule: sched.key,
+                    checkpoints,
+                    draft: d,
+                    inspectedAt: Date.now(),
+                    draftOnly: true,
+                    ready: true,
+                    ...(newAsset ? { newAsset } : {}),
+                  });
+                  if (navigator.onLine) void syncOutbox();
+                  toast(navigator.onLine ? `${asset.code} gespeichert – wird übertragen` : `${asset.code} auf dem Gerät gespeichert`);
+                  go('/pruefen?ansage=weiter');
+                },
+              }
+            : undefined
+        }
         submitLabel={walk ? (next ? 'Abschließen, weiter' : 'Abschließen, fertig') : undefined}
         banner={
           walk ? (
@@ -653,9 +696,9 @@ export function OfflineRun() {
         }
         subject={{ ...asset, buildingName: bundle.building.name, propertyName: bundle.building.propertyName }}
         scheduleLabel={sched.label}
-        checkpoints={sched.checkpoints}
+        checkpoints={checkpoints}
         inspectorName={me?.user.name ?? ''}
-        back="/offline"
+        back={announced ? '/pruefen' : '/offline'}
         knownDefects={bundle.openDefects?.filter((x) => x.assetId === asset.id)}
         initial={
           (state.draft && { ...state.draft, kinds: state.draft.kinds ?? [(state.draft as { kind?: string }).kind ?? 'periodic'] }) ?? {
@@ -670,6 +713,7 @@ export function OfflineRun() {
             signerName: '',
             resultOverride: null,
             resultReason: '',
+            rawNotes: announced && navState?.rawNote ? [navState.rawNote] : [],
           }
         }
         persist={(d) => saveDraft(asset.id, sched.key, d)}
@@ -680,9 +724,10 @@ export function OfflineRun() {
             code: asset.code,
             buildingId: bundle.building.id,
             schedule: sched.key,
-            checkpoints: sched.checkpoints,
+            checkpoints,
             draft: d,
             inspectedAt: Date.now(),
+            ...(newAsset ? { newAsset } : {}),
           });
           if (navigator.onLine) void syncOutbox();
           if (walk) {
@@ -698,7 +743,7 @@ export function OfflineRun() {
         }}
         discard={async () => {
           await dropDraft(asset.id, sched.key);
-          navigate('/offline', { replace: true });
+          navigate(announced ? '/pruefen' : '/offline', { replace: true });
         }}
       />
     </PhotoCtx.Provider>

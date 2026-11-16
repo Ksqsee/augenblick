@@ -18,6 +18,8 @@ import { rememberedSignature, SignatureSection } from './inspect/Signature';
 import { parseFinding, VoicePanel } from './inspect/VoicePanel';
 import { countGroup, groupCheckpoints, groupSummary } from './inspect/groups';
 import { allOkAnswers, checkpointApplies, conditionOf } from '../../shared/applies';
+import { type RawNote, rawNote } from '../../shared/announce';
+import { RawNotesSection } from './inspect/RawNotes';
 
 export { AnswerSegment as AnswerButtons } from './inspect/Checkpoint';
 export { RunFrame, SaveIndicator, ReadyList, type RunStep, type SaveState } from './inspect/RunFrame';
@@ -230,6 +232,17 @@ export interface InspectionDraft {
   resultReason?: string;
   /** bekannte Mängel, die als behoben gemeldet wurden (IDs) */
   resolvedDefects?: string[];
+  /**
+   * Rohdiktat (Plan v7 W). Offline Teil des Entwurfs (geht mit der Warteschlange an den Server); online nur Anzeige –
+   * gespeichert wird dort sofort über POST /inspections/:id/raw-notes (`onRawNote`).
+   */
+  rawNotes?: RawNote[];
+}
+
+/** „Tür ansagen“: statt der Unterschrift „Bereit · nächste Tür“ – unterschrieben wird gesammelt unter „Unterschreiben“. */
+export interface AnnounceMode {
+  onReady: (d: InspectionDraft) => Promise<void>;
+  label?: string;
 }
 
 export interface InspectionSubject {
@@ -257,7 +270,19 @@ export function InspectionForm({
   knownDefects = [],
   submitLabel,
   onAttribute,
+  onRawNote,
+  onRawEvaluated,
+  announce,
+  initialVoice,
 }: {
+  /** online: Rohnotiz sofort speichern */
+  onRawNote?: (n: RawNote) => Promise<unknown>;
+  /** online: alle Rohnotizen von Hand als ausgewertet markieren */
+  onRawEvaluated?: () => Promise<unknown>;
+  /** aus „Tür ansagen“ geöffnet */
+  announce?: AnnounceMode;
+  /** Befund, der schon in der Ansage stand („Tür 354 Typ SK32, Türstopper fehlt“) */
+  initialVoice?: string;
   /** Stammdatum aus einer Rückfrage dauerhaft am Element speichern (online); offline nur für diese Prüfung */
   onAttribute?: (attr: string, value: string | boolean) => Promise<void>;
   /** eigene Beschriftung des Abschlussknopfs (z. B. im Offline-Rundgang) */
@@ -317,8 +342,9 @@ export function InspectionForm({
   };
 
   // ---------- Abweichung einsprechen / Weitere Angaben ----------
-  const [voiceOpen, setVoiceOpen] = useState(false);
-  const [voiceText, setVoiceText] = useState('');
+  // aus der Ansage: das Feld ist gleich offen – man sagt nur noch, was nicht stimmt
+  const [voiceOpen, setVoiceOpen] = useState(() => !!announce || !!initialVoice);
+  const [voiceText, setVoiceText] = useState(initialVoice ?? '');
   const [allBusy, setAllBusy] = useState(false);
   // Stammdaten mit Antworten aus den Rückfragen dieser Prüfung
   const [attrs, setAttrs] = useState<Record<string, unknown>>(() => ({ ...(subject.attributes ?? {}) }));
@@ -379,6 +405,23 @@ export function InspectionForm({
     if (a !== 'defect') revealNextOpen(listRef.current, cp.id);
   };
 
+  /**
+   * Rohdiktat (Plan v7 W): der Text bleibt zusätzlich roh an der Prüfung, mit der groben Einordnung des Regel-Parsers.
+   * Kritische Wörter („sofort“, „Brandgefahr“ …) oder ein als kritisch erkannter Mangel warnen sofort.
+   */
+  const rawFrom = (text: string, items: CaptureItem[]): RawNote => {
+    const found = items.filter((i) => i.kind === 'defect');
+    const summary = found.length
+      ? `${found.length === 1 ? '1 Mangel' : `${found.length} Mängel`}: ${found.map((i) => i.title).join('; ')}`
+      : 'kein Mangel erkannt – in den Bemerkungen';
+    const n = rawNote(text, offline ? 'offline' : 'app', 'finding', { summary: summary.slice(0, 300) });
+    if (found.some((i) => i.severity === 'critical')) n.critical = true;
+    if (!offline && onRawNote) onRawNote(n).catch((e) => toast(e instanceof Error ? e.message : 'Diktat nicht gespeichert', 'bad'));
+    if (n.critical) toast(`Kritischer Befund: „${n.text.slice(0, 80)}“ – sofort sichern und melden`, 'bad', { duration: 8000 });
+    return n;
+  };
+  const withRaw = (s: InspectionDraft, n: RawNote): InspectionDraft => ({ ...s, rawNotes: [...(s.rawNotes ?? []), n] });
+
   /** Eingesprochene Befunde in den Entwurf: Mängel zum passenden Punkt, Übriges in die Bemerkungen. */
   const applyCapture = (s: InspectionDraft, items: CaptureItem[]): InspectionDraft => {
     const answers = { ...s.answers };
@@ -413,7 +456,7 @@ export function InspectionForm({
       setAllBusy(true);
       try {
         const r = await parseFinding(voiceText, checkpoints.map((c) => ({ id: c.id, label: c.label })), !navigator.onLine);
-        base = applyCapture(base, r.items);
+        base = withRaw(applyCapture(base, r.items), rawFrom(voiceText, r.items));
         found = r.items.filter((i) => i.kind === 'defect').length;
         setVoiceText('');
       } catch (e) {
@@ -429,7 +472,8 @@ export function InspectionForm({
     const next: InspectionDraft = {
       ...base,
       answers: r.answers,
-      signature: base.signature ?? rememberedSignature(me?.user.id),
+      // aus der Ansage: unterschrieben wird gesammelt unter „Unterschreiben“
+      signature: announce ? base.signature : (base.signature ?? rememberedSignature(me?.user.id)),
     };
     setD(next);
     setManual({});
@@ -441,10 +485,22 @@ export function InspectionForm({
       action: { label: 'Rückgängig', onClick: () => setD(base) },
       duration: 5000,
     });
-    if (!r.unknown.length) window.setTimeout(() => jumpTo('unterschrift'), 60);
+    if (!r.unknown.length && !announce) window.setTimeout(() => jumpTo('unterschrift'), 60);
   };
 
-  const onSubmit = () => finish(d);
+  const onSubmit = () => (announce ? ready(d) : finish(d));
+  /** Ansage: vollständig → bereit zur Unterschrift, weiter zur nächsten Tür */
+  const ready = async (draft: InspectionDraft) => {
+    setError('');
+    setSubmitting(true);
+    try {
+      await announce!.onReady(draft);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Speichern fehlgeschlagen');
+    } finally {
+      setSubmitting(false);
+    }
+  };
   const finish = async (draft: InspectionDraft) => {
     setError('');
     setSubmitting(true);
@@ -491,7 +547,7 @@ export function InspectionForm({
           { key: 'reason', label: 'Gesamtbewertung', todo: 'Begründung zur Gesamtbewertung fehlt', done: !needsReason, go: () => jumpTo('gesamtbewertung') },
         ]
       : []),
-    { key: 'sign', label: 'Unterschrieben', todo: 'Unterschrift fehlt', done: !!d.signature, go: () => jumpTo('unterschrift') },
+    ...(announce ? [] : [{ key: 'sign', label: 'Unterschrieben', todo: 'Unterschrift fehlt', done: !!d.signature, go: () => jumpTo('unterschrift') }]),
   ];
 
   const okLabel = answered > 0 || voiceText.trim() ? 'Alles andere in Ordnung' : 'Alles in Ordnung';
@@ -516,7 +572,7 @@ export function InspectionForm({
       error={error}
       submitting={submitting}
       onSubmit={onSubmit}
-      submitLabel={submitLabel ?? (offline ? 'Abschließen (offline)' : 'Abschließen')}
+      submitLabel={announce ? (announce.label ?? 'Bereit · nächste Tür') : (submitLabel ?? (offline ? 'Abschließen (offline)' : 'Abschließen'))}
     >
       {(offline || banner) && (
         <div className="flex flex-col gap-3">
@@ -577,14 +633,26 @@ export function InspectionForm({
             text={voiceText}
             onText={setVoiceText}
             autoFocus
-            hint={open ? 'den Rest mit „Alles andere in Ordnung“ bestätigen' : 'weiter zur Unterschrift'}
-            onApply={(items: CaptureItem[]) => {
-              const nd = applyCapture(d, items);
+            hint={open ? 'den Rest mit „Alles andere in Ordnung“ bestätigen' : announce ? 'weiter zur nächsten Tür' : 'weiter zur Unterschrift'}
+            onApply={(items: CaptureItem[], text: string) => {
+              const nd = withRaw(applyCapture(d, items), rawFrom(text, items));
               for (const id of ids) if (nd.answers[id] === 'defect' && d.answers[id] !== 'defect') keepOpen(id);
               setD(nd);
             }}
           />
         )}
+
+        <RawNotesSection
+          notes={d.rawNotes ?? []}
+          onEvaluated={
+            !offline && onRawEvaluated
+              ? async () => {
+                  await onRawEvaluated();
+                  setD((s) => ({ ...s, rawNotes: (s.rawNotes ?? []).map((n) => ({ ...n, evaluated: true })) }));
+                }
+              : undefined
+          }
+        />
 
         {!d.notInspectable && (
           <Section
@@ -703,14 +771,20 @@ export function InspectionForm({
 
         <ReadyList steps={steps} />
 
-        <SignatureSection
-          name={d.signerName}
-          fallbackName={inspectorName}
-          signature={d.signature}
-          onName={(signerName) => update({ signerName })}
-          onSignature={(signature) => update({ signature })}
-          onQuickFinish={steps.every((x) => x.done || x.key === 'sign') ? (signature) => void finish({ ...d, signature }) : undefined}
-        />
+        {announce ? (
+          <Section aria-label="Unterschrift">
+            <p className="text-meta text-ink-3">Unterschrieben wird gesammelt: Prüfen → Unterschreiben, alle angesagten Türen mit einem Tipp.</p>
+          </Section>
+        ) : (
+          <SignatureSection
+            name={d.signerName}
+            fallbackName={inspectorName}
+            signature={d.signature}
+            onName={(signerName) => update({ signerName })}
+            onSignature={(signature) => update({ signature })}
+            onQuickFinish={steps.every((x) => x.done || x.key === 'sign') ? (signature) => void finish({ ...d, signature }) : undefined}
+          />
+        )}
       </Surface>
 
       <DiscardButton onDiscard={discard} />
