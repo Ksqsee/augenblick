@@ -67,15 +67,13 @@ function PruefenHub() {
   const canWrite = !!me && me.user.role !== "viewer";
   const dash = useDashboard();
   // „Tür ansagen“ steht über allem und braucht weder Netz noch die Übersicht
-  const announce = canWrite && (
-    <Surface className="mb-6">
-      <AnnounceCard autoFocus={params.get("ansage") === "weiter"} />
-    </Surface>
-  );
+  // im Überblick der erste Abschnitt der einen Fläche, sonst eine eigene Fläche
+  const announce = canWrite ? <AnnounceCard autoFocus={params.get("ansage") === "weiter"} /> : null;
+  const alone = announce && <Surface className="mb-6">{announce}</Surface>;
   if (dash.isLoading && online)
     return (
       <>
-        {announce}
+        {alone}
         <PageSkeleton />
       </>
     );
@@ -83,7 +81,7 @@ function PruefenHub() {
     return (
       <>
         <PageHeader title="Prüfen" subtitle="Tür ansagen, Rundgänge und Prüfungen" />
-        {announce}
+        {alone}
         {online ? (
           <ErrorBox error={dash.error} onRetry={() => dash.refetch()} />
         ) : (
@@ -186,8 +184,8 @@ function PruefenOverview({
       />
       {starting && <StartWalkthrough onClose={() => setStarting(false)} />}
       <ReadyBanner />
-      {announce}
       <Surface>
+        {announce}
         {empty && (
           <Empty
             title={c.assets ? "Gerade ist nichts zu prüfen." : "Noch nichts zu prüfen."}

@@ -666,7 +666,7 @@ async function announceAsset(
         ? "Kein Typ genannt – Typ „unbekannt“, allgemeine Checkliste."
         : null,
     general: !product,
-    rawNote: rawNote ?? (!typeText ? null : null),
+    rawNote,
   };
 }
 
