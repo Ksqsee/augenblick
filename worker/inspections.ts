@@ -854,7 +854,11 @@ export const offlineBody = inspectionBody
           label: str(300).min(1),
           hint: str(300).optional(),
           group: str(60).optional(),
-          appliesIf: z.object({ attr: z.string().max(40), equals: z.union([z.string().max(60), z.boolean()]) }).optional(),
+          // Plan v7: Bedingung mit `in` (Anforderung T30/T90 …) statt `equals`
+          appliesIf: z
+            .object({ attr: z.string().max(40), equals: z.union([z.string().max(60), z.boolean()]).optional(), in: z.array(z.string().max(60)).max(20).optional() })
+            .refine((x) => x.equals !== undefined || !!x.in?.length, 'Bedingung braucht equals oder in')
+            .optional(),
         }),
       )
       .min(1)
