@@ -80,6 +80,7 @@ export function ImportPage() {
   /** Tabelle in Zeilen umwandeln und vom Server prüfen lassen (auch nach Änderung des Objekts). */
   const checkTable = async (t: unknown[][], prop: string) => {
     setCheck(null);
+    setCheckedProp(prop);
     const r = toImportRows(t, allCategories().filter((c) => c.custom), { property: prop, products: catalog.data?.products });
     if (r.rows.length > 1000) throw new Error('Maximal 1000 Zeilen pro Import');
     setRows(r.rows);
@@ -89,8 +90,10 @@ export function ImportPage() {
       setCheck(await api<ImportResponse>('/import/assets', { body: { rows: r.rows, dryRun: true } }));
     }
   };
+  const [checkedProp, setCheckedProp] = useState('');
   const recheck = async () => {
-    if (!table) return;
+    // nur neu prüfen, wenn sich das Objekt seit der letzten Prüfung geändert hat (sonst störte das Verlassen des Felds den Import)
+    if (!table || property === checkedProp) return;
     setError(null);
     try {
       await checkTable(table, property);

@@ -1998,8 +1998,9 @@ export const TOOLS: Tool[] = [
       // Plan v7 (Paket V): alte Felder rating/smoke der Tür → Anforderung (vor dem Aussortieren unbekannter Felder)
       const legacy = withLegacyDoorFields([...fields.keys()].map((key) => ({ key })), extra);
       if (legacy.error) throw new ToolError(`Nichts gespeichert: ${legacy.error}`);
+      const converted = { ...legacy.attrs } as Json;
       for (const k of Object.keys(extra)) delete extra[k];
-      Object.assign(extra, legacy.attrs);
+      Object.assign(extra, converted);
       // Plan v6 D1: Auswahllisten, Zahlen, Baujahr und Ja/Nein prüfen – bei einem Fehler wird nichts gespeichert
       for (const k of Object.keys(extra)) if (!fields.has(k)) ignored.push(k);
       const checked = checkedFields(

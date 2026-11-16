@@ -309,11 +309,15 @@ const overlap = (a, b) => !!a && !!b && a.x < b.x + b.width && b.x < a.x + a.wid
   await p.screenshot({ path: OUT + 'm-pruefung-rueckfrage.png' });
   await qFsa.getByRole('button', { name: 'Nein' }).click();
   await qLeaves.getByRole('button', { name: '2-flügelig' }).click();
+  // v7: Anforderung und Ausstattung (Kartenschloss, Absenkdichtung, Spion) ebenfalls unbekannt
+  await p.getByRole('group', { name: /Welche Anforderung hat die Tür/ }).getByRole('button', { name: 'T30-RS' }).click();
+  for (const q of ['Hat die Tür ein Kartenschloss bzw. einen elektronischen Beschlag?', 'Hat die Tür eine Absenkdichtung?', 'Hat die Tür einen Türspion?'])
+    await p.getByRole('group', { name: q }).getByRole('button', { name: 'Nein' }).click();
   check(!(await p.locator('[data-question]').count()), 'Rückfragen beantwortet');
   await p.getByRole('button', { name: 'Abschließen', exact: true }).click();
   await p.waitForURL(/\/rundgang\/.*fertig=/);
   const i5 = (await api(`/inspections/${id5}`)).json;
-  check(i5.status === 'submitted' && i5.answers.p6 === 'ok' && i5.answers.p12 === 'na' && i5.answers.p13 === 'na', `Antworten: zweiflügelig → Schließfolge i. O., ohne FSA → entfällt (${JSON.stringify([i5.answers.p6, i5.answers.p12])})`);
+  check(i5.status === 'submitted' && i5.answers.p12 === 'ok' && i5.answers.p22 === 'na' && i5.answers.p23 === 'na', `Antworten: zweiflügelig → Schließfolge i. O., ohne FSA → entfällt (${JSON.stringify([i5.answers.p12, i5.answers.p22])})`);
   const a5 = (await api(`/assets/${made[1].id}`)).json;
   check(a5.attributes.holdOpen === false && a5.attributes.leaves === '2-flügelig', `Stammdaten am Element gespeichert (${JSON.stringify(a5.attributes)})`);
 
