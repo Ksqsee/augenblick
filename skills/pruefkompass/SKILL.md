@@ -15,8 +15,8 @@ erfinden.** Ein Monteur will hören „Eingetragen, weiter mit Tür 4 im Flur“
 ## Voraussetzung: der Connector
 
 Die Werkzeuge kommen vom Connector „Prüfkompass“ (`briefing`, `tour`, `inspect`, `capture`, `setup`,
-`catalog`, `search`, `list`, `get`, `get_photo`, `update_asset`, `update_defect`, `update_tasks`, `plan`,
-`autopilot`, `report`). Fehlen sie, kannst du nichts in der App tun – sag das direkt und erkläre die
+`catalog`, `team`, `search`, `list`, `get`, `get_photo`, `update_asset`, `update_defect`, `update_tasks`,
+`plan`, `autopilot`, `report`). Fehlen sie, kannst du nichts in der App tun – sag das direkt und erkläre die
 Einrichtung, statt so zu tun, als hättest du etwas eingetragen:
 
 1. In Prüfkompass anmelden: https://pruefkompass.ksqsebastian.workers.dev
@@ -51,6 +51,10 @@ Vor Ort sagt niemand „FST-036“, sondern „Tür 36“ oder „Nummer 36“. 
 Objekt bekannt ist** – gib deshalb `property` (Objektname) mit. Merk dir das Objekt, sobald es einmal genannt
 wurde, und frag nicht bei jeder Tür neu.
 
+Das Artwort zählt: „Tür 4“ meint eine Tür. Ist Nummer 4 im Objekt ein Feuerlöscher, lehnt das Werkzeug ab
+(„Nummer 4 ist ein Feuerlöscher“) – gib das so weiter und frag nach, statt es mit „Nummer 4“ zu umgehen.
+Genau dieser Fehler hat schon einmal einen Befund am falschen Element gelandet.
+
 ## Was die Leute wollen – und was du dann tust
 
 ### „Was steht an?“ / Start in den Tag
@@ -66,16 +70,24 @@ durch das Hauptgebäude führen?“).
    - Mit Abweichung → `allOk: true` **und** die genannten Mängel unter `defects`. Der Normalfall ist:
      alles in Ordnung außer dem Genannten.
    - Bekannte Mängel: weiterhin da → `known` mit `still`; behoben → `fixed`.
-   - Tür nicht zugänglich → `notInspectable` mit `reason`.
-3. `tour` mit `action: "next"`, nächstes Element nennen. Überspringen: `next` mit `after`.
-4. Am Ende `tour` mit `action: "status"`: „8 von 8 geprüft, 2 mit Mängeln. Bitte in der App unterschreiben.“
+   - Tür nicht zugänglich → `notInspectable` mit `reason` (ohne Begründung wird es abgelehnt).
+   - Kommt in der Antwort eine Rückfrage unter `ask` (etwa „Hat die Tür eine Feststellanlage?“ oder ein
+     Widerspruch zwischen Befund und Arbeit), stell genau diese Frage und trag die Antwort nach. Die App
+     setzt Punkte, die nach den Stammdaten nicht zutreffen, selbst auf „entfällt“ – dafür muss sie die
+     Stammdaten kennen. Ordnet sie einen Mangel keinem Prüfpunkt zu, frag kurz, wozu er gehört.
+3. `tour` mit `action: "next"`, nächstes Element nennen. Der Rundgang läuft von unten nach oben durchs Haus.
+   `tour` nennt die Prüfpunkte nur als Kurzfassung; lies sie nicht vor, außer jemand fragt. Überspringen: `next` mit `after`.
+4. Am Ende `tour` mit `action: "status"`: „8 von 8 geprüft, 2 mit Mängeln. Bitte in der App unter Prüfen →
+   Unterschreiben abschließen.“ Bei einem kritischen Befund sag es deutlich dazu: Bis zur Unterschrift ist er
+   noch kein Mangel mit Aufgabe, die App meldet ihn aber sofort an Inhaber und Admins.
 
 Halte den Takt: ein Satz Bestätigung, dann sofort das nächste Element.
 
 ### Einzelner Befund unterwegs: „Tür 36 schließt nicht“
 `capture` mit dem Element und einem Eintrag `kind: "defect"`. Mehrere Dinge in einem Satz („Dichtung fehlt,
 und sag dem Hausmeister Bescheid bis Freitag“) werden mehrere Einträge: ein Mangel, eine Aufgabe (`task`,
-mit `due`). Meldet `capture` einen ähnlichen offenen Mangel unter `skipped`, sag das und frag, ob er trotzdem
+mit `due` – „morgen“, „Freitag“, „nächste Woche“ oder ein Datum; ein Datum in der Vergangenheit nimmt die
+App nur mit ausdrücklicher Bestätigung). Meldet `capture` einen ähnlichen offenen Mangel unter `skipped`, sag das und frag, ob er trotzdem
 neu angelegt werden soll (`force: true`) – doppelte Mängel machen die Liste unbrauchbar.
 
 ### Schwere und Maßnahme
@@ -118,7 +130,10 @@ zusammen („14 Produkte, 9 Mängel, 3 Begriffe – 2 gibt es schon, die würden
 
 ### Nachhalten: „Was ist offen?“
 `list` und `search` für Mängel, Aufgaben und Fälliges; `update_defect` und `update_tasks` zum Zuweisen,
-Erledigen, Terminieren; `plan` für die Wochenplanung; `report` für Zahlen und Nachweise. Der Autopilot der
+Erledigen, Terminieren. Zuweisen geht per Name, „ich“ oder Partner-Firma; wer es gibt, zeigt `team`. Ein
+doppelter oder falsch erfasster Mangel wird nicht „behoben“, sondern mit `update_defect` als ungültig
+markiert (mit Grund) – sonst stimmen Behebungsquote und -dauer nicht mehr. `plan` ist für die Wochenplanung,
+`report` für Zahlen und Nachweise. Der Autopilot der
 App legt Aufgaben für schwere Mängel an, weist zu, erinnert und beauftragt nach einer Behebung die
 Nachprüfung – du musst das nicht von Hand nachbauen. `autopilot` zeigt, was er getan hat; seine Stufen
 ändern nur Admins in der App.
