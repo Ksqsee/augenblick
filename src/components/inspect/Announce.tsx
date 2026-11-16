@@ -46,11 +46,16 @@ function writeMem(m: Memory) {
   }
 }
 
+// zuletzt gelesene Pakete: beim Zurückkehren auf „Prüfen“ sofort da (ohne Netz zählt jeder Tipp)
+let knownBundles: Bundle[] = [];
 function useBundlesList() {
   const v = useOfflineVersion();
-  const [list, setList] = useState<Bundle[]>([]);
+  const [list, setList] = useState<Bundle[]>(knownBundles);
   useEffect(() => {
-    listBundles().then(setList);
+    listBundles().then((l) => {
+      knownBundles = l;
+      setList(l);
+    });
   }, [v]);
   return list;
 }
@@ -235,8 +240,10 @@ export function AnnounceCard({ autoFocus }: { autoFocus?: boolean }) {
           </Button>
         </div>
         {preview && (
-          <p className="text-meta" role="status" aria-label="Vorschau der Ansage">
-            <StatusText tone={preview.tone}>{preview.text}</StatusText>
+          <p className="text-meta break-words" role="status" aria-label="Vorschau der Ansage">
+            <StatusText tone={preview.tone} className="!inline whitespace-normal [&>*:first-child]:mr-1.5 [&>*:first-child]:inline-block [&>*:first-child]:align-middle">
+              {preview.text}
+            </StatusText>
             {t.finding && !conflict && <span className="text-ink-3"> · Befund: „{t.finding}“</span>}
           </p>
         )}

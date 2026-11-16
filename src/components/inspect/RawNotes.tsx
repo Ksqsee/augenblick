@@ -39,8 +39,8 @@ export function RawNotesSection({ notes, onEvaluated }: { notes: RawNote[]; onEv
         ))}
       </ul>
       {pending > 0 && (
-        <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-1">
-          <p className="min-w-0 flex-1 text-meta text-ink-3">Claude liest das Diktat über den Connector und trägt Fehlendes nach. Schon von Hand geprüft?</p>
+        <div className="mt-3 flex flex-col items-start gap-1 sm:flex-row sm:items-center sm:gap-3">
+          <p className="min-w-0 text-meta text-ink-3 sm:flex-1">Claude liest das Diktat über den Connector und trägt Fehlendes nach. Schon von Hand geprüft?</p>
           {onEvaluated && (
             <Button
               size="sm"
