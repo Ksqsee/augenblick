@@ -185,12 +185,37 @@ API: [`docs/api.md`](docs/api.md)
   mit Firmenlogo und einstellbarem Dateinamensschema; mehrere Protokolle als ZIP
 - **Berichtsgenerator**: Prüfungen nach Zeitraum, Objekt/Gebäude, Elementart, Ergebnis, Prüfer und Art filtern –
   als Prüfbericht (PDF) oder alle Protokolle (ZIP); **Jahresbericht** je Objekt mit Behebungsquote und Begehungen
+- **Sammelmappe** (Plan v7 X): ein PDF aus allen abgeschlossenen Protokollen eines Objekts für einen Rundgang-Tag oder
+  Zeitraum (optional je Elementart) – Deckblatt (Objekt, Zeitraum, geprüft/ohne Mangel/mit Mangel/nicht prüfbar, Prüfer/innen
+  mit Befähigungsnachweis und Status), Inhaltsliste (Nummer, Raum, Typ, Ergebnis, Seite), erst die Protokolle ohne Mangel,
+  dann nach gleichem Mangel gruppiert (gleiche Mängel unabhängig von Reihenfolge/Schreibweise, Zwischenblatt je Gruppe mit
+  den betroffenen Elementen), am Ende „nicht prüfbar“; in Laufreihenfolge, durchgehend nummeriert. Die Protokollseiten sind
+  dieselben wie beim Einzel-Download. Erzeugt Protokoll für Protokoll mit Fortschritt (Abbrechen möglich), landet im
+  Archiv. Erreichbar unter Objekt → ⋯ → Sammelmappe, Berichte → Sammelmappe und nach „Alle unterschreiben“ (aus genau
+  diesen Prüfungen). Logik: `shared/mappe.ts`, PDF: `src/pdf/nacharbeit.ts`
+- **Dateinamen der Protokolle**: Standard `<Ident>_<Datum>_<Art>.pdf` (z. B. `FST-036_2026-11-16_Tür.pdf`), auch im ZIP –
+  Tür- und FSA-Protokoll derselben Öffnung überschreiben sich nicht; die frühere Vorgabe `{datum}_{code}_{art}` wird
+  umgestellt (Migration 0028), selbst gewählte Muster bleiben
+- **Angebotsliste** (Objekt → Angebot): aus den offenen Mängeln Leistung, Menge, Elementnummern, Einzel- und Gesamtpreis
+  (`GET /properties/:id/offer`, Paket V); deutlicher Hinweis auf Mängel ohne zugeordnete Leistung; Vorschlag einer
+  Sammelposition, wenn dieselbe Leistung viele Elemente eines Objekts oder einer Etage betrifft (`shared/offer.ts`);
+  Regie-/Anfahrtspositionen aus dem Katalog (oder frei) zum Hinzufügen – nur auf diesem Gerät gemerkt; Export als Excel und PDF.
+  Kein Versand, keine Rechnung. MCP `report(what: "offer", property)` liefert dieselbe Liste in Kurzform
+- **Prüfprotokoll**: Stammdaten-Block mit allen gesetzten Stammdaten aus der Katalog-Definition der Elementart (generisch,
+  leere werden weggelassen), **Befähigungsnachweis** der prüfenden Person passend zur Elementart (Hinweis, wenn er fehlt oder am
+  Prüfdatum abgelaufen war) und leere Zeile „Abnahme durch den Auftraggeber“ (Name, Datum, Unterschrift)
 - **Berichtsarchiv**: jeder erzeugte Bericht wird gespeichert und bleibt abrufbar
 - Elementliste als **Excel** (wieder importierbar) oder CSV; vollständiges JSON-Backup
 - **Sprache der Dokumente** (Deutsch/Englisch) und **Zeitzone** je Workspace; die Oberfläche ist deutsch
 
 **Team und Konto**
 - Rollen (Inhaber, Admin, Prüfer, Lesezugriff), Einladungen, Inhaberschaft übertragen, Aktivitätsprotokoll
+- **Befähigungsnachweise** je Mitglied (Migration 0028): Art (Sachkunde, Hersteller-Zertifikat, sonstiges), Bezeichnung,
+  Aussteller, Nummer, gültig bis, gilt für Elementarten. Eigene unter Einstellungen → Konto, für alle als Admin unter Team
+  (Mitglied öffnen). Auswahl je Protokoll in `shared/credentials.ts` (Feststellanlage/Antrieb: Hersteller-Zertifikat, sonst
+  Sachkunde; gültige vor abgelaufenen). Fehlt ein gültiger Nachweis, zeigt „Unterschreiben“ einen Hinweis (kein Blocker;
+  Komponente `CredentialHint` in `src/components/Credentials.tsx`, auch für den Prüfablauf gedacht). Die Angabe
+  „Qualifikation“ bei Brandschutzbeauftragten bleibt unverändert davon getrennt
 - **Kalender-Abo** (iCal) für Outlook, Google, Apple: fällige Prüfungen je Gebäude und Tag, Begehungen, eigene Aufgaben
 - **Zugriff je Mitglied**: Prüfer/Lesezugriff auf ausgewählte Objekte oder Gebäude beschränken, Recht zum Anlegen
   neuer Elemente; **Brandschutzbeauftragte/r** (DGUV 205-003) mit Qualifikation und fälschungssicherem Verlauf –
@@ -217,7 +242,7 @@ worker/       API: auth (Login, Konto, API-Schlüssel, Speicher), data, inspecti
               offline (Offline-Übertragung, abgelehnte Übertragungen), intervals (selbstanpassende Intervalle),
               partners (Partner-Zugang für Subunternehmer)
 shared/       Code für Browser und Worker
-migrations/   D1-Schema (0001 … 0022)
+migrations/   D1-Schema (0001 … 0028)
 e2e/          Browser-Tests und Runner
 .github/      CI
 scripts/      seed.ts – Demodaten
@@ -236,7 +261,7 @@ npm run check              # Typprüfung + Unit-Tests + Build
 ## Tests
 
 - **Unit-Tests** (`npm test`, Vitest): Fachlogik, Autopilot-Kreislauf, Rangfolge „Jetzt“, Import/Export, Übersetzungen, Ruhezeiten, Web Push.
-- **Browser-Tests** (`e2e/`, Playwright): Reihen von der Registrierung über Sicherheitskorrekturen und Massenoperationen bis zu Berichtigung, Nachprüfung sowie Aufgaben und Mängeln (`14-tasks-defects`), dem Autopiloten (`20-autopilot`) und den offenen Punkten aus der Analyse (`21-offene-punkte`: Offline-Fehlliste, Intervalle, Partner-Zugang), dem MCP-Server (`11-ai-mcp`) und „Sprache zuerst“ (`23-sprache`: Rundgang über Claude, Unterschrift mit einem Tipp; `24-unterschreiben-offline`: Seite „Unterschreiben“, Befund einsprechen, Erfassen und Rundgang ohne Netz) sowie der Navigation mit fünf Orten (`25-fuenf-orte`: Leisten, Umleitungen, Prüfen, Offen, Heute am Handy, 390 px) und dem Fachwissen (`26-katalog`: Feststellanlage, laufende Nummern, Typ- und Mangel-Vorschläge, Katalogseite, MCP `catalog`) sowie dem Einstieg (`27-einstieg`: leeres Konto → Objektname → ein Satz → Elemente angelegt in 4 Tipps und 2 Eingaben, Erfassen ohne Ort, ein/zwei Gebäude, Hauptknopf der Objektseite, 390 px) sowie dem Prüfen in zwei Tipps (`28-zwei-tipps`: Tipps zählen, Rückgängig, Mangel eingesprochen, Gruppen, Meldungen über keiner Leiste, „Jetzt“ im neuen Konto, leere Seiten Prüfen/Offen) und dem Durchgang bis zur ersten unterschriebenen Prüfung (`29-erste-pruefung`: Objektname → ein Satz mit drei Orten/Arten/Herstellern → Rundgang → Unterschrift zeichnen und merken; 8 Tipps + 1 Satz + Unterschrift, feste Nummern, Mangel per Nummer, „bitte prüfen“) und den Befunden aus dem MCP-Praxistest (`30-mcp-element`: je Punkt aus Plan v6, Paket T, der Aufruf aus dem Bericht – „Tür 4“ trifft nie FL-004, Laufreihenfolge, „Alles i. O.“ mit Bedingungen, Prüfpunkt-Zuordnung, Widersprüche, Stammdaten-Prüfung, setup mit Stammdaten und Zugang; die App-Seite von A3/A4 bei 390 px in `28-zwei-tipps`).
+- **Browser-Tests** (`e2e/`, Playwright): Reihen von der Registrierung über Sicherheitskorrekturen und Massenoperationen bis zu Berichtigung, Nachprüfung sowie Aufgaben und Mängeln (`14-tasks-defects`), dem Autopiloten (`20-autopilot`) und den offenen Punkten aus der Analyse (`21-offene-punkte`: Offline-Fehlliste, Intervalle, Partner-Zugang), dem MCP-Server (`11-ai-mcp`) und „Sprache zuerst“ (`23-sprache`: Rundgang über Claude, Unterschrift mit einem Tipp; `24-unterschreiben-offline`: Seite „Unterschreiben“, Befund einsprechen, Erfassen und Rundgang ohne Netz) sowie der Navigation mit fünf Orten (`25-fuenf-orte`: Leisten, Umleitungen, Prüfen, Offen, Heute am Handy, 390 px) und dem Fachwissen (`26-katalog`: Feststellanlage, laufende Nummern, Typ- und Mangel-Vorschläge, Katalogseite, MCP `catalog`) sowie dem Einstieg (`27-einstieg`: leeres Konto → Objektname → ein Satz → Elemente angelegt in 4 Tipps und 2 Eingaben, Erfassen ohne Ort, ein/zwei Gebäude, Hauptknopf der Objektseite, 390 px) sowie dem Prüfen in zwei Tipps (`28-zwei-tipps`: Tipps zählen, Rückgängig, Mangel eingesprochen, Gruppen, Meldungen über keiner Leiste, „Jetzt“ im neuen Konto, leere Seiten Prüfen/Offen) und dem Durchgang bis zur ersten unterschriebenen Prüfung (`29-erste-pruefung`: Objektname → ein Satz mit drei Orten/Arten/Herstellern → Rundgang → Unterschrift zeichnen und merken; 8 Tipps + 1 Satz + Unterschrift, feste Nummern, Mangel per Nummer, „bitte prüfen“) und den Befunden aus dem MCP-Praxistest (`34-nacharbeit`: Nachweise und Rechte, Hinweis bei abgelaufenem Nachweis, Sammelmappe nach dem Unterschreiben samt Prüfung des PDFs – Deckblatt, Inhaltsliste mit Seiten, Reihenfolge, Zwischenblätter –, Protokoll mit Abnahme-Zeile und Nachweis, ZIP-Dateinamen, Angebotsliste mit Excel/PDF und Regie, MCP `report(what: "offer")`, 390 px) und den Befunden aus dem MCP-Praxistest (`30-mcp-element`: je Punkt aus Plan v6, Paket T, der Aufruf aus dem Bericht – „Tür 4“ trifft nie FL-004, Laufreihenfolge, „Alles i. O.“ mit Bedingungen, Prüfpunkt-Zuordnung, Widersprüche, Stammdaten-Prüfung, setup mit Stammdaten und Zugang; die App-Seite von A3/A4 bei 390 px in `28-zwei-tipps`).
   Vor jeder Reihe wird die lokale D1 geleert und mit Demodaten befüllt.
 
 ```bash
