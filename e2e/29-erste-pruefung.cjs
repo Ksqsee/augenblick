@@ -85,9 +85,10 @@ const SENTENCE = 'Im dritten OG Raum 306 eine Feuerschutztür von Westag und im 
   console.log('  Vorschau:', JSON.stringify(rows.map((r) => r.replace(/\s+/g, ' '))));
   check(rows.length === 3, `drei Zeilen (${rows.length})`);
   const flat = rows.map((r) => r.replace(/\s+/g, ' '));
-  check(/1 × Feuerschutztür/.test(flat[0] ?? '') && /3\. OG · Raum 306 · Westag/.test(flat[0] ?? ''), `Zeile 1: 1 × Feuerschutztür, 3. OG, Raum 306, Westag (${flat[0]})`);
+  // Plan v7: Elementart heißt „Tür“, Rauchschutz steht als Anforderung „RS“
+  check(/1 × Tür/.test(flat[0] ?? '') && /3\. OG · Raum 306 · Westag/.test(flat[0] ?? ''), `Zeile 1: 1 × Tür, 3. OG, Raum 306, Westag (${flat[0]})`);
   check(/1 × Feststellanlage/.test(flat[1] ?? '') && /1\. OG · Treppenhaus/.test(flat[1] ?? '') && !/Westag|Schüco/.test(flat[1] ?? ''), `Zeile 2: 1 × Feststellanlage, 1. OG, Treppenhaus (${flat[1]})`);
-  check(/2 × Feuerschutztür/.test(flat[2] ?? '') && /1\. OG · Treppenhaus · Schüco · Rauchschutz/.test(flat[2] ?? ''), `Zeile 3: 2 × Feuerschutztür mit Rauchschutz, Schüco (${flat[2]})`);
+  check(/2 × Tür/.test(flat[2] ?? '') && /1\. OG · Treppenhaus · Schüco · RS/.test(flat[2] ?? ''), `Zeile 3: 2 × Tür mit RS, Schüco (${flat[2]})`);
   check(!(await preview.locator('[data-unsure]').count()), 'nichts „bitte prüfen“');
   await noOverflow('Erfassen-Vorschau');
   await p.screenshot({ path: OUT + 'm-erfassen.png' });
@@ -98,13 +99,13 @@ const SENTENCE = 'Im dritten OG Raum 306 eine Feuerschutztür von Westag und im 
   const detail = (await api(`/properties/${props[0].id}`)).json;
   const byCode = Object.fromEntries(detail.assets.map((a) => [a.code, a]));
   console.log('  Codes:', Object.keys(byCode).sort().join(', '));
-  const a1 = byCode['FST-001'];
+  const a1 = byCode['T-001'];
   const a2 = byCode['FSA-002'];
-  check(a1 && a1.floor === '3. OG' && a1.location === 'Raum 306' && a1.manufacturer === 'Westag', `FST-001: 3. OG, Raum 306, Westag (${JSON.stringify(a1 && [a1.floor, a1.location, a1.manufacturer])})`);
+  check(a1 && a1.floor === '3. OG' && a1.location === 'Raum 306' && a1.manufacturer === 'Westag', `T-001: 3. OG, Raum 306, Westag (${JSON.stringify(a1 && [a1.floor, a1.location, a1.manufacturer])})`);
   check(a2 && a2.category === 'hold_open' && a2.floor === '1. OG' && a2.location === 'Treppenhaus' && !a2.manufacturer, `FSA-002: 1. OG, Treppenhaus (${JSON.stringify(a2 && [a2.floor, a2.location, a2.manufacturer])})`);
-  for (const c of ['FST-003', 'FST-004']) {
+  for (const c of ['T-003', 'T-004']) {
     const a = byCode[c];
-    check(a && a.floor === '1. OG' && a.location === 'Treppenhaus' && a.manufacturer === 'Schüco' && a.attributes.smoke === true, `${c}: 1. OG, Treppenhaus, Schüco, Rauchschutz (${JSON.stringify(a && [a.floor, a.location, a.manufacturer, a.attributes])})`);
+    check(a && a.floor === '1. OG' && a.location === 'Treppenhaus' && a.manufacturer === 'Schüco' && a.attributes.requirement === 'RS', `${c}: 1. OG, Treppenhaus, Schüco, RS (${JSON.stringify(a && [a.floor, a.location, a.manufacturer, a.attributes])})`);
   }
 
   step('„Heute“ → Rundgang → erste Prüfung mit gezeichneter Unterschrift');
@@ -146,6 +147,10 @@ const SENTENCE = 'Im dritten OG Raum 306 eine Feuerschutztür von Westag und im 
   // Plan v6 A4: Feststellanlage und Flügel der neuen Tür sind unbekannt – je eine Rückfrage, Antwort bleibt am Element
   await tap(p.getByRole('group', { name: 'Hat die Tür eine Feststellanlage?' }).getByRole('button', { name: 'Nein' }), 'Rückfrage Feststellanlage: Nein');
   await tap(p.getByRole('group', { name: 'Ist die Tür ein- oder zweiflügelig?' }).getByRole('button', { name: '1-flügelig' }), 'Rückfrage Flügel: 1-flügelig');
+  // Plan v7: Spion, Absenkdichtung, Kartenschloss gelten nur, wenn vorhanden – bei der neuen Tür unbekannt, also je eine Rückfrage
+  await tap(p.getByRole('group', { name: 'Hat die Tür ein Kartenschloss bzw. einen elektronischen Beschlag?' }).getByRole('button', { name: 'Nein' }), 'Rückfrage Kartenschloss: Nein');
+  await tap(p.getByRole('group', { name: 'Hat die Tür eine Absenkdichtung?' }).getByRole('button', { name: 'Nein' }), 'Rückfrage Absenkdichtung: Nein');
+  await tap(p.getByRole('group', { name: 'Hat die Tür einen Türspion?' }).getByRole('button', { name: 'Nein' }), 'Rückfrage Spion: Nein');
   await tap(p.getByRole('button', { name: 'Abschließen', exact: true }), 'Abschließen');
   await p.waitForURL(/\/rundgang\/.*fertig=/);
   const i2 = (await api(`/inspections/${id2}`)).json;
@@ -161,8 +166,9 @@ const SENTENCE = 'Im dritten OG Raum 306 eine Feuerschutztür von Westag und im 
   // Zählt man das Zeichnen als Tipp, sind es 9 – das Ziel wird dann um einen verfehlt.
   check(first.inputs === 1 && first.draws === 1, `ein Satz und eine Unterschrift (${first.inputs} Eingaben, ${first.draws} Gesten)`);
   check(first.taps <= target, `höchstens ${target} Tipps bis zur ersten unterschriebenen Prüfung (gemessen ${first.taps})`);
-  // drei Tipps + zwei Rückfragen nach Stammdaten (Plan v6 A4, nur bei der ersten Prüfung einer Tür ohne diese Angaben)
-  check(count.rest.taps - first.taps === 5, `nächstes Element in drei Tipps plus zwei Rückfragen (${count.rest.taps - first.taps})`);
+  // drei Tipps + fünf Rückfragen nach Stammdaten (Plan v6 A4: Feststellanlage, Flügel; v7: Kartenschloss, Absenkdichtung,
+  // Spion) – nur bei der ersten Prüfung einer Tür ohne diese Angaben; mit Typ aus dem Katalog entfallen sie
+  check(count.rest.taps - first.taps === 8, `nächstes Element in drei Tipps plus fünf Rückfragen (${count.rest.taps - first.taps})`);
 
   step('Feste Nummern beim Anlegen: „Türen 12 bis 13 im Keller“');
   await p.getByRole('navigation', { name: 'Hauptnavigation' }).getByRole('button', { name: 'Erfassen' }).tap();
@@ -173,21 +179,21 @@ const SENTENCE = 'Im dritten OG Raum 306 eine Feuerschutztür von Westag und im 
   await s2.getByRole('button', { name: '2 Elemente anlegen' }).tap();
   await s2.getByText('2 Elemente angelegt').waitFor();
   const all = (await api(`/properties/${props[0].id}`)).json.assets;
-  check(['FST-012', 'FST-013'].every((c) => all.some((a) => a.code === c && a.floor === 'UG')), `FST-012 und FST-013 angelegt (${all.map((a) => a.code).join(', ')})`);
+  check(['T-012', 'T-013'].every((c) => all.some((a) => a.code === c && a.floor === 'UG')), `T-012 und T-013 angelegt (${all.map((a) => a.code).join(', ')})`);
 
   step('Mangel per Nummer: „Tür 3 schließt nicht“');
   await s2.getByRole('button', { name: 'Weiter erfassen' }).tap();
   await s2.getByRole('tab', { name: 'Mängel & Aufgaben' }).tap();
   await s2.getByLabel('Erfasster Text').fill('Tür 3 schließt nicht');
   await s2.getByRole('button', { name: 'Auswerten' }).tap();
-  await s2.locator('[data-target]').getByText('Element FST-003').waitFor();
+  await s2.locator('[data-target]').getByText('Element T-003').waitFor();
   await noOverflow('Mangel mit Element-Nummer');
   await p.screenshot({ path: OUT + 'm-mangel-nummer.png' });
   await s2.getByRole('button', { name: '1 Mangel anlegen' }).tap();
   await s2.getByText('1 Mangel angelegt').waitFor();
   const defects = (await api('/defects?status=all')).json;
   const d3 = defects.find((d) => d.title === 'Tür 3 schließt nicht');
-  check(d3 && d3.assetId === byCode['FST-003'].id, `Mangel hängt an FST-003 (${d3 && d3.assetId})`);
+  check(d3 && d3.assetId === byCode['T-003'].id, `Mangel hängt an T-003 (${d3 && d3.assetId})`);
 
   step('Unsicher: Rest wird „bitte prüfen“, nicht Standort');
   await s2.getByRole('button', { name: 'Weiter erfassen' }).tap();

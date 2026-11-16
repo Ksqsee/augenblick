@@ -110,7 +110,7 @@ const check = (ok, m) => {
   await p.keyboard.press('Escape');
   // … und auch auf „Elemente“ (Objekt/Gebäude vorausgewählt)
   await p.goto(`${BASE}/elemente?neu=1`);
-  await p.getByRole('dialog').getByRole('button', { name: /Feuerschutztür/ }).click();
+  await p.getByRole('dialog').getByRole('button', { name: /^Tür/ }).click();
   await p.getByLabel('Gebäude').locator(`option[value="${building.id}"]`).waitFor({ state: 'attached' });
   check((await p.getByLabel('Objekt', { exact: true }).inputValue()) === prop.id && (await p.getByLabel('Gebäude').inputValue()) === building.id, 'Objekt und Gebäude gemerkt');
   await p.keyboard.press('Escape');

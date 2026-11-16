@@ -313,7 +313,7 @@ async function mcp(key, name, args = {}) {
     ],
   });
   const errs = (t.data?.errors ?? []).join(' | ');
-  check(/1\. .*farbe/.test(errs) && /rating/.test(errs), `unbekannter Schlüssel „farbe“ mit erlaubten Feldern (${errs.slice(0, 200)})`);
+  check(/1\. .*farbe/.test(errs) && /requirement/.test(errs), `unbekannter Schlüssel „farbe“ mit erlaubten Feldern (${errs.slice(0, 200)})`);
   check(/2\. Fehlt: model \(Typ\)/.test(errs), 'fehlendes Feld beim Namen');
   check(t.data?.create?.length === 1, 'gültiger Eintrag in der Vorschau');
 
