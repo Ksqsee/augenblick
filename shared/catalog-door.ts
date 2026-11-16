@@ -65,7 +65,7 @@ export function requirementOf(attrs: Record<string, unknown> | null | undefined)
   const fire = fireClass(attrs.rating);
   const smoke = truthy(attrs.smoke);
   if (fire === 30 || fire === 90) return `T${fire}${smoke ? '-RS' : ''}` as Requirement;
-  if (fire === 'none') return smoke ? 'RS' : smoke === false ? 'keine' : null;
+  if (fire === 'none') return smoke ? 'RS' : 'keine';
   if (fire === null && attrs.rating != null && attrs.rating !== '') return null; // T60 o. Ä.: nicht umrechenbar
   if (smoke === true) return 'RS';
   return null;

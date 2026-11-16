@@ -4,7 +4,8 @@
 import { Hono } from 'hono';
 import { HTTPException } from 'hono/http-exception';
 import { z } from 'zod';
-import { CATALOG_LIMITS, CATALOG_SEED_DEFECTS, CATALOG_SEED_TERMS, type CatalogDefect, type CatalogProduct, type CatalogTerm } from '../shared/catalog';
+import { CATALOG_LIMITS, CATALOG_SEED_DEFECTS, CATALOG_SEED_TERMS, type CatalogDefect, type CatalogProduct, type CatalogService, type CatalogTerm } from '../shared/catalog';
+import { parseRequirement, REQUIREMENTS } from '../shared/catalog-door';
 import { CATALOG_EXTRA_DEFECTS } from '../shared/catalog-extra';
 import { type CatalogKind, entryKey, foldText, planCatalogMerge } from '../shared/vocab';
 import { getCategoryDef, listCategories } from './categories';
@@ -12,12 +13,27 @@ import { type AppEnv, type Ctx, id, logActivity, notFound, now, parseJson, requi
 
 const tid = (c: Ctx) => c.get('user').tenantId;
 const str = (max: number) => z.string().trim().max(max);
-const KINDS = ['products', 'defects', 'terms'] as const;
-const TABLE: Record<CatalogKind, string> = { products: 'catalog_products', defects: 'catalog_defects', terms: 'catalog_terms' };
-const LABEL: Record<CatalogKind, string> = { products: 'Produkt', defects: 'Katalog-Mangel', terms: 'Begriff' };
+const KINDS = ['products', 'defects', 'terms', 'services'] as const;
+const TABLE: Record<CatalogKind, string> = { products: 'catalog_products', defects: 'catalog_defects', terms: 'catalog_terms', services: 'catalog_services' };
+const LABEL: Record<CatalogKind, string> = { products: 'Produkt', defects: 'Katalog-Mangel', terms: 'Begriff', services: 'Leistung' };
 
 // ---------- Eingaben ----------
 const attrValue = z.union([z.string().trim().max(200), z.number().finite(), z.boolean(), z.null()]);
+const fieldName = z.string().regex(/^[a-zA-Z0-9_]{1,40}$/, 'Ungültiger Feldname');
+/** Datum JJJJ-MM-TT, das es gibt */
+const isoDate = z
+  .string()
+  .trim()
+  .regex(/^\d{4}-\d{2}-\d{2}$/, 'Datum als JJJJ-MM-TT')
+  .refine((v) => {
+    const d = new Date(`${v}T12:00:00Z`);
+    return !isNaN(d.getTime()) && d.toISOString().slice(0, 10) === v;
+  }, 'Datum gibt es nicht');
+/** Anforderung der Tür: leer oder keine · RS · T30 · T30-RS · T90 · T90-RS (Schreibweise egal) */
+const requirement = z.preprocess(
+  (v) => (v == null || v === '' ? '' : (parseRequirement(v) ?? v)),
+  z.union([z.enum(REQUIREMENTS), z.literal('')], { errorMap: () => ({ message: `Anforderung möglich: ${REQUIREMENTS.join(', ')}` }) }),
+);
 const fields = {
   products: z.object({
     manufacturer: str(120).min(1, 'Hersteller fehlt'),
@@ -29,6 +45,9 @@ const fields = {
       .default({}),
     approval: str(120).default(''),
     note: str(500).default(''),
+    aliases: z.array(str(120).min(1)).max(30).default([]),
+    approvalValidUntil: isoDate.nullable().default(null),
+    requirement: requirement.default(''),
   }),
   defects: z.object({
     title: str(200).min(2, 'Bezeichnung fehlt'),
@@ -36,13 +55,34 @@ const fields = {
     severity: z.enum(['low', 'medium', 'high', 'critical']).default('medium'),
     measure: str(300).default(''),
     category: str(40).default(''),
+    serviceKeys: z.array(str(60).min(1)).max(12).default([]),
+    quantity: z.number().positive('Menge muss größer als 0 sein').max(10000).default(1),
+    note: str(500).default(''),
   }),
   terms: z.object({
     term: str(40).min(1, 'Begriff fehlt'),
     meaning: str(200).min(1, 'Bedeutung fehlt'),
   }),
+  services: z.object({
+    key: str(60).min(1, 'Kürzel fehlt').regex(/^[\p{L}\d][\p{L}\d ._/+-]*$/u, 'Kürzel: Buchstaben, Ziffern, Punkt, Bindestrich'),
+    title: str(200).min(2, 'Bezeichnung fehlt'),
+    unit: str(20).min(1).default('Stk'),
+    price: z.number().finite().min(0, 'Preis nicht negativ').max(1_000_000),
+    condition: z
+      .record(fieldName, z.union([z.string().trim().max(100), z.number().finite(), z.boolean(), z.array(z.string().trim().max(100)).min(1).max(20)]))
+      .refine((o) => Object.keys(o).length <= 10, 'Höchstens 10 Bedingungen')
+      .default({}),
+    kind: z.enum(['maintenance', 'repair', 'labor']).default('repair'),
+    category: str(40).default(''),
+    note: str(500).default(''),
+  }),
 } as const;
-type Input = { products: z.infer<typeof fields.products>; defects: z.infer<typeof fields.defects>; terms: z.infer<typeof fields.terms> };
+type Input = {
+  products: z.infer<typeof fields.products>;
+  defects: z.infer<typeof fields.defects>;
+  terms: z.infer<typeof fields.terms>;
+  services: z.infer<typeof fields.services>;
+};
 
 const kindParam = (c: Ctx): CatalogKind => {
   const k = c.req.param('kind');
@@ -59,28 +99,102 @@ async function assertCategory(c: Ctx, category: string) {
 type Row = Record<string, unknown> & { id: string };
 const fromRow = (kind: CatalogKind, r: Row) =>
   kind === 'products'
-    ? ({ id: r.id, manufacturer: r.manufacturer, model: r.model, category: r.category, defaults: parseJson(r.defaults as string, {}), approval: r.approval, note: r.note } as CatalogProduct)
+    ? ({
+        id: r.id,
+        manufacturer: r.manufacturer,
+        model: r.model,
+        category: r.category,
+        defaults: parseJson(r.defaults as string, {}),
+        approval: r.approval,
+        note: r.note,
+        aliases: parseJson(r.aliases as string, []),
+        approvalValidUntil: (r.approval_valid_until as string | null) ?? null,
+        requirement: (r.requirement as string) ?? '',
+      } as CatalogProduct)
     : kind === 'defects'
-      ? ({ id: r.id, title: r.title, synonyms: parseJson(r.synonyms as string, []), severity: r.severity, measure: r.measure, category: r.category } as CatalogDefect)
-      : ({ id: r.id, term: r.term, meaning: r.meaning } as CatalogTerm);
+      ? ({
+          id: r.id,
+          title: r.title,
+          synonyms: parseJson(r.synonyms as string, []),
+          severity: r.severity,
+          measure: r.measure,
+          category: r.category,
+          serviceKeys: parseJson(r.service_keys as string, []),
+          quantity: (r.quantity as number) ?? 1,
+          note: (r.note as string) ?? '',
+        } as CatalogDefect)
+      : kind === 'services'
+        ? ({
+            id: r.id,
+            key: r.key,
+            title: r.title,
+            unit: r.unit,
+            price: Math.round(Number(r.price_cents ?? 0)) / 100,
+            condition: parseJson(r.condition as string, {}),
+            kind: r.kind,
+            category: r.category,
+            note: r.note,
+          } as CatalogService)
+        : ({ id: r.id, term: r.term, meaning: r.meaning } as CatalogTerm);
 
-const COLS: Record<CatalogKind, string[]> = {
-  products: ['manufacturer', 'model', 'category', 'defaults', 'approval', 'note'],
-  defects: ['title', 'synonyms', 'severity', 'measure', 'category'],
-  terms: ['term', 'meaning'],
+/** Feld → Spalte je Liste (Reihenfolge = Spalten beim Schreiben) */
+const COLS: Record<CatalogKind, [string, string][]> = {
+  products: [
+    ['manufacturer', 'manufacturer'],
+    ['model', 'model'],
+    ['category', 'category'],
+    ['defaults', 'defaults'],
+    ['approval', 'approval'],
+    ['note', 'note'],
+    ['aliases', 'aliases'],
+    ['approvalValidUntil', 'approval_valid_until'],
+    ['requirement', 'requirement'],
+  ],
+  defects: [
+    ['title', 'title'],
+    ['synonyms', 'synonyms'],
+    ['severity', 'severity'],
+    ['measure', 'measure'],
+    ['category', 'category'],
+    ['serviceKeys', 'service_keys'],
+    ['quantity', 'quantity'],
+    ['note', 'note'],
+  ],
+  terms: [
+    ['term', 'term'],
+    ['meaning', 'meaning'],
+  ],
+  services: [
+    ['key', 'key'],
+    ['title', 'title'],
+    ['unit', 'unit'],
+    ['price', 'price_cents'],
+    ['condition', 'condition'],
+    ['kind', 'kind'],
+    ['category', 'category'],
+    ['note', 'note'],
+  ],
 };
-const dbValue = (k: string, v: unknown) => (k === 'defaults' || k === 'synonyms' ? JSON.stringify(v ?? (k === 'defaults' ? {} : [])) : (v ?? ''));
+const JSON_FIELDS: Record<string, unknown> = { defaults: {}, synonyms: [], aliases: [], serviceKeys: [], condition: {} };
+/** Vorgaben für Spalten, die ein Eintrag beim Anlegen nicht nennt */
+const FALLBACK: Record<string, unknown> = { quantity: 1, unit: 'Stk', kind: 'repair', approvalValidUntil: null };
+const dbValue = (k: string, v: unknown) => {
+  if (k in JSON_FIELDS) return JSON.stringify(v ?? JSON_FIELDS[k]);
+  if (k === 'price') return Math.round(Number(v ?? 0) * 100);
+  if (v === undefined || v === null) return k in FALLBACK ? FALLBACK[k] : '';
+  return v;
+};
 
 function insertStmt(c: Ctx, kind: CatalogKind, e: Record<string, unknown>, t: number) {
   const cols = COLS[kind];
   return c.env.DB.prepare(
-    `INSERT INTO ${TABLE[kind]} (id, tenant_id, ${cols.join(', ')}, match_key, created_at, updated_at) VALUES (?, ?, ${cols.map(() => '?').join(', ')}, ?, ?, ?)`,
-  ).bind(id(), tid(c), ...cols.map((k) => dbValue(k, e[k])), entryKey(kind, e), t, t);
+    `INSERT INTO ${TABLE[kind]} (id, tenant_id, ${cols.map(([, col]) => col).join(', ')}, match_key, created_at, updated_at) VALUES (?, ?, ${cols.map(() => '?').join(', ')}, ?, ?, ?)`,
+  ).bind(id(), tid(c), ...cols.map(([k]) => dbValue(k, e[k])), entryKey(kind, e), t, t);
 }
 function updateStmt(c: Ctx, kind: CatalogKind, rowId: string, e: Record<string, unknown>, t: number) {
   const cols = COLS[kind];
-  return c.env.DB.prepare(`UPDATE ${TABLE[kind]} SET ${cols.map((k) => `${k} = ?`).join(', ')}, match_key = ?, updated_at = ? WHERE id = ? AND tenant_id = ?`).bind(
-    ...cols.map((k) => dbValue(k, e[k])),
+  return c.env.DB.prepare(`UPDATE ${TABLE[kind]} SET ${cols.map(([, col]) => `${col} = ?`).join(', ')}, match_key = ?, updated_at = ? WHERE id = ? AND tenant_id = ?`).bind(
+    ...cols.map(([k]) => dbValue(k, e[k])),
     entryKey(kind, e),
     t,
     rowId,
@@ -89,7 +203,7 @@ function updateStmt(c: Ctx, kind: CatalogKind, rowId: string, e: Record<string, 
 }
 
 async function listKind(c: Ctx, kind: CatalogKind) {
-  const order = kind === 'products' ? 'manufacturer, model' : kind === 'defects' ? 'category, title' : 'term';
+  const order = kind === 'products' ? 'manufacturer, model' : kind === 'defects' ? 'category, title' : kind === 'services' ? 'kind, key' : 'term';
   const rows = await c.env.DB.prepare(`SELECT * FROM ${TABLE[kind]} WHERE tenant_id = ? ORDER BY ${order} COLLATE NOCASE`).bind(tid(c)).all<Row>();
   return rows.results.map((r) => fromRow(kind, r));
 }
@@ -164,6 +278,17 @@ const FIELD_LABEL: Record<string, string> = {
   category: 'Art',
   defaults: 'Vorgabewerte',
   synonyms: 'Synonyme',
+  aliases: 'Aliasse',
+  approvalValidUntil: 'Zulassung gültig bis',
+  requirement: 'Anforderung',
+  serviceKeys: 'Leistungen',
+  quantity: 'Menge',
+  key: 'Kürzel',
+  unit: 'Einheit',
+  price: 'Preis',
+  condition: 'Bedingung',
+  kind: 'Art der Leistung',
+  note: 'Notiz',
 };
 /** Zod-Fehler eines Eintrags als ein deutscher Satz: alle fehlenden Felder beim Namen, sonst die erste Meldung. */
 function itemError(e: z.ZodError) {
@@ -179,8 +304,8 @@ function itemError(e: z.ZodError) {
 /** Katalog des Workspaces (für MCP, Vorschläge). */
 export async function readCatalog(c: Ctx) {
   await ensureCatalog(c);
-  const [products, defects, terms] = await Promise.all(KINDS.map((k) => listKind(c, k)));
-  return { products: products as CatalogProduct[], defects: defects as CatalogDefect[], terms: terms as CatalogTerm[] };
+  const [products, defects, terms, services] = await Promise.all(KINDS.map((k) => listKind(c, k)));
+  return { products: products as CatalogProduct[], defects: defects as CatalogDefect[], terms: terms as CatalogTerm[], services: services as CatalogService[] };
 }
 
 // ---------- Routen ----------
@@ -218,7 +343,10 @@ catalog.post('/catalog/batch', async (c) => {
     .parse(await c.req.json());
   const kind = raw.kind;
   const errors: { index: number; error: string }[] = [];
+  const warnings: { index: number; warning: string }[] = [];
   const valid: Record<string, unknown>[] = [];
+  /** vollständige Einträge (mit Vorgaben) zum Anlegen; geändert wird nur, was ein Eintrag nennt */
+  const full = new Map<string, Record<string, unknown>>();
   const cats = new Map<string, string[] | null>();
   // Felder aller Arten (für Produkte ohne Art): bekannte Stammdaten-Schlüssel
   let anyFields: string[] | null = null;
@@ -244,24 +372,38 @@ catalog.post('/catalog/batch', async (c) => {
       errors.push({ index: i, error: `Unbekannte Elementart „${cat}“` });
       continue;
     }
-    // v6 D3: Vorgabewerte nur für Stammdaten, die es bei der Art (bzw. irgendeiner Art) gibt; Zulassung steht in `approval`
-    if (kind === 'products') {
-      const defaults = Object.keys((p.data as { defaults: Record<string, unknown> }).defaults);
+    // v6 D3: Vorgabewerte nur für Stammdaten, die es bei der Art (bzw. irgendeiner Art) gibt; Zulassung steht in `approval`.
+    // Plan v7: dasselbe für die Bedingung einer Leistung
+    if (kind === 'products' || kind === 'services') {
+      const field = kind === 'products' ? 'defaults' : 'condition';
+      const keys = Object.keys(((p.data as Record<string, unknown>)[field] as Record<string, unknown>) ?? {});
       const allowed = known ?? (anyFields ??= [...new Set((await listCategories(c)).flatMap((d) => d.attributes.map((a) => a.key)))]);
-      const unknown = defaults.filter((k) => !allowed.includes(k));
+      const unknown = keys.filter((k) => !allowed.includes(k));
       if (unknown.length) {
         errors.push({
           index: i,
-          error: `Unbekannte Stammdaten in defaults: ${unknown.join(', ')}. Möglich${cat ? ` für diese Art` : ''}: ${allowed.join(', ') || '–'}`,
+          error: `Unbekannte Stammdaten in ${field}: ${unknown.join(', ')}. Möglich${cat ? ` für diese Art` : ''}: ${allowed.join(', ') || '–'}`,
         });
         continue;
       }
     }
-    valid.push(p.data);
+    const named = Object.fromEntries(Object.entries(p.data as Record<string, unknown>).filter(([k]) => k in item));
+    valid.push(named);
+    full.set(entryKey(kind, p.data as Record<string, unknown>), p.data as Record<string, unknown>);
+  }
+  // Plan v7: Katalog-Mängel mit Leistungen, die es (noch) nicht gibt – Hinweis, kein Fehler (Datei lädt Leistungen zuerst)
+  if (kind === 'defects') {
+    const known = new Set((await listKind(c, 'services')).map((x) => foldText((x as CatalogService).key)));
+    raw.items.forEach((item, i) => {
+      const keys = Array.isArray(item.serviceKeys) ? (item.serviceKeys as unknown[]).map(String) : [];
+      const missing = keys.filter((k) => !known.has(foldText(k)));
+      if (missing.length && !errors.some((e) => e.index === i)) warnings.push({ index: i, warning: `Leistung unbekannt: ${missing.join(', ')}` });
+    });
   }
   await ensureCatalog(c);
   const existing = (await listKind(c, kind)) as unknown as (Record<string, unknown> & { id: string })[];
   const plan = planCatalogMerge(kind, existing, valid);
+  plan.create = plan.create.map((e) => ({ ...(full.get(entryKey(kind, e)) ?? {}), ...e }));
   if (existing.length + plan.create.length > CATALOG_LIMITS[kind])
     throw new HTTPException(400, { message: `Höchstens ${CATALOG_LIMITS[kind]} Einträge je Liste (vorhanden: ${existing.length}, neu: ${plan.create.length})` });
   const result = {
@@ -270,6 +412,7 @@ catalog.post('/catalog/batch', async (c) => {
     update: plan.update.map((u) => ({ entry: summary(kind, u.after), changes: u.changes })),
     unchanged: plan.unchanged,
     errors,
+    warnings,
   };
   if (!raw.dryRun && (plan.create.length || plan.update.length)) {
     const t = now();
@@ -285,6 +428,7 @@ catalog.post('/catalog/:kind', async (c) => {
   const kind = kindParam(c);
   const b = fields[kind].parse(await c.req.json()) as Input[typeof kind];
   if ('category' in b) await assertCategory(c, b.category);
+  await assertAttributeKeys(c, kind, b);
   await ensureCatalog(c);
   if ((await countKind(c, kind)) >= CATALOG_LIMITS[kind]) throw new HTTPException(400, { message: `Höchstens ${CATALOG_LIMITS[kind]} Einträge je Liste` });
   const stmt = insertStmt(c, kind, b, now());
@@ -308,6 +452,7 @@ catalog.patch('/catalog/:kind/:id', async (c) => {
   const merged = { ...fromRow(kind, old), ...((await c.req.json()) as Record<string, unknown>) };
   const b = fields[kind].parse(merged) as Input[typeof kind];
   if ('category' in b) await assertCategory(c, b.category);
+  await assertAttributeKeys(c, kind, b);
   try {
     await updateStmt(c, kind, old.id, b, now()).run();
   } catch (e) {
@@ -315,7 +460,8 @@ catalog.patch('/catalog/:kind/:id', async (c) => {
     throw e;
   }
   await logActivity(c, 'update', 'catalog', old.id, `${LABEL[kind]} „${summary(kind, b)}“ geändert`);
-  return c.json(fromRow(kind, { ...old, ...b, defaults: JSON.stringify((b as Record<string, unknown>).defaults ?? {}), synonyms: JSON.stringify((b as Record<string, unknown>).synonyms ?? []) }));
+  const row = await c.env.DB.prepare(`SELECT * FROM ${TABLE[kind]} WHERE id = ? AND tenant_id = ?`).bind(old.id, tid(c)).first<Row>();
+  return c.json(fromRow(kind, row!));
 });
 
 catalog.delete('/catalog/:kind/:id', async (c) => {
@@ -330,5 +476,23 @@ catalog.delete('/catalog/:kind/:id', async (c) => {
 
 function summary(kind: CatalogKind, e: Record<string, unknown>) {
   const s = (k: string) => String(e[k] ?? '');
-  return kind === 'products' ? `${s('manufacturer')} ${s('model')}` : kind === 'defects' ? s('title') : `${s('term')} = ${s('meaning')}`;
+  return kind === 'products'
+    ? `${s('manufacturer')} ${s('model')}`
+    : kind === 'defects'
+      ? s('title')
+      : kind === 'services'
+        ? `${s('key')} ${s('title')}`
+        : `${s('term')} = ${s('meaning')}`;
+}
+
+/** Vorgabewerte (Produkt) bzw. Bedingung (Leistung) nur mit Stammdaten der Art bzw. irgendeiner Art. */
+async function assertAttributeKeys(c: Ctx, kind: CatalogKind, b: Record<string, unknown>) {
+  if (kind !== 'products' && kind !== 'services') return;
+  const field = kind === 'products' ? 'defaults' : 'condition';
+  const keys = Object.keys((b[field] as Record<string, unknown>) ?? {});
+  if (!keys.length) return;
+  const cat = String(b.category ?? '');
+  const allowed = cat ? (await getCategoryDef(c, cat)).attributes.map((a) => a.key) : [...new Set((await listCategories(c)).flatMap((d) => d.attributes.map((a) => a.key)))];
+  const unknown = keys.filter((k) => !allowed.includes(k));
+  if (unknown.length) throw new HTTPException(400, { message: `Unbekannte Stammdaten in ${field}: ${unknown.join(', ')}` });
 }

@@ -655,6 +655,12 @@ export interface CatalogProduct {
   defaults: Record<string, string | number | boolean | null>;
   approval: string;
   note: string;
+  /** Plan v7: so, wie der Typ in Listen und Ansagen genannt wird („SK32“, „T30 RS“, „Premio T30-RS“) */
+  aliases?: string[];
+  /** Zulassung bzw. Prüfzeugnis gültig bis (JJJJ-MM-TT) oder null */
+  approvalValidUntil?: string | null;
+  /** Anforderung der Tür (keine, RS, T30, T30-RS, T90, T90-RS) oder leer */
+  requirement?: string;
 }
 
 /** Typischer Mangel mit Schwere und Maßnahme; Synonyme helfen beim Erkennen im Diktat. */
@@ -666,6 +672,37 @@ export interface CatalogDefect {
   measure: string;
   /** Elementart (Schlüssel) oder leer = alle */
   category: string;
+  /** Plan v7: Leistungen (Kürzel) für die Angebotsliste – die zur Tür passende Bedingung entscheidet */
+  serviceKeys?: string[];
+  /** Menge je Mangel (z. B. 1 Stück, 2 lfm) */
+  quantity?: number;
+  note?: string;
+}
+
+/** Art einer Leistung: Wartung je Element, Instandsetzung/Nachrüstung, Regie/Anfahrt. */
+export const SERVICE_KINDS = { maintenance: 'Wartung', repair: 'Instandsetzung', labor: 'Regie und Anfahrt' } as const;
+export type ServiceKind = keyof typeof SERVICE_KINDS;
+
+/**
+ * Bedingung einer Leistung auf die Stammdaten des Elements, z. B. {requirement: ["T30-RS"], leaves: "1-flügelig"}:
+ * alle Felder müssen passen; eine Liste heißt „einer dieser Werte“, Ja/Nein als true/false.
+ */
+export type ServiceCondition = Record<string, string | number | boolean | string[]>;
+
+/** Leistungsposition mit Preis (Plan v7, Angebotsliste): Mangel → Leistung → Menge → Türen → Preis. */
+export interface CatalogService {
+  id: string;
+  /** Kürzel, eindeutig je Workspace (z. B. „IS-SCHALLEX-T30“ oder eine Positionsnummer) */
+  key: string;
+  title: string;
+  unit: string;
+  /** Preis netto je Einheit in Euro */
+  price: number;
+  condition: ServiceCondition;
+  kind: ServiceKind;
+  /** Elementart (Schlüssel) oder leer = alle */
+  category: string;
+  note: string;
 }
 
 /** Abkürzung bzw. Fachbegriff → Bedeutung (z. B. OTS → Obentürschließer). */
@@ -680,6 +717,7 @@ export const CATALOG_LIMITS = {
   products: 2000,
   defects: 1000,
   terms: 500,
+  services: 1000,
 } as const;
 
 /** Grundausstattung für neue Workspaces – eigene Formulierungen. */
