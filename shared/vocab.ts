@@ -129,7 +129,8 @@ export function freeNumberCode(prefix: string, n: number, taken: (code: string) 
 
 /** Laufende Nummer aus einem Code („FSA-012“ → 12, „FST-001-2“ → 1); Zufallscodes → null. */
 export function codeNumber(code: string): number | null {
-  const m = code.match(/^[A-Za-z0-9]{2,5}-(\d{1,5})(?:-\d{1,3})?$/);
+  // Präfix ab einem Zeichen: „T-036“ (Tür ab v7), „FST-036“, „FSA-002“
+  const m = code.match(/^[A-Za-z][A-Za-z0-9]{0,4}-(\d{1,5})(?:-\d{1,3})?$/);
   return m ? Number(m[1]) : null;
 }
 
@@ -154,6 +155,11 @@ const KIND_WORDS: Record<string, string> = {
   rauchmelder: 'smoke_alarm',
   rauchwarnmelder: 'smoke_alarm',
   rwm: 'smoke_alarm',
+  fenster: 'window',
+  drehtuerantrieb: 'door_drive',
+  tuerantrieb: 'door_drive',
+  drehfluegelantrieb: 'door_drive',
+  antrieb: 'door_drive',
 };
 /** Allgemeine Wörter vor einer Nummer (ohne Art). */
 const GENERIC_WORDS = new Set(['nummer', 'nr', 'no', 'element', 'position', 'pos', 'ident', 'identnummer', 'id']);
@@ -168,7 +174,10 @@ export interface KindWordSource {
 function kindOf(word: string, categories: KindWordSource[]): string | null {
   const w = foldText(word).replace(/\s+/g, '');
   for (const c of categories) {
-    if ([c.label, c.plural ?? '', c.prefix ?? ''].some((f) => f && foldText(f).replace(/\s+/g, '') === w)) return c.key;
+    if ([c.label, c.plural ?? ''].some((f) => f && foldText(f).replace(/\s+/g, '') === w)) return c.key;
+    // Präfix nur ab zwei Zeichen („T 30“ ist eine Anforderung, keine Tür 30) und kurze nur groß geschrieben („da 2“)
+    const p = c.prefix ?? '';
+    if (p.length >= 2 && (p.length > 2 || word === word.toUpperCase()) && foldText(p) === w) return c.key;
   }
   return KIND_WORDS[w] ?? KIND_WORDS[w.replace(/(en|n|e|s)$/, '')] ?? null;
 }

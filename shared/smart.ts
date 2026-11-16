@@ -17,6 +17,7 @@
 //     übernehmen den ersten Ort danach („zwei Türen und eine FSA im Flur“).
 //   - Was keinem Feld zugeordnet werden kann, landet in `unsure` (Vorschau: „bitte prüfen“), nie im Standort.
 import { CATEGORIES, type Severity } from './catalog';
+import { normalizeDoorInput } from './catalog-door';
 import { findRelativeDate } from './dates';
 import { type CatalogDefect, clientVocabulary, expandTerms, findElementRef, matchCatalogDefect } from './vocab';
 import { assignCheckpoint } from './inspect-match';
@@ -89,11 +90,13 @@ type Attrs = Record<string, string | boolean>;
  * (Rauchschutz, Bauart) stehen in TYPE_WORDS.
  */
 export const CATEGORY_SYNONYMS: Record<string, string[]> = {
-  fire_door: ['Tür', 'Türe', 'Brandschutztür', 'Feuertür', 'Feuerschutztor', 'Brandschutztor', 'Tor', 'Brandschutzabschluss', 'FST'],
+  fire_door: ['Feuerschutztür', 'Feuerschutztüren', 'Tür', 'Türe', 'Brandschutztür', 'Feuertür', 'Feuerschutztor', 'Brandschutztor', 'Tor', 'Brandschutzabschluss', 'FST'],
   damper: ['Klappe', 'Brandklappe', 'BSK'],
   extinguisher: ['Löscher', 'Handfeuerlöscher', 'FL'],
   smoke_alarm: ['Rauchmelder', 'Heimrauchmelder', 'Melder', 'RWM'],
   hold_open: ['Feststellanlage', 'Feststellanlagen', 'Feststelleinrichtung', 'Feststellvorrichtung', 'Türfeststellanlage', 'FSA'],
+  window: ['Fenster', 'Fensterelement', 'Fensterelemente', 'Fensterflügel'],
+  door_drive: ['Drehtürantrieb', 'Drehtürantriebe', 'Türantrieb', 'Türantriebe', 'Drehflügelantrieb', 'Drehflügelantriebe', 'Antrieb', 'Antriebe'],
 };
 
 /** Artwörter, die zugleich Stammdaten nennen (nur gültige Felder/Werte aus shared/catalog.ts). */
@@ -348,6 +351,8 @@ const squash = (s: string) => s.replace(/\s+/g, ' ').trim();
 // ---------- Stammdaten ----------
 /** Nur Felder und Werte, die die Art kennt (eingebaute Arten); eigene Arten behalten Feuerwiderstand und Rauchschutz. */
 function validAttributes(key: string, attrs: Attrs): Attrs {
+  // Tür (Plan v7): Feuerwiderstand und Rauchschutz werden zur Anforderung (T30, T30-RS, RS …)
+  if (key === 'fire_door') attrs = normalizeDoorInput(attrs).attrs as Attrs;
   const def = (CATEGORIES as Record<string, (typeof CATEGORIES)[keyof typeof CATEGORIES] | undefined>)[key];
   if (!def) return Object.fromEntries(Object.entries(attrs).filter(([k]) => k === 'rating' || k === 'smoke'));
   const out: Attrs = {};
@@ -367,6 +372,10 @@ const DOOR_FEATURES: [string, RegExp][] = [
   ['closer', /(?<![\p{L}])(?:obentürschließer\w*|obentuerschliesser\w*|ots|türschließer\w*|tuerschliesser\w*|schließer)(?![\p{L}])/iu],
   ['dropSeal', /(?<![\p{L}])(?:absenkdichtung\w*|automatische dichtung)(?![\p{L}])/iu],
   ['peephole', /(?<![\p{L}])(?:türspion\w*|spion\w*)(?![\p{L}])/iu],
+  ['cardLock', /(?<![\p{L}])(?:kartenschloss\w*|elektronische[nrm]? beschlag\w*|dialock)(?![\p{L}])/iu],
+  ['doorStop', /(?<![\p{L}])(?:türstopper\w*|tuerstopper\w*|bodenstopper\w*)(?![\p{L}])/iu],
+  ['freeSwing', /(?<![\p{L}])(?:freilauf\w*)(?![\p{L}])/iu],
+  ['kickPlate', /(?<![\p{L}])(?:sockelblech\w*|stoßblech\w*)(?![\p{L}])/iu],
 ];
 
 /** Stammdaten aus dem Text lösen (je nach Art); der Text ohne die Treffer kommt zurück. */

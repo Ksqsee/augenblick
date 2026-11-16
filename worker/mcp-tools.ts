@@ -2,7 +2,7 @@
 // Jedes Werkzeug ruft die normale API mit dem Schlüssel/Token des Aufrufs auf: Rollen, Lese-/Schreibrecht,
 // Zugriffsbereich und „darf anlegen“ gelten dadurch unverändert. Antworten sind knapp und nennen Codes und
 // Namen statt interner IDs – IDs nur dort, wo ein Folgeaufruf sie braucht.
-import { allOkAnswers, conditionOf } from "../shared/applies";
+import { allOkAnswers, conditionOf, conditionReason } from "../shared/applies";
 import { validateAttributes } from "../shared/asset-fields";
 import { SEVERITIES, type Severity } from "../shared/catalog";
 import { groupCheckpoints } from "../shared/checkpoint-groups";
@@ -115,7 +115,7 @@ interface CheckpointInfo {
   id: string;
   label: string;
   group?: string;
-  appliesIf?: { attr: string; equals: string | boolean };
+  appliesIf?: { attr: string; equals?: string | boolean; in?: string[] };
 }
 
 // ---------- Schema-Bausteine ----------
@@ -578,12 +578,8 @@ function findCheckpoint(
 }
 
 /** Grund, warum Punkte entfallen (für die Kurzfassung) */
-const naReason = (attr: string, equals: unknown) =>
-  attr === "holdOpen"
-    ? "ohne Feststellanlage"
-    : attr === "leaves"
-      ? "einflügelig"
-      : `${attr} ≠ ${s(equals)}`;
+/** Grund, warum Punkte entfallen (Plan v7: Anforderung, Ausstattung – shared/applies.ts) */
+const naReason = (cond: Parameters<typeof conditionReason>[0]) => conditionReason(cond);
 
 /**
  * Prüfpunkte als Gruppen-Kurzfassung (Plan v6, C5) – zum Vorlesen statt 8–20 Punkten im Volltext. Dazu, was nach den
@@ -600,7 +596,7 @@ function checkpointBrief(
   const reasons = new Set(
     r.na.map((id) => {
       const c = conditionOf(cps.find((k) => k.id === id)!, category)!;
-      return naReason(c.attr, c.equals);
+      return naReason(c);
     }),
   );
   return compact({
