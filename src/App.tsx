@@ -51,6 +51,7 @@ import { RoundPage } from "./pages/Round";
 import { ScanPage } from "./pages/Scan";
 import { SettingsFrame, SettingsPage } from "./pages/Settings";
 import { SignPage } from "./pages/Sign";
+import { ChecklistPage } from "./pages/Checklist";
 import { TeamPage } from "./pages/Team";
 
 function RequireAuth({ children }: { children: ReactNode }) {
@@ -137,6 +138,14 @@ export function App() {
           element={
             <RequireAuth>
               <Protocol />
+            </RequireAuth>
+          }
+        />
+        <Route
+          path="/druck/checkliste"
+          element={
+            <RequireAuth>
+              <ChecklistPage />
             </RequireAuth>
           }
         />

@@ -31,6 +31,14 @@ import {
 } from "../shared/vocab";
 import { dayIn, monthRange } from "../shared/dates";
 import { normalizeOffer, offerText } from "../shared/offer";
+import {
+  announcedAssetBody,
+  findAnnounced,
+  matchProductType,
+  productLabel,
+  RAW_SOURCE_LABEL,
+  type RawNote,
+} from "../shared/announce";
 import { expandCatalogDefects, splitFindings } from "../shared/duplicates";
 import {
   dateArg,
@@ -561,6 +569,118 @@ interface Draft {
   signature: string | null;
   readyAt: number | null;
   asset: { code: string; category: string; location: string };
+  rawNotes?: RawNote[];
+}
+
+/**
+ * Tür per Nummer und Typ (Plan v7 W): im Objekt finden (Nummer, auch alter Code mit dieser Zahl) oder anlegen –
+ * feste Nummer, Standort „Raum <Nr.>“, Stammdaten aus dem Katalog-Typ. Unbekannter Typ: Tür mit Typ „unbekannt“,
+ * allgemeine Checkliste, der genannte Typ wird Rohnotiz. Anlegen braucht wie capture das Recht „darf anlegen“.
+ */
+async function announceAsset(
+  x: Ctx,
+  a: Json,
+): Promise<{
+  id: string;
+  created: string | null;
+  typeNote: string | null;
+  general: boolean;
+  rawNote: Json | null;
+}> {
+  const n = Number(a.number);
+  if (!Number.isInteger(n) || n < 1 || n > 99999)
+    throw new ToolError("`number` muss eine ganze Zahl von 1 bis 99999 sein (die Türnummer, z. B. 354).");
+  if (!lc(a.property) && !lc(a.building))
+    throw new ToolError(
+      "Zu `number` gehört `property` (Objekt), z. B. {number: 354, type: \"SK32\", property: \"Hotel Seeblick\"}.",
+    );
+  const prop = lc(a.property) ? await resolveProperty(x, a.property) : null;
+  const cats = await x.categories();
+  const label = (k: string) => cats.find((c) => c.key === k)?.label ?? k;
+  const typeText = s(a.type).trim();
+  const catalog = (await x
+    .api({ method: "GET", path: "/catalog" })
+    .catch(() => ({ products: [] }))) as { products?: CatalogProduct[] };
+  const products = catalog.products ?? [];
+  const m = typeText ? matchProductType(typeText, products, "fire_door") : null;
+  if (m && !m.product && m.candidates.length > 1)
+    throw new ToolError(
+      `Typ „${typeText}“ ist mehrdeutig: ${m.candidates.map((p) => productLabel(p)).join("; ")}. Bitte genauer nennen (Hersteller und Typ). Nichts angelegt.`,
+    );
+  const product = (m?.product ?? null) as CatalogProduct | null;
+  const category = product?.category || "fire_door";
+  // im Objekt suchen: alle Elemente mit dieser Nummer (Art muss passen, sonst Hinweis wie Plan v6 A1)
+  const building = lc(a.building)
+    ? await resolveBuilding(x, a.building, a.property)
+    : null;
+  const propertyId = prop?.id ?? building?.propertyId ?? "";
+  const rows = (await x.api({
+    method: "GET",
+    path: `/assets?propertyId=${enc(propertyId)}`,
+  })) as { id: string; code: string; number: number | null; category: string; model?: string }[];
+  const hit = findAnnounced(n, rows, category, label);
+  if (hit && "conflict" in hit)
+    throw new ToolError(`${hit.conflict} – „Tür ${n}“ passt nicht. Bitte Nummer prüfen. Nichts angelegt.`);
+  const unknownType = !!typeText && !product;
+  const rawNote = unknownType
+    ? {
+        id: crypto.randomUUID().replace(/-/g, "").slice(0, 20),
+        text: `Typ „${typeText}“ – nicht im Katalog`,
+        at: Date.now(),
+        source: "mcp",
+        kind: "type",
+      }
+    : null;
+  if (hit) {
+    const cur = s((hit.asset as { model?: string }).model);
+    const typeNote =
+      product && cur && foldText(cur) !== foldText(product.model)
+        ? `Am Element steht Typ „${cur}“, genannt wurde „${productLabel(product)}“ – Stammdaten bleiben; ändern mit update_asset.`
+        : null;
+    return { id: hit.asset.id, created: null, typeNote, general: false, rawNote };
+  }
+  const b = building ?? (await onlyBuilding(x, prop?.name ?? a.property));
+  const cat = cats.find((c) => c.key === category);
+  const body = announcedAssetBody(
+    { number: n, location: s(a.location).trim() || `Raum ${n}` },
+    product,
+    (cat?.attributes ?? []).map((f) => f.key),
+    category,
+  );
+  let created: { id: string; code: string };
+  try {
+    created = (await x.api({
+      method: "POST",
+      path: "/assets",
+      body: { buildingId: b.id, ...body, floor: s(a.floor).trim() },
+    })) as { id: string; code: string };
+  } catch (e) {
+    if (e instanceof ApiError && e.status === 403)
+      throw new ToolError(
+        "Neue Elemente anlegen darf diese Verbindung nicht (Recht „darf anlegen“ fehlt). Nichts angelegt.",
+      );
+    throw e;
+  }
+  return {
+    id: created.id,
+    created: `${created.code} angelegt (Nr. ${n}, ${body.location}${product ? `, ${productLabel(product)}` : ", Typ unbekannt – allgemeine Checkliste"})`,
+    typeNote: unknownType
+      ? `Typ „${typeText}“ steht nicht im Katalog – als Rohnotiz gespeichert; mit catalog anlegen und update_asset nachtragen.`
+      : !typeText
+        ? "Kein Typ genannt – Typ „unbekannt“, allgemeine Checkliste."
+        : null,
+    general: !product,
+    rawNote,
+  };
+}
+
+/** Kurzform der Stammdaten (nur gesetzte Felder) für Listen. */
+function attrsShort(cat: CategoryInfo | undefined, attrs: Json): string {
+  return (cat?.attributes ?? [])
+    .filter((f) => attrs[f.key] != null && attrs[f.key] !== "")
+    .slice(0, 10)
+    .map((f) => `${f.label}: ${attrs[f.key] === true ? "ja" : attrs[f.key] === false ? "nein" : s(attrs[f.key])}`)
+    .join(", ");
 }
 
 /** Prüfpunkt aus Nummer („3“), ID („p3“), Bezeichnungsteil oder – als Rückfall – aus dem Text. */
@@ -692,7 +812,7 @@ export const TOOLS: Tool[] = [
       const since =
         (await dateArg(x, a.since, "since", { allowPast: true, time: "start" })) ??
         Date.now() - 7 * 86_400_000;
-      const [dash, now, log, ready, findings, walks] = await Promise.all([
+      const [dash, now, log, ready, findings, walks, dictation] = await Promise.all([
         x.api({ method: "GET", path: "/dashboard" }) as Promise<{
           counts: Json;
           tasks: Json[];
@@ -708,6 +828,9 @@ export const TOOLS: Tool[] = [
           .api({ method: "GET", path: "/inspections/pending-findings" })
           .catch(() => []) as Promise<Json[]>,
         walkthroughsDue(x),
+        x
+          .api({ method: "GET", path: "/inspections/raw-notes" })
+          .catch(() => []) as Promise<Json[]>,
       ]);
       const c = dash.counts;
       const entries = log.filter((e) => Number(e.at) >= since);
@@ -757,6 +880,17 @@ export const TOOLS: Tool[] = [
         readyToSign: ready.length
           ? `${ready.length} ${ready.length === 1 ? "Prüfung wartet" : "Prüfungen warten"} in der App auf die Unterschrift`
           : 0,
+        // Plan v7 W: Rohdiktat (Tastatur-Diktat ohne Netz, Ansagen) wartet auf Auswertung durch Claude
+        ...(dictation.length
+          ? {
+              dictation: {
+                text: `${dictation.length} ${dictation.length === 1 ? "Prüfung mit unausgewertetem Diktat" : "Prüfungen mit unausgewertetem Diktat"}`,
+                inspections: dictation.length,
+                notes: dictation.reduce((n, r) => n + (Number(r.pending) || 0), 0),
+                hint: 'Lesen mit list(what: "raw_notes"), auswerten mit inspect (inspection, Befunde, evaluated: true).',
+              },
+            }
+          : {}),
         now,
         autopilot: {
           since: f.dayTime(since),
@@ -966,11 +1100,11 @@ export const TOOLS: Tool[] = [
     name: "list",
     title: "Auflisten",
     description:
-      'Listen mit Filtern. `what`: assets (Elemente mit Fälligkeit), defects (Mängel), tasks (Aufgaben), inspections (Prüfungen; status "ready" = wartet auf Unterschrift), walkthroughs (Begehungen). Filter je nach Liste: `due` (assets: overdue|soon|never|defects|new|not_inspectable), `status`, `severity`, `category`, `property`, `building`, `from`/`to` (ISO, für inspections), `limit` (Standard 50). Beispiele: {what: "assets", due: "overdue", property: "Rathaus"}, {what: "defects", severity: "critical"}, {what: "tasks", status: "open"}.',
+      'Listen mit Filtern. `what`: assets (Elemente mit Fälligkeit), defects (Mängel), tasks (Aufgaben), inspections (Prüfungen; status "ready" = wartet auf Unterschrift), walkthroughs (Begehungen), raw_notes (Prüfungen mit noch nicht ausgewertetem Rohdiktat: je Prüfung Element, Stammdaten-Kurzform, die Rohtexte mit noteId und die bisherige Zuordnung durch den Regel-Parser – auswerten mit inspect {inspection, …, evaluated: true}; `status: "all"` zeigt auch schon ausgewertete). Filter je nach Liste: `due` (assets: overdue|soon|never|defects|new|not_inspectable), `status`, `severity`, `category`, `property`, `building`, `from`/`to` (ISO, für inspections), `limit` (Standard 50). Beispiele: {what: "assets", due: "overdue", property: "Rathaus"}, {what: "defects", severity: "critical"}, {what: "tasks", status: "open"}.',
     inputSchema: obj(
       {
         what: str("Welche Liste", {
-          enum: ["assets", "defects", "tasks", "inspections", "walkthroughs"],
+          enum: ["assets", "defects", "tasks", "inspections", "walkthroughs", "raw_notes"],
         }),
         due: str(
           "nur Elemente: overdue = überfällig, soon = in 30 Tagen fällig, never = nie geprüft, defects = mit offenen Mängeln, new = in 30 Tagen angelegt, not_inspectable = zuletzt nicht prüfbar",
@@ -1120,6 +1254,75 @@ export const TOOLS: Tool[] = [
             "inspections",
           );
         }
+        case "raw_notes": {
+          const qs = new URLSearchParams();
+          if (prop) qs.set("propertyId", prop.id);
+          if (s(a.status) === "all") qs.set("all", "1");
+          const rows = (await x.api({
+            method: "GET",
+            path: `/inspections/raw-notes?${qs}`,
+          })) as Json[];
+          const cats = await x.categories();
+          const AN: Record<string, string> = { ok: "i. O.", defect: "Mangel", na: "entfällt" };
+          return cut(
+            rows.map((r) => {
+              const cat = cats.find((c) => c.key === r.category);
+              const cps = (r.checkpoints ?? []) as { id: string; label: string }[];
+              const answers = (r.answers ?? {}) as Record<string, string>;
+              const cpName = (id: unknown) => {
+                const i = cps.findIndex((c) => c.id === id);
+                return i >= 0 ? `${i + 1}. ${cps[i].label}` : null;
+              };
+              const counts = Object.values(answers).reduce<Record<string, number>>((m, v) => ((m[v] = (m[v] ?? 0) + 1), m), {});
+              return compact({
+                inspectionId: r.id,
+                element: `${s(r.code)}${r.number != null ? ` (Nr. ${s(r.number)})` : ""}${r.location ? `, ${s(r.location)}` : ""}`,
+                art: cat?.label ?? s(r.category),
+                property: r.propertyName,
+                type: [s(r.manufacturer), s(r.model)].filter(Boolean).join(" ") || null,
+                data: attrsShort(cat, (r.attributes ?? {}) as Json) || null,
+                status: r.status === "submitted" ? "submitted" : r.readyAt ? "ready" : "draft",
+                statusLabel:
+                  r.status === "submitted"
+                    ? "abgeschlossen (unterschrieben) – nur noch als ausgewertet markieren"
+                    : r.readyAt
+                      ? "bereit zur Unterschrift"
+                      : "Entwurf",
+                date: day(r.inspectedAt ?? r.createdAt),
+                inspector: r.inspector,
+                rawNotes: ((r.rawNotes ?? []) as RawNote[])
+                  .filter((nt) => s(a.status) === "all" || !nt.evaluated)
+                  .map((nt) =>
+                    compact({
+                      noteId: nt.id,
+                      text: nt.text,
+                      at: dayTime(nt.at),
+                      source: RAW_SOURCE_LABEL[nt.source] ?? nt.source,
+                      kind: nt.kind === "announce" ? "Ansage" : nt.kind === "type" ? "Typ (nicht im Katalog)" : nt.kind === "finding" ? "Befund" : null,
+                      parser: nt.summary ?? null,
+                      critical: nt.critical ? "kritisches Wort erkannt" : null,
+                      evaluated: nt.evaluated ? true : null,
+                    }),
+                  ),
+                current: compact({
+                  answers: Object.entries(counts)
+                    .map(([k, v]) => `${v} ${AN[k] ?? k}`)
+                    .join(", ") || "noch nichts bewertet",
+                  open: cps.length - Object.keys(answers).length || null,
+                  defects: ((r.defects ?? []) as Json[]).map((d) =>
+                    compact({
+                      title: d.title,
+                      ...sevOut(d.severity),
+                      checkpoint: cpName(d.checkpointId) ?? "ohne Prüfpunkt",
+                      known: d.known ? "bekannter Mangel" : null,
+                    }),
+                  ),
+                }),
+              });
+            }),
+            "inspections",
+          );
+        }
         case "walkthroughs": {
           const rows = (
             (await x.api({ method: "GET", path: "/walkthroughs" })) as Json[]
@@ -1157,7 +1360,7 @@ export const TOOLS: Tool[] = [
         }
         default:
           throw new ToolError(
-            "`what` muss assets, defects, tasks, inspections oder walkthroughs sein.",
+            "`what` muss assets, defects, tasks, inspections, walkthroughs oder raw_notes sein.",
           );
       }
     },
@@ -1914,7 +2117,7 @@ export const TOOLS: Tool[] = [
     name: "update_asset",
     title: "Stammdaten nachtragen",
     description:
-      'Stammdaten eines Elements ergänzen oder korrigieren – typischerweise nach dem Lesen eines Typenschilds mit get_photo. Nur genannte Felder ändern sich; Werte werden geprüft (Auswahllisten nur mit erlaubten Werten, Zahlen, Baujahr 1950 bis nächstes Jahr, Ja/Nein) – bei einem Fehler wird nichts gespeichert. Felder: manufacturer, model, year (Baujahr), serial (Seriennummer), approval (Zulassungsnummer), location, floor, label (Etikett/QR-Code); weitere Felder der Elementart über `fields` (Schlüssel aus search(type: "categories"), z. B. {rating: "T30"}). Antwort nennt jede Änderung „vorher → nachher“. Beispiel: {asset: "FL-3MX9", manufacturer: "Gloria", model: "PD 6 GA", year: 2019, serial: "A1234567"}.',
+      'Stammdaten eines Elements ergänzen oder korrigieren – typischerweise nach dem Lesen eines Typenschilds mit get_photo. `archive: true` (allein, optional mit `reason`) archiviert das Element statt dessen – nur mit einer Admin-Verbindung (Schlüssel bzw. Anmeldung einer Admin- oder Inhaber-Person), in der App 30 Tage im Papierkorb wiederherstellbar (Einstellungen → Unternehmen → Papierkorb). Nur genannte Felder ändern sich; Werte werden geprüft (Auswahllisten nur mit erlaubten Werten, Zahlen, Baujahr 1950 bis nächstes Jahr, Ja/Nein) – bei einem Fehler wird nichts gespeichert. Felder: manufacturer, model, year (Baujahr), serial (Seriennummer), approval (Zulassungsnummer), location, floor, label (Etikett/QR-Code); weitere Felder der Elementart über `fields` (Schlüssel aus search(type: "categories"), z. B. {rating: "T30"}). Antwort nennt jede Änderung „vorher → nachher“. Beispiel: {asset: "FL-3MX9", manufacturer: "Gloria", model: "PD 6 GA", year: 2019, serial: "A1234567"}.',
     inputSchema: obj(
       {
         asset: str(
@@ -1936,12 +2139,37 @@ export const TOOLS: Tool[] = [
             type: ["string", "number", "boolean", "null"],
           },
         },
+        archive: bool("Element archivieren (Papierkorb, in der App 30 Tage wiederherstellbar) – nur Admin-Verbindung, allein senden"),
+        reason: str("Grund fürs Archivieren, z. B. „Tür ausgebaut“"),
       },
       ["asset"],
     ),
     readOnly: false,
     run: async (a, x) => {
       const id = await assetId(x, a.asset, a.property);
+      if (a.archive === true) {
+        const other = ["manufacturer", "model", "year", "serial", "approval", "location", "floor", "label", "fields"].filter((k) => a[k] !== undefined);
+        if (other.length)
+          throw new ToolError(`archive allein senden (ohne ${other.join(", ")}). Nichts geändert.`);
+        try {
+          const r = (await x.api({
+            method: "POST",
+            path: `/assets/${enc(id)}/archive`,
+            body: { reason: s(a.reason).trim() },
+          })) as { code: string };
+          return {
+            asset: r.code,
+            archived: true,
+            restore: "In der App 30 Tage wiederherstellbar: Einstellungen → Unternehmen → Papierkorb (Admins).",
+          };
+        } catch (e) {
+          if (e instanceof ApiError && e.status === 403)
+            throw new ToolError(
+              "Archivieren geht nur mit einer Admin-Verbindung (Schlüssel bzw. Anmeldung einer Admin- oder Inhaber-Person). Das können sonst nur Admins in der App. Nichts geändert.",
+            );
+          throw e;
+        }
+      }
       const r = (await x.api({
         method: "GET",
         path: `/assets/${enc(id)}`,
@@ -2476,13 +2704,20 @@ export const TOOLS: Tool[] = [
     name: "inspect",
     title: "Prüfung ausfüllen",
     description:
-      'Füllt die Prüfung eines Elements aus dem Gesagten aus und legt sie in der App **zur Unterschrift** bereit. Schließt nie ab und unterschreibt nie – das macht die prüfende Person in der App (Prüfen → Unterschreiben). `allOk: true` setzt alle noch offenen Prüfpunkte auf „i. O.“ – Punkte, die nach den Stammdaten nicht zutreffen (keine Feststellanlage, einflügelig), auf „entfällt“; fehlt das Stammdatum, bleibt der Punkt offen und `ask` fragt gezielt nach (die Antwort gleich mit `fields` mitgeben, z. B. {holdOpen: false}). Ausnahmen als `defects` (title, severity, measure, note; Prüfpunkt per `checkpoint` = Nummer oder Stichwort; ohne Angabe nur bei eindeutigem Treffer zugeordnet, sonst fragt `ask` nach). Bekannte offene Mängel mit `known` (defectId oder Titel) als still (weiterhin vorhanden) oder fixed (behoben) melden; ein neuer Mangel mit demselben Titel wie ein offener wird mit diesem zusammengeführt. Weitere: `answers` (einzelne Punkte ok/defect/na), `maintenance` (durchgeführte Arbeiten, auch mit anderen Worten wie „Batterie gewechselt“), `notes`, `notInspectable` nur mit `reason` (spätere Befunde oder allOk heben „nicht prüfbar“ auf und melden das). Widersprüche (i. O. und Mangel am selben Punkt, Arbeit „Melder gereinigt“ und Mangel „Melder verschmutzt“) stehen in `ask`; die Prüfung bleibt dann Entwurf. Mehrfach aufrufbar – ergänzt denselben Entwurf. Antwort: Kurzfassung, Ergebnis, `status` (draft = Entwurf, ready = wartet auf Unterschrift) und was noch fehlt. Beispiel: {asset: "FST-7K2M", allOk: true, defects: [{title: "Obentürschließer zieht nicht ganz zu", severity: "medium", measure: "Schließer einstellen", checkpoint: "Schließer"}]}.',
+      'Füllt die Prüfung eines Elements aus dem Gesagten aus und legt sie in der App **zur Unterschrift** bereit. Schließt nie ab und unterschreibt nie – das macht die prüfende Person in der App (Prüfen → Unterschreiben). Element per `asset` (Code) – oder **angesagt** per `number` + `type` + `property` („Tür 354, Typ SK32“): findet die Tür mit dieser Nummer im Objekt oder legt sie an (feste Nummer, Standort „Raum 354“, Stammdaten aus dem Katalog-Typ; Typ nicht im Katalog → Typ „unbekannt“, allgemeine Checkliste, der Typ bleibt Rohnotiz; Anlegen braucht wie capture „darf anlegen“). Rohdiktat auswerten: `inspection` (inspectionId aus list(what: "raw_notes")) mit den daraus gelesenen Befunden und `evaluated: true` (alle Rohnotizen dieser Prüfung) bzw. `rawNoteIds` – eine schon unterschriebene Prüfung lässt sich nur noch als ausgewertet markieren. `allOk: true` setzt alle noch offenen Prüfpunkte auf „i. O.“ – Punkte, die nach den Stammdaten nicht zutreffen (keine Feststellanlage, einflügelig), auf „entfällt“; fehlt das Stammdatum, bleibt der Punkt offen und `ask` fragt gezielt nach (die Antwort gleich mit `fields` mitgeben, z. B. {holdOpen: false}). Ausnahmen als `defects` (title, severity, measure, note; Prüfpunkt per `checkpoint` = Nummer oder Stichwort; ohne Angabe nur bei eindeutigem Treffer zugeordnet, sonst fragt `ask` nach). Bekannte offene Mängel mit `known` (defectId oder Titel) als still (weiterhin vorhanden) oder fixed (behoben) melden; ein neuer Mangel mit demselben Titel wie ein offener wird mit diesem zusammengeführt. Weitere: `answers` (einzelne Punkte ok/defect/na), `maintenance` (durchgeführte Arbeiten, auch mit anderen Worten wie „Batterie gewechselt“), `notes`, `notInspectable` nur mit `reason` (spätere Befunde oder allOk heben „nicht prüfbar“ auf und melden das). Widersprüche (i. O. und Mangel am selben Punkt, Arbeit „Melder gereinigt“ und Mangel „Melder verschmutzt“) stehen in `ask`; die Prüfung bleibt dann Entwurf. Mehrfach aufrufbar – ergänzt denselben Entwurf. Antwort: Kurzfassung, Ergebnis, `status` (draft = Entwurf, ready = wartet auf Unterschrift) und was noch fehlt. Beispiel: {asset: "FST-7K2M", allOk: true, defects: [{title: "Obentürschließer zieht nicht ganz zu", severity: "medium", measure: "Schließer einstellen", checkpoint: "Schließer"}]}.',
     inputSchema: obj(
       {
         asset: str(
           "Element-Code, z. B. „FST-7K2M“ – oder Nummer wie „Tür 36“ zusammen mit `property`",
         ),
-        property: str("Objekt (Name), wenn `asset` eine Nummer wie „Tür 36“ ist"),
+        property: str("Objekt (Name), wenn `asset` eine Nummer wie „Tür 36“ ist oder `number` angesagt wird"),
+        number: int("angesagte Türnummer (Ident-Nr.) – findet oder legt die Tür im Objekt an", 1, 99999),
+        type: str("angesagter Typ, z. B. „SK32“, „Novoferm Premio T30-RS“ (Katalog: Hersteller, Modell, Aliasse)"),
+        building: str("Gebäude für eine neue Tür (nur nötig, wenn das Objekt mehrere hat)"),
+        location: str("Standort einer neuen Tür (Standard „Raum <Nummer>“)"),
+        inspection: str("inspectionId (aus list raw_notes): genau diese Prüfung bearbeiten"),
+        evaluated: bool("alle Rohnotizen der Prüfung als ausgewertet markieren"),
+        rawNoteIds: arr({ type: "string" }, "nur diese Rohnotizen (noteId) als ausgewertet markieren", 50),
         allOk: bool(
           "alle noch nicht bewerteten Prüfpunkte auf „i. O.“ setzen (nicht Zutreffendes auf „entfällt“)",
         ),
@@ -2547,10 +2782,44 @@ export const TOOLS: Tool[] = [
         ),
         reason: str("Grund für „nicht prüfbar“ (Pflicht)"),
       },
-      ["asset"],
+      [],
     ),
     readOnly: false,
     run: async (a, x) => {
+      if (!lc(a.asset) && a.number == null && !lc(a.inspection))
+        throw new ToolError(
+          "Welches Element? `asset` (Code), `number` + `type` + `property` (angesagte Tür) oder `inspection` (aus list raw_notes).",
+        );
+      const markIds = Array.isArray(a.rawNoteIds) ? a.rawNoteIds.map(s).filter(Boolean) : [];
+      const mark = a.evaluated === true || markIds.length > 0;
+      // Plan v7 W: genau diese Prüfung (Rohdiktat auswerten)
+      let given: Draft | null = null;
+      if (lc(a.inspection)) {
+        given = (await x.api({
+          method: "GET",
+          path: `/inspections/${enc(s(a.inspection))}`,
+        })) as unknown as Draft;
+        if (given.status !== "draft") {
+          const findingsToo =
+            !!a.allOk || list(a.answers).length || list(a.defects).length || list(a.known).length || a.notInspectable || a.fields;
+          if (findingsToo)
+            throw new ToolError(
+              "Diese Prüfung ist schon unterschrieben – Befunde ändern geht nur als Berichtigung in der App. Rohnotizen lassen sich mit evaluated: true als ausgewertet markieren.",
+            );
+          if (!mark) throw new ToolError("Prüfung ist abgeschlossen. Mit evaluated: true die Rohnotizen als ausgewertet markieren.");
+          const r = (await x.api({
+            method: "PATCH",
+            path: `/inspections/${enc(given.id)}/raw-notes`,
+            body: markIds.length ? { ids: markIds, evaluated: true } : { all: true, evaluated: true },
+          })) as { changed: number };
+          return compact({
+            asset: given.asset.code,
+            inspectionId: given.id,
+            status: "submitted",
+            rawNotes: `${r.changed} ${r.changed === 1 ? "Rohnotiz" : "Rohnotizen"} als ausgewertet markiert`,
+          });
+        }
+      }
       // Plan v6 B6: „nicht prüfbar“ nur mit Grund, und nicht zugleich mit Befunden
       const hasFindings =
         !!a.allOk ||
@@ -2564,7 +2833,14 @@ export const TOOLS: Tool[] = [
         throw new ToolError(
           "Entweder „nicht prüfbar“ (mit reason) oder Befunde/allOk – nicht beides in einem Aufruf. Nichts geändert.",
         );
-      const id = await assetId(x, a.asset, a.property);
+      // Plan v7 W: angesagte Tür finden oder anlegen
+      const announced =
+        !given && !lc(a.asset) && a.number != null ? await announceAsset(x, a) : null;
+      const id = given
+        ? given.assetId
+        : announced
+          ? announced.id
+          : await assetId(x, a.asset, a.property);
       const asset = (await x.api({
         method: "GET",
         path: `/assets/${enc(id)}`,
@@ -2609,11 +2885,16 @@ export const TOOLS: Tool[] = [
           attrs = next;
         }
       }
-      const started = (await x.api({
-        method: "POST",
-        path: `/assets/${enc(id)}/inspections`,
-        body: {},
-      })) as { id: string };
+      const started = given
+        ? { id: given.id }
+        : ((await x.api({
+            method: "POST",
+            path: `/assets/${enc(id)}/inspections`,
+            body: compact({
+              general: announced?.general || undefined,
+              rawNote: announced?.rawNote ?? undefined,
+            }),
+          })) as { id: string });
       const d = (await x.api({
         method: "GET",
         path: `/inspections/${enc(started.id)}`,
@@ -2878,8 +3159,24 @@ export const TOOLS: Tool[] = [
         na: "entfällt",
       };
       const status = r.ready && !conflicts.length ? "ready" : "draft";
+      // Plan v7 W: Rohdiktat als ausgewertet markieren
+      let rawInfo: string | null = null;
+      const pendingRaw = (d.rawNotes ?? []).filter((nt) => !nt.evaluated);
+      if (mark && pendingRaw.length) {
+        const m = (await x.api({
+          method: "PATCH",
+          path: `/inspections/${enc(d.id)}/raw-notes`,
+          body: markIds.length ? { ids: markIds, evaluated: true } : { all: true, evaluated: true },
+        })) as { changed: number };
+        const left = markIds.length ? pendingRaw.length - m.changed : 0;
+        rawInfo = `${m.changed} ${m.changed === 1 ? "Rohnotiz" : "Rohnotizen"} als ausgewertet markiert${left > 0 ? `, ${left} noch offen` : ""}`;
+      } else if (pendingRaw.length)
+        rawInfo = `${pendingRaw.length} ${pendingRaw.length === 1 ? "Rohnotiz" : "Rohnotizen"} noch nicht ausgewertet (list raw_notes) – nach der Auswertung evaluated: true senden`;
       return compact({
         asset: `${d.asset.code}${d.asset.location ? ` (${d.asset.location})` : ""}`,
+        created: announced?.created ?? null,
+        typeNote: announced?.typeNote ?? null,
+        rawNotes: rawInfo,
         inspectionId: d.id,
         kinds: d.kindLabels.join(", "),
         result: RESULT[result],

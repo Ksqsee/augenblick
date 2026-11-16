@@ -1,6 +1,6 @@
 ---
 name: pruefkompass
-description: Arbeiten mit Prüfkompass (Wartung und Prüfung von Feuer- und Rauchschutztüren, Feststellanlagen und anderem Brandschutz) über den Prüfkompass-Connector. Nutze diesen Skill immer, wenn jemand Türen oder Feststellanlagen prüfen, einen Rundgang machen, einen Befund oder Mangel durchgeben, ein Objekt mit Elementen anlegen, wissen will, was heute oder diese Woche ansteht, Mängel oder Aufgaben nachhalten oder Datenblätter, Türlisten und Prüfprotokolle in den Katalog übernehmen möchte – auch wenn „Prüfkompass“ nicht ausdrücklich genannt wird, etwa bei „Tür 36 schließt nicht“, „drei T30-Türen im Erdgeschoss“, „führ mich durchs Hotel“ oder „was ist offen?“.
+description: Arbeiten mit Prüfkompass (Wartung und Prüfung von Feuer- und Rauchschutztüren, Feststellanlagen und anderem Brandschutz) über den Prüfkompass-Connector. Nutze diesen Skill immer, wenn jemand eine Tür ansagt („Tür 354, Typ SK32“), Türen oder Feststellanlagen prüfen, einen Rundgang machen, einen Befund oder Mangel durchgeben, Diktat oder Rohnotizen auswerten, eine Checkliste je Türtyp drucken, ein Objekt mit Elementen anlegen, wissen will, was heute oder diese Woche ansteht, Mängel oder Aufgaben nachhalten oder Datenblätter, Türlisten und Prüfprotokolle in den Katalog übernehmen möchte – auch wenn „Prüfkompass“ nicht ausdrücklich genannt wird, etwa bei „Tür 36 schließt nicht“, „Tür 355, gleicher Typ“, „werte mein Diktat von heute aus“, „drei T30-Türen im Erdgeschoss“, „führ mich durchs Hotel“ oder „was ist offen?“.
 ---
 
 # Prüfkompass
@@ -45,24 +45,75 @@ sag, dass es ein Vorschlag ist, wenn die Person nichts dazu gesagt hat.
 
 ## Elemente ansprechen
 
-Jedes Element hat einen Code. Neue Elemente sind je Objekt durchnummeriert: `FST-001` (Feuerschutztür),
-`FSA-002` (Feststellanlage), `FL-…` (Feuerlöscher), `RWM-…` (Rauchwarnmelder), `BSK-…` (Brandschutzklappe).
-Vor Ort sagt niemand „FST-036“, sondern „Tür 36“ oder „Nummer 36“. Die Werkzeuge verstehen das, **wenn das
-Objekt bekannt ist** – gib deshalb `property` (Objektname) mit. Merk dir das Objekt, sobald es einmal genannt
-wurde, und frag nicht bei jeder Tür neu.
+Jedes Element hat einen Code. Neue Elemente sind je Objekt durchnummeriert (Tür, `FSA-…` Feststellanlage,
+`FL-…` Feuerlöscher, `RWM-…` Rauchwarnmelder, `BSK-…` Brandschutzklappe; ältere Türen heißen z. B. `FST-036`).
+Vor Ort sagt niemand den Code, sondern „Tür 36“ oder „Nummer 36“ – die Ident-Nummer an der Tür bzw. im
+Protokoll. Die Werkzeuge verstehen das, **wenn das Objekt bekannt ist** – gib deshalb `property` (Objektname)
+mit. Merk dir das Objekt, sobald es einmal genannt wurde, und frag nicht bei jeder Tür neu.
 
 Das Artwort zählt: „Tür 4“ meint eine Tür. Ist Nummer 4 im Objekt ein Feuerlöscher, lehnt das Werkzeug ab
 („Nummer 4 ist ein Feuerlöscher“) – gib das so weiter und frag nach, statt es mit „Nummer 4“ zu umgehen.
 Genau dieser Fehler hat schon einmal einen Befund am falschen Element gelandet.
 
+## Der Ablauf des Betriebs: Tür ansagen, nur Abweichungen
+
+So arbeitet der Betrieb: Man geht durchs Haus, sagt an jeder Tür **Nummer und Typ** („Tür 354, Typ SK32“) und
+danach **nur, was nicht stimmt**. Alles Übrige gilt als in Ordnung; was nach den Stammdaten des Typs nicht
+zutrifft (keine Feststellanlage, einflügelig, kein Rauchschutz), entfällt von selbst. Es gibt keinen
+Aufkleber, oft keinen Grundriss und keine vorher gepflegte Türliste – die Türen entstehen beim Ansagen. Die
+gedruckte Checkliste je Typ ist die Gedächtnisstütze in der Hand, keine Eingabe.
+
+### „Tür 354, Typ SK32 – Türstopper fehlt“
+`inspect` mit `number`, `type` und `property` (nicht `asset`): Die App findet die Tür mit dieser Nummer im
+Objekt oder legt sie an (feste Nummer, Standort „Raum 354“, Hersteller, Typ und Stammdaten aus dem Katalog –
+erkannt über Hersteller, Modell, Aliasse und Kurzformen wie „Novo“), dann wie immer `allOk: true` plus die
+genannten `defects`. Antwort an der Tür: „354 angelegt, Türstopper fehlt eingetragen. Nächste?“
+- **„Tür 355, gleicher Typ“ / „nochmal so eine“**: denselben `type` wie zuvor mitgeben – merk ihn dir.
+- **„Zimmer 810“** statt „Tür“: `number: 810`, `location: "Zimmer 810"`.
+- **Gibt es die Tür schon**, wird sie gefunden (`created` fehlt); weicht der genannte Typ ab, steht das in
+  `typeNote` – Stammdaten nur auf ausdrücklichen Wunsch mit `update_asset` ändern.
+- **Mehrdeutiger Typ** („Novoferm“ – welcher?): das Werkzeug legt nichts an und nennt die Kandidaten; frag
+  einmal kurz nach.
+- **Unbekannter Typ**: nicht abbrechen. Die Tür entsteht mit Typ „unbekannt“ und allgemeiner Checkliste, der
+  genannte Typ bleibt als Rohnotiz an der Prüfung. Sag das in einem Satz und biete später an, den Typ mit
+  `catalog` (erst `preview`) anzulegen und mit `update_asset` nachzutragen.
+- **„Nummer 400 ist ein Feuerlöscher“**: Nummer und Art passen nicht – weitergeben, nachfragen, nichts umgehen.
+
+In der App geht dasselbe ohne Claude: Prüfen → „Tür ansagen“ (Mikrofon oder Tastatur), die Prüfung öffnet mit
+dem Feld für die Abweichung, „Alles andere in Ordnung“, „Bereit · nächste Tür“ – auch ohne Netz.
+
+### Rohdiktat auswerten: „Werte mein Diktat von heute aus“
+Ohne Netz diktieren die Leute mit der Tastatur des Handys. Die App speichert den Text roh an der Prüfung,
+ordnet ihn nach Regeln grob ein und warnt bei kritischen Wörtern – die eigentliche Auswertung machst du später.
+`briefing` nennt „n Prüfungen mit unausgewertetem Diktat“.
+1. `list` mit `what: "raw_notes"` (optional `property`): je Prüfung Element, Typ, Stammdaten-Kurzform, die
+   Rohtexte (`noteId`, Quelle App/Offline/Claude, Einordnung des Parsers) und die bisherige Zuordnung
+   (`current`: Antworten, Mängel mit Prüfpunkt).
+2. Lies jeden Rohtext gegen die Zuordnung: fehlt ein Mangel, ist er falsch zugeordnet oder zu leicht
+   eingestuft, ist ein „Mangel“ in Wahrheit eine erledigte Arbeit („OTS eingestellt“ → `maintenance`)?
+3. `inspect` mit `inspection` (die inspectionId), den korrigierten `defects`/`answers`/`maintenance` und
+   `evaluated: true` – oder nur `evaluated: true`, wenn alles schon stimmt. Ein Rohtext mit „Typ … nicht im
+   Katalog“ ist ein Auftrag für den Katalog (siehe Wissen aufbauen).
+4. Zusammenfassung am Schreibtisch: „7 Prüfungen ausgewertet, 2 Mängel ergänzt, 1 Typ fehlt im Katalog.
+   Bitte in der App unter Prüfen → Unterschreiben abschließen.“ Ist eine Prüfung schon unterschrieben, kannst
+   du sie nur noch als ausgewertet markieren – Änderungen wären eine Berichtigung in der App; sag das.
+
+### Checkliste je Typ zum Ausdrucken
+Jemand will die Liste für einen Türtyp mitnehmen: Sie liegt in der App unter Einstellungen → Katalog → Produkt
+(„Checkliste zum Ausdrucken“), am Element (⋯ → Checkliste drucken) und auf „Prüfen“ unter dem Ansagefeld – eine
+A4-Seite mit Typ, Anforderung und Zulassung, nur den zutreffenden Prüfpunkten nach Bauteil und Platz für
+Türnummern, auch als PDF. Du erzeugst sie nicht selbst; nenn den Weg.
+
 ## Was die Leute wollen – und was du dann tust
 
 ### „Was steht an?“ / Start in den Tag
 `briefing`. Gib das Wichtigste in wenigen Zeilen wieder: Überfälliges, Rundgänge, schwere Mängel ohne
-Aufgabe, Prüfungen, die auf die Unterschrift warten. Biete genau einen nächsten Schritt an („Soll ich dich
-durch das Hauptgebäude führen?“).
+Aufgabe, Prüfungen, die auf die Unterschrift warten, unausgewertetes Diktat. Biete genau einen nächsten
+Schritt an („Soll ich dein Diktat von gestern auswerten?“).
 
-### Rundgang: „Führ mich durch …“
+### Rundgang mit vorhandener Türliste: „Führ mich durch …“
+Gibt es die Elemente schon (Import, `setup`), führt `tour` in Laufreihenfolge. Ohne Türliste ist „Tür
+ansagen“ (oben) der Weg.
 1. `tour` mit `action: "start"` und dem Gebäude- oder Objektnamen. Nenn das erste Element: Nummer, Art,
    Standort, und falls vorhanden bekannte offene Mängel („Letztes Mal: Band lose – noch da?“).
 2. Die Person sagt den Befund. Trag ihn mit `inspect` ein:
@@ -117,12 +168,22 @@ das Recht fehle, gib das so weiter: Objekt in der App anlegen (Objekte → Neues
 `get_photo` zeigt dir Fotos und Grundrisse aus der App. Lies ab, was sicher lesbar ist, und trag es mit
 `update_asset` nach. Unleserliches lass leer und sag es.
 
+### Element weg: „Die Tür 12 gibt es nicht mehr“
+`update_asset` mit `archive: true` (allein, mit `reason`, z. B. „Tür ausgebaut“). Geht nur mit einer
+Verbindung einer Admin- oder Inhaber-Person; das Element liegt danach 30 Tage im Papierkorb der App
+(Einstellungen → Unternehmen) und lässt sich dort zurückholen. Frag vorher einmal nach – archivieren nimmt die
+Tür aus Rundgängen und Fälligkeiten.
+
 ### Wissen aufbauen: Datenblätter, Türlisten, alte Protokolle
 Das ist der Weg, wie der Betrieb seine Erfahrung in die App bekommt. Aus einem Dokument entstehen
 Katalog-Einträge über `catalog` mit `action: "upsert"` (erst `preview: true`):
 - **Produkte**: Hersteller, Typ, Art, Vorgabewerte (Feuerwiderstand, Rauchschutz …), Zulassung.
 - **Mängel**: Titel, Synonyme (so wie die Monteure es sagen), Schwere, Maßnahme, Art.
 - **Begriffe**: Abkürzung → Bedeutung.
+
+Für Türtypen lohnen sich **Aliasse** – so, wie der Typ im Betrieb genannt wird („SK32“, „Gastzimmertür“,
+„RS-Alu mit Seitenteil“) –, damit „Tür ansagen“ ihn erkennt. Rohnotizen „Typ … nicht im Katalog“ sind der
+Anlass, einen Typ anzulegen.
 
 Kundendaten gehören nicht in den Katalog: Aus einem alten Protokoll übernimmst du den Türtyp und den
 typischen Mangel, nicht den Kunden, die Adresse oder den Namen des Prüfers. Fass die Vorschau nach Listen

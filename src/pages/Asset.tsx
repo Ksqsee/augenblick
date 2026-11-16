@@ -3,7 +3,7 @@
 // Belege: docs/design/objekte-elemente.md
 import { getCategory } from '../categories';
 import { useQuery } from '@tanstack/react-query';
-import { AlertTriangle, CheckCircle2, ClipboardCheck, FileText, Link2, Map, Pencil, Plus, QrCode, RotateCcw, Trash2, X } from 'lucide-react';
+import { AlertTriangle, CheckCircle2, ClipboardCheck, FileText, Link2, Map, Pencil, Plus, Printer, QrCode, RotateCcw, Trash2, X } from 'lucide-react';
 import QRCode from 'qrcode';
 import { useEffect, useRef, useState } from 'react';
 import { Link, Navigate, useNavigate, useParams } from 'react-router-dom';
@@ -85,7 +85,11 @@ export function AssetPage() {
   const openDefects = a.defects.filter((x) => x.status === 'open');
   const attrs = attributeRows(a.category, a.attributes);
 
-  const menu: MenuItem[] = [{ label: 'Etikett drucken', icon: <QrCode />, to: `/druck/etiketten?ids=${a.id}` }];
+  const menu: MenuItem[] = [
+    { label: 'Etikett drucken', icon: <QrCode />, to: `/druck/etiketten?ids=${a.id}` },
+    // Plan v7 W: Checkliste je Typ (nur zutreffende Prüfpunkte nach den Stammdaten dieses Elements)
+    { label: 'Checkliste drucken', icon: <Printer />, to: `/druck/checkliste?element=${a.id}` },
+  ];
   if (a.floorPlan) menu.push({ label: 'Auf dem Grundriss zeigen', icon: <Map />, to: `/grundrisse/${a.floorPlan.id}` });
   if (isAdmin)
     menu.push('separator', {

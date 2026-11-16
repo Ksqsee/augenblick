@@ -36,7 +36,8 @@ export function VoicePanel({
   hint = 'den Rest weiter prüfen',
 }: {
   checkpoints: Pick<Checkpoint, 'id' | 'label'>[];
-  onApply: (items: CaptureItem[]) => void;
+  /** ausgewertete Einträge und der Text, wie er gesprochen bzw. getippt wurde (Rohdiktat) */
+  onApply: (items: CaptureItem[], text: string) => void;
   /** Text von außen führen (der Prüfablauf übernimmt ihn mit „Alles andere in Ordnung“ gleich mit) */
   text?: string;
   onText?: (t: string) => void;
@@ -66,7 +67,7 @@ export function VoicePanel({
         checkpoints.map((c) => ({ id: c.id, label: c.label })),
         !navigator.onLine,
       );
-      onApply(r.items);
+      onApply(r.items, text);
       const n = r.items.filter((i) => i.kind === 'defect').length;
       const where = r.local ? ' Auf dem Gerät ausgewertet.' : '';
       setMsg({

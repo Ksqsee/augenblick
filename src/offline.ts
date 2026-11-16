@@ -1,8 +1,9 @@
 // Offline-Modus: Gebäude vorab laden, Prüfungen lokal erfassen, später synchronisieren.
 import { createStore, del, get, keys, set } from 'idb-keyval';
 import { useEffect, useState, useSyncExternalStore } from 'react';
+import type { AnnounceAssetBody } from '../shared/announce';
 import type { KnownDefect } from '../shared/carry';
-import type { Checkpoint } from '../shared/catalog';
+import type { CatalogProduct, Checkpoint } from '../shared/catalog';
 import { walkSort } from '../shared/walk-order';
 import { api, ApiError, type Asset, type CategoryInfo, downscale, queryClient, uploadBlob } from './api';
 import type { InspectionDraft } from './components/run';
@@ -15,7 +16,18 @@ export interface Bundle {
   categories: CategoryInfo[];
   /** offene Mängel der Elemente (ältere Pakete haben keine) */
   openDefects?: (KnownDefect & { assetId: string })[];
+  /** Katalog-Typen für „Tür ansagen“ ohne Netz (Plan v7 W; ältere Pakete haben keine) */
+  products?: CatalogProduct[];
   preparedAt: number;
+}
+
+/** Ohne Netz angesagte Tür, die es auf dem Server noch nicht gibt (wird vor der Prüfung angelegt). */
+export interface LocalAsset {
+  /** „local:…“ – bis zur Übertragung die ID im Gerät */
+  localId: string;
+  propertyId: string;
+  buildingId: string;
+  body: AnnounceAssetBody;
 }
 
 export interface OutboxItem {
@@ -28,6 +40,11 @@ export interface OutboxItem {
   draft: InspectionDraft;
   inspectedAt: number;
   error?: string;
+  /** Plan v7 W: nur als Entwurf übertragen (ohne Unterschrift), `ready` = bereit zur Unterschrift */
+  draftOnly?: boolean;
+  ready?: boolean;
+  /** Tür erst anlegen (offline angesagt) */
+  newAsset?: LocalAsset;
 }
 
 // ---------- kleine Pub/Sub, damit UI auf Änderungen reagiert ----------
@@ -60,9 +77,94 @@ export function useOnline() {
 // ---------- Gebäude ----------
 export async function prepareBuilding(buildingId: string): Promise<Bundle> {
   const b = await api<Bundle>(`/offline/buildings/${buildingId}`);
-  await set(`bundle:${buildingId}`, b, store);
+  // ohne Netz angesagte, noch nicht übertragene Türen bleiben im Paket
+  const prev = await get<Bundle>(`bundle:${buildingId}`, store);
+  const local = (prev?.assets ?? []).filter((a) => a.id.startsWith('local:'));
+  await set(`bundle:${buildingId}`, { ...b, assets: [...b.assets, ...local] }, store);
+  if (b.products) await cacheProducts(b.products);
   bump();
   return b;
+}
+
+// ---------- Katalog-Typen ohne Netz (Plan v7 W) ----------
+/** Katalog-Typen merken (beim Laden eines Gebäudes und wenn die App den Katalog online lädt). */
+export async function cacheProducts(products: CatalogProduct[]) {
+  try {
+    await set('catalog-products', products, store);
+  } catch {
+    /* ohne Speicher */
+  }
+}
+export async function cachedProducts(): Promise<CatalogProduct[]> {
+  try {
+    return (await get<CatalogProduct[]>('catalog-products', store)) ?? [];
+  } catch {
+    return [];
+  }
+}
+
+/** Ohne Netz angesagte Tür im geladenen Gebäude anlegen (wird mit der ersten Prüfung übertragen). */
+export async function createLocalAsset(buildingId: string, body: AnnounceAssetBody): Promise<Asset> {
+  const b = await get<Bundle>(`bundle:${buildingId}`, store);
+  if (!b) throw new Error('Gebäude ist nicht auf dem Gerät geladen');
+  const asset: Asset = {
+    id: `local:${crypto.randomUUID()}`,
+    code: `Nr. ${body.number}`,
+    number: body.number,
+    category: body.category,
+    location: body.location,
+    floor: '',
+    manufacturer: body.manufacturer,
+    model: body.model,
+    attributes: body.attributes,
+    lastInspectionId: null,
+    lastInspectedAt: null,
+    lastResult: null,
+    nextDueAt: null,
+    buildingId,
+    buildingName: b.building.name,
+    propertyId: b.building.propertyId,
+    propertyName: b.building.propertyName,
+    openDefects: 0,
+    labelCode: null,
+    schedules: { main: { enabled: true } },
+    floorPlanId: null,
+    markerX: null,
+    markerY: null,
+    createdAt: Date.now(),
+  };
+  await set(`bundle:${buildingId}`, { ...b, assets: [...b.assets, asset] }, store);
+  bump();
+  return asset;
+}
+
+/** Lokale Tür → Server-ID: anlegen (feste Nummer) oder, wenn die Nummer schon vergeben ist, die vorhandene nehmen. */
+async function resolveLocalAsset(item: OutboxItem): Promise<string> {
+  const map = (await get<Record<string, string>>('asset-map', store)) ?? {};
+  const local = item.assetId;
+  if (map[local]) return map[local];
+  const na = item.newAsset;
+  if (!na) throw new ApiError(400, 'Neue Tür ohne Angaben – bitte neu ansagen');
+  let id: string;
+  try {
+    id = (await api<{ id: string }>('/assets', { body: { buildingId: na.buildingId, ...na.body } })).id;
+  } catch (e) {
+    if (!(e instanceof ApiError) || e.status !== 409) throw e;
+    // schon angelegt (früherer Versuch oder jemand anderes): Element mit dieser Nummer im Objekt
+    const hit = await api<{ id: string; category: string }>(`/assets/by-code/${encodeURIComponent(String(na.body.number))}?propertyId=${encodeURIComponent(na.propertyId)}`);
+    if (hit.category !== na.body.category) throw e;
+    id = hit.id;
+  }
+  await set('asset-map', { ...map, [local]: id }, store);
+  // im Paket und in der Warteschlange die lokale ID ersetzen
+  const b = await get<Bundle>(`bundle:${na.buildingId}`, store);
+  if (b) await set(`bundle:${na.buildingId}`, { ...b, assets: b.assets.map((a) => (a.id === local ? { ...a, id } : a)) }, store);
+  await set(
+    'outbox',
+    (await getOutbox()).map((x) => (x.assetId === local ? { ...x, assetId: id } : x)),
+    store,
+  );
+  return id;
 }
 
 export async function removeBuilding(buildingId: string) {
@@ -157,16 +259,19 @@ export function syncOutbox() {
           await set('outbox', (await getOutbox()).map((x) => (x.clientId === item.clientId ? updated : x)), store);
           for (const k of local) await del(`photo:${k}`, store);
         }
+        const assetId = item.assetId.startsWith('local:') ? await resolveLocalAsset(item) : item.assetId;
         await api('/inspections/offline', {
           body: {
             ...item.draft,
             defects,
             photos,
             clientId: item.clientId,
-            assetId: item.assetId,
+            assetId,
             schedule: item.schedule ?? 'main',
             inspectedAt: item.inspectedAt,
             checkpoints: item.checkpoints,
+            rawNotes: item.draft.rawNotes ?? [],
+            ...(item.draftOnly ? { draftOnly: true, ready: !!item.ready } : {}),
           },
         });
         await removeFromOutbox(item.clientId);

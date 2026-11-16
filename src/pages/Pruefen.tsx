@@ -1,6 +1,7 @@
 // „Prüfen“ (docs/plan/v4.md 5): ein Ort für alles, was vor Ort geprüft wird. Ohne ?tab= der Überblick – Rundgänge,
 // Fälliges, Angefangenes, Begehungen, zuletzt Abgeschlossenes – in einer Fläche. Mit ?tab=… die ausführlichen Listen
 // (Überfällig, Entwürfe, Durchgeführt, Archiv …). Scannen, Offline und „Begehung starten“ stehen im Kopf.
+// Plan v7 W: ganz oben „Tür ansagen“ als Hauptweg (auch ohne Netz) – components/inspect/Announce.tsx.
 import { CloudDownload, Footprints, ScanLine } from "lucide-react";
 import { useState } from "react";
 import { useSearchParams } from "react-router-dom";
@@ -14,6 +15,7 @@ import {
 } from "../api";
 import { scheduleLabel } from "../categories";
 import { CategoryGlyph } from "../components/inspect/Glyph";
+import { AnnounceCard } from "../components/inspect/Announce";
 import {
   ButtonLink,
   Empty,
@@ -30,7 +32,7 @@ import {
   StatusText,
   Surface,
 } from "../components/ui";
-import { useOutbox } from "../offline";
+import { useOnline, useOutbox } from "../offline";
 import { defectsLabel, fmtDate, fmtRelative, type Tone } from "../format";
 import { type Round, useRounds } from "./Dashboard";
 import { ReadyBanner } from "./Inspections";
@@ -60,7 +62,45 @@ export function PruefenPage() {
 
 function PruefenHub() {
   const { data: me } = useMe();
+  const [params] = useSearchParams();
+  const online = useOnline();
+  const canWrite = !!me && me.user.role !== "viewer";
   const dash = useDashboard();
+  // „Tür ansagen“ steht über allem und braucht weder Netz noch die Übersicht
+  // im Überblick der erste Abschnitt der einen Fläche, sonst eine eigene Fläche
+  const announce = canWrite ? <AnnounceCard autoFocus={params.get("ansage") === "weiter"} /> : null;
+  const alone = announce && <Surface className="mb-6">{announce}</Surface>;
+  if (dash.isLoading && online)
+    return (
+      <>
+        {alone}
+        <PageSkeleton />
+      </>
+    );
+  if (dash.error || !dash.data)
+    return (
+      <>
+        <PageHeader title="Prüfen" subtitle="Tür ansagen, Rundgänge und Prüfungen" />
+        {alone}
+        {online ? (
+          <ErrorBox error={dash.error} onRetry={() => dash.refetch()} />
+        ) : (
+          <p className="text-meta text-ink-3">Ohne Netz: Türen ansagen in geladenen Gebäuden; Rundgänge unter Offline.</p>
+        )}
+      </>
+    );
+  return <PruefenOverview dash={dash.data} announce={announce} canWrite={canWrite} />;
+}
+
+function PruefenOverview({
+  dash: dashData,
+  announce,
+  canWrite,
+}: {
+  dash: NonNullable<ReturnType<typeof useDashboard>["data"]>;
+  announce: React.ReactNode;
+  canWrite: boolean;
+}) {
   const rounds = useRounds(30);
   const drafts = useInspections({ status: "draft" });
   const done = useInspections({ status: "submitted" });
@@ -68,11 +108,7 @@ function PruefenHub() {
   const outbox = useOutbox();
   const [allRounds, setAllRounds] = useState(false);
   const [starting, setStarting] = useState(false);
-  const canWrite = me?.user.role !== "viewer";
-  if (dash.isLoading) return <PageSkeleton />;
-  if (dash.error || !dash.data)
-    return <ErrorBox error={dash.error} onRetry={() => dash.refetch()} />;
-  const c = dash.data.counts;
+  const c = dashData.counts;
   const due = (rounds.data ?? []).filter(
     (r) => r.overdue + r.due + r.never > 0,
   );
@@ -149,6 +185,7 @@ function PruefenHub() {
       {starting && <StartWalkthrough onClose={() => setStarting(false)} />}
       <ReadyBanner />
       <Surface>
+        {announce}
         {empty && (
           <Empty
             title={c.assets ? "Gerade ist nichts zu prüfen." : "Noch nichts zu prüfen."}

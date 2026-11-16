@@ -1,4 +1,4 @@
-// E2E 08-security (inkl. #34 Katalog/Nummern): stellt die Angriffswege aus dem Sicherheitsaudit nach und erwartet, dass sie blockiert sind.
+// E2E 08-security (inkl. #34 Katalog/Nummern, #36 Ansagen/Rohdiktat): stellt die Angriffswege aus dem Sicherheitsaudit nach und erwartet, dass sie blockiert sind.
 // Nur lokal ausführen (legt einen zweiten Workspace an).
 if (!process.env.DEMO_PASSWORD) throw new Error("DEMO_PASSWORD fehlt");
 const BASE = process.env.BASE || "http://localhost:5173";
@@ -1896,6 +1896,72 @@ function client() {
     check((await owner(`/credentials/${ic.json.id}`, { method: "DELETE" })).status === 200, "Admin entfernt Nachweis des Prüfers");
     const left = (await owner("/credentials")).json;
     check(left.every((c) => [ownerId, inspId].includes(c.userId)) && !left.some((c) => c.userId === readerId), "nur angelegte Nachweise vorhanden");
+  }
+
+  console.log("· #38 v7 Ansagen und Rohdiktat: Rohnotizen, Offline-Entwurf, Element archivieren");
+  {
+    const keyCall = async (k, path, { method, body } = {}) => {
+      const r = await fetch(BASE + "/api" + path, {
+        method: method ?? (body !== undefined ? "POST" : "GET"),
+        headers: { authorization: `Bearer ${k}`, ...(body !== undefined ? { "content-type": "application/json" } : {}) },
+        body: body !== undefined ? JSON.stringify(body) : undefined,
+      });
+      return { status: r.status, json: await r.json().catch(() => null) };
+    };
+    await owner(`/account/members/${pid2}/access`, { method: "PUT", body: { scope: null, canCreate: true } });
+    const doorA = (await owner("/assets")).json.find((a) => a.category === "fire_door");
+    const note = (id, extra = {}) => ({ id, text: "Schließer klemmt", at: Date.now(), source: "app", ...extra });
+    // Entwurf des Inhabers mit Rohnotiz; Quelle „mcp“ aus einer Browser-Sitzung wird „app“, nie schon ausgewertet
+    const dr = (await owner(`/assets/${doorA.id}/inspections`, { body: { rawNote: note("sec36note01", { source: "mcp" }) } })).json;
+    let ld = (await owner(`/inspections/${dr.id}`)).json;
+    check(ld.rawNotes?.some((n) => n.id === "sec36note01" && n.source === "app" && n.evaluated === false), "Rohnotiz: Quelle aus der Sitzung, nicht ausgewertet");
+    const add = await owner(`/inspections/${dr.id}/raw-notes`, { body: { notes: [note("sec36note02", { at: Date.now() + 9e9, evaluated: true })] } });
+    const n2 = add.json?.rawNotes?.find((n) => n.id === "sec36note02");
+    check(add.status === 200 && n2 && n2.evaluated === false && n2.at <= Date.now(), `„ausgewertet“ und Zukunftszeit lassen sich nicht einschleusen (${add.status})`);
+    check((await owner(`/inspections/${dr.id}/raw-notes`, { body: { notes: [note("x")] } })).status === 400, "ungültige Notiz-ID → 400");
+    check((await owner(`/inspections/${dr.id}/raw-notes`, { body: { notes: [{ ...note("sec36long01"), text: "x".repeat(2001) }] } })).status === 400, "zu langer Text → 400");
+    // fremde Person, Lesezugriff, fremder Workspace
+    check((await insp(`/inspections/${dr.id}/raw-notes`, { body: { notes: [note("sec36note03")] } })).status === 403, "Prüfer hängt nichts an fremde Entwürfe");
+    check((await insp(`/inspections/${dr.id}/raw-notes`, { method: "PATCH", body: { all: true, evaluated: true } })).status === 403, "Prüfer markiert fremdes Diktat nicht");
+    check((await reader(`/inspections/${dr.id}/raw-notes`, { body: { notes: [note("sec36note04")] } })).status === 403, "Lesezugriff → 403");
+    check((await reader("/inspections/raw-notes")).status === 403, "Liste Rohdiktat: Lesezugriff → 403");
+    check((await mallory(`/inspections/${dr.id}/raw-notes`, { method: "PATCH", body: { all: true, evaluated: true } })).status === 404, "fremder Workspace → 404");
+    const ml = await mallory("/inspections/raw-notes");
+    check(ml.status === 200 && !JSON.stringify(ml.json).includes(dr.id), "Liste Rohdiktat: fremder Workspace leer");
+    const il = await insp("/inspections/raw-notes?all=1");
+    check(il.status === 200 && !il.json.some((r) => r.id === dr.id), "Liste Rohdiktat: Prüfer sieht nur eigene");
+    check((await owner("/inspections/raw-notes")).json.some((r) => r.id === dr.id), "Inhaber sieht den Entwurf mit offenem Diktat");
+    const rk = (await owner("/account/api-keys", { body: { name: "sec36-read", scope: "read", expiresInDays: 1 } })).json;
+    check((await keyCall(rk.key, "/inspections/raw-notes")).status === 403, "Leseschlüssel → 403");
+    check((await keyCall(rk.key, `/inspections/${dr.id}/raw-notes`, { method: "PATCH", body: { all: true, evaluated: true } })).status === 403, "Leseschlüssel markiert nicht");
+    // Offline-Entwurf: fremdes Element und fremder Workspace
+    const off = {
+      clientId: `sec36-${Date.now()}`,
+      assetId: doorA.id,
+      inspectedAt: Date.now(),
+      checkpoints: [{ id: "p1", label: "x" }],
+      kinds: ["periodic"],
+      draftOnly: true,
+      ready: true,
+      rawNotes: [note("sec36note05")],
+    };
+    check((await mallory("/inspections/offline", { body: off })).status === 404, "Offline-Entwurf an fremdes Element → 404");
+    check((await reader("/inspections/offline", { body: off })).status === 403, "Offline-Entwurf mit Lesezugriff → 403");
+    // Archivieren: nur Admin-Sitzung oder Schlüssel einer Admin-/Inhaber-Person; fremde Elemente 404
+    const victimAsset = (await owner("/assets", { body: { buildingId: doorA.buildingId, category: "fire_door", location: "sec36" } })).json;
+    check((await insp(`/assets/${victimAsset.id}/archive`, { body: {} })).status === 403, "Prüfer archiviert nicht");
+    check((await reader(`/assets/${victimAsset.id}/archive`, { body: {} })).status === 403, "Lesezugriff archiviert nicht");
+    check((await keyCall(rk.key, `/assets/${victimAsset.id}/archive`, { body: {} })).status === 403, "Leseschlüssel einer Inhaberin archiviert nicht");
+    check((await mallory(`/assets/${victimAsset.id}/archive`, { body: {} })).status === 404, "fremder Workspace → 404");
+    const wk = (await owner("/account/api-keys", { body: { name: "sec36-write", scope: "write", expiresInDays: 1 } })).json;
+    const arch = await keyCall(wk.key, `/assets/${victimAsset.id}/archive`, { body: { reason: "Test" } });
+    check(arch.status === 200, `Schreibschlüssel der Inhaberin archiviert (${arch.status})`);
+    check((await keyCall(wk.key, `/assets/${victimAsset.id}/archive`, { body: {} })).status === 404, "zweimal archivieren → 404");
+    check((await owner(`/assets/${victimAsset.id}/restore`, { body: {} })).status === 200, "in der App wiederherstellbar");
+    await owner(`/assets/${victimAsset.id}`, { method: "DELETE" });
+    await owner(`/inspections/${dr.id}`, { method: "DELETE" });
+    await owner(`/account/api-keys/${rk.id}`, { method: "DELETE" });
+    await owner(`/account/api-keys/${wk.id}`, { method: "DELETE" });
   }
 
   console.log(

@@ -5,6 +5,7 @@ import type { AttributeField, CatalogDefect, CatalogProduct, CatalogService, Cat
 import type { Answer, Result, ResultOverride, Schedules } from '../shared/logic';
 import type { TaskKind } from '../shared/tasks';
 import type { KnownDefect } from '../shared/carry';
+import type { RawNote } from '../shared/announce';
 import type { BuildingType, WalkQuestion } from '../shared/walkthrough';
 
 export class ApiError extends Error {
@@ -378,6 +379,10 @@ export interface Inspection {
   knownDefects?: KnownDefect[];
   /** bei dieser Prüfung als behoben gemeldete bekannte Mängel */
   resolvedDefects?: string[];
+  /** Rohdiktat (Plan v7 W) */
+  rawNotes?: RawNote[];
+  /** bereit zur Unterschrift seit */
+  readyAt?: number | null;
   status: 'draft' | 'submitted';
   kind: InspectionKind;
   kinds: string[];
@@ -454,6 +459,8 @@ export interface InspectionRow {
   buildingName: string;
   propertyName: string;
   inspector: string;
+  /** Zahl der nicht ausgewerteten Rohnotizen (Plan v7 W) */
+  rawPending?: number;
 }
 
 export interface Task {

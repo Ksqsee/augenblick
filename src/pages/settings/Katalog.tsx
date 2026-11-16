@@ -3,6 +3,7 @@
 // Bedingung auf Stammdaten) und Begriffe. Dazu „Aus Datei laden“ (Katalog-Datei mit Vorschau, derselbe Stapel-Endpunkt
 // wie MCP `catalog upsert`). Lesen ab Prüfer, Anlegen/Ändern/Löschen nur Admins (Server prüft, worker/catalog.ts).
 import { FileUp, Plus, Trash2, X } from 'lucide-react';
+import { Link } from 'react-router-dom';
 import { type FormEvent, useMemo, useRef, useState } from 'react';
 import {
   type CatalogDefect,
@@ -322,6 +323,12 @@ function EntryDialog({ kind, entry, services, onClose }: { kind: Kind; entry: En
             <Field label="Zulassung gültig bis" optional>
               {(id) => <Input id={id} type="date" value={str('approvalValidUntil')} onChange={set('approvalValidUntil')} />}
             </Field>
+            {/* Plan v7 W: Checkliste je Typ zum Ausdrucken (src/pages/Checklist.tsx) */}
+            {entry && (
+              <Link to={`/druck/checkliste?produkt=${encodeURIComponent(entry.id)}`} className="text-meta text-ink-2 underline underline-offset-4 hover:text-ink sm:col-span-2">
+                Checkliste zum Ausdrucken
+              </Link>
+            )}
             {attrs.length > 0 && (
               <fieldset className="grid grid-cols-1 gap-4 sm:col-span-2 sm:grid-cols-2">
                 <legend className="mb-3 text-meta font-medium text-ink-3">Vorgabewerte der Stammdaten</legend>
