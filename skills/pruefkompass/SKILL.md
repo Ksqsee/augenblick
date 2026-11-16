@@ -45,7 +45,7 @@ sag, dass es ein Vorschlag ist, wenn die Person nichts dazu gesagt hat.
 
 ## Elemente ansprechen
 
-Jedes Element hat einen Code. Neue Elemente sind je Objekt durchnummeriert (Tür, `FSA-…` Feststellanlage,
+Jedes Element hat einen Code. Neue Elemente sind je Objekt durchnummeriert (`T-…` Tür, `FSA-…` Feststellanlage,
 `FL-…` Feuerlöscher, `RWM-…` Rauchwarnmelder, `BSK-…` Brandschutzklappe; ältere Türen heißen z. B. `FST-036`).
 Vor Ort sagt niemand den Code, sondern „Tür 36“ oder „Nummer 36“ – die Ident-Nummer an der Tür bzw. im
 Protokoll. Die Werkzeuge verstehen das, **wenn das Objekt bekannt ist** – gib deshalb `property` (Objektname)
@@ -59,7 +59,9 @@ Genau dieser Fehler hat schon einmal einen Befund am falschen Element gelandet.
 
 So arbeitet der Betrieb: Man geht durchs Haus, sagt an jeder Tür **Nummer und Typ** („Tür 354, Typ SK32“) und
 danach **nur, was nicht stimmt**. Alles Übrige gilt als in Ordnung; was nach den Stammdaten des Typs nicht
-zutrifft (keine Feststellanlage, einflügelig, kein Rauchschutz), entfällt von selbst. Es gibt keinen
+zutrifft (keine Feststellanlage, einflügelig, kein Rauchschutz), entfällt von selbst. Ein Typ aus dem Katalog
+beschreibt die Tür vollständig: Ausstattung, die der Typ nicht nennt (Spion, Absenkdichtung, Kartenschloss …),
+gilt als nicht vorhanden, die Tür als einflügelig – so gibt es bei bekanntem Typ keine Rückfragen. Es gibt keinen
 Aufkleber, oft keinen Grundriss und keine vorher gepflegte Türliste – die Türen entstehen beim Ansagen. Die
 gedruckte Checkliste je Typ ist die Gedächtnisstütze in der Hand, keine Eingabe.
 
@@ -157,7 +159,8 @@ oder eine Türliste als Bild oder PDF: daraus die Elemente ablesen, in der Vorsc
 eine Ident-Nummer, übernimm sie als feste Nummer.
 
 Für Türen lohnt sich, mitzunehmen was genannt wird: Hersteller, Türtyp/Bauart (z. B. „SK32“,
-„Alu-Rohrrahmen mit Seitenteil“), Feuerwiderstand (T30, T90), Rauchschutz, ein- oder zweiflügelig,
+„Alu-Rohrrahmen mit Seitenteil“), Anforderung (`requirement`: keine, RS, T30, T30-RS, T90, T90-RS – nicht
+mehr getrennt Feuerwiderstand und Rauchschutz), ein- oder zweiflügelig,
 Absenkdichtung, Obentürschließer, Spion, Zulassungsnummer. „Tür mit Feststellanlage“ ist ein Feld an der Tür;
 „und eine Feststellanlage“ ist ein eigenes Element mit eigener jährlicher Wartung.
 
@@ -177,8 +180,12 @@ Tür aus Rundgängen und Fälligkeiten.
 ### Wissen aufbauen: Datenblätter, Türlisten, alte Protokolle
 Das ist der Weg, wie der Betrieb seine Erfahrung in die App bekommt. Aus einem Dokument entstehen
 Katalog-Einträge über `catalog` mit `action: "upsert"` (erst `preview: true`):
-- **Produkte**: Hersteller, Typ, Art, Vorgabewerte (Feuerwiderstand, Rauchschutz …), Zulassung.
-- **Mängel**: Titel, Synonyme (so wie die Monteure es sagen), Schwere, Maßnahme, Art.
+- **Produkte**: Hersteller, Typ, Art, Aliasse, Anforderung (keine/RS/T30/T30-RS/T90/T90-RS), Vorgabewerte der
+  Ausstattung (z. B. `{closer: true, dropSeal: true}`), Zulassung und „gültig bis“.
+- **Leistungen** (Preisliste): Kürzel `key`, Bezeichnung, Einheit, Preis netto, Art (Wartung, Instandsetzung,
+  Regie) und Bedingung auf Stammdaten (z. B. `{requirement: ["T30-RS"]}`). Vor den Mängeln anlegen.
+- **Mängel**: Titel, Synonyme (so wie die Monteure es sagen), Schwere, Maßnahme, Art und die Leistungen dazu
+  (`serviceKeys`, Menge `quantity`) – daraus rechnet die App die Angebotsliste.
 - **Begriffe**: Abkürzung → Bedeutung.
 
 Für Türtypen lohnen sich **Aliasse** – so, wie der Typ im Betrieb genannt wird („SK32“, „Gastzimmertür“,
@@ -194,7 +201,9 @@ zusammen („14 Produkte, 9 Mängel, 3 Begriffe – 2 gibt es schon, die würden
 Erledigen, Terminieren. Zuweisen geht per Name, „ich“ oder Partner-Firma; wer es gibt, zeigt `team`. Ein
 doppelter oder falsch erfasster Mangel wird nicht „behoben“, sondern mit `update_defect` als ungültig
 markiert (mit Grund) – sonst stimmen Behebungsquote und -dauer nicht mehr. `plan` ist für die Wochenplanung,
-`report` für Zahlen und Nachweise. Der Autopilot der
+`report` für Zahlen und Nachweise; `report` mit `what: "offer"` und `property` liefert die **Angebotsliste** des
+Objekts (Leistung, Menge × Einzelpreis, Türnummern, Summe netto, Mängel ohne Leistung) – zum Weitergeben, du
+verschickst nichts. Preise sieht nur eine Verbindung ab Prüfer (nicht mit Schlüssel „Nur lesen“). Der Autopilot der
 App legt Aufgaben für schwere Mängel an, weist zu, erinnert und beauftragt nach einer Behebung die
 Nachprüfung – du musst das nicht von Hand nachbauen. `autopilot` zeigt, was er getan hat; seine Stufen
 ändern nur Admins in der App.

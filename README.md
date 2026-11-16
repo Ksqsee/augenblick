@@ -28,7 +28,13 @@ API: [`docs/api.md`](docs/api.md)
   offenem Feld für die Abweichung; „Alles andere in Ordnung“, dann **„Bereit · nächste Tür“** – unterschrieben wird
   gesammelt unter „Unterschreiben“. „Tür 355, gleicher Typ“ / „nochmal so eine“ übernimmt den letzten Typ, „…, Band lose“
   in der Ansage ist schon der Befund. Erkennung nach Regeln (`shared/announce.ts`: Zahlwörter bis 99 999, „Zimmer 810“,
-  „T dreißig RS“, Hersteller-Kurzformen wie Novo → Novoferm, Aliasse der Katalog-Produkte; mehrdeutig → Auswahl).
+  „T dreißig RS“, Hersteller-Kurzformen wie Novo → Novoferm, Aliasse der Katalog-Produkte; mehrdeutig → Auswahl;
+  derselbe Schreibweisen-Abgleich erkennt beim Import den Türtyp, dort nur für die ganze Zelle).
+  **Ein bekannter Typ beschreibt die Tür vollständig** (`describeByType` in `shared/vocab.ts`, genutzt von Ansage
+  online/offline, MCP `inspect`/`setup`, Import und Elementformular beim Anlegen sowie der Checkliste je Typ):
+  Anforderung aus `requirement` des Typs (sonst aus alten `rating`/`smoke`-Vorgaben oder dem Typnamen wie
+  „Premio T30-RS“), Ja/Nein-Ausstattung, die der Typ nicht setzt, = nein, Flügel ohne Vorgabe = 1-flügelig, übrige
+  Auswahlfelder bleiben offen – so gibt es bei bekannter Tür keine Rückfragen. Vorhandene Türen bleiben unverändert.
   Unbekannter Typ bricht nicht ab: Tür mit Typ „unbekannt“, allgemeine Checkliste (nur Punkte ohne Bedingung), der
   gesprochene Typ bleibt Rohnotiz. Falsche Art („Tür 400“, Nr. 400 ist ein Feuerlöscher) wird gemeldet. **Ohne Netz** mit
   den geladenen Gebäuden und dem gemerkten Katalog: neue Türen entstehen auf dem Gerät und gehen mit der Warteschlange an

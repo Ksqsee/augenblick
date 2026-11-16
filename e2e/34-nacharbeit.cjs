@@ -329,6 +329,11 @@ async function mcp(key, name, args = {}) {
   const t2 = await mcp(key, 'report', { what: 'offer' });
   check(t2.isError && /Objekt angeben/.test(t2.text), 'MCP-Angebotsliste ohne Objekt → Hinweis');
   check(!(await mcp(key, 'report', {})).isError, 'MCP-Kennzahlen unverändert');
+  // Leseschlüssel: Preise sind intern (security.md #36) – klare Meldung statt internem Fehler
+  const readKey = (await api('/account/api-keys', { data: { name: 'Claude lesend', scope: 'read', expiresInDays: 1 } })).json.key;
+  const t3 = await mcp(readKey, 'report', { what: 'offer', property: P });
+  check(t3.isError && /ab der Rolle Prüfer/.test(t3.text) && !/Interner Fehler/.test(t3.text), `MCP-Angebotsliste mit Leseschlüssel → klare Meldung (${t3.text.slice(0, 120)})`);
+  check(!(await mcp(readKey, 'report', {})).isError, 'Leseschlüssel: Kennzahlen gehen');
 
   step('Nachweise: Admin pflegt für den Prüfer (Team)');
   await p.goto(BASE + '/einstellungen/team');

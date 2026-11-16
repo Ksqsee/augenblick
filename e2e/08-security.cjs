@@ -1,4 +1,4 @@
-// E2E 08-security (inkl. #34 Katalog/Nummern, #36 Ansagen/Rohdiktat): stellt die Angriffswege aus dem Sicherheitsaudit nach und erwartet, dass sie blockiert sind.
+// E2E 08-security (inkl. #34 Katalog/Nummern, #36 Katalog-Leistungen/Angebotsliste, #37 Nachweise, #38 Ansagen/Rohdiktat): stellt die Angriffswege aus dem Sicherheitsaudit nach und erwartet, dass sie blockiert sind.
 // Nur lokal ausführen (legt einen zweiten Workspace an).
 if (!process.env.DEMO_PASSWORD) throw new Error("DEMO_PASSWORD fehlt");
 const BASE = process.env.BASE || "http://localhost:5173";
