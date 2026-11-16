@@ -20,7 +20,7 @@ import type { CatalogProduct } from '../../../shared/catalog';
 import { api, ApiError, type Asset, type PropertyDetail, useCatalog, useProperties } from '../../api';
 import { getCategory } from '../../categories';
 import { type Bundle, cachedProducts, cacheProducts, createLocalAsset, listBundles, useOfflineVersion, useOnline } from '../../offline';
-import { Button, DictateInput, Section, Select, StatusText } from '../ui';
+import { Button, DictateInput, Section, Select, StatusDot, StatusText, toneText } from '../ui';
 import { ToggleChip } from './Choice';
 
 const MEM = 'pk:ansage';
@@ -61,6 +61,8 @@ function useBundlesList() {
 }
 
 const labelOf = (key: string) => getCategory(key).label;
+/** angefangene Ansage – übersteht das Neuaufbauen von „Prüfen“, wenn die Übersicht nachlädt */
+let pendingText = '';
 
 export function AnnounceCard({ autoFocus }: { autoFocus?: boolean }) {
   const online = useOnline();
@@ -103,7 +105,11 @@ export function AnnounceCard({ autoFocus }: { autoFocus?: boolean }) {
   }, [online, catalog.data, bundles, stored]);
   const last = products.find((p) => p.id === mem.last?.productId) ?? null;
 
-  const [text, setText] = useState('');
+  const [text, setTextState] = useState(() => pendingText);
+  const setText = (v: string) => {
+    pendingText = v;
+    setTextState(v);
+  };
   const [pick, setPick] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
@@ -240,11 +246,12 @@ export function AnnounceCard({ autoFocus }: { autoFocus?: boolean }) {
           </Button>
         </div>
         {preview && (
-          <p className="text-meta break-words" role="status" aria-label="Vorschau der Ansage">
-            <StatusText tone={preview.tone} className="!inline whitespace-normal [&>*:first-child]:mr-1.5 [&>*:first-child]:inline-block [&>*:first-child]:align-middle">
-              {preview.text}
-            </StatusText>
-            {t.finding && !conflict && <span className="text-ink-3"> · Befund: „{t.finding}“</span>}
+          <p className="flex items-start gap-1.5 text-meta" role="status" aria-label="Vorschau der Ansage">
+            <StatusDot tone={preview.tone} className="mt-[0.45em] shrink-0" />
+            <span className="min-w-0 break-words">
+              <span className={toneText[preview.tone]}>{preview.text}</span>
+              {t.finding && !conflict && <span className="text-ink-3"> · Befund: „{t.finding}“</span>}
+            </span>
           </p>
         )}
         {needsPick || pick ? (

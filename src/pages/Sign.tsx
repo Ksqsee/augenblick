@@ -189,8 +189,8 @@ function ReadyRow({ row, detail, open, onToggle, onHold }: { row: InspectionRow;
           </span>
           <span className="mt-0.5 block truncate text-meta text-ink-3">{meta || '–'}</span>
           {rawPending > 0 && (
-            <span className="mt-0.5 block truncate text-meta" data-raw-pending={rawPending}>
-              <StatusText tone="warn">Diktat noch nicht ausgewertet</StatusText>
+            <span className="mt-0.5 block text-meta" data-raw-pending={rawPending}>
+              <StatusText tone="warn" className="!whitespace-normal">Diktat noch nicht ausgewertet</StatusText>
             </span>
           )}
         </span>

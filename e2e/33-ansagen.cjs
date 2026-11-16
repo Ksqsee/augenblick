@@ -85,7 +85,7 @@ const enter = async (loc) => {
     check(over <= 0, `kein Überlauf ${what} (${over}px)`);
   };
   const shot = async (name, at) => {
-    if (at) await at.evaluate((e) => e.scrollIntoView({ block: 'start' })).catch(() => {});
+    if (at) await at.evaluate((e) => e.scrollIntoView({ block: 'center' })).catch(() => {});
     await p.waitForFunction(() => !document.querySelector('[aria-live=polite] > .bg-ink'), null, { timeout: 6000 }).catch(() => {});
     await p.waitForTimeout(250);
     const opts = { fullPage: !at };
@@ -145,6 +145,7 @@ const enter = async (loc) => {
   await input(field, 'Tür dreihundertvierundfünfzig Typ SK 32');
   const preview = card.getByRole('status', { name: 'Vorschau der Ansage' });
   await preview.getByText('Tür 354 · Raum 354 · Westag + Getalit SK32 – wird angelegt').waitFor();
+  check(await preview.evaluate((e) => e.scrollWidth <= e.clientWidth + 1 && e.getBoundingClientRect().right <= window.innerWidth), 'Vorschau bricht um statt abgeschnitten zu werden');
   await shot('m-ansage', card);
   await enter(field);
   await p.waitForURL(/\/pruefung\/[^/?]+\?ansage=1/);
