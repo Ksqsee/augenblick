@@ -10,14 +10,17 @@ import { RowDivider, SettingRow, SettingsSection } from '../../components/admin'
 import { Button, ErrorBox, Field, Input, Modal, Skeleton, StatusText, Surface, useConfirm, useToast } from '../../components/ui';
 import { fmtDateTime } from '../../format';
 import { forgetSignature, rememberedSignature } from '../../components/inspect/Signature';
+import { CredentialList } from '../../components/Credentials';
 
 export function AccountTab({ focus }: { focus?: 'privacy' }) {
   useEffect(() => {
     if (focus === 'privacy') setTimeout(() => document.getElementById('datenschutz')?.scrollIntoView({ block: 'start' }), 50);
+    else if (window.location.hash === '#nachweise') setTimeout(() => document.getElementById('nachweise')?.scrollIntoView({ block: 'start' }), 50);
   }, [focus]);
   return (
     <Surface>
       <ProfileSection />
+      <CredentialsSection />
       <PasswordSection />
       <SessionsSection />
       <DeviceSignatureSection />
@@ -26,6 +29,22 @@ export function AccountTab({ focus }: { focus?: 'privacy' }) {
       <WorkspaceSection />
       <DeleteSection />
     </Surface>
+  );
+}
+
+/** Eigene Befähigungsnachweise (Plan v7 X): stehen je Elementart auf dem Prüfprotokoll. */
+function CredentialsSection() {
+  const { data: me } = useMe();
+  if (!me) return null;
+  const canEdit = me.user.role !== 'viewer';
+  return (
+    <SettingsSection
+      id="nachweise"
+      title="Befähigungsnachweise"
+      description="Sachkunde, Hersteller-Zertifikate und weitere Nachweise. Das Prüfprotokoll druckt je Elementart den passenden gültigen Nachweis; fehlt er, siehst du beim Abschließen einen Hinweis."
+    >
+      <CredentialList userId={me.user.id} editable={canEdit} />
+    </SettingsSection>
   );
 }
 

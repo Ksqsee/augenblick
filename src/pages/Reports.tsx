@@ -11,6 +11,7 @@ import { ListHeading } from '../components/admin';
 import { type MonthlyStatus, runMonthlyReports } from '../automation';
 import { DueBadge } from '../components/AssetList';
 import { APP_NAME } from '../components/Logo';
+import { MappeButton } from '../components/Mappe';
 import { PropertyReportButton } from '../components/PropertyReportButton';
 import {
   Button,
@@ -90,6 +91,9 @@ export function ReportsPage() {
                 </Select>
                 <PropertyReportButton propertyId={pid} variant="secondary" label="PDF" />
               </ReportRowItem>
+              <ReportRowItem title="Sammelmappe" text="Alle Protokolle eines Objekts für einen Rundgang-Tag oder Zeitraum in einem PDF – Deckblatt, Inhaltsliste, erst ohne Mangel, dann nach gleichem Mangel gruppiert.">
+                <MappeButton label="Sammelmappe erzeugen" />
+              </ReportRowItem>
               <AnnualReportRow />
               <MonthlyReportsRow />
 
@@ -111,7 +115,7 @@ export function ReportsPage() {
               </ReportRowItem>
 
               <ListHeading>Weitere Nachweise</ListHeading>
-              <ReportRowItem title="Prüfprotokolle" text="Einzeln bei jeder Prüfung oder gesammelt als ZIP unter Prüfungen → Durchgeführt.">
+              <ReportRowItem title="Prüfprotokolle" text="Einzeln bei jeder Prüfung oder gesammelt als ZIP unter Prüfungen → Durchgeführt. Dateiname: Ident_Datum_Art.pdf">
                 <LinkButton to="/pruefen?tab=done">Zu den Prüfungen</LinkButton>
               </ReportRowItem>
               <ReportRowItem title="Begehungsprotokolle" text="Brandschutzbegehungen mit Feststellungen und Rechtsgrundlagen.">
@@ -143,6 +147,7 @@ const KIND_LABEL: Record<ReportRow['kind'], string> = {
   protocols: 'Protokolle',
   selection: 'Prüfbericht',
   annual: 'Jahresbericht',
+  mappe: 'Sammelmappe',
 };
 
 /** Neuen Bericht aus gefilterten Prüfungen erstellen: Übersicht als PDF oder alle Protokolle als ZIP. */

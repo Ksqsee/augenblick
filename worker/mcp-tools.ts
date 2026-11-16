@@ -29,6 +29,7 @@ import {
   suggestProducts,
 } from "../shared/vocab";
 import { dayIn, monthRange } from "../shared/dates";
+import { normalizeOffer, offerText } from "../shared/offer";
 import { expandCatalogDefects, splitFindings } from "../shared/duplicates";
 import {
   dateArg,
@@ -3735,11 +3736,15 @@ export const TOOLS: Tool[] = [
   },
   {
     name: "report",
-    title: "Kennzahlen",
+    title: "Kennzahlen und Angebotsliste",
     description:
-      "Kennzahlen als fertiger Text für einen Zeitraum und optional ein Objekt: Prüfungen (Anzahl, Ergebnisse, Nachprüfungen), Prüfquote (Anteil der schon einmal geprüften Elemente, die nicht überfällig sind – nie geprüfte stehen getrennt), neue und behobene Mängel nach Schwere, mittlere Behebungsdauer (ungültige Mängel zählen nicht), offene Mängel und Aufgaben, Entwürfe und Unterschrifts-Rückstau, Begehungen. Zeitraum in der Zeitzone des Workspaces: `month` („2026-10“, ganzer Monat bis zum letzten Tag), `year` (2026) oder `from`/`to` (ISO oder „30.11.“); Standard: die letzten 30 Tage. Gut als Grundlage für einen Monatsbericht. Nur lesend.",
+      "what: \"offer\" mit property liefert die Angebotsliste des Objekts in Kurzform (Leistung, Menge × Einzelpreis, Türnummern, Summe netto, nicht zugeordnete Mängel) – eine Liste zum Weiterverarbeiten, kein Versand. Sonst (what: \"figures\"): Kennzahlen als fertiger Text für einen Zeitraum und optional ein Objekt: Prüfungen (Anzahl, Ergebnisse, Nachprüfungen), Prüfquote (Anteil der schon einmal geprüften Elemente, die nicht überfällig sind – nie geprüfte stehen getrennt), neue und behobene Mängel nach Schwere, mittlere Behebungsdauer (ungültige Mängel zählen nicht), offene Mängel und Aufgaben, Entwürfe und Unterschrifts-Rückstau, Begehungen. Zeitraum in der Zeitzone des Workspaces: `month` („2026-10“, ganzer Monat bis zum letzten Tag), `year` (2026) oder `from`/`to` (ISO oder „30.11.“); Standard: die letzten 30 Tage. Gut als Grundlage für einen Monatsbericht. Nur lesend.",
     inputSchema: obj({
-      property: str("Objektname; ohne Angabe alle im Zugriffsbereich"),
+      what: str(
+        "figures (Standard) = Kennzahlen; offer = Angebotsliste eines Objekts aus den offenen Mängeln (Position, Menge, Türnummern, Preis, nicht zugeordnete Mängel) – braucht property",
+        { enum: ["figures", "offer"] },
+      ),
+      property: str("Objektname; ohne Angabe alle im Zugriffsbereich (bei offer Pflicht)"),
       month: str("Monat „JJJJ-MM“, z. B. „2026-10“"),
       year: int("Kalenderjahr", 2000, 2100),
       from: str("ab (Datum)"),
@@ -3747,6 +3752,18 @@ export const TOOLS: Tool[] = [
     }),
     readOnly: true,
     run: async (a, x) => {
+      // Plan v7 X: Angebotsliste in Kurzform (dieselben Daten wie Objekt → Angebot in der App)
+      if (a.what === "offer") {
+        if (!a.property)
+          throw new ToolError(
+            'Für die Angebotsliste ein Objekt angeben (property). Objekte liefert search(type: "properties").',
+          );
+        const p = await resolveProperty(x, a.property);
+        const offer = normalizeOffer(
+          await x.api({ method: "GET", path: `/properties/${enc(p.id)}/offer` }),
+        );
+        return offerText(offer, p.name);
+      }
       const prop = a.property ? await resolveProperty(x, a.property) : null;
       const tz = await tzOf(x);
       const de = (ms: number) => {

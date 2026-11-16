@@ -315,7 +315,7 @@ async function renderSheets(brand: Brand, sections: MappeSection<Item>[], pages:
     at.push(pages.section.get(s.key)!);
     if (s.kind === 'defects') {
       const k = groups.indexOf(s) + 1;
-      doc.title(`${T('Mangelgruppe')} ${k} ${T('von')} ${groups.length}`, `${s.items.length} ${s.items.length === 1 ? T('Element') : T('Elemente')} ${T('mit denselben Mängeln')}`);
+      doc.title(`${T('Mangelgruppe')} ${k} / ${groups.length}`, `${s.items.length} ${s.items.length === 1 ? T('Element') : T('Elemente')} ${T('mit denselben Mängeln')}`);
       for (const df of s.defects) doc.text(`– ${T(df)}`, { size: 12, bold: true });
     } else {
       doc.title(T('Nicht prüfbar'), `${s.items.length} ${s.items.length === 1 ? T('Element') : T('Elemente')}`);
@@ -346,7 +346,7 @@ export interface OfferDocData {
 }
 
 const suggestionText = (s: SeriesSuggestion) =>
-  `„${s.title}“: ${s.affected} ${T('von')} ${s.of} ${s.scope === 'property' ? T('im ganzen Objekt') : `${s.floors.length === 1 ? T('Etage') : T('Etagen')} ${s.floors.join(', ')}`} – ${T('als Sammelposition anbieten?')}`;
+  `„${s.title}“: ${s.affected} / ${s.of} ${s.scope === 'property' ? T('im ganzen Objekt') : `${s.floors.length === 1 ? T('Etage') : T('Etagen')} ${s.floors.join(', ')}`} – ${T('als Sammelposition anbieten?')}`;
 
 export async function offerPdf(data: OfferDocData, brand: Brand): Promise<Uint8Array> {
   useBrand(brand);
