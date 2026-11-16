@@ -1,5 +1,6 @@
 // PDF-Erzeugung im Browser (keine Server-Rechenzeit, funktioniert auch offline).
-import { SEVERITIES, WALK_PURPOSES } from '../../shared/catalog';
+import { type AttributeField, SEVERITIES, WALK_PURPOSES } from '../../shared/catalog';
+import { type Credential, credentialText, pickCredential } from '../../shared/credentials';
 import { buildFileName, uniqueName } from '../../shared/filename';
 import { type DocLanguage, isValidTimeZone, LOCALE, tr } from '../../shared/i18n';
 import { BUILDING_TYPES, WALK_SECTIONS, type WalkSection } from '../../shared/walkthrough';
@@ -69,9 +70,48 @@ export function inspectionFileName(i: Inspection, tenantPattern: string) {
   });
 }
 
-export async function inspectionPdf(i: Inspection, brand: Brand): Promise<Uint8Array> {
+/** Nachweise einer Person laden (für ein einzelnes Protokoll); Fehler → keine Nachweise. */
+async function credentialsOf(userId: string): Promise<Credential[]> {
+  try {
+    return await api<Credential[]>(`/credentials?userId=${encodeURIComponent(userId)}`);
+  } catch {
+    return [];
+  }
+}
+
+/** Stammdaten-Wert für das Protokoll; leer = nicht gesetzt (wird nicht gedruckt). */
+function attrValue(f: AttributeField, v: unknown): string {
+  if (v == null || v === '') return '';
+  if (v === true) return T('Ja');
+  if (v === false) return T('Nein');
+  if (f.type === 'date' && typeof v === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(v)) {
+    const [y, m, dd] = v.split('-').map(Number);
+    return dateFmt.format(Date.UTC(y, m - 1, dd, 12));
+  }
+  if (typeof v === 'number') return new Intl.NumberFormat(LOCALE[lang]).format(v);
+  return T(String(v));
+}
+
+/** Alle gesetzten Stammdaten eines Elements in der Reihenfolge der Katalog-Definition (nichts fest verdrahtet). */
+export function attributeFacts(fields: AttributeField[], values: Record<string, unknown>): [string, string][] {
+  return fields.map((f) => [T(f.label), attrValue(f, values[f.key])] as [string, string]).filter(([, v]) => v !== '');
+}
+
+export interface ProtocolOptions {
+  /** Nachweise der prüfenden Person (sonst werden sie geladen) */
+  credentials?: Credential[];
+}
+
+export async function inspectionPdf(i: Inspection, brand: Brand, opts: ProtocolOptions = {}): Promise<Uint8Array> {
+  return (await inspectionDoc(i, brand, opts)).finish();
+}
+
+/** Protokoll als Dokument (noch ohne Fußzeilen) – für die Sammelmappe, die Seiten direkt übernimmt. */
+export async function inspectionDoc(i: Inspection, brand: Brand, opts: ProtocolOptions = {}): Promise<Doc> {
   useBrand(brand);
   const def = getCategory(i.asset.category);
+  const creds = (opts.credentials ?? (await credentialsOf(i.inspectorId))).filter((c) => c.userId === i.inspectorId);
+  useBrand(brand);
   const doc = await Doc.create(brand, `${T('Prüfprotokoll')} ${i.asset.code}`);
   doc.title(`${T('Prüfprotokoll')} ${T(i.asset.categoryLabel)}`, [T(i.scheduleLabel), i.asset.norm && `${T('Grundlage')}: ${i.asset.norm}`].filter(Boolean).join(' · '), [
     i.asset.code,
@@ -81,10 +121,11 @@ export async function inspectionPdf(i: Inspection, brand: Brand): Promise<Uint8A
   if (i.supersededAt) doc.text(`${T('Diese Prüfung wurde berichtigt und ist nicht mehr gültig.')} ${T('Berichtigt durch')}: ${T('Prüfung vom')} ${d(i.supersededByDate ?? i.supersededAt)}`, { bold: true, color: RED });
   if (i.purpose === 'correction' && i.supersedesId) doc.text(`${T('Berichtigung')}: ${T('Ersetzt Prüfung vom')} ${d(i.supersedesDate)}`, { bold: true });
   if (i.followUpOf) doc.text(`${T('Nachprüfung zur Prüfung vom')} ${d(i.followUpDate)}`, { bold: true });
-  const attrs = (def.attributes ?? []).map(({ key, label }) => {
-    const v = i.asset.attributes[key];
-    return [T(label), v === true ? T('Ja') : v === false ? T('Nein') : v == null || v === '' ? '–' : String(v)] as [string, string];
-  });
+  const at = i.inspectedAt ?? i.createdAt;
+  const pick = pickCredential(creds, { category: i.asset.category, manufacturer: i.asset.manufacturer, at });
+  const proof = pick.credential
+    ? `${credentialText(pick.credential, T)}${pick.credential.validUntil ? ` · ${T('gültig bis')} ${d(pick.credential.validUntil)}` : ''}`
+    : T('nicht hinterlegt');
   doc.facts([
     [T('Objekt'), i.asset.propertyName],
     [T('Prüfdatum'), dt(i.inspectedAt ?? i.createdAt)],
@@ -94,8 +135,15 @@ export async function inspectionPdf(i: Inspection, brand: Brand): Promise<Uint8A
     [T('Prüfer/in'), i.inspectorName],
     [T('Hersteller / Typ'), [i.asset.manufacturer, i.asset.model].filter(Boolean).join(' / ')],
     [T('Nächste Prüfung'), d(i.nextDueAt)],
-    ...attrs,
+    [T('Befähigungsnachweis'), proof],
   ]);
+  if (pick.status === 'expired') doc.text(T('Hinweis: Der Befähigungsnachweis war am Prüfdatum abgelaufen.'), { size: 8.5, color: WARN });
+  else if (pick.status === 'missing') doc.text(T('Hinweis: Für diese Elementart ist kein Befähigungsnachweis der prüfenden Person hinterlegt.'), { size: 8.5, color: WARN });
+  const attrs = attributeFacts(def.attributes ?? [], i.asset.attributes);
+  if (attrs.length) {
+    doc.heading(T('Stammdaten'), 10.5);
+    doc.facts(attrs);
+  }
 
   doc.heading(T('Prüfpunkte'));
   if (i.notInspectable) doc.text(T('Das Element war zum Prüfzeitpunkt nicht prüfbar.'), { color: MUTED });
@@ -153,7 +201,8 @@ export async function inspectionPdf(i: Inspection, brand: Brand): Promise<Uint8A
     name: i.signerName || i.inspectorName,
     date: d(i.inspectedAt ?? i.createdAt),
   });
-  return doc.finish();
+  doc.blankFields(T('Abnahme durch den Auftraggeber'), [T('Name'), T('Datum'), T('Unterschrift')], [1.3, 0.7, 1.4]);
+  return doc;
 }
 
 export async function walkthroughPdf(w: Walkthrough, brand: Brand): Promise<Uint8Array> {
@@ -410,9 +459,10 @@ export async function protocolsZip(ids: string[], me: Me, onProgress?: (done: nu
   const brand = await loadBrand(me);
   const files: Record<string, Uint8Array> = {};
   const used = new Set<string>();
+  const credentials = await api<Credential[]>('/credentials').catch(() => [] as Credential[]);
   for (const [n, id] of ids.entries()) {
     const insp = await api<Inspection>(`/inspections/${id}`);
-    files[uniqueName(inspectionFileName(insp, me.tenant.pdfPattern), used)] = await inspectionPdf(insp, brand);
+    files[uniqueName(inspectionFileName(insp, me.tenant.pdfPattern), used)] = await inspectionPdf(insp, brand, { credentials });
     onProgress?.(n + 1, ids.length);
   }
   return zipSync(files, { level: 0 });
