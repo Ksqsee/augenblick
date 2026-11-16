@@ -154,6 +154,7 @@ const check = (ok, m) => {
   const P1 = (await api('/properties', { data: { name: 'E2E Angebot Hotel' } })).json;
   const B1 = (await api(`/properties/${P1.id}/buildings`, { data: { name: 'Hauptgebäude' } })).json;
   await p.goto(`${BASE}/elemente?neu=1`);
+  await p.getByRole('dialog').getByRole('button', { name: /^Fenster/ }).waitFor();
   check((await p.getByRole('dialog').getByRole('button', { name: /Fenster/ }).count()) === 1 && (await p.getByRole('dialog').getByRole('button', { name: /Drehtürantrieb/ }).count()) === 1, 'Auswahl der Art: Fenster und Drehtürantrieb');
   await p.getByRole('dialog').getByRole('button', { name: /^Tür/ }).first().click();
   await p.getByLabel('Objekt', { exact: true }).selectOption(P1.id);
@@ -307,7 +308,7 @@ const check = (ok, m) => {
   await p.getByLabel('Objekt für Dateien ohne Objektspalte').fill('E2E Wartungsübersicht');
   await p.locator('#import-file').setInputFiles(csvFile);
   await p.getByText('5 Zeilen bereit').waitFor();
-  check(await p.getByText('Typ aus dem Katalog: Westag + Getalit T30 RS').isVisible(), 'Vorschau zeigt den Katalog-Typ');
+  check(await p.getByRole('table').getByText('Typ aus dem Katalog: Westag + Getalit T30 RS').first().isVisible(), 'Vorschau zeigt den Katalog-Typ');
   await p.mouse.move(1, 1);
   await p.screenshot({ path: OUT + 'd-import.png' });
   await p.getByRole('button', { name: '5 importieren' }).click();

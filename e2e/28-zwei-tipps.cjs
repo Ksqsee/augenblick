@@ -236,8 +236,8 @@ const overlap = (a, b) => !!a && !!b && a.x < b.x + b.width && b.x < a.x + a.wid
   check(dtaps === 3, `mit Mangel: drei Tipps und ein Satz (${dtaps})`);
   const i2 = (await api(`/inspections/${id2}`)).json;
   const d2 = (await api('/defects?status=all')).json.filter((d) => d.inspectionId === id2);
-  check(i2.status === 'submitted' && i2.result === 'defects' && i2.answers.p5 === 'defect' && i2.answers.p7 === 'na', `Ergebnis mit Mangel (${i2.result}, p7=${i2.answers.p7})`);
-  check(d2.length === 1 && d2[0].checkpointId === 'p5' && d2[0].severity === 'medium', `ein Mangel am Punkt (${JSON.stringify(d2.map((d) => [d.checkpointId, d.severity]))})`);
+  check(i2.status === 'submitted' && i2.result === 'defects' && i2.answers.p10 === 'defect' && i2.answers.p11 === 'na', `Ergebnis mit Mangel (${i2.result}, p11=${i2.answers.p11})`);
+  check(d2.length === 1 && d2[0].checkpointId === 'p10' && d2[0].severity === 'medium', `ein Mangel am Punkt (${JSON.stringify(d2.map((d) => [d.checkpointId, d.severity]))})`);
   check(i2.maintenance.includes('closer'), 'Wartungsarbeit gespeichert');
 
   step('Desktop 1360 px: Prüfung Start und nach „Alles in Ordnung“, Heute');
@@ -265,12 +265,14 @@ const overlap = (a, b) => !!a && !!b && a.x < b.x + b.width && b.x < a.x + a.wid
   step('Plan v6 A3/A4 (390 px): Laufreihenfolge im Rundgang, „entfällt“ und Rückfrage nach Stammdaten');
   const bld2 = (await api(`/properties/${prop.id}/buildings`, { data: { name: 'Nebenhaus' } })).json;
   // angelegt 2. OG → EG → UG → EG; gelaufen wird von unten nach oben, in der Etage in Anlage-Reihenfolge
+  // v7: Anforderung und Ausstattung bekannt, damit nur Schließfolge und Feststellanlage entfallen
+  const V7 = { requirement: 'T30-RS', cardLock: true, dropSeal: true, peephole: true };
   const made = [];
   for (const [floor, loc, attributes] of [
-    ['2. OG', 'Dachflur', { holdOpen: false, leaves: '1-flügelig' }],
+    ['2. OG', 'Dachflur', { holdOpen: false, leaves: '1-flügelig', ...V7 }],
     ['EG', 'Eingang', {}],
-    ['UG', 'Heizraum', { holdOpen: false, leaves: '1-flügelig' }],
-    ['EG', 'Küche', { holdOpen: false, leaves: '1-flügelig' }],
+    ['UG', 'Heizraum', { holdOpen: false, leaves: '1-flügelig', ...V7 }],
+    ['EG', 'Küche', { holdOpen: false, leaves: '1-flügelig', ...V7 }],
   ])
     made.push((await api('/assets', { data: { buildingId: bld2.id, category: 'fire_door', location: loc, floor, attributes } })).json);
   await p.goto(BASE + `/rundgang/${bld2.id}`);
@@ -292,7 +294,7 @@ const overlap = (a, b) => !!a && !!b && a.x < b.x + b.width && b.x < a.x + a.wid
   await p.getByRole('button', { name: 'Abschließen', exact: true }).click();
   await p.waitForURL(/\/rundgang\/.*fertig=/);
   const i4 = (await api(`/inspections/${id4}`)).json;
-  check(i4.status === 'submitted' && i4.answers.p6 === 'na' && i4.answers.p12 === 'na' && i4.answers.p13 === 'na' && i4.answers.p5 === 'ok', `einflügelig ohne FSA: p6/p12/p13 entfällt (${JSON.stringify([i4.answers.p6, i4.answers.p12, i4.answers.p13])})`);
+  check(i4.status === 'submitted' && i4.answers.p12 === 'na' && i4.answers.p22 === 'na' && i4.answers.p23 === 'na' && i4.answers.p10 === 'ok', `einflügelig ohne FSA: p12/p22/p23 entfällt (${JSON.stringify([i4.answers.p12, i4.answers.p22, i4.answers.p23])})`);
   // Stammdaten unbekannt: Punkte bleiben offen, gezielte Rückfrage; die Antwort wird am Element gespeichert
   await p.getByRole('button', { name: 'Prüfung starten' }).click();
   await p.waitForURL(/\/pruefung\//);

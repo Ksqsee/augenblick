@@ -3,7 +3,7 @@
 // Zugriffsbereich und „darf anlegen“ gelten dadurch unverändert. Antworten sind knapp und nennen Codes und
 // Namen statt interner IDs – IDs nur dort, wo ein Folgeaufruf sie braucht.
 import { allOkAnswers, conditionOf, conditionReason } from "../shared/applies";
-import { validateAttributes } from "../shared/asset-fields";
+import { validateAttributes, withLegacyDoorFields } from "../shared/asset-fields";
 import { SEVERITIES, type Severity } from "../shared/catalog";
 import { parseCategory } from "../shared/importing";
 import { groupCheckpoints } from "../shared/checkpoint-groups";
@@ -1995,6 +1995,11 @@ export const TOOLS: Tool[] = [
           next.model = m;
         }
       }
+      // Plan v7 (Paket V): alte Felder rating/smoke der Tür → Anforderung (vor dem Aussortieren unbekannter Felder)
+      const legacy = withLegacyDoorFields([...fields.keys()].map((key) => ({ key })), extra);
+      if (legacy.error) throw new ToolError(`Nichts gespeichert: ${legacy.error}`);
+      for (const k of Object.keys(extra)) delete extra[k];
+      Object.assign(extra, legacy.attrs);
       // Plan v6 D1: Auswahllisten, Zahlen, Baujahr und Ja/Nein prüfen – bei einem Fehler wird nichts gespeichert
       for (const k of Object.keys(extra)) if (!fields.has(k)) ignored.push(k);
       const checked = checkedFields(
