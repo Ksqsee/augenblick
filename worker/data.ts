@@ -8,7 +8,7 @@ import { type DocLanguage, tr } from "../shared/i18n";
 import { buildXlsx } from "../shared/xlsx";
 import { getCategoryDef, listCategories } from "./categories";
 import { similarity } from "../shared/smart";
-import { freeNumberCode, matchElementRef, numberCode, parseElementRef } from "../shared/vocab";
+import { elementRefConflict, freeNumberCode, matchElementRef, numberCode, parseElementRef } from "../shared/vocab";
 import { autoDefectTasks, closeVerificationsOf } from "./automation";
 import { actionRequired } from "./smart";
 import {
@@ -163,9 +163,10 @@ data.get("/search", async (c) => {
     ).bind(tid(c), like),
   ]);
   // „Tür 36“, „Nummer 36“, „36“: Element-Nummern (mit `propertyId` nur in diesem Objekt) zuerst
-  const refs = await assetsByRef(c, q, c.req.query("propertyId"));
+  const { hits: refs, conflict } = await assetsByRefDetail(c, q, c.req.query("propertyId"));
   const seen = new Set(refs.map((r) => r.id));
   return c.json({
+    ...(conflict ? { refHint: conflict } : {}),
     properties: props.results,
     buildings: builds.results,
     assets: [...refs, ...(assets.results as { id: string }[]).filter((a) => !seen.has(a.id))].slice(0, 10),
@@ -180,6 +181,8 @@ const propertyBody = z.object({
   contactName: str(160).default(""),
   contactPhone: str(60).default(""),
   contactEmail: z.union([z.literal(""), z.string().trim().email()]).default(""),
+  /** Zugang: Schlüssel, Zeiten, Hinweise (Plan v6, F4) */
+  access: str(1000).optional(),
   buildingType: buildingTypeEnum.default("general"),
   pdfPattern: z.string().trim().max(120).nullable().default(null),
 });
@@ -205,8 +208,8 @@ data.post("/properties", async (c) => {
   const bid = withBuilding ? id() : null;
   const t = now();
   const insert = c.env.DB.prepare(
-    `INSERT INTO properties (id, tenant_id, name, address, description, contact_name, contact_phone, contact_email, building_type, created_at, updated_at)
-     VALUES (?,?,?,?,?,?,?,?,?,?,?)`,
+    `INSERT INTO properties (id, tenant_id, name, address, description, contact_name, contact_phone, contact_email, building_type, access, created_at, updated_at)
+     VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`,
   )
     .bind(
       pid,
@@ -218,6 +221,7 @@ data.post("/properties", async (c) => {
       b.contactPhone,
       b.contactEmail,
       b.buildingType,
+      b.access ?? "",
       t,
       t,
     );
@@ -243,7 +247,7 @@ data.get("/properties/:id", async (c) => {
   assertInScope(c, "property", c.req.param("id"));
   const p = await c.env.DB.prepare(
     `SELECT id, name, address, description, contact_name AS contactName, contact_phone AS contactPhone, contact_email AS contactEmail,
-            building_type AS buildingType, pdf_pattern AS pdfPattern, created_at AS createdAt
+            building_type AS buildingType, pdf_pattern AS pdfPattern, access, created_at AS createdAt
        FROM properties WHERE id = ? AND tenant_id = ? AND deleted_at IS NULL`,
   )
     .bind(c.req.param("id"), tid(c))
@@ -287,7 +291,7 @@ data.patch("/properties/:id", async (c) => {
   requireRole(c, "admin");
   const b = propertyBody.parse(await c.req.json());
   const r = await c.env.DB.prepare(
-    `UPDATE properties SET name=?, address=?, description=?, contact_name=?, contact_phone=?, contact_email=?, building_type=?, pdf_pattern=?, updated_at=?
+    `UPDATE properties SET name=?, address=?, description=?, contact_name=?, contact_phone=?, contact_email=?, building_type=?, pdf_pattern=?, access=COALESCE(?, access), updated_at=?
       WHERE id = ? AND tenant_id = ? AND deleted_at IS NULL`,
   )
     .bind(
@@ -299,6 +303,7 @@ data.patch("/properties/:id", async (c) => {
       b.contactEmail,
       b.buildingType,
       b.pdfPattern || null,
+      b.access ?? null,
       now(),
       c.req.param("id"),
       tid(c),
@@ -495,7 +500,7 @@ export function assetQuery(c: Ctx, where = "1=1", order = "a.code") {
     `SELECT a.id, a.code, a.number, a.category, a.location, a.floor, a.manufacturer, a.model, a.attributes, a.label_code AS labelCode,
             a.floor_plan_id AS floorPlanId, a.marker_x AS markerX, a.marker_y AS markerY,
             a.last_inspection_id AS lastInspectionId, a.last_inspected_at AS lastInspectedAt, a.last_result AS lastResult,
-            a.next_due_at AS nextDueAt, a.created_at AS createdAt, a.schedules, a.warn_days AS warnDays,
+            a.next_due_at AS nextDueAt, a.created_at AS createdAt, a.schedules, a.warn_days AS warnDays, a.sort_index AS sortIndex,
             b.id AS buildingId, b.name AS buildingName, p.id AS propertyId, p.name AS propertyName,
             (SELECT COUNT(*) FROM defects d WHERE d.asset_id = a.id AND d.status = 'open' AND d.hidden_at IS NULL) AS openDefects
        FROM assets a JOIN buildings b ON b.id = a.building_id JOIN properties p ON p.id = b.property_id
@@ -691,8 +696,10 @@ data.post("/assets", async (c) => {
     try {
       // Feste Nummer: nur einfügen, wenn sie im Objekt noch frei ist (eine Anweisung = kein Wettlauf)
       const r = await c.env.DB.prepare(
-        `INSERT INTO assets (id, tenant_id, building_id, category, code, number, location, floor, manufacturer, model, attributes, label_code, schedules, created_at, updated_at, warn_days)
-         SELECT ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?14, ?15
+        `INSERT INTO assets (id, tenant_id, building_id, category, code, number, location, floor, manufacturer, model, attributes, label_code, schedules, created_at, updated_at, warn_days, sort_index)
+         SELECT ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?14, ?15,
+                -- Laufreihenfolge: in der Reihenfolge der Anlage (shared/walk-order.ts)
+                (SELECT COALESCE(MAX(s.sort_index), 0) + 1 FROM assets s WHERE s.building_id = ?3)
           WHERE ?6 IS NULL OR NOT EXISTS (SELECT 1 FROM assets x JOIN buildings y ON y.id = x.building_id
                                            WHERE x.tenant_id = ?2 AND y.property_id = ?16 AND x.number = ?6 AND x.deleted_at IS NULL)`,
       )
@@ -716,9 +723,14 @@ data.post("/assets", async (c) => {
  * Liefert die passenden Elemente im Zugriffsbereich (shared/vocab.ts matchElementRef).
  */
 export async function assetsByRef(c: Ctx, q: string, propertyId?: string | null) {
+  return (await assetsByRefDetail(c, q, propertyId)).hits;
+}
+
+/** Wie assetsByRef, dazu der Hinweis bei falscher Art („Nummer 4 ist ein Feuerlöscher (FL-004)“, Plan v6 A1). */
+export async function assetsByRefDetail(c: Ctx, q: string, propertyId?: string | null) {
   const cats = await listCategories(c);
   const ref = parseElementRef(q, cats.map((x) => ({ key: x.key, label: x.label, plural: x.plural, prefix: x.prefix })));
-  if (!ref) return [];
+  if (!ref) return { hits: [], conflict: null };
   // Kandidaten: gleiche Nummer oder älterer Code mit dieser Zahl am Ende
   const rows = await c.env.DB.prepare(
     `SELECT a.id, a.code, a.number, a.category, a.location, a.floor, b.name AS buildingName, p.id AS propertyId, p.name AS propertyName
@@ -730,7 +742,9 @@ export async function assetsByRef(c: Ctx, q: string, propertyId?: string | null)
   )
     .bind(tid(c), ref.number, propertyId ?? "")
     .all<{ id: string; code: string; number: number | null; category: string }>();
-  return matchElementRef(ref, rows.results);
+  const label = (k: string) => cats.find((x) => x.key === k)?.label ?? k;
+  // ohne Objekt nur dann ein Widerspruch, wenn die Nummer im ganzen Bereich nur bei anderen Arten vorkommt
+  return { hits: matchElementRef(ref, rows.results), conflict: elementRefConflict(ref, rows.results, label) };
 }
 
 /** Code oder zugeordnetes Etikett auflösen; mit `propertyId` auch „Tür 36“/„36“ im Objekt (eindeutig, sonst 404). */
@@ -744,8 +758,9 @@ data.get("/assets/by-code/:code", async (c) => {
   if (row) return c.json(row);
   const propertyId = c.req.query("propertyId");
   if (propertyId) {
-    const hits = await assetsByRef(c, code, propertyId);
+    const { hits, conflict } = await assetsByRefDetail(c, code, propertyId);
     if (hits.length === 1) return c.json({ id: hits[0]!.id });
+    if (conflict) throw new HTTPException(404, { message: conflict });
   }
   notFound("Element");
 });

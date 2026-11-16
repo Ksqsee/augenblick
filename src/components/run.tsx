@@ -17,6 +17,7 @@ import { ReadyList, RunFrame, type RunStep, type SaveState } from './inspect/Run
 import { rememberedSignature, SignatureSection } from './inspect/Signature';
 import { parseFinding, VoicePanel } from './inspect/VoicePanel';
 import { countGroup, groupCheckpoints, groupSummary } from './inspect/groups';
+import { allOkAnswers, checkpointApplies, conditionOf } from '../../shared/applies';
 
 export { AnswerSegment as AnswerButtons } from './inspect/Checkpoint';
 export { RunFrame, SaveIndicator, ReadyList, type RunStep, type SaveState } from './inspect/RunFrame';
@@ -237,6 +238,8 @@ export interface InspectionSubject {
   location: string;
   buildingName: string;
   propertyName: string;
+  /** Stammdaten – für Prüfpunkte mit Bedingung (Feststellanlage, zweiflügelig) */
+  attributes?: Record<string, unknown>;
 }
 
 export function InspectionForm({
@@ -253,7 +256,10 @@ export function InspectionForm({
   banner,
   knownDefects = [],
   submitLabel,
+  onAttribute,
 }: {
+  /** Stammdatum aus einer Rückfrage dauerhaft am Element speichern (online); offline nur für diese Prüfung */
+  onAttribute?: (attr: string, value: string | boolean) => Promise<void>;
   /** eigene Beschriftung des Abschlussknopfs (z. B. im Offline-Rundgang) */
   submitLabel?: string;
   subject: InspectionSubject;
@@ -314,6 +320,43 @@ export function InspectionForm({
   const [voiceOpen, setVoiceOpen] = useState(false);
   const [voiceText, setVoiceText] = useState('');
   const [allBusy, setAllBusy] = useState(false);
+  // Stammdaten mit Antworten aus den Rückfragen dieser Prüfung
+  const [attrs, setAttrs] = useState<Record<string, unknown>>(() => ({ ...(subject.attributes ?? {}) }));
+  // nach „Alles in Ordnung“: Punkte, die offen blieben, weil ein Stammdatum fehlt (Plan v6, A4)
+  const [askAttrs, setAskAttrs] = useState(false);
+  const questions = useMemo(() => {
+    const seen = new Map<string, { attr: string; question: string; ids: string[] }>();
+    for (const q of allOkAnswers(checkpoints, d.answers, subject.category, attrs, (k) => def.attributes.find((f) => f.key === k)?.label).unknown) {
+      const e = seen.get(q.attr) ?? { attr: q.attr, question: q.question, ids: [] };
+      e.ids.push(q.id);
+      seen.set(q.attr, e);
+    }
+    return [...seen.values()];
+  }, [checkpoints, d.answers, subject.category, attrs, def.attributes]);
+  /** Rückfrage beantwortet: Stammdatum merken, betroffene offene Punkte auf i. O. bzw. „entfällt“ */
+  const answerAttr = (attr: string, value: string | boolean) => {
+    const nextAttrs = { ...attrs, [attr]: value };
+    setAttrs(nextAttrs);
+    setD((s) => {
+      const answers = { ...s.answers };
+      for (const c of checkpoints) {
+        const cond = conditionOf(c, subject.category);
+        if (answers[c.id] || cond?.attr !== attr) continue;
+        answers[c.id] = checkpointApplies(cond, nextAttrs) === 'no' ? 'na' : 'ok';
+      }
+      return { ...s, answers };
+    });
+    onAttribute?.(attr, value).catch((e) => toast(e instanceof Error ? e.message : 'Stammdatum nicht gespeichert', 'bad'));
+    if (questions.length <= 1) window.setTimeout(() => jumpTo('unterschrift'), 60);
+  };
+  const attrOptions = (attr: string): { label: string; value: string | boolean }[] => {
+    const f = def.attributes.find((x) => x.key === attr);
+    if (f?.options?.length) return f.options.map((o) => ({ label: o, value: o }));
+    return [
+      { label: 'Ja', value: true },
+      { label: 'Nein', value: false },
+    ];
+  };
   const [moreOpen, setMoreOpen] = useState(() => initial.maintenance.length > 0 || !!initial.notes.trim());
   const showMore = moreOpen || !d.kinds?.length || d.notInspectable;
 
@@ -380,21 +423,25 @@ export function InspectionForm({
         setAllBusy(false);
       }
     }
-    const n = ids.filter((i) => !base.answers[i]).length;
+    // nicht Zutreffendes (keine Feststellanlage, einflügelig) „entfällt“; fehlt das Stammdatum, bleibt der Punkt offen
+    const r = allOkAnswers(checkpoints, base.answers, subject.category, attrs);
+    const n = r.ok.length;
     const next: InspectionDraft = {
       ...base,
-      answers: Object.fromEntries(ids.map((i) => [i, base.answers[i] ?? 'ok'])),
+      answers: r.answers,
       signature: base.signature ?? rememberedSignature(me?.user.id),
     };
     setD(next);
     setManual({});
     setVoiceOpen(false);
+    setAskAttrs(r.unknown.length > 0);
     const what = n === ids.length ? 'Alle Punkte in Ordnung' : `${n} ${n === 1 ? 'Punkt' : 'Punkte'} in Ordnung`;
-    toast(found ? `${found === 1 ? '1 Mangel' : `${found} Mängel`} eingetragen, ${what.replace(/^Alle/, 'alle')}` : what, 'ok', {
+    const extra = [r.na.length ? `${r.na.length} entfällt` : '', r.unknown.length ? `${r.unknown.length} offen – bitte Rückfrage beantworten` : ''].filter(Boolean).join(', ');
+    toast(`${found ? `${found === 1 ? '1 Mangel' : `${found} Mängel`} eingetragen, ${what.replace(/^Alle/, 'alle')}` : what}${extra ? ` (${extra})` : ''}`, 'ok', {
       action: { label: 'Rückgängig', onClick: () => setD(base) },
       duration: 5000,
     });
-    window.setTimeout(() => jumpTo('unterschrift'), 60);
+    if (!r.unknown.length) window.setTimeout(() => jumpTo('unterschrift'), 60);
   };
 
   const onSubmit = () => finish(d);
@@ -499,6 +546,20 @@ export function InspectionForm({
                   </span>
                 </div>
               )}
+              {askAttrs &&
+                questions.map((q) => (
+                  <div key={q.attr} className="flex flex-col gap-2 rounded-md border border-line px-4 py-3 sm:col-span-2" role="group" aria-label={q.question} data-question={q.attr}>
+                    <p className="text-body text-ink">{q.question}</p>
+                    <p className="text-meta text-ink-3">{q.ids.length === 1 ? 'Ein Prüfpunkt hängt davon ab und bleibt bis dahin offen.' : `${q.ids.length} Prüfpunkte hängen davon ab und bleiben bis dahin offen.`}</p>
+                    <div className="flex flex-wrap gap-2">
+                      {attrOptions(q.attr).map((o) => (
+                        <Button key={String(o.value)} variant="secondary" onClick={() => answerAttr(q.attr, o.value)}>
+                          {o.label}
+                        </Button>
+                      ))}
+                    </div>
+                  </div>
+                ))}
               <BigChoice
                 icon={<Mic />}
                 label="Abweichung einsprechen"

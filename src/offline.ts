@@ -3,6 +3,7 @@ import { createStore, del, get, keys, set } from 'idb-keyval';
 import { useEffect, useState, useSyncExternalStore } from 'react';
 import type { KnownDefect } from '../shared/carry';
 import type { Checkpoint } from '../shared/catalog';
+import { walkSort } from '../shared/walk-order';
 import { api, ApiError, type Asset, type CategoryInfo, downscale, queryClient, uploadBlob } from './api';
 import type { InspectionDraft } from './components/run';
 
@@ -315,12 +316,8 @@ export const isNetworkError = (e: unknown) => !(e instanceof ApiError);
 
 // ---------- Rundgang ohne Netz ----------
 const DAY = 86_400_000;
-/** Fällige Elemente eines geladenen Gebäudes (überfällig, nie geprüft oder in 14 Tagen fällig) in Laufreihenfolge: Etage, Standort, Code. */
+/** Fällige Elemente eines geladenen Gebäudes (überfällig, nie geprüft oder in 14 Tagen fällig) in Laufreihenfolge (shared/walk-order.ts). */
 export function walkOrder(bundle: Bundle, now = Date.now()): Asset[] {
-  const s = (v: string | null | undefined) => v ?? '';
-  // wie die Datenbank (binär), damit App und Claude (tour) dieselbe Reihenfolge haben
-  const cmp = (x: string, y: string) => (x < y ? -1 : x > y ? 1 : 0);
-  return bundle.assets
-    .filter((a) => a.nextDueAt == null || a.nextDueAt < now + 14 * DAY)
-    .sort((a, b) => cmp(s(a.floor), s(b.floor)) || cmp(s(a.location), s(b.location)) || cmp(a.code, b.code));
+  // dieselbe Laufreihenfolge wie Rundgang-API und Claude (tour): Etagen von unten nach oben, dann Anlage-Reihenfolge
+  return walkSort(bundle.assets.filter((a) => a.nextDueAt == null || a.nextDueAt < now + 14 * DAY));
 }

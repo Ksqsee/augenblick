@@ -141,12 +141,17 @@ export function SearchPalette({ onClose }: { onClose: () => void }) {
           {isFetching && <Loader2 className="size-4 shrink-0 animate-spin text-ink-3" aria-label="Sucht" />}
         </div>
         <ul className="scroll-thin min-h-0 flex-1 overflow-y-auto p-1.5">
+          {debounced.length >= 2 && data?.refHint && (
+            <li className="px-3 py-2.5 text-meta text-warn" role="status" data-ref-hint>
+              {data.refHint}
+            </li>
+          )}
           {debounced.length < 2 ? (
             <li className="px-3 py-8 text-center text-body text-ink-3">
               <p className="text-ink">Element, Objekt oder Gebäude finden</p>
               <p className="mt-1 text-meta">Tipp: „Brandschutztüren mit Mängeln“ öffnet direkt die gefilterte Liste.</p>
             </li>
-          ) : hits.length === 0 && !isFetching ? (
+          ) : hits.length === 0 && !isFetching && !data?.refHint ? (
             <li className="px-3 py-8 text-center text-body text-ink-3">Keine Treffer für „{debounced}“</li>
           ) : (
             hits.map((h, i) => (

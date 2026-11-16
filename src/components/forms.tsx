@@ -30,6 +30,7 @@ export function PropertyForm({ initial, onClose, onCreated }: { initial?: Proper
     contactName: initial?.contactName ?? '',
     contactPhone: initial?.contactPhone ?? '',
     contactEmail: initial?.contactEmail ?? '',
+    access: initial?.access ?? '',
     buildingType: initial?.buildingType ?? ('general' as BuildingType),
     pdfPattern: initial?.pdfPattern ?? '',
   });
@@ -104,8 +105,11 @@ export function PropertyForm({ initial, onClose, onCreated }: { initial?: Proper
               <Field label="E-Mail" optional className="sm:col-span-2">
                 {(id) => <Input id={id} type="email" value={f.contactEmail} onChange={set('contactEmail')} />}
               </Field>
+              <Field label="Zugang" optional className="sm:col-span-2" hint="Schlüssel, Zeiten, Hinweise – erscheint beim Rundgang.">
+                {(id) => <Textarea id={id} className="min-h-16" value={f.access} onChange={set('access')} placeholder="z. B. Schlüssel beim Empfang, werktags 7–16 Uhr" />}
+              </Field>
               <Field label="Notizen" optional className="sm:col-span-2">
-                {(id) => <Textarea id={id} value={f.description} onChange={set('description')} placeholder="Zugang, Schlüssel, Besonderheiten …" />}
+                {(id) => <Textarea id={id} value={f.description} onChange={set('description')} placeholder="Besonderheiten …" />}
               </Field>
             </FormSection>
             <Field label="PDF-Dateinamen (nur dieses Objekt)" optional hint="Leer = Vorgabe des Unternehmens. Platzhalter: {datum} {code} {art} {pruefart} {objekt} {gebaeude} {standort} {ergebnis}">

@@ -224,15 +224,33 @@ export interface NumberedAsset {
 }
 
 /**
- * Elemente zu einem Verweis: zuerst gleiche Nummer und passende Art, dann gleiche Nummer (Nummern sind je Objekt über
- * alle Arten eindeutig), zuletzt ältere Codes mit dieser Zahl am Ende („FST-36“).
+ * Elemente zu einem Verweis: gleiche Nummer – mit Artwort („Tür 4“) nur in dieser Art (Plan v6, A1: „Tür 4“ darf nie
+ * den Feuerlöscher FL-004 treffen), ohne Artwort („Nummer 4“) in jeder Art; danach ältere Codes mit dieser Zahl am
+ * Ende („FST-36“). Passt die Nummer nur zu einer anderen Art, liefert `elementRefConflict` den Hinweis dazu.
  */
 export function matchElementRef<T extends NumberedAsset>(ref: ElementRef, assets: T[]): T[] {
+  const fits = (a: T) => !ref.category || a.category === ref.category;
   const byNumber = assets.filter((a) => a.number === ref.number);
-  const typed = ref.category ? byNumber.filter((a) => a.category === ref.category) : byNumber;
-  if (typed.length) return typed;
-  if (byNumber.length) return byNumber;
-  return assets.filter((a) => a.number == null && codeNumber(a.code) === ref.number && (!ref.category || a.category === ref.category));
+  if (byNumber.length) return byNumber.filter(fits);
+  return assets.filter((a) => a.number == null && codeNumber(a.code) === ref.number && fits(a));
+}
+
+/** „ein“ oder „eine“ vor einer Artbezeichnung (Feuerlöscher, Rauchwarnmelder – Feuerschutztür, Feststellanlage). */
+export const kindArticle = (label: string) => (/(e|tür|türe|anlage|klappe|ung|heit|keit|schaft|tion)$/i.test(label.trim()) ? 'eine' : 'ein');
+
+/**
+ * Hinweis, wenn Artwort und Nummer nicht zusammenpassen: „Nummer 4 ist ein Feuerlöscher (FL-004)“. Null, wenn der
+ * Verweis ein Element der genannten Art trifft oder die Nummer gar nicht vergeben ist.
+ */
+export function elementRefConflict<T extends NumberedAsset>(ref: ElementRef, assets: T[], labelOf: (category: string) => string): string | null {
+  if (!ref.category || matchElementRef(ref, assets).length) return null;
+  const other = assets.filter((a) => a.number === ref.number && a.category !== ref.category);
+  if (!other.length) return null;
+  const parts = other.slice(0, 3).map((a) => {
+    const l = labelOf(a.category);
+    return `${kindArticle(l)} ${l} (${a.code})`;
+  });
+  return `Nummer ${ref.number} ist ${parts.join(' bzw. ')}`;
 }
 
 // ---------- Katalog-Abgleich (Stapel aus MCP/Import) ----------

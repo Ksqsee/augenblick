@@ -699,7 +699,7 @@ const call = async (key, name, args = {}) => {
     ],
   });
   check(
-    t.data?.status?.startsWith("bereit zur Unterschrift") &&
+    t.data?.status === "ready" &&
       t.data.result === "mit Mängeln" &&
       !t.data.missing,
     `inspect bereit (${t.text?.slice(0, 200)})`,
@@ -724,12 +724,12 @@ const call = async (key, name, args = {}) => {
     answers: [{ checkpoint: "1", answer: "ok" }],
   });
   check(
-    t.data?.status === "Entwurf – noch unvollständig" &&
+    t.data?.status === "draft" &&
       t.data.missing?.length === 1,
     `unvollständig → nicht bereit, fehlt (${t.text?.slice(0, 160)})`,
   );
   t = await call(write, "inspect", { asset: second.code, allOk: true });
-  check(t.data?.status?.startsWith("bereit"), "ergänzt → bereit");
+  check(t.data?.status === "ready", "ergänzt → bereit");
   t = await call(write, "tour", { action: "status", building: bName });
   check(
     t.data?.readyToSign?.includes(first.code) &&
@@ -744,7 +744,7 @@ const call = async (key, name, args = {}) => {
   );
   t = await call(write, "list", { what: "inspections", status: "ready" });
   check(
-    t.data?.inspections?.every((i) => i.status === "wartet auf Unterschrift"),
+    t.data?.inspections?.every((i) => i.status === "ready"),
     "list inspections ready",
   );
   t = await call(write, "briefing", {});

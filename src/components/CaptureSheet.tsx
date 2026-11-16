@@ -9,7 +9,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { SEVERITIES, type Severity } from '../../shared/catalog';
 import { type CaptureCategory, type CaptureItem, MAX_BULK_ASSETS, parseCapture } from '../../shared/smart';
-import { matchElementRef } from '../../shared/vocab';
+import { elementRefConflict, matchElementRef } from '../../shared/vocab';
 import { allCategories, getCategory } from '../categories';
 import { api, ApiError, type Asset, useAssets, useBuildings, useMe, useProperties } from '../api';
 import { useDictation } from '../dictate';
@@ -239,7 +239,7 @@ function WherePicker({ where, onChange, emphasize }: { where: Where; onChange: (
 }
 
 /** Eine erkannte Zeile zum Prüfen: Art umschalten, Titel, bei Mängeln Schwere und Maßnahme. Ohne Karte – Haarlinie dazwischen. */
-function ItemCard({ item, onChange, onRemove, target }: { item: CaptureItem; onChange: (i: CaptureItem) => void; onRemove: () => void; target?: Asset }) {
+function ItemCard({ item, onChange, onRemove, target, conflict }: { item: CaptureItem; onChange: (i: CaptureItem) => void; onRemove: () => void; target?: Asset; conflict?: string | null }) {
   const M = KIND_META[item.kind];
   return (
     <div className="animate-pop flex flex-col gap-3 py-4">
@@ -277,7 +277,7 @@ function ItemCard({ item, onChange, onRemove, target }: { item: CaptureItem; onC
       {(item.assetCode || item.elementRef || item.dueInDays != null) && (
         <p className="flex flex-wrap gap-x-3 text-meta text-ink-3">
           {item.assetCode && <span>Element {item.assetCode}</span>}
-          {!item.assetCode && item.elementRef && (target ? <span data-target>Element {target.code}</span> : <StatusText tone="warn">Nr. {item.elementRef.number} im Objekt nicht gefunden</StatusText>)}
+          {!item.assetCode && item.elementRef && (target ? <span data-target>Element {target.code}</span> : <StatusText tone="warn">{conflict ?? `Nr. ${item.elementRef.number} im Objekt nicht gefunden`}</StatusText>)}
           {item.dueInDays != null && <span>Frist in {item.dueInDays} Tagen</span>}
         </p>
       )}
@@ -521,6 +521,13 @@ export function CaptureSheet({ initial, onClose }: { initial: CaptureContext; on
     return hits.length === 1 ? hits[0] : undefined;
   };
   const targetOf = (i: CaptureItem) => byCode(i.assetCode) ?? byRef(i.elementRef);
+  /** „Tür 4“, aber Nr. 4 ist ein Feuerlöscher (Plan v6, A1) */
+  const conflictOf = (i: CaptureItem) => {
+    if (i.assetCode || !i.elementRef) return null;
+    const pid = where?.kind === 'asset' ? where.asset.propertyId : where?.kind === 'property' ? where.id : null;
+    const pool = (assets.data ?? []).filter((a) => !pid || a.propertyId === pid);
+    return elementRefConflict({ number: i.elementRef.number, category: i.elementRef.category, match: '' }, pool, categoryLabel);
+  };
   const needsPlace = items?.some((i) => i.kind === 'defect' && !targetOf(i)) && !where;
   const assetItems = (items ?? []).filter((i) => i.kind === 'asset' && canCreate);
   const needsBuilding = assetItems.some((i) => !i.buildingId || !i.category);
@@ -742,6 +749,7 @@ export function CaptureSheet({ initial, onClose }: { initial: CaptureContext; on
                   key={n}
                   item={it}
                   target={targetOf(it)}
+                  conflict={conflictOf(it)}
                   onChange={(v) => setItems(items.map((x, j) => (j === n ? v : x)))}
                   onRemove={() => setItems(items.filter((_, j) => j !== n))}
                 />

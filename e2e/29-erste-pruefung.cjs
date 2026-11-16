@@ -143,6 +143,9 @@ const SENTENCE = 'Im dritten OG Raum 306 eine Feuerschutztür von Westag und im 
   await p.waitForURL(/\/pruefung\//);
   const id2 = p.url().split('/pruefung/')[1].split('?')[0];
   await tap(p.getByRole('button', { name: 'Alles in Ordnung' }), 'Alles in Ordnung');
+  // Plan v6 A4: Feststellanlage und Flügel der neuen Tür sind unbekannt – je eine Rückfrage, Antwort bleibt am Element
+  await tap(p.getByRole('group', { name: 'Hat die Tür eine Feststellanlage?' }).getByRole('button', { name: 'Nein' }), 'Rückfrage Feststellanlage: Nein');
+  await tap(p.getByRole('group', { name: 'Ist die Tür ein- oder zweiflügelig?' }).getByRole('button', { name: '1-flügelig' }), 'Rückfrage Flügel: 1-flügelig');
   await tap(p.getByRole('button', { name: 'Abschließen', exact: true }), 'Abschließen');
   await p.waitForURL(/\/rundgang\/.*fertig=/);
   const i2 = (await api(`/inspections/${id2}`)).json;
@@ -158,7 +161,8 @@ const SENTENCE = 'Im dritten OG Raum 306 eine Feuerschutztür von Westag und im 
   // Zählt man das Zeichnen als Tipp, sind es 9 – das Ziel wird dann um einen verfehlt.
   check(first.inputs === 1 && first.draws === 1, `ein Satz und eine Unterschrift (${first.inputs} Eingaben, ${first.draws} Gesten)`);
   check(first.taps <= target, `höchstens ${target} Tipps bis zur ersten unterschriebenen Prüfung (gemessen ${first.taps})`);
-  check(count.rest.taps - first.taps === 3, `nächstes Element in drei Tipps (${count.rest.taps - first.taps})`);
+  // drei Tipps + zwei Rückfragen nach Stammdaten (Plan v6 A4, nur bei der ersten Prüfung einer Tür ohne diese Angaben)
+  check(count.rest.taps - first.taps === 5, `nächstes Element in drei Tipps plus zwei Rückfragen (${count.rest.taps - first.taps})`);
 
   step('Feste Nummern beim Anlegen: „Türen 12 bis 13 im Keller“');
   await p.getByRole('navigation', { name: 'Hauptnavigation' }).getByRole('button', { name: 'Erfassen' }).tap();

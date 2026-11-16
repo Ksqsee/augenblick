@@ -16,7 +16,24 @@ export interface Checkpoint {
   hint?: string;
   /** Gruppe im Prüfablauf (eingeklappte Abschnitte); ohne Angabe ordnet die Oberfläche nach Schlüsselwörtern */
   group?: string;
+  /**
+   * Gilt nur, wenn ein Stammdatum passt (Plan v6, A4), z. B. {attr: "holdOpen", equals: true}. Trifft es nicht zu,
+   * setzt „Alles in Ordnung“ den Punkt auf „entfällt“; ist es unbekannt, bleibt er offen (shared/applies.ts).
+   */
+  appliesIf?: CheckpointCondition;
 }
+
+export interface CheckpointCondition {
+  /** Schlüssel des Stammdatums (AttributeField.key) */
+  attr: string;
+  equals: string | boolean;
+}
+
+/** Bedingungen an Prüfpunkte hängen: {Nummer (1-basiert): Bedingung} */
+const when = (cps: Checkpoint[], conds: Record<number, CheckpointCondition>): Checkpoint[] =>
+  cps.map((c, i) => (conds[i + 1] ? { ...c, appliesIf: conds[i + 1] } : c));
+const HOLD_OPEN: CheckpointCondition = { attr: "holdOpen", equals: true };
+const TWO_LEAVES: CheckpointCondition = { attr: "leaves", equals: "2-flügelig" };
 
 export interface AttributeField {
   key: string;
@@ -74,7 +91,7 @@ export const CATEGORIES: Record<BuiltinCategory, CategoryDef> = {
     prefix: "FST",
     norm: "DIN 14677",
     intervalMonths: 12,
-    checkpoints: cp([
+    checkpoints: when(cp([
       [
         "Kennzeichnungsschild vorhanden und lesbar",
         "Zulassung / Hersteller / Baujahr",
@@ -94,7 +111,7 @@ export const CATEGORIES: Record<BuiltinCategory, CategoryDef> = {
       "Schwellenbereich frei, Bodenspalt im zulässigen Bereich",
       "Freilauf / Schließgeschwindigkeit plausibel eingestellt",
       "Abschließende Funktionsprüfung bestanden",
-    ]),
+    ]), { 6: TWO_LEAVES, 12: HOLD_OPEN, 13: HOLD_OPEN }),
     attributes: [
       { key: "year", label: "Baujahr", type: "number" },
       { key: "approval", label: "Zulassungsnummer" },
@@ -129,13 +146,13 @@ export const CATEGORIES: Record<BuiltinCategory, CategoryDef> = {
         label: "Monatliche Sichtkontrolle",
         intervalMonths: 1,
         optional: true,
-        checkpoints: cp([
+        checkpoints: when(cp([
           "Tür schließt selbsttätig ins Schloss",
           "Keine Keile oder unzulässigen Festhaltungen",
           "Dichtungen sichtbar vollständig",
           "Türblatt und Zarge ohne neue Schäden",
           "Feststellanlage gibt bei Prüfauslösung frei",
-        ]),
+        ]), { 5: HOLD_OPEN }),
       },
     ],
     maintenance: [

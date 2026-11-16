@@ -127,6 +127,9 @@ export interface Asset {
   markerY: number | null;
   /** eigene Vorwarnzeit (Tage), sonst Vorgabe des Workspaces */
   warnDays?: number | null;
+  /** Laufreihenfolge im Gebäude (Anlage-Reihenfolge, shared/walk-order.ts) */
+  sortIndex?: number | null;
+  createdAt?: number | null;
 }
 
 export interface Attachment {
@@ -279,6 +282,8 @@ export interface PropertyDetail {
   contactName: string;
   contactPhone: string;
   contactEmail: string;
+  /** Zugang: Schlüssel, Zeiten, Hinweise */
+  access?: string;
   buildingType: BuildingType;
   pdfPattern: string | null;
   fireOfficers: FireOfficer[];
@@ -702,6 +707,8 @@ export async function downscale(file: Blob, max: number): Promise<Blob> {
 export const fileUrl = (key: string) => `/api/files/${key}`;
 
 export interface SearchResult {
+  /** „Tür 4“, aber Nr. 4 ist ein Feuerlöscher: Hinweis statt Treffer der falschen Art */
+  refHint?: string;
   properties: { id: string; name: string; address: string }[];
   buildings: { id: string; name: string; propertyId: string; propertyName: string }[];
   assets: { id: string; code: string; number?: number | null; category: Category; location: string; buildingName: string; propertyName: string }[];

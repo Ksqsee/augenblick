@@ -2,7 +2,15 @@
 // Jedes Werkzeug ruft die normale API mit dem Schlüssel/Token des Aufrufs auf: Rollen, Lese-/Schreibrecht,
 // Zugriffsbereich und „darf anlegen“ gelten dadurch unverändert. Antworten sind knapp und nennen Codes und
 // Namen statt interner IDs – IDs nur dort, wo ein Folgeaufruf sie braucht.
+import { allOkAnswers, conditionOf } from "../shared/applies";
+import { validateAttributes } from "../shared/asset-fields";
 import { SEVERITIES, type Severity } from "../shared/catalog";
+import { groupCheckpoints } from "../shared/checkpoint-groups";
+import {
+  assignCheckpoint,
+  matchMaintenance,
+  workContradiction,
+} from "../shared/inspect-match";
 import { type Answer, computeResult } from "../shared/logic";
 import {
   matchCheckpoint,
@@ -11,8 +19,11 @@ import {
   suggestSeverity,
 } from "../shared/smart";
 import {
+  applyProductDefaults,
   type CatalogDefect,
+  type CatalogProduct,
   expandTerms,
+  foldText,
   matchCatalogDefects,
   parseElementRef,
   suggestProducts,
@@ -75,14 +86,25 @@ interface CategoryInfo {
   prefix: string;
   norm: string;
   intervalMonths: number;
-  checkpoints: { id: string; label: string }[];
-  attributes: { key: string; label: string; type?: string }[];
+  checkpoints: CheckpointInfo[];
+  attributes: {
+    key: string;
+    label: string;
+    type?: "text" | "number" | "date" | "select" | "boolean";
+    options?: string[];
+  }[];
   maintenance: { key: string; label: string }[];
   schedulesEffective?: {
     key: string;
     label: string;
-    checkpoints: { id: string; label: string }[];
+    checkpoints: CheckpointInfo[];
   }[];
+}
+interface CheckpointInfo {
+  id: string;
+  label: string;
+  group?: string;
+  appliesIf?: { attr: string; equals: string | boolean };
 }
 
 // ---------- Schema-Bausteine ----------
@@ -148,6 +170,18 @@ function toMs(v: unknown, field: string): number | undefined {
   return t;
 }
 const sev = (s: unknown) => SEVERITIES[s as Severity] ?? String(s ?? "");
+/** Schwere mit Schlüssel und Wort (Plan v6, E6): {severity: "medium", severityLabel: "Mittel"} */
+const sevOut = (v: unknown) => ({ severity: s(v), severityLabel: sev(v) });
+/** Ein Hinweistext fürs Unterschreiben (Plan v6, E8) */
+const SIGN_HINT = "In der App: Prüfen → Unterschreiben";
+/** Status einer Prüfung (Plan v6, E7): draft = Entwurf, ready = wartet auf Unterschrift, submitted = abgeschlossen */
+const inspStatus = (i: { status?: unknown; readyAt?: unknown }) =>
+  i.status === "submitted" ? "submitted" : i.readyAt ? "ready" : "draft";
+const INSP_STATUS: Record<string, string> = {
+  draft: "Entwurf",
+  ready: "wartet auf Unterschrift",
+  submitted: "abgeschlossen",
+};
 const RESULT: Record<string, string> = {
   ok: "ohne Mängel",
   defects: "mit Mängeln",
@@ -231,8 +265,8 @@ async function assetId(x: Ctx, code: unknown, property?: unknown): Promise<strin
     c,
     cats.map((k) => ({ key: k.key, label: k.label, plural: k.plural, prefix: k.prefix })),
   );
+  const prop = ref && lc(property) ? await resolveProperty(x, property) : null;
   try {
-    const prop = ref && lc(property) ? await resolveProperty(x, property) : null;
     return (
       (await x.api({
         method: "GET",
@@ -241,14 +275,27 @@ async function assetId(x: Ctx, code: unknown, property?: unknown): Promise<strin
     ).id;
   } catch (e) {
     if (!(e instanceof ApiError && e.status === 404)) throw e;
+    // Plan v6 A1: „Tür 4“, aber Nr. 4 ist ein Feuerlöscher – nie still das falsche Element
+    if (/^Nummer \d+ ist /.test(e.message))
+      throw new ToolError(
+        `${e.message} – „${c}“ passt nicht. Bitte Art und Nummer prüfen oder den Code nennen.`,
+      );
   }
   if (ref) {
-    // ohne Objekt: Nummer im ganzen Workspace – nur eindeutig verwendbar
+    // ohne Objekt: Nummer im ganzen Workspace – nur eindeutig verwendbar, Art muss passen
     const r = (await x.api({
       method: "GET",
-      path: `/search?q=${enc(c)}`,
-    })) as { assets: Json[] };
-    const hits = r.assets.filter((a) => a.number === ref.number);
+      path: `/search?q=${enc(c)}${prop ? `&propertyId=${enc(prop.id)}` : ""}`,
+    })) as { assets: Json[]; refHint?: string };
+    const hits = r.assets.filter(
+      (a) =>
+        a.number === ref.number &&
+        (!ref.category || a.category === ref.category),
+    );
+    if (!hits.length && r.refHint)
+      throw new ToolError(
+        `${r.refHint} – „${c}“ passt nicht. Bitte Art und Nummer prüfen oder den Code nennen.`,
+      );
     if (hits.length === 1) return s(hits[0].id);
     if (hits.length > 1)
       throw new ToolError(
@@ -408,7 +455,7 @@ const defectLine = (d: Json) =>
   compact({
     defectId: d.id,
     title: d.title,
-    severity: sev(d.severity),
+    ...sevOut(d.severity),
     status: d.status === "resolved" ? "behoben" : "offen",
     at: d.code
       ? `${d.code}${d.location ? ` (${d.location})` : ""}`
@@ -487,6 +534,75 @@ function findCheckpoint(
     return matchCheckpoint(r, cps);
   }
   return text ? matchCheckpoint(text, cps) : null;
+}
+
+/** Grund, warum Punkte entfallen (für die Kurzfassung) */
+const naReason = (attr: string, equals: unknown) =>
+  attr === "holdOpen"
+    ? "ohne Feststellanlage"
+    : attr === "leaves"
+      ? "einflügelig"
+      : `${attr} ≠ ${s(equals)}`;
+
+/**
+ * Prüfpunkte als Gruppen-Kurzfassung (Plan v6, C5) – zum Vorlesen statt 8–20 Punkten im Volltext. Dazu, was nach den
+ * Stammdaten entfällt, und die Rückfragen bei fehlendem Stammdatum (A4). Mit `detail` zusätzlich der Volltext.
+ */
+function checkpointBrief(
+  cps: CheckpointInfo[],
+  category: string,
+  attrs: Json,
+  detail = false,
+) {
+  const r = allOkAnswers(cps, {}, category, attrs);
+  const groups = groupCheckpoints(cps);
+  const reasons = new Set(
+    r.na.map((id) => {
+      const c = conditionOf(cps.find((k) => k.id === id)!, category)!;
+      return naReason(c.attr, c.equals);
+    }),
+  );
+  return compact({
+    checkpoints:
+      groups.length === 1
+        ? `${cps.length} Prüfpunkte`
+        : `${cps.length} Prüfpunkte in ${groups.length} Gruppen: ${groups.map((g) => `${g.label} (${g.items.length})`).join(", ")}`,
+    notApplicable: r.na.length
+      ? `${r.na.length} ${r.na.length === 1 ? "Punkt entfällt" : "Punkte entfallen"} (${[...reasons].join(", ")})`
+      : null,
+    askFirst: [...new Set(r.unknown.map((u) => u.question))],
+    checkpointList: detail
+      ? cps.map(
+          (c, n) =>
+            `${n + 1}. ${c.label}${r.na.includes(c.id) ? " (entfällt)" : r.unknown.some((u) => u.id === c.id) ? " (nur wenn zutreffend)" : ""}`,
+        )
+      : null,
+  });
+}
+
+/** Prüfpunkte des nächsten fälligen Prüfplans eines Elements (Hauptprüfung, sonst der früheste). */
+function scheduleCheckpoints(cat: CategoryInfo | undefined, detail: Json) {
+  const sched = (detail.schedules ?? {}) as Record<
+    string,
+    { enabled?: boolean; nextDueAt?: number | null }
+  >;
+  const key = Object.entries(sched)
+    .filter(([, v]) => v?.enabled)
+    .sort((p, q) => (p[1].nextDueAt ?? 0) - (q[1].nextDueAt ?? 0))[0]?.[0];
+  return (
+    cat?.schedulesEffective?.find((sc) => sc.key === key)?.checkpoints ??
+    cat?.checkpoints ??
+    []
+  );
+}
+
+/** Stammdaten prüfen (Plan v6, D1) – Fehler als ToolError mit allen Feldern auf einmal. */
+function checkedFields(cat: CategoryInfo | undefined, input: Json) {
+  const r = validateAttributes(
+    (cat?.attributes ?? []).map((f) => ({ ...f })),
+    input,
+  );
+  return r;
 }
 
 const NEW_STRUCTURE_NOTE =
@@ -651,12 +767,32 @@ export const TOOLS: Tool[] = [
         );
       const out: Json = {};
       const want = (t: string) => type === "all" || type === t;
+      // „Tür 36“ im Objekt: Nummern-Suche auch mit property (Plan v6, A1: Art muss passen)
+      const isRef =
+        q.length >= 1 &&
+        !!parseElementRef(
+          q,
+          (await x.categories()).map((k) => ({
+            key: k.key,
+            label: k.label,
+            plural: k.plural,
+            prefix: k.prefix,
+          })),
+        );
       if (want("assets") || want("properties") || want("buildings")) {
-        if (q.length >= 2 && !cat && !prop) {
+        if (q.length >= 2 && !cat && (!prop || isRef)) {
           const r = (await x.api({
             method: "GET",
-            path: `/search?q=${enc(q)}`,
-          })) as { properties: Json[]; buildings: Json[]; assets: Json[] };
+            path: `/search?q=${enc(q)}${prop ? `&propertyId=${enc(prop.id)}` : ""}`,
+          })) as {
+            properties: Json[];
+            buildings: Json[];
+            assets: Json[];
+            refHint?: string;
+          };
+          if (prop) r.assets = r.assets.filter((e) => e.propertyName === prop.name);
+          // „Tür 4“, aber Nr. 4 ist ein Feuerlöscher: Hinweis statt still eines anderen Elements
+          if (r.refHint) out.hint = r.refHint;
           if (want("properties") && r.properties.length)
             out.properties = r.properties.map((p) =>
               compact({ name: p.name, address: p.address }),
@@ -872,10 +1008,13 @@ export const TOOLS: Tool[] = [
           const to = toMs(a.to, "to");
           if (from) qs.set("from", String(from));
           if (to) qs.set("to", String(to));
-          const rows = (await x.api({
-            method: "GET",
-            path: `/inspections?${qs}`,
-          })) as Json[];
+          // Plan v6 E7: „draft“ nur Entwürfe, bereitgelegte haben den eigenen Status „ready“
+          const rows = (
+            (await x.api({
+              method: "GET",
+              path: `/inspections?${qs}`,
+            })) as Json[]
+          ).filter((i) => s(a.status) !== "draft" || !i.readyAt);
           return cut(
             await Promise.all(
               rows.map(async (i) =>
@@ -885,12 +1024,8 @@ export const TOOLS: Tool[] = [
                   art: await catLabel(x, i.category),
                   property: i.propertyName,
                   date: day(i.inspectedAt ?? i.createdAt),
-                  status:
-                    i.status === "draft"
-                      ? i.readyAt
-                        ? "wartet auf Unterschrift"
-                        : "Entwurf"
-                      : "abgeschlossen",
+                  status: inspStatus(i),
+                  statusLabel: INSP_STATUS[inspStatus(i)],
                   result: i.result ? RESULT[s(i.result)] : null,
                   followUp: i.purpose === "follow_up" ? true : null,
                   inspector: i.inspector,
@@ -932,7 +1067,7 @@ export const TOOLS: Tool[] = [
     name: "get",
     title: "Abrufen",
     description:
-      "Ein Ding vollständig, mit Verlauf und Foto-Verweisen. `kind` + `ref`: asset (ref = Code oder Etikett, z. B. „FST-7K2M“), property (Objektname), defect (defectId), task (taskId), inspection (inspectionId), walkthrough (walkthroughId). Foto- und Grundriss-Verweise (`foto:…`, `plan:…`) kann get_photo als Bild laden – z. B. um ein Typenschild zu lesen.",
+      "Ein Ding vollständig, mit Verlauf und Foto-Verweisen. `kind` + `ref`: asset (ref = Code, Etikett oder „Tür 36“ mit `property`; liefert Stammdaten mit fehlenden Feldern, Prüfpunkte in Kurzform – Volltext mit `detail: true` –, letzte Prüfungen, offene Mängel, Fotos), property (Objektname; mit Ansprechperson und Zugang), defect (defectId), task (taskId), inspection (inspectionId), walkthrough (walkthroughId). Foto- und Grundriss-Verweise (`foto:…`, `plan:…`) kann get_photo als Bild laden – z. B. um ein Typenschild zu lesen.",
     inputSchema: obj(
       {
         kind: str("Art", {
@@ -948,6 +1083,8 @@ export const TOOLS: Tool[] = [
         ref: str(
           "Code (asset), Name (property) oder ID (aus list/search/briefing)",
         ),
+        property: str("nur asset: Objekt (Name), wenn ref eine Nummer wie „Tür 36“ ist"),
+        detail: bool("nur asset: Prüfpunkte im Volltext statt Kurzform"),
       },
       ["kind", "ref"],
     ),
@@ -961,7 +1098,8 @@ export const TOOLS: Tool[] = [
       };
       switch (a.kind) {
         case "asset": {
-          const id = await assetId(x, ref);
+          // Plan v6 F1: Stammdaten, Prüfpunkte (Kurzform), letzte Prüfungen, offene Mängel, Foto-Verweise
+          const id = await assetId(x, ref, a.property);
           const r = (await x.api({
             method: "GET",
             path: `/assets/${enc(id)}`,
@@ -969,8 +1107,10 @@ export const TOOLS: Tool[] = [
           const cat = (await x.categories()).find((c) => c.key === r.category);
           const attrs = (r.attributes ?? {}) as Json;
           const files = list(r.attachments);
+          const filled = (v: unknown) => v != null && v !== "";
           return compact({
             ...(await assetLine(x, r)),
+            number: r.number,
             norm: cat?.norm,
             manufacturer: r.manufacturer,
             model: r.model,
@@ -979,9 +1119,22 @@ export const TOOLS: Tool[] = [
               Object.fromEntries(
                 (cat?.attributes ?? []).map((f) => [
                   f.label,
-                  attrs[f.key] ?? null,
+                  typeof attrs[f.key] === "boolean"
+                    ? attrs[f.key]
+                      ? "ja"
+                      : "nein"
+                    : (attrs[f.key] ?? null),
                 ]),
               ),
+            ),
+            missingData: (cat?.attributes ?? [])
+              .filter((f) => !filled(attrs[f.key]))
+              .map((f) => `${f.label} (${f.key})`),
+            ...checkpointBrief(
+              scheduleCheckpoints(cat, r),
+              s(r.category),
+              attrs,
+              !!a.detail,
             ),
             inspections: list(r.inspections)
               .filter((i) => !i.supersededAt)
@@ -990,7 +1143,8 @@ export const TOOLS: Tool[] = [
                 compact({
                   inspectionId: i.id,
                   date: day(i.inspectedAt ?? i.createdAt),
-                  status: i.status === "draft" ? "Entwurf" : null,
+                  status: inspStatus(i),
+                  statusLabel: INSP_STATUS[inspStatus(i)],
                   result: i.result ? RESULT[s(i.result)] : null,
                   inspector: i.inspector,
                 }),
@@ -1001,7 +1155,7 @@ export const TOOLS: Tool[] = [
                 compact({
                   defectId: d.id,
                   title: d.title,
-                  severity: sev(d.severity),
+                  ...sevOut(d.severity),
                   since: day(d.createdAt),
                   photo: photoRef(d.photoKey),
                 }),
@@ -1047,6 +1201,7 @@ export const TOOLS: Tool[] = [
             contact: [r.contactName, r.contactPhone, r.contactEmail]
               .filter(Boolean)
               .join(", "),
+            access: r.access,
             status: compact({
               elements: p.assets,
               overdue: p.overdue,
@@ -1194,12 +1349,9 @@ export const TOOLS: Tool[] = [
             inspectionId: i.id,
             element: `${s(asset.code)} ${s(asset.categoryLabel)}${asset.location ? `, ${asset.location}` : ""}`,
             property: asset.propertyName,
-            status:
-              i.status === "draft"
-                ? i.readyAt
-                  ? "wartet auf Unterschrift"
-                  : "Entwurf"
-                : "abgeschlossen",
+            status: inspStatus(i),
+            statusLabel: INSP_STATUS[inspStatus(i)],
+            hint: inspStatus(i) === "ready" ? SIGN_HINT : null,
             kinds: (i.kindLabels as string[])?.join(", "),
             date: day(i.inspectedAt ?? i.createdAt),
             inspector: i.inspectorName,
@@ -1212,7 +1364,7 @@ export const TOOLS: Tool[] = [
             defects: list(i.defects).map((d) =>
               compact({
                 title: d.title,
-                severity: sev(d.severity),
+                ...sevOut(d.severity),
                 measure: d.measure,
                 photo: photoRef(d.photoKey),
                 known: d.knownId ? true : null,
@@ -1222,7 +1374,7 @@ export const TOOLS: Tool[] = [
               compact({
                 defectId: d.id,
                 title: d.title,
-                severity: sev(d.severity),
+                ...sevOut(d.severity),
                 since: day(d.createdAt),
               }),
             ),
@@ -1256,7 +1408,7 @@ export const TOOLS: Tool[] = [
             findings: findings.map((f) =>
               compact({
                 title: f.title,
-                severity: sev(f.severity),
+                ...sevOut(f.severity),
                 note: f.note,
                 photo: photoRef(f.photoKey),
               }),
@@ -1604,7 +1756,7 @@ export const TOOLS: Tool[] = [
     name: "update_asset",
     title: "Stammdaten nachtragen",
     description:
-      'Stammdaten eines Elements ergänzen oder korrigieren – typischerweise nach dem Lesen eines Typenschilds mit get_photo. Nur genannte Felder ändern sich. Felder: manufacturer, model, year (Baujahr), serial (Seriennummer), approval (Zulassungsnummer), location, floor, label (Etikett/QR-Code); weitere Felder der Elementart über `fields` (Schlüssel aus search(type: "categories"), z. B. {rating: "T30"}). Antwort nennt jede Änderung „vorher → nachher“. Beispiel: {asset: "FL-3MX9", manufacturer: "Gloria", model: "PD 6 GA", year: 2019, serial: "A1234567"}.',
+      'Stammdaten eines Elements ergänzen oder korrigieren – typischerweise nach dem Lesen eines Typenschilds mit get_photo. Nur genannte Felder ändern sich; Werte werden geprüft (Auswahllisten nur mit erlaubten Werten, Zahlen, Baujahr 1950 bis nächstes Jahr, Ja/Nein) – bei einem Fehler wird nichts gespeichert. Felder: manufacturer, model, year (Baujahr), serial (Seriennummer), approval (Zulassungsnummer), location, floor, label (Etikett/QR-Code); weitere Felder der Elementart über `fields` (Schlüssel aus search(type: "categories"), z. B. {rating: "T30"}). Antwort nennt jede Änderung „vorher → nachher“. Beispiel: {asset: "FL-3MX9", manufacturer: "Gloria", model: "PD 6 GA", year: 2019, serial: "A1234567"}.',
     inputSchema: obj(
       {
         asset: str(
@@ -1613,7 +1765,7 @@ export const TOOLS: Tool[] = [
         property: str("Objekt (Name), wenn `asset` eine Nummer wie „Tür 36“ ist"),
         manufacturer: str("Hersteller"),
         model: str("Typ/Modell"),
-        year: int("Baujahr", 1900, 2100),
+        year: int("Baujahr (1950 bis nächstes Jahr)", 1950, 2100),
         serial: str("Seriennummer"),
         approval: str("Zulassungsnummer, z. B. „Z-6.20-1234“"),
         location: str("Standort"),
@@ -1686,11 +1838,17 @@ export const TOOLS: Tool[] = [
           next.model = m;
         }
       }
-      for (const [k, v] of Object.entries(extra)) {
-        if (!fields.has(k)) {
-          ignored.push(k);
-          continue;
-        }
+      // Plan v6 D1: Auswahllisten, Zahlen, Baujahr und Ja/Nein prüfen – bei einem Fehler wird nichts gespeichert
+      for (const k of Object.keys(extra)) if (!fields.has(k)) ignored.push(k);
+      const checked = checkedFields(
+        cat,
+        Object.fromEntries(Object.entries(extra).filter(([k]) => fields.has(k))),
+      );
+      if (checked.errors.length)
+        throw new ToolError(
+          `Nichts gespeichert: ${checked.errors.map((e) => e.message).join(" ")}`,
+        );
+      for (const [k, v] of Object.entries(checked.values)) {
         set(fields.get(k)!, attrs[k], v);
         attrs[k] = v as never;
       }
@@ -1957,7 +2115,7 @@ export const TOOLS: Tool[] = [
     name: "tour",
     title: "Rundgang führen",
     description:
-      'Führt durch einen Rundgang vor Ort, Element für Element. `action: "start"` mit `building` (Gebäude- oder Objektname): nennt das erste fällige Element in Laufreihenfolge mit Standort, den Prüfpunkten in Kurzform und bekannten offenen Mängeln. Nach jeder Prüfung (inspect) `action: "next"`; mit `after` (Code) wird ein Element übersprungen. `action: "status"`: x von y erledigt und was noch offen ist. Ein Element gilt als erledigt, sobald seine Prüfung zur Unterschrift bereitliegt oder abgeschlossen ist. Nur lesend.',
+      'Führt durch einen Rundgang vor Ort, Element für Element. Laufreihenfolge: Etagen von unten nach oben (TG/UG, EG, 1. OG … DG), innerhalb der Etage in der Reihenfolge, in der die Elemente angelegt wurden. `action: "start"` mit `building` (Gebäude- oder Objektname): nennt Zugang und Ansprechperson des Objekts und das erste fällige Element mit Standort, den Prüfpunkten als Gruppen-Kurzfassung (Volltext mit `detail: true`), was nach den Stammdaten entfällt, Rückfragen bei fehlenden Stammdaten (`askFirst`) und bekannte offene Mängel. Nach jeder Prüfung (inspect) `action: "next"`; mit `after` (Code) wird ein Element übersprungen. `action: "status"`: x von y erledigt und was noch offen ist. Ein Element gilt als erledigt, sobald seine Prüfung zur Unterschrift bereitliegt oder abgeschlossen ist. Nur lesend.',
     inputSchema: obj(
       {
         action: str("start, next oder status", {
@@ -1973,6 +2131,9 @@ export const TOOLS: Tool[] = [
           "Vorschau in Tagen: was in so vielen Tagen fällig wird, gehört dazu (Standard 14)",
           1,
           365,
+        ),
+        detail: bool(
+          "Prüfpunkte im Volltext (nummeriert) statt Gruppen-Kurzfassung",
         ),
       },
       ["action", "building"],
@@ -2007,9 +2168,7 @@ export const TOOLS: Tool[] = [
             ),
           ),
           readyToSign: readyHere.map((i) => s(i.code)),
-          hint: readyHere.length
-            ? "Unterschreiben in der App (Heute → „Prüfungen warten auf deine Unterschrift“)."
-            : null,
+          hint: readyHere.length ? SIGN_HINT : null,
         });
       }
       let queue = open;
@@ -2020,14 +2179,31 @@ export const TOOLS: Tool[] = [
             (e) => !readyIds.has(s(e.id)) && lc(e.code) !== lc(a.after),
           );
       }
+      // Plan v6 F4: beim Start Zugang und Ansprechperson des Objekts
+      const onSite =
+        a.action === "start"
+          ? await x
+              .api({ method: "GET", path: `/properties/${enc(b.propertyId)}` })
+              .then((p) => {
+                const r = p as Json;
+                return compact({
+                  access: r.access,
+                  contact: [r.contactName, r.contactPhone]
+                    .filter(Boolean)
+                    .join(", "),
+                });
+              })
+              .catch(() => ({}))
+          : {};
       const e = queue[0];
       if (!e)
         return compact({
           building: where,
+          ...onSite,
           progress,
           done: true,
           text: total
-            ? "Rundgang fertig – alles geprüft. Jetzt in der App unterschreiben."
+            ? `Rundgang fertig – alles geprüft. ${SIGN_HINT}.`
             : `In ${b.name} ist in den nächsten ${days} Tagen nichts fällig.`,
         });
       const detail = (await x.api({
@@ -2035,20 +2211,11 @@ export const TOOLS: Tool[] = [
         path: `/assets/${enc(s(e.id))}`,
       })) as Json;
       const cat = (await x.categories()).find((c) => c.key === e.category);
-      const sched = (detail.schedules ?? {}) as Record<
-        string,
-        { enabled?: boolean; nextDueAt?: number | null }
-      >;
-      const key = Object.entries(sched)
-        .filter(([, v]) => v?.enabled)
-        .sort((p, q) => (p[1].nextDueAt ?? 0) - (q[1].nextDueAt ?? 0))[0]?.[0];
-      const cps =
-        cat?.schedulesEffective?.find((sc) => sc.key === key)?.checkpoints ??
-        cat?.checkpoints ??
-        [];
+      const cps = scheduleCheckpoints(cat, detail);
       const following = queue[1];
       return compact({
         building: where,
+        ...onSite,
         progress,
         element: compact({
           code: e.code,
@@ -2057,13 +2224,20 @@ export const TOOLS: Tool[] = [
           location: e.location,
           due: day(e.nextDueAt) ?? "nie geprüft",
           lastResult: detail.lastResult ? RESULT[s(detail.lastResult)] : null,
-          checkpoints: cps.map((c, n) => `${n + 1}. ${c.label}`),
+          // Plan v6 C5: Gruppen-Kurzfassung statt 8–20 Punkte im Volltext
+          ...checkpointBrief(
+            cps,
+            s(e.category),
+            (detail.attributes ?? {}) as Json,
+            !!a.detail,
+          ),
+          door: e.category === "hold_open" ? (detail.attributes as Json)?.door : null,
           knownDefects: list(detail.defects)
             .filter((d) => d.status === "open" && !d.hiddenAt)
             .map((d) =>
               compact({
                 title: d.title,
-                severity: sev(d.severity),
+                ...sevOut(d.severity),
                 since: day(d.createdAt),
               }),
             ),
@@ -2079,11 +2253,16 @@ export const TOOLS: Tool[] = [
     name: "inspect",
     title: "Prüfung ausfüllen",
     description:
-      'Füllt die Prüfung eines Elements aus dem Gesagten aus und legt sie in der App **zur Unterschrift** bereit. Schließt nie ab und unterschreibt nie – das macht die prüfende Person in der App. `allOk: true` setzt alle noch offenen Prüfpunkte auf „i. O.“; Ausnahmen als `defects` (title, severity, measure, note; Prüfpunkt per `checkpoint` = Nummer oder Stichwort, sonst automatisch zugeordnet). Bekannte offene Mängel mit `known` als still (weiterhin vorhanden) oder fixed (behoben) melden. Weitere: `answers` (einzelne Punkte ok/defect/na), `maintenance` (durchgeführte Arbeiten), `notes`, `notInspectable` mit `reason`. Mehrfach aufrufbar – ergänzt denselben Entwurf. Antwort: Kurzfassung, Ergebnis und was noch fehlt. Beispiel: {asset: "FST-7K2M", allOk: true, defects: [{title: "Obentürschließer zieht nicht ganz zu", severity: "medium", measure: "Schließer einstellen", checkpoint: "Schließer"}]}.',
+      'Füllt die Prüfung eines Elements aus dem Gesagten aus und legt sie in der App **zur Unterschrift** bereit. Schließt nie ab und unterschreibt nie – das macht die prüfende Person in der App (Prüfen → Unterschreiben). `allOk: true` setzt alle noch offenen Prüfpunkte auf „i. O.“ – Punkte, die nach den Stammdaten nicht zutreffen (keine Feststellanlage, einflügelig), auf „entfällt“; fehlt das Stammdatum, bleibt der Punkt offen und `ask` fragt gezielt nach (die Antwort gleich mit `fields` mitgeben, z. B. {holdOpen: false}). Ausnahmen als `defects` (title, severity, measure, note; Prüfpunkt per `checkpoint` = Nummer oder Stichwort; ohne Angabe nur bei eindeutigem Treffer zugeordnet, sonst fragt `ask` nach). Bekannte offene Mängel mit `known` (defectId oder Titel) als still (weiterhin vorhanden) oder fixed (behoben) melden; ein neuer Mangel mit demselben Titel wie ein offener wird mit diesem zusammengeführt. Weitere: `answers` (einzelne Punkte ok/defect/na), `maintenance` (durchgeführte Arbeiten, auch mit anderen Worten wie „Batterie gewechselt“), `notes`, `notInspectable` nur mit `reason` (spätere Befunde oder allOk heben „nicht prüfbar“ auf und melden das). Widersprüche (i. O. und Mangel am selben Punkt, Arbeit „Melder gereinigt“ und Mangel „Melder verschmutzt“) stehen in `ask`; die Prüfung bleibt dann Entwurf. Mehrfach aufrufbar – ergänzt denselben Entwurf. Antwort: Kurzfassung, Ergebnis, `status` (draft = Entwurf, ready = wartet auf Unterschrift) und was noch fehlt. Beispiel: {asset: "FST-7K2M", allOk: true, defects: [{title: "Obentürschließer zieht nicht ganz zu", severity: "medium", measure: "Schließer einstellen", checkpoint: "Schließer"}]}.',
     inputSchema: obj(
       {
-        asset: str("Element-Code, z. B. „FST-7K2M“"),
-        allOk: bool("alle noch nicht bewerteten Prüfpunkte auf „i. O.“ setzen"),
+        asset: str(
+          "Element-Code, z. B. „FST-7K2M“ – oder Nummer wie „Tür 36“ zusammen mit `property`",
+        ),
+        property: str("Objekt (Name), wenn `asset` eine Nummer wie „Tür 36“ ist"),
+        allOk: bool(
+          "alle noch nicht bewerteten Prüfpunkte auf „i. O.“ setzen (nicht Zutreffendes auf „entfällt“)",
+        ),
         defects: arr(
           obj(
             {
@@ -2092,7 +2271,7 @@ export const TOOLS: Tool[] = [
               measure: str("Maßnahme, z. B. „Dichtung erneuern“"),
               note: str("Details"),
               checkpoint: str(
-                "Prüfpunkt: Nummer (aus tour/get) oder Stichwort; leer = automatisch",
+                "Prüfpunkt: Nummer (aus tour/get mit detail) oder Stichwort; leer = nur bei eindeutigem Treffer",
               ),
             },
             ["title"],
@@ -2103,7 +2282,7 @@ export const TOOLS: Tool[] = [
         known: arr(
           obj(
             {
-              defect: str("bekannter Mangel: Titel(-teil) oder defectId"),
+              defect: str("bekannter Mangel: defectId oder Titel"),
               status: str("still = weiterhin vorhanden, fixed = behoben", {
                 enum: ["still", "fixed"],
               }),
@@ -2128,20 +2307,85 @@ export const TOOLS: Tool[] = [
         ),
         maintenance: arr(
           { type: "string" },
-          "durchgeführte Arbeiten (Bezeichnung oder Schlüssel der Elementart), z. B. „Batterie getauscht“",
+          "durchgeführte Arbeiten (Bezeichnung oder Schlüssel der Elementart, auch mit anderen Worten), z. B. „Batterie gewechselt“",
           20,
         ),
+        fields: {
+          type: "object",
+          description:
+            "Stammdaten gleich mitsetzen (geprüft wie in update_asset), z. B. {holdOpen: false} oder {leaves: \"1-flügelig\"} als Antwort auf eine Rückfrage",
+          additionalProperties: {
+            type: ["string", "number", "boolean", "null"],
+          },
+        },
         notes: str("Bemerkung zum Protokoll"),
         notInspectable: bool(
-          "nicht prüfbar (z. B. kein Zugang) – `reason` angeben",
+          "nicht prüfbar (z. B. kein Zugang) – nur zusammen mit `reason`",
         ),
-        reason: str("Grund für „nicht prüfbar“"),
+        reason: str("Grund für „nicht prüfbar“ (Pflicht)"),
       },
       ["asset"],
     ),
     readOnly: false,
     run: async (a, x) => {
-      const id = await assetId(x, a.asset);
+      // Plan v6 B6: „nicht prüfbar“ nur mit Grund, und nicht zugleich mit Befunden
+      const hasFindings =
+        !!a.allOk ||
+        list(a.answers).length > 0 ||
+        list(a.defects).length > 0;
+      if (a.notInspectable === true && !s(a.reason).trim())
+        throw new ToolError(
+          "„Nicht prüfbar“ braucht einen Grund (`reason`), z. B. „kein Zugang, Raum verschlossen“. Nichts geändert.",
+        );
+      if (a.notInspectable === true && hasFindings)
+        throw new ToolError(
+          "Entweder „nicht prüfbar“ (mit reason) oder Befunde/allOk – nicht beides in einem Aufruf. Nichts geändert.",
+        );
+      const id = await assetId(x, a.asset, a.property);
+      const asset = (await x.api({
+        method: "GET",
+        path: `/assets/${enc(id)}`,
+      })) as Json;
+      const cat = (await x.categories()).find((c) => c.key === asset.category);
+      const category = s(asset.category);
+      let attrs = { ...((asset.attributes ?? {}) as Json) };
+      // Stammdaten als Antwort auf eine Rückfrage (A4) – erst prüfen, dann speichern
+      const dataChanges: string[] = [];
+      const fieldsIn = (a.fields ?? {}) as Json;
+      if (Object.keys(fieldsIn).length) {
+        const v = checkedFields(cat, fieldsIn);
+        if (v.unknown.length)
+          throw new ToolError(
+            `${v.unknown.join(", ")} gibt es bei ${cat?.label ?? "dieser Art"} nicht (möglich: ${(cat?.attributes ?? []).map((f) => f.key).join(", ")}). Nichts geändert.`,
+          );
+        if (v.errors.length)
+          throw new ToolError(
+            `${v.errors.map((e) => e.message).join(" ")} Nichts geändert.`,
+          );
+        const next = { ...attrs, ...v.values };
+        for (const [k, val] of Object.entries(v.values))
+          if (s(attrs[k]) !== s(val))
+            dataChanges.push(
+              `${cat?.attributes.find((f) => f.key === k)?.label ?? k}: ${s(attrs[k]) || "–"} → ${typeof val === "boolean" ? (val ? "ja" : "nein") : s(val) || "–"}`,
+            );
+        if (dataChanges.length) {
+          await x.api({
+            method: "PATCH",
+            path: `/assets/${enc(id)}`,
+            body: {
+              buildingId: asset.buildingId,
+              location: s(asset.location),
+              floor: s(asset.floor),
+              manufacturer: s(asset.manufacturer),
+              model: s(asset.model),
+              labelCode: (asset.labelCode as string | null) ?? undefined,
+              attributes: next,
+              warnDays: asset.warnDays ?? null,
+            },
+          });
+          attrs = next;
+        }
+      }
       const started = (await x.api({
         method: "POST",
         path: `/assets/${enc(id)}/inspections`,
@@ -2152,65 +2396,153 @@ export const TOOLS: Tool[] = [
         path: `/inspections/${enc(started.id)}`,
       })) as unknown as Draft;
       const cps = d.checkpoints;
-      const answers: Record<string, Answer> = { ...d.answers };
+      const cpLabel = (cid: unknown) => {
+        const n = cps.findIndex((c) => c.id === cid);
+        return n >= 0 ? `${n + 1}. ${cps[n].label}` : null;
+      };
+      let answers: Record<string, Answer> = { ...d.answers };
       const defects: Json[] = [...d.defects];
       const resolved = new Set(d.resolvedDefects);
       const notes: string[] = [];
+      /** Rückfragen – Widersprüche halten die Prüfung als Entwurf zurück */
+      const ask: string[] = [];
+      const conflicts: string[] = [];
+      const merged: string[] = [];
+      // B6: Befunde zu einer „nicht prüfbar“ gemeldeten Prüfung heben den Zustand auf
+      let notInspectable =
+        a.notInspectable === undefined ? d.notInspectable : !!a.notInspectable;
+      let stateChange: string | null = null;
+      if (
+        d.notInspectable &&
+        a.notInspectable === undefined &&
+        (hasFindings || list(a.known).length)
+      ) {
+        notInspectable = false;
+        stateChange =
+          "„Nicht prüfbar“ aufgehoben – die Prüfung wird mit den genannten Befunden ausgefüllt.";
+      }
+      const explicitOk = new Set<string>();
       for (const v of list(a.answers)) {
         const cp = findCheckpoint(cps, v.checkpoint);
-        if (cp) answers[cp] = v.answer as Answer;
-        else notes.push(`Prüfpunkt „${s(v.checkpoint)}“ nicht gefunden`);
+        if (cp) {
+          answers[cp] = v.answer as Answer;
+          if (v.answer === "ok") explicitOk.add(cp);
+          if (v.answer !== "defect" && v.answer !== "ok")
+            for (let i = defects.length - 1; i >= 0; i--)
+              if (defects[i].checkpointId === cp && !defects[i].knownId)
+                defects.splice(i, 1);
+        } else notes.push(`Prüfpunkt „${s(v.checkpoint)}“ nicht gefunden`);
       }
-      // Bekannte Mängel: weiterhin vorhanden → als verknüpfter Mangel; behoben → wird beim Unterschreiben geschlossen
+      const catalog = (
+        (await x
+          .api({ method: "GET", path: "/catalog" })
+          .catch(() => ({ defects: [] }))) as { defects?: CatalogDefect[] }
+      ).defects ?? [];
+      type Known = Draft["knownDefects"][number];
+      /** bekannten Mangel als „weiterhin vorhanden“ übernehmen; gleichlautende neue Befunde im Entwurf zusammenführen */
+      const keepKnown = (hit: Known) => {
+        resolved.delete(hit.id);
+        for (let i = defects.length - 1; i >= 0; i--)
+          if (
+            !defects[i].knownId &&
+            similarity(s(defects[i].title), hit.title) >= 0.6
+          ) {
+            merged.push(
+              `„${s(defects[i].title)}“ mit bekanntem Mangel „${hit.title}“ zusammengeführt`,
+            );
+            defects.splice(i, 1);
+          }
+        if (!defects.some((x2) => x2.knownId === hit.id))
+          defects.push(
+            compact({
+              title: hit.title,
+              note: hit.note,
+              measure: hit.measure,
+              severity: hit.severity,
+              checkpointId: hit.checkpointId ?? undefined,
+              knownId: hit.id,
+              since: hit.createdAt,
+            }),
+          );
+        if (hit.checkpointId && cps.some((c) => c.id === hit.checkpointId))
+          answers[hit.checkpointId] = "defect";
+      };
+      // Plan v6 C7: bekannte Mängel per ID oder Titel – mehrdeutige Titel werden nachgefragt
       for (const k of list(a.known)) {
         const ref = lc(k.defect);
-        const hit =
-          d.knownDefects.find((m) => m.id === s(k.defect)) ??
-          d.knownDefects.find(
-            (m) =>
-              lc(m.title).includes(ref) ||
-              similarity(m.title, s(k.defect)) >= 0.5,
-          );
-        if (!hit) {
+        const byId = d.knownDefects.find((m) => m.id === s(k.defect));
+        const exact = d.knownDefects.filter((m) => lc(m.title) === ref);
+        const loose = d.knownDefects.filter(
+          (m) =>
+            lc(m.title).includes(ref) ||
+            similarity(m.title, s(k.defect)) >= 0.5,
+        );
+        const pool = byId ? [byId] : exact.length ? exact : loose;
+        if (!pool.length) {
           notes.push(`Bekannter Mangel „${s(k.defect)}“ nicht gefunden`);
           continue;
         }
+        if (pool.length > 1) {
+          ask.push(
+            `Bekannter Mangel „${s(k.defect)}“ ist mehrdeutig: ${pool.map((m) => `${m.title} (defectId ${m.id}, seit ${day(m.createdAt)})`).join("; ")} – bitte per defectId angeben.`,
+          );
+          continue;
+        }
+        const hit = pool[0];
         if (k.status === "fixed") {
           resolved.add(hit.id);
           for (let i = defects.length - 1; i >= 0; i--)
             if (defects[i].knownId === hit.id) defects.splice(i, 1);
-        } else {
-          resolved.delete(hit.id);
-          if (!defects.some((x2) => x2.knownId === hit.id))
-            defects.push(
-              compact({
-                title: hit.title,
-                note: hit.note,
-                measure: hit.measure,
-                severity: hit.severity,
-                checkpointId: hit.checkpointId ?? undefined,
-                knownId: hit.id,
-                since: hit.createdAt,
-              }),
+          const twin = defects.find(
+            (m) => !m.knownId && similarity(s(m.title), hit.title) >= 0.6,
+          );
+          if (twin)
+            conflicts.push(
+              `„${hit.title}“ ist als behoben gemeldet, im Entwurf steht aber der Befund „${s(twin.title)}“ – noch vorhanden oder behoben?`,
             );
-          if (hit.checkpointId && cps.some((c) => c.id === hit.checkpointId))
-            answers[hit.checkpointId] = "defect";
-        }
+        } else keepKnown(hit);
       }
       for (const m of list(a.defects)) {
         const title = s(m.title).trim();
         if (!title) continue;
-        const cp = findCheckpoint(cps, m.checkpoint, `${title} ${s(m.note)}`);
+        // C7: derselbe Mangel ist schon offen bekannt → weiterführen statt doppelt anlegen
+        const twin = d.knownDefects.find(
+          (k) => !resolved.has(k.id) && similarity(k.title, title) >= 0.6,
+        );
+        if (twin) {
+          keepKnown(twin);
+          merged.push(
+            `„${title}“ ist als offener Mangel bekannt („${twin.title}“) – weitergeführt statt neu angelegt`,
+          );
+          continue;
+        }
+        const text = `${title} ${s(m.note)}`;
+        let cp: string | null = null;
+        if (s(m.checkpoint).trim()) {
+          cp = findCheckpoint(cps, m.checkpoint);
+          if (!cp)
+            ask.push(
+              `Prüfpunkt „${s(m.checkpoint)}“ für „${title}“ nicht gefunden – Nummer aus tour/get (detail: true) nennen.`,
+            );
+        } else {
+          // Plan v6 A5: nur eindeutige Treffer zuordnen, sonst nachfragen
+          const r = assignCheckpoint(text, cps, { defects: catalog, category });
+          cp = r.id;
+          if (r.unsure)
+            ask.push(
+              `Mangel „${title}“: welcher Prüfpunkt – ${r.candidates.map((c) => cpLabel(c.id)).join(" oder ")}? Mit defects[].checkpoint angeben; bis dahin ohne Prüfpunkt eingetragen.`,
+            );
+        }
         const severity = SEVERITIES[m.severity as Severity]
           ? (m.severity as Severity)
-          : suggestSeverity(`${title} ${s(m.note)}`);
+          : suggestSeverity(text, catalog);
         const same = defects.findIndex(
           (x2) => !x2.knownId && similarity(s(x2.title), title) >= 0.6,
         );
         const entry = compact({
           title,
           note: s(m.note),
-          measure: s(m.measure) || suggestMeasure(title),
+          measure: s(m.measure) || suggestMeasure(title, catalog),
           severity,
           ...(cp ? { checkpointId: cp } : {}),
         });
@@ -2218,50 +2550,75 @@ export const TOOLS: Tool[] = [
         else defects.push(entry);
         if (cp) answers[cp] = "defect";
       }
-      if (a.allOk)
-        for (const c of cps) if (!answers[c.id]) answers[c.id] = "ok";
-      // Arbeiten: Bezeichnung oder Schlüssel der Elementart
-      const cat = (await x.categories()).find(
-        (c) => c.key === d.asset.category,
-      );
-      const maintenance = new Set(d.maintenance);
-      for (const m of Array.isArray(a.maintenance) ? a.maintenance : []) {
-        const hit = cat?.maintenance.find(
-          (o) =>
-            o.key === s(m) ||
-            lc(o.label).includes(lc(m)) ||
-            lc(m).includes(lc(o.label)),
+      // C6: ausdrücklich „i. O.“ und zugleich ein Mangel am selben Punkt
+      for (const cp of explicitOk) {
+        const at = defects.filter((m) => m.checkpointId === cp);
+        if (at.length) {
+          answers[cp] = "defect";
+          conflicts.push(
+            `${cpLabel(cp)} ist als „i. O.“ gemeldet, dazu aber der Mangel „${s(at[0].title)}“ – was stimmt? Bis dahin als Mangel eingetragen.`,
+          );
+        }
+      }
+      // A4: „Alles in Ordnung“ setzt nicht Zutreffendes auf „entfällt“, Unbekanntes bleibt offen
+      let notApplicable: string[] = [];
+      if (a.allOk) {
+        const r = allOkAnswers(cps, answers, category, attrs, (k) =>
+          cat?.attributes.find((f) => f.key === k)?.label,
         );
+        answers = r.answers;
+        notApplicable = r.na.map((i) => cpLabel(i) ?? i);
+        for (const q of new Set(r.unknown.map((u) => u.question)))
+          ask.push(
+            `${q} Davon hängt ab: ${r.unknown
+              .filter((u) => u.question === q)
+              .map((u) => cpLabel(u.id))
+              .join("; ")} – Antwort mit fields (z. B. {${r.unknown.find((u) => u.question === q)!.attr}: …}) und allOk erneut senden.`,
+          );
+      }
+      // Arbeiten: Bezeichnung, Schlüssel oder andere Worte (C4)
+      const maintenance = new Set(d.maintenance);
+      const unknownWork: string[] = [];
+      for (const m of Array.isArray(a.maintenance) ? a.maintenance : []) {
+        const hit = matchMaintenance(s(m), cat?.maintenance ?? []);
         if (hit) maintenance.add(hit.key);
-        else
+        else {
+          unknownWork.push(s(m));
           notes.push(
             `Arbeit „${s(m)}“ gibt es bei ${cat?.label ?? "dieser Art"} nicht (möglich: ${cat?.maintenance.map((o) => o.label).join(", ") || "keine"}) – in die Bemerkung übernommen`,
           );
+        }
       }
-      const unknownWork = (
-        Array.isArray(a.maintenance) ? a.maintenance : []
-      ).filter(
-        (m) =>
-          !cat?.maintenance.some(
-            (o) =>
-              o.key === s(m) ||
-              lc(o.label).includes(lc(m)) ||
-              lc(m).includes(lc(o.label)),
-          ),
-      );
+      // C6: erledigte Arbeit widerspricht einem Mangel („Melder gereinigt“ + „Melder verschmutzt“)
+      const works = [
+        ...(Array.isArray(a.maintenance) ? a.maintenance.map(s) : []),
+        ...[...maintenance]
+          .map((k) => cat?.maintenance.find((o) => o.key === k)?.label ?? "")
+          .filter(Boolean),
+      ];
+      for (const m of defects)
+        for (const w of new Set(works)) {
+          const c = workContradiction(w, s(m.title));
+          if (c && !conflicts.includes(c)) {
+            conflicts.push(c);
+            break;
+          }
+        }
       const noteText = [
-        d.notes,
+        // aufgehobenes „nicht prüfbar“: dessen Grund gehört nicht mehr ins Protokoll
+        stateChange
+          ? s(d.notes)
+              .split("\n")
+              .filter((l) => !l.startsWith("Nicht prüfbar:"))
+              .join("\n")
+          : d.notes,
         s(a.notes),
         a.notInspectable && a.reason ? `Nicht prüfbar: ${s(a.reason)}` : "",
-        unknownWork.length
-          ? `Durchgeführt: ${unknownWork.map(String).join(", ")}`
-          : "",
+        unknownWork.length ? `Durchgeführt: ${unknownWork.join(", ")}` : "",
       ]
         .map((t) => t.trim())
         .filter((t, i, all) => t && all.indexOf(t) === i)
         .join("\n");
-      const notInspectable =
-        a.notInspectable === undefined ? d.notInspectable : !!a.notInspectable;
       const body = {
         kinds: d.kinds,
         notInspectable,
@@ -2275,7 +2632,8 @@ export const TOOLS: Tool[] = [
         resultOverride: d.resultOverride,
         resultReason: d.resultReason ?? "",
         resolvedDefects: [...resolved],
-        ready: true,
+        // mit offenem Widerspruch nicht zur Unterschrift bereitlegen
+        ready: !conflicts.length,
       };
       const r = (await x.api({
         method: "PUT",
@@ -2296,29 +2654,56 @@ export const TOOLS: Tool[] = [
         defect: "Mangel",
         na: "entfällt",
       };
+      const status = r.ready && !conflicts.length ? "ready" : "draft";
       return compact({
         asset: `${d.asset.code}${d.asset.location ? ` (${d.asset.location})` : ""}`,
         inspectionId: d.id,
         kinds: d.kindLabels.join(", "),
         result: RESULT[result],
-        status: r.ready
-          ? "bereit zur Unterschrift (in der App)"
-          : "Entwurf – noch unvollständig",
+        status,
+        statusLabel:
+          status === "ready"
+            ? "bereit zur Unterschrift (in der App)"
+            : conflicts.length
+              ? "Entwurf – Rückfrage offen"
+              : "Entwurf – noch unvollständig",
+        stateChange,
+        dataChanged: dataChanges,
         checkpoints: cps
-          .filter((c) => answers[c.id] && answers[c.id] !== "ok")
+          .filter(
+            (c) =>
+              answers[c.id] &&
+              answers[c.id] !== "ok" &&
+              !(answers[c.id] === "na" && notApplicable.includes(cpLabel(c.id)!)),
+          )
           .map((c) => `${c.label}: ${AN[answers[c.id]]}`),
-        defects: defects.map(
-          (m) =>
-            `${s(m.title)} (${sev(m.severity)})${m.knownId ? " – bekannt, weiterhin vorhanden" : ""}`,
+        notApplicable: notApplicable.length
+          ? `${notApplicable.length} ${notApplicable.length === 1 ? "Punkt entfällt" : "Punkte entfallen"} nach den Stammdaten: ${notApplicable.join("; ")}`
+          : null,
+        defects: defects.map((m) =>
+          compact({
+            title: m.title,
+            ...sevOut(m.severity),
+            checkpoint: cpLabel(m.checkpointId),
+            known: m.knownId ? "bekannt, weiterhin vorhanden" : null,
+          }),
         ),
         fixed: d.knownDefects
           .filter((k) => resolved.has(k.id))
           .map((k) => k.title),
+        merged,
         missing: r.missing,
-        ask: openKnown.length
-          ? `Bekannte Mängel ohne Angabe (bleiben offen): ${openKnown.map((k) => k.title).join("; ")} – noch vorhanden oder behoben?`
-          : null,
+        ask: [
+          ...conflicts,
+          ...ask,
+          ...(openKnown.length
+            ? [
+                `Bekannte Mängel ohne Angabe (bleiben offen): ${openKnown.map((k) => `${k.title} (defectId ${k.id})`).join("; ")} – noch vorhanden oder behoben?`,
+              ]
+            : []),
+        ],
         notes: notes.length ? notes : null,
+        hint: status === "ready" ? SIGN_HINT : null,
       });
     },
   },
@@ -2326,7 +2711,7 @@ export const TOOLS: Tool[] = [
     name: "setup",
     title: "Struktur anlegen",
     description:
-      "Legt Objekt, Gebäude und Elemente in einem Rutsch an – z. B. nach dem Auswerten eines Grundrisses (get_photo mit „plan:…“) oder einer Liste. Immer zuerst mit `preview: true` aufrufen: zeigt je Gebäude Anzahl je Art und Etage und was neu entsteht, ohne etwas zu schreiben. Nach Bestätigung dasselbe mit `preview: false`. Elemente in Laufreihenfolge angeben (Etage, dann Weg); `count` für gleiche Elemente am selben Standort; `x`/`y` (0–1, relativ zur Bildbreite/-höhe) setzen einen Marker auf dem Grundriss `plan` (Name oder Ebene) des Gebäudes. Vorhandene Objekte/Gebäude (gleicher Name) werden genutzt, fehlende neu angelegt – das darf nur ein Schreib-Schlüssel (bzw. die Verbindung) einer Person, die Admin oder Inhaber ist; die Vorschau zeigt „wird neu angelegt“ oder sagt, dass das Recht fehlt. Ändern, Löschen und Archivieren von Objekten/Gebäuden gehen über diesen Zugang nie. Elemente brauchen das Recht „darf anlegen“.",
+      "Legt Objekt, Gebäude und Elemente in einem Rutsch an – z. B. nach dem Auswerten eines Grundrisses (get_photo mit „plan:…“), einer Türliste oder eines Prüfprotokolls. Immer zuerst mit `preview: true` aufrufen: zeigt je Gebäude Anzahl je Art und Etage, was neu entsteht und wahrscheinlich schon vorhandene Elemente (gleiche Art, Etage und Standort), ohne etwas zu schreiben. Nach Bestätigung dasselbe mit `preview: false`. Elemente in Laufreihenfolge angeben (Etage, dann Weg) – der Rundgang (tour) hält genau diese Reihenfolge, Etagen von unten nach oben. Je Element optional Hersteller, Typ, Stammdaten (`fields`, Schlüssel aus search(type: \"categories\"), geprüft wie in update_asset), feste Nummer (`number`, z. B. die Ident-Nr. aus dem Protokoll) und ein Katalog-Produkt (`product`: „Hersteller Typ“, füllt leere Stammdaten aus dessen Vorgaben). `count` für gleiche Elemente am selben Standort; `x`/`y` (0–1, relativ zur Bildbreite/-höhe) setzen einen Marker auf dem Grundriss `plan` (Name oder Ebene) des Gebäudes. Objekt mit `access` (Zugang: Schlüssel, Zeiten, Hinweise). Vorhandene Objekte/Gebäude (gleicher Name) werden genutzt, fehlende neu angelegt – das darf nur ein Schreib-Schlüssel (bzw. die Verbindung) einer Person, die Admin oder Inhaber ist; die Vorschau zeigt „wird neu angelegt“ oder sagt, dass das Recht fehlt. Ändern, Löschen und Archivieren von Objekten/Gebäuden gehen über diesen Zugang nie. Elemente brauchen das Recht „darf anlegen“. Weitere Arten (Sprinkler, BMA, RWA …) legt ein Admin in der App als eigene Elementart an (Einstellungen → Prüfvorlagen).",
     inputSchema: obj(
       {
         preview: bool("true = nur Vorschau (zuerst!), false = anlegen"),
@@ -2334,6 +2719,9 @@ export const TOOLS: Tool[] = [
           {
             name: str("Objektname"),
             address: str("Adresse (nur bei neuem Objekt)"),
+            access: str(
+              "Zugang: Schlüssel, Zeiten, Hinweise (bei neuem Objekt; bei vorhandenem nur mit Admin-Recht)",
+            ),
           },
           ["name"],
           "Objekt (vorhanden oder neu)",
@@ -2358,6 +2746,24 @@ export const TOOLS: Tool[] = [
                       1,
                       50,
                     ),
+                    number: int(
+                      "feste laufende Nummer im Objekt (bei count > 1 fortlaufend ab hier)",
+                      1,
+                      99999,
+                    ),
+                    manufacturer: str("Hersteller"),
+                    model: str("Typ/Modell"),
+                    product: str(
+                      "Katalog-Produkt „Hersteller Typ“ – übernimmt dessen Vorgaben in leere Stammdaten",
+                    ),
+                    fields: {
+                      type: "object",
+                      description:
+                        'Stammdaten der Elementart als {schlüssel: wert}, z. B. {rating: "T30", leaves: "2-flügelig", holdOpen: true}',
+                      additionalProperties: {
+                        type: ["string", "number", "boolean", "null"],
+                      },
+                    },
                     x: {
                       type: "number",
                       minimum: 0,
@@ -2393,6 +2799,7 @@ export const TOOLS: Tool[] = [
       const pIn = (a.property ?? {}) as Json;
       const pName = s(pIn.name).trim();
       if (!pName) throw new ToolError("property.name fehlt.");
+      const access = s(pIn.access).trim();
       const bIn = list(a.buildings);
       if (!bIn.length)
         throw new ToolError(
@@ -2418,7 +2825,39 @@ export const TOOLS: Tool[] = [
           })) as Json)
         : null;
       const problems: string[] = [];
-      // Arten und Grundrisse vorab auflösen (auch für die Vorschau)
+      const duplicates: string[] = [];
+      // Katalog-Produkte nur laden, wenn eines genannt ist
+      let products: CatalogProduct[] | null = null;
+      const productOf = async (q: string, category: string) => {
+        products ??= (
+          (await x
+            .api({ method: "GET", path: "/catalog" })
+            .catch(() => ({ products: [] }))) as { products?: CatalogProduct[] }
+        ).products ?? [];
+        const f = foldText(q);
+        const pool = products.filter(
+          (p) => !p.category || p.category === category,
+        );
+        return (
+          pool.find((p) => foldText(`${p.manufacturer} ${p.model}`) === f) ??
+          pool.find((p) => foldText(p.model) === f) ??
+          (() => {
+            const hits = pool.filter((p) =>
+              foldText(`${p.manufacturer} ${p.model}`).includes(f),
+            );
+            return hits.length === 1 ? hits[0] : null;
+          })()
+        );
+      };
+      // vorhandene Elemente (für wahrscheinliche Doppelte) und vergebene Nummern im Objekt
+      const have = list(detail?.assets);
+      const taken = new Map(
+        have
+          .filter((e) => e.number != null)
+          .map((e) => [Number(e.number), s(e.code)]),
+      );
+      const wanted = new Map<number, string>();
+      // Arten, Stammdaten und Grundrisse vorab auflösen (auch für die Vorschau)
       const plan: {
         name: string;
         id: string | null;
@@ -2428,6 +2867,10 @@ export const TOOLS: Tool[] = [
           floor: string;
           location: string;
           count: number;
+          number?: number;
+          manufacturer: string;
+          model: string;
+          attributes: Json;
           x?: number;
           y?: number;
         }[];
@@ -2457,16 +2900,85 @@ export const TOOLS: Tool[] = [
           try {
             const cat = await resolveCategory(x, e.category);
             const count = clamp(e.count, 1, 50, 1);
+            const where = [s(e.floor), s(e.location)].filter(Boolean).join(", ");
+            const what = `${cat.label}${where ? ` (${where})` : ""}`;
             const hasXY = typeof e.x === "number" && typeof e.y === "number";
             if (hasXY && count > 1)
               problems.push(
                 `${name}: Marker nur bei count 1 (${cat.label}, ${s(e.location)})`,
               );
+            // Plan v6 F2: Stammdaten geprüft wie in update_asset, Produkt füllt Leeres
+            const v = checkedFields(cat, (e.fields ?? {}) as Json);
+            if (v.unknown.length)
+              problems.push(
+                `${name}, ${what}: Felder ${v.unknown.join(", ")} gibt es bei ${cat.label} nicht (möglich: ${cat.attributes.map((f) => f.key).join(", ")}) – ausgelassen`,
+              );
+            if (v.errors.length)
+              throw new ToolError(
+                `${what}: ${v.errors.map((er) => er.message).join(" ")}`,
+              );
+            let attributes: Json = { ...v.values };
+            let manufacturer = s(e.manufacturer).trim();
+            let model = s(e.model).trim();
+            if (s(e.product).trim()) {
+              const prod = await productOf(s(e.product), cat.key);
+              if (!prod)
+                problems.push(
+                  `${name}, ${what}: Produkt „${s(e.product)}“ nicht im Katalog (catalog search) – ohne Vorgaben angelegt`,
+                );
+              else {
+                attributes = applyProductDefaults(
+                  attributes,
+                  prod,
+                  cat.attributes.map((f) => f.key),
+                );
+                manufacturer ||= prod.manufacturer;
+                model ||= prod.model;
+              }
+            }
+            const number =
+              e.number != null ? clamp(e.number, 1, 99999, 1) : undefined;
+            if (number != null)
+              for (let i = 0; i < count; i++) {
+                const n = number + i;
+                if (taken.has(n))
+                  throw new ToolError(
+                    `${what}: Nummer ${n} hat in diesem Objekt schon ${taken.get(n)}`,
+                  );
+                if (wanted.has(n))
+                  throw new ToolError(
+                    `${what}: Nummer ${n} ist in diesem Aufruf doppelt (auch ${wanted.get(n)})`,
+                  );
+                wanted.set(n, what);
+              }
+            // Plan v6 D2: gleiche Art, Etage und Standort gibt es im Gebäude schon
+            if (found) {
+              const same = have.filter(
+                (h) =>
+                  h.buildingId === found.id &&
+                  h.category === cat.key &&
+                  foldText(s(h.floor)) === foldText(s(e.floor)) &&
+                  foldText(s(h.location)) === foldText(s(e.location)),
+              );
+              if (same.length)
+                duplicates.push(
+                  `${name}: ${count} × ${what} – vorhanden: ${same
+                    .slice(0, 5)
+                    .map((h) => s(h.code))
+                    .join(
+                      ", ",
+                    )}. Wahrscheinlich doppelt – nur anlegen, wenn wirklich zusätzlich.`,
+                );
+            }
             elements.push({
               cat,
               floor: s(e.floor),
               location: s(e.location),
               count,
+              ...(number != null ? { number } : {}),
+              manufacturer,
+              model,
+              attributes,
               ...(hasXY && count === 1 && planId
                 ? { x: Number(e.x), y: Number(e.y) }
                 : {}),
@@ -2477,6 +2989,10 @@ export const TOOLS: Tool[] = [
         }
         plan.push({ name, id: found ? s(found.id) : null, planId, elements });
       }
+      const newTotal = plan.reduce(
+        (n, b) => n + b.elements.reduce((m, e) => m + e.count, 0),
+        0,
+      );
       if (preview) {
         // nur die Vorschau fragt das Recht vorab ab; beim Anlegen entscheidet die API (403 → Hinweis unten)
         const structureOk =
@@ -2496,6 +3012,7 @@ export const TOOLS: Tool[] = [
         return compact({
           preview: true,
           property: `${pName} (${existing ? "vorhanden" : isNew})`,
+          access: access || null,
           buildings: plan.map((b) => {
             const byArt: Record<string, number> = {};
             const byFloor: Record<string, number> = {};
@@ -2509,12 +3026,24 @@ export const TOOLS: Tool[] = [
               elements: b.elements.reduce((n, e) => n + e.count, 0),
               byArt,
               byFloor,
+              withData:
+                b.elements
+                  .filter(
+                    (e) =>
+                      Object.keys(e.attributes).length ||
+                      e.manufacturer ||
+                      e.number != null,
+                  )
+                  .reduce((n, e) => n + e.count, 0) || null,
               markers: b.elements.filter((e) => e.x != null).length || null,
             });
           }),
-          total,
+          total: newTotal,
+          possibleDuplicates: duplicates,
           problems,
-          next: "Zur Bestätigung zeigen; dann mit preview: false anlegen.",
+          next: duplicates.length
+            ? "Zur Bestätigung zeigen und die wahrscheinlich doppelten Elemente nachfragen (weglassen oder bewusst zusätzlich); dann mit preview: false anlegen."
+            : "Zur Bestätigung zeigen; dann mit preview: false anlegen.",
         });
       }
       let propertyId = existing?.id ?? null;
@@ -2524,13 +3053,38 @@ export const TOOLS: Tool[] = [
             (await x.api({
               method: "POST",
               path: "/properties",
-              body: { name: pName, address: s(pIn.address) },
+              body: { name: pName, address: s(pIn.address), access },
             })) as { id: string }
           ).id;
         } catch (e) {
           if (e instanceof ApiError && e.status === 403)
             throw new ToolError(NEW_STRUCTURE_HINT(`Objekt „${pName}“`));
           throw e;
+        }
+      } else if (access && detail && s(detail.access) !== access) {
+        // Zugang am vorhandenen Objekt: nur mit Admin-Recht (sonst Hinweis, Elemente trotzdem anlegen)
+        try {
+          await x.api({
+            method: "PATCH",
+            path: `/properties/${enc(propertyId)}`,
+            body: {
+              name: detail.name,
+              address: s(detail.address),
+              description: s(detail.description),
+              contactName: s(detail.contactName),
+              contactPhone: s(detail.contactPhone),
+              contactEmail: s(detail.contactEmail),
+              buildingType: detail.buildingType ?? "general",
+              pdfPattern: detail.pdfPattern ?? null,
+              access,
+            },
+          });
+        } catch (e) {
+          problems.push(
+            e instanceof ApiError && e.status === 403
+              ? "Zugang nicht gespeichert: Objekte ändern nur Admins (in der App: Objekt → Bearbeiten)."
+              : `Zugang nicht gespeichert: ${errorText(e)}`,
+          );
         }
       }
       const created: Json[] = [];
@@ -2560,6 +3114,7 @@ export const TOOLS: Tool[] = [
         for (const e of b.elements) {
           for (let i = 0; i < e.count; i++) {
             try {
+              // nacheinander anlegen: die Reihenfolge ist die Laufreihenfolge (sort_index)
               const r = (await x.api({
                 method: "POST",
                 path: "/assets",
@@ -2568,7 +3123,10 @@ export const TOOLS: Tool[] = [
                   category: e.cat.key,
                   floor: e.floor,
                   location: e.location,
-                  attributes: {},
+                  manufacturer: e.manufacturer,
+                  model: e.model,
+                  attributes: e.attributes,
+                  ...(e.number != null ? { number: e.number + i } : {}),
                 },
               })) as { id: string; code: string };
               codes.push(r.code);
@@ -2609,6 +3167,7 @@ export const TOOLS: Tool[] = [
         created,
         failed,
         problems,
+        possibleDuplicates: duplicates,
         next: n
           ? 'Rundgang starten mit tour(action: "start", building: …).'
           : null,

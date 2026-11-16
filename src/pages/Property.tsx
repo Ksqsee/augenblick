@@ -374,6 +374,12 @@ export function PropertyPage() {
             ) : (
               <p className="border-t border-line py-3 text-body text-ink-2">Keine Ansprechperson hinterlegt.</p>
             )}
+            {p.access && (
+              <p className="pt-3 text-body whitespace-pre-line text-ink-2" data-access>
+                <span className="text-ink-3">Zugang: </span>
+                {p.access}
+              </p>
+            )}
             {p.description && <p className="pt-3 text-body whitespace-pre-line text-ink-2">{p.description}</p>}
           </AsideSection>
         </aside>
