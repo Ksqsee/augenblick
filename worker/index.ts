@@ -27,6 +27,7 @@ import { pendingRoutes } from './pending';
 import { TooManyRequests } from './throttle';
 import { walks } from './walkthroughs';
 import { publicApi, work } from './work';
+import { offer } from './offer';
 
 const app = new Hono<AppEnv>().basePath('/api');
 
@@ -67,6 +68,7 @@ secured.use('*', requireAuth);
 secured.route('/', pendingRoutes);
 secured.route('/', categories);
 secured.route('/', catalog);
+secured.route('/', offer);
 secured.route('/', offline);
 secured.route('/', inspections);
 secured.route('/', intervals);

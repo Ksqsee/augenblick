@@ -1,7 +1,8 @@
 import { Hono } from 'hono';
 import { HTTPException } from 'hono/http-exception';
 import { z } from 'zod';
-import type { Category, Role } from '../shared/catalog';
+import type { AttributeField, Category, Role } from '../shared/catalog';
+import { validateAttributes } from '../shared/asset-fields';
 import { DEFAULT_SLA, HOUR } from '../shared/sla';
 import { addMonths } from '../shared/logic';
 import { getCategoryDef, getSchedule } from './categories';
@@ -659,6 +660,11 @@ const importRow = z.object({
   model: str(120).default(''),
   year: z.number().int().min(1900).max(2100).optional(),
   lastInspectedAt: z.number().int().optional(),
+  /** Plan v7 (Wartungsübersicht): Stammdaten, nächste Prüfung aus der Datei, eigenes Intervall, erkannter Katalog-Typ */
+  attributes: z.record(z.union([z.string().max(200), z.number(), z.boolean()])).optional(),
+  nextDueAt: z.number().int().optional(),
+  intervalMonths: z.number().int().min(1).max(120).optional(),
+  catalogType: str(250).optional(),
   /** Zeile in der Quelldatei (für Fehlermeldungen) */
   line: z.number().int().positive().optional(),
 });
@@ -694,13 +700,16 @@ work.post('/import/assets', async (c) => {
   const newBuilds: { id: string; pid: string; name: string }[] = [];
   const newAssets: Record<string, unknown>[] = [];
   const results: { line: number; status: 'ok' | 'error'; code?: string; message?: string }[] = [];
-  const kinds = new Map<Category, { prefix: string; interval: number } | null>();
+  const kinds = new Map<Category, { prefix: string; interval: number; fields: AttributeField[] } | null>();
+  // Laufreihenfolge (v6 A3, Rest aus v7): importierte Elemente in Dateireihenfolge hinter den vorhandenen je Gebäude
+  const sortRows = await c.env.DB.prepare('SELECT building_id AS bid, MAX(sort_index) AS n FROM assets WHERE tenant_id = ? GROUP BY building_id').bind(tid(c)).all<{ bid: string; n: number | null }>();
+  const lastSort = new Map(sortRows.results.map((r) => [r.bid, r.n ?? 0]));
 
   for (const [i, r] of rows.entries()) {
     const line = r.line ?? i + 2;
     if (!kinds.has(r.category)) {
       const def = await getCategoryDef(c, r.category).catch(() => null);
-      kinds.set(r.category, def && { prefix: def.prefix, interval: (await getSchedule(c, r.category)).intervalMonths });
+      kinds.set(r.category, def && { prefix: def.prefix, interval: (await getSchedule(c, r.category)).intervalMonths, fields: def.attributes });
     }
     const kind = kinds.get(r.category);
     if (!kind) {
@@ -709,6 +718,12 @@ work.post('/import/assets', async (c) => {
     }
     const code = r.code?.toUpperCase();
     const label = r.labelCode?.toUpperCase();
+    // Stammdaten prüfen wie bei MCP (Auswahllisten, Ja/Nein; alte Felder Feuerwiderstand/Rauchschutz → Anforderung)
+    const checked = validateAttributes(kind.fields, r.attributes ?? {});
+    if (checked.errors.length || checked.unknown.length) {
+      results.push({ line, status: 'error', message: checked.errors[0]?.message ?? `Unbekannte Stammdaten: ${checked.unknown.join(', ')}` });
+      continue;
+    }
     if (code && usedCodes.has(code)) {
       results.push({ line, status: 'error', message: `Code ${code} existiert bereits` });
       continue;
@@ -744,13 +759,24 @@ work.post('/import/assets', async (c) => {
     if (!finalCode) finalCode = freeNumberCode(kind.prefix, number!, (x) => usedCodes.has(x));
     usedCodes.add(finalCode);
     if (label) usedCodes.add(label);
-    const next = r.lastInspectedAt ? addMonths(r.lastInspectedAt, kind.interval) : null;
-    const attrs = r.year ? { [r.category === 'smoke_alarm' ? 'manufactured' : 'year']: r.category === 'smoke_alarm' ? `${r.year}-01-01` : r.year } : {};
+    const interval = r.intervalMonths ?? kind.interval;
+    const next = r.nextDueAt ?? (r.lastInspectedAt ? addMonths(r.lastInspectedAt, interval) : null);
+    const attrs = {
+      ...Object.fromEntries(Object.entries(checked.values).filter(([, v]) => v !== null)),
+      ...(r.year ? { [r.category === 'smoke_alarm' ? 'manufactured' : 'year']: r.category === 'smoke_alarm' ? `${r.year}-01-01` : r.year } : {}),
+    };
+    const sortIndex = (lastSort.get(bid) ?? 0) + 1;
+    lastSort.set(bid, sortIndex);
+    const main = {
+      enabled: true,
+      ...(r.lastInspectedAt ? { lastAt: r.lastInspectedAt, nextDueAt: next, baseline: { lastAt: r.lastInspectedAt, nextDueAt: next } } : {}),
+      ...(r.intervalMonths && r.intervalMonths !== kind.interval ? { intervalMonths: r.intervalMonths, intervalAt: t } : {}),
+    };
     newAssets.push({
       id: id(), bid, category: r.category, code: finalCode, number, label: label ?? null, location: r.location, floor: r.floor, manufacturer: r.manufacturer, model: r.model,
-      attributes: JSON.stringify(attrs), last: r.lastInspectedAt ?? null, next,
+      attributes: JSON.stringify(attrs), last: r.lastInspectedAt ?? null, next: r.lastInspectedAt ? next : null, sort: sortIndex,
       // Übernommene letzte Prüfung als Ausgangsstand (bleibt bei Neuberechnung erhalten)
-      schedules: JSON.stringify({ main: r.lastInspectedAt ? { enabled: true, lastAt: r.lastInspectedAt, nextDueAt: next, baseline: { lastAt: r.lastInspectedAt, nextDueAt: next } } : { enabled: true } }),
+      schedules: JSON.stringify({ main }),
     });
     results.push({ line, status: 'ok', code: finalCode });
   }
@@ -770,8 +796,8 @@ work.post('/import/assets', async (c) => {
         `INSERT INTO buildings (id, tenant_id, property_id, name, created_at, updated_at) SELECT ${j('id')}, ?1, ${j('pid')}, ${j('name')}, ?2, ?2 FROM json_each(?3)`,
       ).bind(tid(c), t, JSON.stringify(newBuilds)),
       c.env.DB.prepare(
-        `INSERT INTO assets (id, tenant_id, building_id, category, code, number, label_code, location, floor, manufacturer, model, attributes, last_inspected_at, next_due_at, schedules, created_at, updated_at)
-         SELECT ${['id', 'bid', 'category', 'code', 'number', 'label', 'location', 'floor', 'manufacturer', 'model', 'attributes', 'last', 'next', 'schedules'].map((k, n) => (n === 0 ? j(k) + ', ?1' : j(k))).join(', ')}, ?2, ?2 FROM json_each(?3)`,
+        `INSERT INTO assets (id, tenant_id, building_id, category, code, number, label_code, location, floor, manufacturer, model, attributes, last_inspected_at, next_due_at, schedules, sort_index, created_at, updated_at)
+         SELECT ${['id', 'bid', 'category', 'code', 'number', 'label', 'location', 'floor', 'manufacturer', 'model', 'attributes', 'last', 'next', 'schedules', 'sort'].map((k, n) => (n === 0 ? j(k) + ', ?1' : j(k))).join(', ')}, ?2, ?2 FROM json_each(?3)`,
       ).bind(tid(c), t, JSON.stringify(newAssets)),
       // Zähler je Objekt nachziehen (nie zurück)
       c.env.DB.prepare(
