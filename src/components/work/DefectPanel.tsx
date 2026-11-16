@@ -1,4 +1,4 @@
-import { Check, Eye, EyeOff, FileDown, ListPlus, Pencil, Plus, RotateCcw } from 'lucide-react';
+import { Ban, Check, Eye, EyeOff, FileDown, ListPlus, Pencil, Plus, RotateCcw } from 'lucide-react';
 import { type ReactNode, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { api, type Defect, type DefectDetail, useAction, useDefect, useMe } from '../../api';
@@ -15,6 +15,7 @@ const HISTORY_ICON: Record<string, { icon: ReactNode; tone?: TimelineItem['tone'
   reopen: { icon: <RotateCcw />, tone: 'warn' },
   hide: { icon: <EyeOff /> },
   unhide: { icon: <Eye /> },
+  invalidate: { icon: <Ban /> },
 };
 
 /** Mangel im Detailpanel: Fotos vorher/nachher, Beschreibung, Maßnahme, Behebung, Aufgaben und Verlauf. */
@@ -23,6 +24,7 @@ export function DefectPanel({ id, onClose, onTask, onResolve }: { id: string; on
   const { data: me } = useMe();
   const toast = useToast();
   const [hiding, setHiding] = useState(false);
+  const [invalidating, setInvalidating] = useState(false);
   const [pdfBusy, setPdfBusy] = useState(false);
   const canEdit = me?.user.role !== 'viewer';
   const isAdmin = !!me && ['owner', 'admin'].includes(me.user.role);
@@ -41,6 +43,7 @@ export function DefectPanel({ id, onClose, onTask, onResolve }: { id: string; on
     }
   };
   const resolved = d?.status === 'resolved';
+  const invalid = d?.status === 'invalid';
   const openTask = d?.tasks.some((t) => t.status === 'open' || t.status === 'in_progress');
   return (
     <>
@@ -52,7 +55,7 @@ export function DefectPanel({ id, onClose, onTask, onResolve }: { id: string; on
           d && (
             <>
               <SeverityText severity={d.severity} />
-              <StatusText tone={resolved ? 'ok' : 'muted'}>{resolved ? 'Behoben' : 'Offen'}</StatusText>
+              <StatusText tone={resolved ? 'ok' : 'muted'}>{resolved ? 'Behoben' : invalid ? 'Ungültig' : 'Offen'}</StatusText>
               {d.hiddenAt && <span className="text-ink-2">Ausgeblendet</span>}
             </>
           )
@@ -101,22 +104,27 @@ export function DefectPanel({ id, onClose, onTask, onResolve }: { id: string; on
         footer={
           d && (
             <>
-              {canEdit && !d.hiddenAt && !resolved && (
+              {canEdit && !d.hiddenAt && !resolved && !invalid && (
                 <Button icon={<Check />} className="max-sm:flex-1" onClick={() => onResolve(d.id)}>
                   Behoben
                 </Button>
               )}
-              {canEdit && !d.hiddenAt && !resolved && !openTask && (
+              {canEdit && !d.hiddenAt && !resolved && !invalid && !openTask && (
                 <Button variant="secondary" icon={<ListPlus />} className="max-sm:flex-1" onClick={() => onTask(d)}>
                   Aufgabe anlegen
                 </Button>
               )}
-              {canEdit && resolved && !d.hiddenAt && (
+              {canEdit && (resolved || invalid) && !d.hiddenAt && (
                 <Button variant="secondary" icon={<RotateCcw />} loading={reopen.isPending} onClick={() => reopen.mutate(undefined)}>
                   Wieder öffnen
                 </Button>
               )}
               <span className="ml-auto flex items-center gap-1">
+                {canEdit && !d.hiddenAt && !resolved && !invalid && (
+                  <Button size="sm" variant="ghost" icon={<Ban />} onClick={() => setInvalidating(true)}>
+                    Ungültig
+                  </Button>
+                )}
                 {isAdmin &&
                   (d.hiddenAt ? (
                     <Button size="sm" variant="ghost" icon={<Eye />} loading={unhide.isPending} onClick={() => unhide.mutate(undefined)}>
@@ -149,6 +157,12 @@ export function DefectPanel({ id, onClose, onTask, onResolve }: { id: string; on
               {d.hiddenAt && (
                 <Notice tone="muted" icon={<EyeOff />} title={`Ausgeblendet ${fmtDate(d.hiddenAt)}${d.hiddenByName ? ` von ${d.hiddenByName}` : ''}`} className="mb-6">
                   {d.hiddenReason}
+                </Notice>
+              )}
+              {invalid && (
+                <Notice tone="muted" icon={<Ban />} title={`Ungültig seit ${fmtDate(d.invalidAt)}${d.invalidByName ? ` · ${d.invalidByName}` : ''}`} className="mb-6">
+                  {d.invalidReason}
+                  <span className="mt-1 block text-meta text-ink-3">Zählt nicht in Behebungsquote und -dauer.</span>
                 </Notice>
               )}
               {(d.photoKey || d.resolutionPhotoKey) && (
@@ -192,7 +206,7 @@ export function DefectPanel({ id, onClose, onTask, onResolve }: { id: string; on
                     ))}
                   </ul>
                 ) : (
-                  <p className="text-body text-ink-3">Keine Aufgabe verknüpft.{canEdit && !resolved && !d.hiddenAt ? ' Lege eine an, damit sich jemand kümmert.' : ''}</p>
+                  <p className="text-body text-ink-3">Keine Aufgabe verknüpft.{canEdit && !resolved && !invalid && !d.hiddenAt ? ' Lege eine an, damit sich jemand kümmert.' : ''}</p>
                 )}
               </PanelSection>
               <PanelSection title="Verlauf">
@@ -212,11 +226,64 @@ export function DefectPanel({ id, onClose, onTask, onResolve }: { id: string; on
         )}
       </WorkPanel>
       {hiding && <HideDialog id={id} title={d?.title} onClose={() => setHiding(false)} />}
+      {invalidating && <InvalidDialog id={id} title={d?.title} onClose={() => setInvalidating(false)} />}
     </>
   );
 }
 
 const REASONS = ['Doppelt erfasst', 'Nicht relevant', 'Fehlerfassung'];
+const INVALID_REASONS = ['Duplikat', 'Fehleintrag', 'Falsches Element'];
+
+/** Als ungültig markieren (v6 B8): Duplikat oder Fehleintrag, Grund Pflicht – zählt danach nicht mehr in Quoten. */
+function InvalidDialog({ id, title, onClose }: { id: string; title?: string; onClose: () => void }) {
+  const toast = useToast();
+  const [reason, setReason] = useState('');
+  const save = useAction(
+    () => api(`/defects/${id}`, { method: 'PATCH', body: { status: 'invalid', reason } }),
+    () => {
+      toast('Als ungültig markiert');
+      onClose();
+    },
+  );
+  return (
+    <Modal
+      title="Mangel ungültig"
+      size="sm"
+      description={title}
+      onClose={onClose}
+      footer={
+        <>
+          <Button variant="secondary" onClick={onClose}>
+            Abbrechen
+          </Button>
+          <Button form="invalid-form" icon={<Ban />} loading={save.isPending} disabled={reason.trim().length < 3}>
+            Ungültig
+          </Button>
+        </>
+      }
+    >
+      <form
+        id="invalid-form"
+        className="flex flex-col gap-4"
+        onSubmit={(e) => {
+          e.preventDefault();
+          save.mutate(undefined);
+        }}
+      >
+        <p className="text-body text-ink-2">Für Duplikate und Fehleinträge. Der Mangel zählt nicht mehr in Behebungsquote und -dauer, offene Aufgaben dazu entfallen. Wieder öffnen geht jederzeit.</p>
+        {save.error && <ErrorBox error={save.error} />}
+        <div className="flex flex-wrap gap-1.5">
+          {INVALID_REASONS.map((r) => (
+            <Chip key={r} active={reason === r} onClick={() => setReason(r)}>
+              {r}
+            </Chip>
+          ))}
+        </div>
+        <Field label="Grund">{(fid) => <Input id={fid} required autoFocus maxLength={300} value={reason} onChange={(e) => setReason(e.target.value)} placeholder="z. B. Duplikat von FST-004 „Schließer“" />}</Field>
+      </form>
+    </Modal>
+  );
+}
 
 function HideDialog({ id, title, onClose }: { id: string; title?: string; onClose: () => void }) {
   const toast = useToast();

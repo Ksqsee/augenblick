@@ -236,9 +236,11 @@ export async function defectsPdf(defects: Defect[], brand: Brand): Promise<Uint8
   useBrand(brand);
   const doc = await Doc.create(brand, T('Mängelbericht'));
   const resolvedCount = defects.filter((x) => x.status === 'resolved').length;
+  // „ungültig“ (Duplikat/Fehleintrag) zählt weder als offen noch als behoben
+  const openCount = defects.filter((x) => x.status === 'open').length;
   doc.title(
     T('Mängelbericht'),
-    `${defects.length - resolvedCount} ${T('offene Mängel')}${resolvedCount ? ` · ${resolvedCount} ${T('behoben')}` : ''} · ${T('Stand')} ${dt(Date.now())}`,
+    `${openCount} ${T('offene Mängel')}${resolvedCount ? ` · ${resolvedCount} ${T('behoben')}` : ''} · ${T('Stand')} ${dt(Date.now())}`,
   );
   for (const [n, df] of defects.entries()) {
     doc.ensure(40);

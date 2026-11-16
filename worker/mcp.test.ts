@@ -22,7 +22,7 @@ describe('MCP-Server', () => {
 
   it('lesende Werkzeuge sind markiert, schreibende nicht', () => {
     const ro = TOOLS.filter((t) => t.readOnly).map((t) => t.name);
-    expect(ro).toEqual(['briefing', 'search', 'list', 'get', 'get_photo', 'tour', 'report']);
+    expect(ro).toEqual(['briefing', 'search', 'list', 'team', 'get', 'get_photo', 'tour', 'report']);
   });
 
   it('Prompts erzeugen Text mit ihren Argumenten', () => {

@@ -202,22 +202,36 @@ Folgeaufruf sie braucht; Fehler als `isError` mit Hinweis, was stattdessen geht)
 
 | Werkzeug | Zweck |
 |---|---|
-| `briefing` | Lage in einem Aufruf: Kennzahlen, „Jetzt“-Liste (max. 12), wartende Unterschriften, Autopilot-Protokoll seit `since` |
+| `briefing` | Lage in einem Aufruf: ganz oben `attention` (kritische/hohe Befunde in bereitgelegten Prüfungen – noch kein Mangel), Kennzahlen (`criticalDefects: {open, waitingForSignature}`, fällige Begehungen wie `list walkthroughs`), „Jetzt“-Liste (max. 12), wartende Unterschriften, Autopilot-Protokoll seit `since` (je Eintrag `id`, `undoable`) |
 | `search` | Suche über Elemente, Objekte, Gebäude, Mängel, Aufgaben; `type: "properties"`/`"categories"` als Übersicht |
-| `list` | Listen mit Filtern: `what: assets\|defects\|tasks\|inspections\|walkthroughs` |
 | `get` | Ein Ding vollständig (`kind` + `ref`: Code, Name oder ID) mit Verlauf und Foto-/Grundriss-Verweisen (`foto:…`, `plan:…`). `asset` (auch „Tür 36“ mit `property`): Stammdaten mit `missingData`, Prüfpunkte als Gruppen-Kurzfassung (`detail: true` = Volltext), was nach den Stammdaten entfällt, letzte Prüfungen, offene Mängel, Fotos. `property`: mit Ansprechperson und `access` (Zugang) |
-| `get_photo` | Foto oder Grundriss als MCP-Bildinhalt (JPEG/PNG/WebP bis 4 MB; SVG-Grundrisse als Text) |
-| `capture` | Mehrere Mängel, Aufgaben, Notizen, Elemente auf einmal; ähnliche offene Mängel → `skipped`, mit `force` trotzdem. Element per Code oder – mit `property` – „Tür 36“; ohne Angabe Schwere/Maßnahme aus dem Katalog |
 | `update_asset` | Stammdaten nachtragen (Hersteller, Modell, Baujahr, Seriennummer, Zulassung, Standort, Etage, Etikett, weitere Felder). Werte werden geprüft: Auswahllisten nur mit erlaubten Werten (eindeutige Kurzformen wie „zwei“ → „2-flügelig“), Zahlen, Baujahr 1950 bis nächstes Jahr, Ja/Nein, Datum – bei einem Fehler wird nichts gespeichert |
-| `update_tasks` | Status, Zuständige, Frist, Priorität, Kommentar – für eine oder mehrere Aufgaben |
-| `update_defect` | Mangel beheben (mit Notiz) oder wieder öffnen |
-| `plan` | Rundgänge ansehen, Wochenplanung auslösen, Aufgaben aus Mängeln |
 | `tour` | Rundgang führen in Laufreihenfolge (Etagen von unten nach oben, innerhalb der Etage Anlage-Reihenfolge): `start` (Gebäude) → Zugang/Ansprechperson des Objekts und nächstes fälliges Element mit Standort, Prüfpunkten als Gruppen-Kurzfassung (`detail: true` = Volltext), `notApplicable`, Rückfragen bei fehlenden Stammdaten (`askFirst`) und bekannten Mängeln; `next`; `status` |
 | `inspect` | Prüfung aus dem Gesagten ausfüllen und **zur Unterschrift bereitlegen** – nie abschließen. `allOk` setzt Offenes auf i. O., nicht Zutreffendes (keine Feststellanlage, einflügelig) auf „entfällt“, bei fehlendem Stammdatum bleibt der Punkt offen und `ask` fragt nach (Antwort mit `fields`, z. B. `{holdOpen: false}`, setzt das Stammdatum gleich mit). Mängel ohne `checkpoint` nur bei eindeutigem Treffer einem Prüfpunkt zugeordnet, sonst Rückfrage. Bekannte Mängel per defectId oder Titel `still`/`fixed`; gleichlautende neue Befunde werden mit dem offenen Mangel zusammengeführt (`merged`). Arbeiten auch mit anderen Worten („Batterie gewechselt“). `notInspectable` nur mit `reason`; spätere Befunde/`allOk` heben es auf (`stateChange`). Widersprüche (i. O. + Mangel am selben Punkt, „Melder gereinigt“ + „Melder verschmutzt“) → `ask`, Prüfung bleibt Entwurf. Antwort mit `status` (`draft`/`ready`), Mängel mit `severity` und `severityLabel` |
 | `setup` | Objekt (mit `access` = Zugang), Gebäude, Elemente (Etage, Standort, Art, Hersteller, Typ, Stammdaten `fields`, feste `number`, Katalog-`product`, Marker auf dem Grundriss) in einem Rutsch; die Reihenfolge der Elemente ist die Laufreihenfolge. Zuerst `preview: true` (zeigt neue Objekte/Gebäude als „wird neu angelegt“, `possibleDuplicates` bei gleicher Art, Etage und Standort, vergebene Nummern unter `problems`). Neue Objekte/Gebäude nur mit Schreib-Schlüssel einer Admin-/Inhaber-Person, sonst weist die Vorschau darauf hin |
+| `list` | Listen mit Filtern: `what: assets\|defects\|tasks\|inspections\|walkthroughs`; Mängel auch `status: invalid`; Aufgaben finden ihr Objekt auch über das Element; `walkthroughs` mit `due` (fällige Begehungen) |
+| `team` | Mitglieder mit Rolle und E-Mail, Partner (Firma, Gewerk), wer „ich“ ist – Grundlage für Zuweisungen per Name, E-Mail oder „ich“ |
+| `get_photo` | Foto oder Grundriss als MCP-Bildinhalt (JPEG/PNG/WebP bis 4 MB; SVG-Grundrisse als Text) |
+| `capture` | Mehrere Mängel, Aufgaben, Notizen, Elemente auf einmal; ähnliche offene Mängel → `skipped`, mit `force` trotzdem. Element per Code oder – mit `property` – „Tür 36“; ohne Angabe Schwere/Maßnahme aus dem Katalog |
+| `update_tasks` | Status, Zuständige (`assignee`: Name, E-Mail, „ich“ oder Partner-Firma über alle Mitglieder und Partner), Frist, Priorität, Kommentar. „done“ an einer Mängelbehebung wie in der App: mit Schritt „Nachprüfen“ bleibt der Mangel offen und ein Nachprüf-Auftrag entsteht, sonst behoben mit dem Kommentar als Behebungsnotiz (`resolveDefect` übersteuert) |
+| `update_defect` | Mangel beheben (mit Notiz), wieder öffnen (zählt dann „ohne Aufgabe“; Autopilot „Zuweisen“ automatisch legt sofort eine an) oder als ungültig markieren (`action: invalid` + `reason`: Duplikat/Fehleintrag, zählt nicht in Quote und Dauer, offene Aufgaben entfallen) |
+| `plan` | Rundgänge ansehen, Wochenplanung auslösen (nie geprüfte Elemente gelten als sofort fällig), Aufgaben aus Mängeln ohne wirksame Aufgabe |
 | `catalog` | Fachwissen: `search` (Produkte, Mängel, Begriffe), `suggest` (Befund → typischer Mangel mit Schwere/Maßnahme, ausgeschriebene Begriffe; Hersteller/Typ → Produkte), `upsert` im Stapel mit Vorschau (`preview: true` zuerst; Art als Bezeichnung möglich); ändern nur mit Schreib-Schlüssel einer Admin-/Inhaber-Person |
 | `autopilot` | Schritte und Protokoll ansehen, Schritt einmal ausführen, Eintrag rückgängig machen; Stufen ändern nur Admins in der App |
-| `report` | Kennzahlen für Zeitraum (`month`, `year`, `from`/`to`) und Objekt als Text |
+| `report` | Kennzahlen für Zeitraum (`month` bis zum Monatsletzten, `year`, `from`/`to`; Zeitzone des Workspaces) und Objekt als Text: Prüfquote ohne nie geprüfte (diese getrennt), Entwürfe und Unterschrifts-Rückstau, ungültige Mängel getrennt |
+
+**Datumsangaben** (`capture` → `due`, `update_tasks` → `due`, `briefing` → `since`, `list` → `from`/`to`, `report` → `from`/`to`;
+`shared/dates.ts`): ISO streng geprüft (`2026-02-30` → Fehler statt 02.03.), deutsch (`30.11.2026`, `30.11.`) oder relativ
+(`heute`, `morgen`, `übermorgen`, Wochentage, `nächste Woche` = in 7 Tagen, `in 3 Tagen`, `in 2 Wochen`, `Ende des Monats`,
+`nächsten Monat`). Zeiten ohne Zone gelten in der Zeitzone des Workspaces. Fristen in der Vergangenheit nur mit
+`allowPast: true`. Duplikate (`capture`, `POST /defects` → `409`): Abkürzungen werden ausgeschrieben, Katalog-Synonyme
+zählen, Befunde in Entwürfen und bereitgelegten Prüfungen desselben Elements werden mitgeprüft (`duplicate.inDraft`).
+
+**Neue Endpunkte (v6):** `GET /api/team` (Mitglieder mit Rolle, Partner, `me`), `GET /api/workspace` (Name, Zeitzone,
+eigene Person), `GET /api/inspections/pending-findings` (hohe/kritische Befunde in bereitgelegten Prüfungen),
+`PATCH /api/defects/:id` mit `status: "invalid"` und `reason`, `GET /api/defects?status=invalid`,
+`POST /api/tasks/bulk` mit `subcontractorId`. Mängel liefern zusätzlich `withoutTask`, `invalidReason`, `reopenedAt`;
+Aufgaben `propertyId` auch über das Element.
 
 Element-Verweise wie „Tür 36“ müssen zur Art passen: Ist Nr. 4 ein Feuerlöscher, liefert „Tür 4“ in allen Werkzeugen den
 Fehler „Nummer 4 ist ein Feuerlöscher (FL-004)“ (ohne Artwort, „Nummer 4“, wie bisher). Schwere steht überall als

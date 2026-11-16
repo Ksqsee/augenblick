@@ -105,9 +105,16 @@ API: [`docs/api.md`](docs/api.md)
   und trägt Stammdaten mit `update_asset` nach
 - **Sammelanlage per Diktat** unter „Erfassen“ (siehe oben): „fünf Feuerlöscher im Erdgeschoss Flur“ → Anzahl, Art, Etage,
   Standort, Hersteller; mit „Anpassen“ einzeln prüfen (Zahlwörter eins–zwanzig, Ziffern, „3x“; höchstens 50 je Zeile)
-- **MCP-Server** im Worker (`/api/mcp`) mit **OAuth-Anmeldung** (Freigabe mit API-Schlüssel oder neuer Verbindung): 15 Werkzeuge
-  nach Absicht (`briefing`, `tour`, `inspect`, `capture`, `get_photo` …) und sieben fertige Befehle – Claude ist die Oberfläche
+- **MCP-Server** im Worker (`/api/mcp`) mit **OAuth-Anmeldung** (Freigabe mit API-Schlüssel oder neuer Verbindung): 17 Werkzeuge
+  nach Absicht (`briefing`, `tour`, `inspect`, `capture`, `get_photo`, `team` …) und sieben fertige Befehle – Claude ist die Oberfläche
   für Sprache: Rundgang führen, Befund eintragen, Typenschilder lesen, Plan einrichten – siehe `docs/api.md`
+  - **Kreislauf (Plan v6, Paket U)**: Datumsangaben streng und relativ in der Zeitzone des Workspaces (`shared/dates.ts`,
+    auch im Regel-Parser); Zuständige per Name, E-Mail, „ich“ oder Partner (`team`); Duplikat-Abgleich mit ausgeschriebenen
+    Abkürzungen, Katalog-Synonymen und Befunden in Entwürfen (`shared/duplicates.ts`); „erledigt“ über MCP läuft wie in der
+    App durch den Nachprüfen-Schritt; wieder geöffnete Mängel zählen als „ohne Aufgabe“ (eine Regel für Jetzt, Autopilot,
+    Bericht); kritische/hohe Befunde in bereitgelegten Prüfungen stehen ganz oben unter „Jetzt“ und im `briefing` und melden
+    sich beim Bereitlegen sofort; Mangel-Status **„ungültig“** (Duplikat/Fehleintrag, mit Grund, Mangel-Detail und
+    `update_defect`, Migration 0025); Katalog-Grundausstattung um Feuerlöscher, Rauchwarnmelder und Brandschutzklappen ergänzt
 - **Bereit zur Unterschrift**: von Claude ausgefüllte Prüfungen warten als Entwurf; die prüfende Person unterschreibt alle
   mit einer Unterschrift (`POST /api/inspections/sign`, nur mit Browser-Sitzung) – Claude schließt nie selbst ab.
   Seite **Unterschreiben** (`/unterschreiben`, Hinweis auf „Prüfungen“): Liste mit Ergebnis und Mängeln (aufklappbar,

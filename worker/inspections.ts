@@ -10,6 +10,7 @@ import { assetQuery, mapAsset, severityEnum, str, tid } from './data';
 import { type AppEnv, assertInScope, type Ctx, id, logActivity, notFound, now, parseJson, requireRole, scopeSql } from './lib';
 import { adaptMode, intervalHistory, logIntervalChange, writeSchedules } from './intervals';
 import { notify } from './notify';
+import { notifyCriticalReady } from './pending';
 import { afterTasksDone, afterVerification, autoDefectTasks, closeFinishedRounds } from './automation';
 
 export const inspections = new Hono<AppEnv>();
@@ -497,8 +498,9 @@ async function finalize(
     extra.push(
       c.env.DB.prepare(
         `UPDATE defects AS n SET status = o.status, resolved_at = o.resolved_at, resolved_by = o.resolved_by, resolution_note = o.resolution_note,
-                resolution_photo_key = o.resolution_photo_key, hidden_at = o.hidden_at, hidden_by = o.hidden_by, hidden_reason = o.hidden_reason
-           FROM defects o WHERE n.inspection_id = ?1 AND o.inspection_id = ?2 AND (o.status = 'resolved' OR o.hidden_at IS NOT NULL) AND ${same}`,
+                resolution_photo_key = o.resolution_photo_key, hidden_at = o.hidden_at, hidden_by = o.hidden_by, hidden_reason = o.hidden_reason,
+                invalid_at = o.invalid_at, invalid_by = o.invalid_by, invalid_reason = o.invalid_reason, reopened_at = o.reopened_at
+           FROM defects o WHERE n.inspection_id = ?1 AND o.inspection_id = ?2 AND (o.status IN ('resolved','invalid') OR o.hidden_at IS NOT NULL OR o.reopened_at IS NOT NULL) AND ${same}`,
       ).bind(opts.iid, opts.supersedesId),
       c.env.DB.prepare(
         `UPDATE tasks SET defect_id = (SELECT n.id FROM defects n JOIN defects o ON o.id = tasks.defect_id WHERE n.inspection_id = ?1 AND ${same} LIMIT 1)
@@ -634,7 +636,11 @@ inspections.put('/inspections/:id', async (c) => {
   // „Bereit zur Unterschrift“: mit ready=true setzen, sobald vollständig; unvollständig gespeichert → zurücknehmen
   const missing = draftMissing(insp.checkpoints, b, insp.kinds);
   if (missing.length) await c.env.DB.prepare('UPDATE inspections SET ready_at = NULL WHERE id = ?').bind(insp.id).run();
-  else if (ready === true) await c.env.DB.prepare('UPDATE inspections SET ready_at = COALESCE(ready_at, ?) WHERE id = ?').bind(now(), insp.id).run();
+  else if (ready === true) {
+    await c.env.DB.prepare('UPDATE inspections SET ready_at = COALESCE(ready_at, ?) WHERE id = ?').bind(now(), insp.id).run();
+    // Plan v6 A2: kritischer Befund wartet auf Unterschrift → sofort Bescheid geben (worker/pending.ts)
+    if (insp.readyAt == null) await notifyCriticalReady(c, insp.id);
+  }
   else if (ready === false) await c.env.DB.prepare('UPDATE inspections SET ready_at = NULL WHERE id = ?').bind(insp.id).run();
   const isReady = !missing.length && (ready === true || (ready === undefined && insp.readyAt != null));
   return c.json({ ok: true, ready: isReady, missing });

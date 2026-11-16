@@ -533,7 +533,8 @@ const MONTHS = ['Januar', 'Februar', 'März', 'April', 'Mai', 'Juni', 'Juli', 'A
   step('Rundgang schließt sich, wenn im Gebäude nichts mehr fällig ist');
   await api('/automation/plan_week/run', { data: {} });
   const allAssets = (await api('/assets')).json;
-  const dueIn = (t) => allAssets.filter((a) => a.buildingId === t.buildingId && a.nextDueAt != null && a.nextDueAt < t.createdAt + 14 * DAY);
+  // v6 B4: nie geprüfte Elemente gelten als sofort fällig
+  const dueIn = (t) => allAssets.filter((a) => a.buildingId === t.buildingId && ((a.nextDueAt == null && !a.lastInspectedAt) || (a.nextDueAt != null && a.nextDueAt < t.createdAt + 14 * DAY)));
   const openRounds = (await tasks()).filter((t) => t.buildingId && /^Rundgang /.test(t.title) && t.status === 'open' && dueIn(t).length > 0);
   const round = openRounds.sort((x, y) => dueIn(x).length - dueIn(y).length)[0];
   check(!!round, `offener Rundgang vorhanden (${openRounds.length})`);
@@ -543,7 +544,7 @@ const MONTHS = ['Januar', 'Februar', 'März', 'April', 'Mai', 'Juni', 'Juli', 'A
       // so oft prüfen, bis das Element nicht mehr im Planungsfenster fällig ist (mehrere Prüfpläne möglich)
       for (let k = 0; k < 4; k++) {
         const a = (await api(`/assets/${assetId}`)).json;
-        if (a.nextDueAt == null || a.nextDueAt >= round.createdAt + 14 * DAY) return;
+        if (a.nextDueAt == null ? !!a.lastInspectedAt : a.nextDueAt >= round.createdAt + 14 * DAY) return;
         const iid = (await api(`/assets/${assetId}/inspections`, { data: {} })).json.id;
         const draft = (await api(`/inspections/${iid}`)).json;
         const res = await api(`/inspections/${iid}/submit`, {

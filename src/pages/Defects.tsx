@@ -7,14 +7,14 @@ import { Empty, ErrorBox, Kbd, SearchField, Segmented, SkeletonList, Surface, us
 import { DefectRow } from '../components/work/DefectRow';
 import { listKeys, TextAction, WorkGroup } from '../components/work/rows';
 
-type Tab = 'open' | 'resolved' | 'hidden';
+type Tab = 'open' | 'resolved' | 'invalid' | 'hidden';
 type Source = '' | 'asset' | 'walkthrough';
 
 const SEV_ORDER: Severity[] = ['critical', 'high', 'medium', 'low'];
 
 /** Dringlichkeit innerhalb einer Schwere: Mängel ohne Aufgabe (oder mit erledigter) zuerst, dann die ältesten. */
 export const byUrgency = (a: Defect, b: Defect) => {
-  const free = (d: Defect) => (!d.taskId || d.taskStatus === 'done' || d.taskStatus === 'cancelled' ? 0 : 1);
+  const free = (d: Defect) => (d.withoutTask != null ? (d.withoutTask ? 0 : 1) : !d.taskId || d.taskStatus === 'done' || d.taskStatus === 'cancelled' ? 0 : 1);
   return free(a) - free(b) || a.createdAt - b.createdAt;
 };
 
@@ -24,7 +24,7 @@ export const byUrgency = (a: Defect, b: Defect) => {
  */
 export function DefectsView({ canEdit, onOpen, onResolve }: { canEdit: boolean; onOpen: (id: string) => void; onResolve: (id: string) => void }) {
   // Alter Link ?tab=action (früherer Reiter „Handlungsbedarf“) landet bei „Offen“, nach Dringlichkeit sortiert
-  const [tab, setTab] = useUrlTab<Tab>('tab', 'open', ['open', 'resolved', 'hidden']);
+  const [tab, setTab] = useUrlTab<Tab>('tab', 'open', ['open', 'resolved', 'invalid', 'hidden']);
   const [source, setSource] = useState<Source>('');
   const [q, setQ] = useState('');
   // Zähler für den Umschalter (dieselbe Abfrage wie die Liste, also kein Mehraufwand)
@@ -40,6 +40,7 @@ export function DefectsView({ canEdit, onOpen, onResolve }: { canEdit: boolean; 
             options={[
               { value: 'open', label: 'Offen', count: openAll.data?.length },
               { value: 'resolved', label: 'Behoben' },
+              { value: 'invalid', label: 'Ungültig' },
               { value: 'hidden', label: 'Ausgeblendet' },
             ]}
           />
@@ -97,6 +98,8 @@ function DefectList({
           <Empty title="Keine offenen Mängel." text="Neue Mängel kommen aus Prüfungen, Begehungen oder über Erfassen." />
         ) : tab === 'hidden' ? (
           <Empty title="Nichts ausgeblendet." text="Doppelt oder irrtümlich erfasste Mängel kannst du im Detail ausblenden." />
+        ) : tab === 'invalid' ? (
+          <Empty title="Nichts als ungültig markiert." text="Duplikate und Fehleinträge markierst du im Detail als ungültig – mit Grund." />
         ) : (
           <Empty title="Noch nichts behoben." text="Behobene Mängel erscheinen hier – mit Notiz und Foto." />
         )}
@@ -112,7 +115,7 @@ function DefectList({
       : [
           {
             key: tab,
-            label: tab === 'hidden' ? 'Ausgeblendet' : 'Behoben',
+            label: tab === 'hidden' ? 'Ausgeblendet' : tab === 'invalid' ? 'Ungültig' : 'Behoben',
             items: tab === 'resolved' ? [...rows].sort((a, b) => (b.resolvedAt ?? 0) - (a.resolvedAt ?? 0)) : rows,
           },
         ];

@@ -618,6 +618,9 @@ export const CATALOG_SEED_DEFECTS: Omit<CatalogDefect, "id">[] = [
       "fällt nicht ins Schloss",
       "Schließer zu schwach",
       "Obentürschließer schließt nicht",
+      "Obentürschließer zieht nicht zu",
+      "Tür zieht nicht zu",
+      "zieht nicht ganz zu",
     ],
   ),
   seedDefect(

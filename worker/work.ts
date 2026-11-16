@@ -172,6 +172,7 @@ type TaskBody = z.infer<typeof taskBody>;
 
 const STATUS_TEXT: Record<string, string> = { open: 'Offen', in_progress: 'In Arbeit', done: 'Erledigt', cancelled: 'Abgebrochen' };
 
+// Objekt einer Aufgabe: eigenes, sonst vom Mangel, vom Element bzw. vom Gebäude (v6 B5: auch rückwirkend, per Join)
 work.get('/tasks', async (c) => {
   const sla = await slaPolicies(c);
   const rows = (
@@ -184,13 +185,14 @@ work.get('/tasks', async (c) => {
               t.asset_id AS assetId, a.code AS assetCode, a.next_due_at AS assetNextDueAt, t.defect_id AS defectId,
               t.recurrence, t.recurs_from AS recursFrom, t.building_id AS buildingId, bl.name AS buildingName,
               d.title AS defectTitle, d.severity AS defectSeverity, d.status AS defectStatus,
-              COALESCE(t.property_id, d.property_id) AS propertyId, p.name AS propertyName,
+              COALESCE(t.property_id, d.property_id, ab.property_id, bl.property_id) AS propertyId, p.name AS propertyName, ab.name AS assetBuildingName,
               (SELECT COUNT(*) FROM task_comments tc WHERE tc.task_id = t.id) AS comments,
               (SELECT COUNT(*) FROM task_watchers w WHERE w.task_id = t.id) AS watchers,
               EXISTS (SELECT 1 FROM task_watchers w WHERE w.task_id = t.id AND w.user_id = ?2) AS watching
          FROM tasks t LEFT JOIN users u ON u.id = t.assignee_id LEFT JOIN users cu ON cu.id = t.created_by LEFT JOIN assets a ON a.id = t.asset_id
          LEFT JOIN subcontractors s ON s.id = t.subcontractor_id LEFT JOIN defects d ON d.id = t.defect_id
-         LEFT JOIN properties p ON p.id = COALESCE(t.property_id, d.property_id) LEFT JOIN buildings bl ON bl.id = t.building_id
+         LEFT JOIN buildings bl ON bl.id = t.building_id LEFT JOIN buildings ab ON ab.id = a.building_id
+         LEFT JOIN properties p ON p.id = COALESCE(t.property_id, d.property_id, ab.property_id, bl.property_id)
         WHERE t.tenant_id = ?1 AND ${taskScope(c, 't')} ORDER BY CASE t.status WHEN 'in_progress' THEN 0 WHEN 'open' THEN 1 ELSE 2 END, COALESCE(t.due_at, 9e15), t.created_at DESC`,
     )
       .bind(tid(c), c.get('user').userId)
@@ -388,14 +390,21 @@ work.post('/tasks/bulk', async (c) => {
       ids: z.array(z.string().max(40)).min(1, 'Keine Aufgaben ausgewählt').max(200),
       status: statusEnum.optional(),
       assigneeId: z.string().max(40).nullable().optional(),
+      /** Partner (Subunternehmer); null = keiner. Ein neuer Partner macht den alten Freigabe-Link ungültig. */
+      subcontractorId: z.string().max(40).nullable().optional(),
       priority: priorityEnum.optional(),
       dueAt: z.number().int().nullable().optional(),
       resolveDefects: z.boolean().default(true),
     })
-    .refine((x) => x.status !== undefined || x.assigneeId !== undefined || x.priority !== undefined || x.dueAt !== undefined, 'Nichts zu ändern')
+    .refine(
+      (x) => x.status !== undefined || x.assigneeId !== undefined || x.subcontractorId !== undefined || x.priority !== undefined || x.dueAt !== undefined,
+      'Nichts zu ändern',
+    )
     .parse(await c.req.json());
   if (b.assigneeId && !(await c.env.DB.prepare('SELECT 1 FROM memberships WHERE tenant_id = ? AND user_id = ?').bind(tid(c), b.assigneeId).first()))
     throw new HTTPException(400, { message: 'Zuständige Person ist kein Mitglied' });
+  if (b.subcontractorId && !(await c.env.DB.prepare('SELECT 1 FROM subcontractors WHERE tenant_id = ? AND id = ? AND deleted_at IS NULL').bind(tid(c), b.subcontractorId).first()))
+    throw new HTTPException(400, { message: 'Subunternehmer nicht gefunden' });
   const rows = (
     await c.env.DB.prepare(`SELECT id, title, status, assignee_id FROM tasks WHERE tenant_id = ? AND id IN (SELECT value FROM json_each(?)) AND ${taskScope(c, 'tasks')}`)
       .bind(tid(c), JSON.stringify([...new Set(b.ids)]))
@@ -418,6 +427,10 @@ work.post('/tasks/bulk', async (c) => {
     );
   }
   if (b.assigneeId !== undefined) sets.push(`assignee_id = ${arg(b.assigneeId)}`);
+  if (b.subcontractorId !== undefined) {
+    const sub = arg(b.subcontractorId);
+    sets.push(`share_token = CASE WHEN subcontractor_id IS ${sub} THEN share_token ELSE NULL END`, `subcontractor_id = ${sub}`);
+  }
   if (b.priority !== undefined) sets.push(`priority = ${arg(b.priority)}`);
   if (b.dueAt !== undefined) sets.push(`due_at = ${arg(b.dueAt)}`);
   await c.env.DB.prepare(`UPDATE tasks SET ${sets.join(', ')} WHERE tenant_id = ?2 AND id IN (SELECT value FROM json_each(?3))`).bind(...args).run();

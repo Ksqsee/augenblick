@@ -70,7 +70,7 @@ reports.get('/reports/annual', async (c) => {
     c.env.DB.prepare(
       `SELECT d.property_id AS propertyId, d.severity, d.status, d.walkthrough_id IS NOT NULL AS fromWalk, d.created_at AS createdAt, d.resolved_at AS resolvedAt
          FROM defects d JOIN properties p ON p.id = d.property_id
-        WHERE d.tenant_id = ?1 AND d.created_at >= ?2 AND d.created_at < ?3 AND ${sp} AND ${defectScope(c, 'd')} ${pf}`,
+        WHERE d.tenant_id = ?1 AND d.created_at >= ?2 AND d.created_at < ?3 AND d.status != 'invalid' AND ${sp} AND ${defectScope(c, 'd')} ${pf}`,
     ).bind(...binds),
     c.env.DB.prepare(
       `SELECT w.property_id AS propertyId, w.inspected_at AS inspectedAt, w.purpose, w.result, u.name AS inspector,

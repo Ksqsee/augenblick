@@ -5,8 +5,9 @@ import { Hono } from 'hono';
 import { HTTPException } from 'hono/http-exception';
 import { z } from 'zod';
 import { CATALOG_LIMITS, CATALOG_SEED_DEFECTS, CATALOG_SEED_TERMS, type CatalogDefect, type CatalogProduct, type CatalogTerm } from '../shared/catalog';
+import { CATALOG_EXTRA_DEFECTS } from '../shared/catalog-extra';
 import { type CatalogKind, entryKey, foldText, planCatalogMerge } from '../shared/vocab';
-import { getCategoryDef } from './categories';
+import { getCategoryDef, listCategories } from './categories';
 import { type AppEnv, type Ctx, id, logActivity, notFound, now, parseJson, requireRole, requireStructure } from './lib';
 
 const tid = (c: Ctx) => c.get('user').tenantId;
@@ -112,6 +113,8 @@ export function seedCatalogStatements(db: D1Database, tenantId: string, t = Date
   const guard = 'EXISTS (SELECT 1 FROM tenants WHERE id = ?1 AND catalog_seeded_at = ?2)';
   return [
     db.prepare('UPDATE tenants SET catalog_seeded_at = ?2 WHERE id = ?1 AND catalog_seeded_at IS NULL').bind(tenantId, t),
+    // Neue Workspaces bekommen den Nachtrag (v6 F6) gleich mit
+    ...seedExtraStatements(db, tenantId, t),
     db
       .prepare(`INSERT OR IGNORE INTO catalog_terms (id, tenant_id, term, meaning, match_key, created_at, updated_at) SELECT ${j('id')}, ?1, ${j('term')}, ${j('meaning')}, ${j('key')}, ?2, ?2 FROM json_each(?3) WHERE ${guard}`)
       .bind(tenantId, t, JSON.stringify(terms)),
@@ -124,10 +127,53 @@ export function seedCatalogStatements(db: D1Database, tenantId: string, t = Date
   ];
 }
 
-/** Bestehende Workspaces bekommen die Grundausstattung beim ersten Lesen (idempotent). */
+/**
+ * Nachtrag der Grundausstattung (v6 F6: typische Mängel für Feuerlöscher, Rauchwarnmelder, Brandschutzklappen) – genau
+ * einmal je Workspace, Markierung tenants.catalog_extra_at wie bei der Grundausstattung. Gelöschte kommen nie zurück.
+ */
+export function seedExtraStatements(db: D1Database, tenantId: string, t = Date.now()) {
+  const defects = CATALOG_EXTRA_DEFECTS.map((x) => ({ ...x, synonyms: JSON.stringify(x.synonyms), id: id(), key: entryKey('defects', x) }));
+  const j = (k: string) => `json_extract(value, '$.${k}')`;
+  return [
+    db.prepare('UPDATE tenants SET catalog_extra_at = ?2 WHERE id = ?1 AND catalog_extra_at IS NULL').bind(tenantId, t),
+    db
+      .prepare(
+        `INSERT OR IGNORE INTO catalog_defects (id, tenant_id, title, synonyms, severity, measure, category, match_key, created_at, updated_at)
+         SELECT ${j('id')}, ?1, ${j('title')}, ${j('synonyms')}, ${j('severity')}, ${j('measure')}, ${j('category')}, ${j('key')}, ?2, ?2 FROM json_each(?3)
+          WHERE EXISTS (SELECT 1 FROM tenants WHERE id = ?1 AND catalog_extra_at = ?2)`,
+      )
+      .bind(tenantId, t, JSON.stringify(defects)),
+  ];
+}
+
+/** Bestehende Workspaces bekommen die Grundausstattung (und den Nachtrag) beim ersten Lesen (idempotent). */
 export async function ensureCatalog(c: Ctx) {
-  const seeded = await c.env.DB.prepare('SELECT catalog_seeded_at AS s FROM tenants WHERE id = ?').bind(tid(c)).first<{ s: number | null }>();
+  const seeded = await c.env.DB.prepare('SELECT catalog_seeded_at AS s, catalog_extra_at AS x FROM tenants WHERE id = ?').bind(tid(c)).first<{ s: number | null; x: number | null }>();
   if (seeded && seeded.s == null) await c.env.DB.batch(seedCatalogStatements(c.env.DB, tid(c), now()));
+  else if (seeded && seeded.x == null) await c.env.DB.batch(seedExtraStatements(c.env.DB, tid(c), now()));
+}
+
+/** Feldnamen für Fehlermeldungen (v6 D3: fehlende Felder beim Namen nennen). */
+const FIELD_LABEL: Record<string, string> = {
+  manufacturer: 'Hersteller',
+  model: 'Typ',
+  title: 'Bezeichnung',
+  term: 'Begriff',
+  meaning: 'Bedeutung',
+  severity: 'Schwere',
+  category: 'Art',
+  defaults: 'Vorgabewerte',
+  synonyms: 'Synonyme',
+};
+/** Zod-Fehler eines Eintrags als ein deutscher Satz: alle fehlenden Felder beim Namen, sonst die erste Meldung. */
+function itemError(e: z.ZodError) {
+  const missing = e.issues
+    .filter((i) => (i.code === 'invalid_type' && i.received === 'undefined') || (i.code === 'too_small' && i.type === 'string'))
+    .map((i) => String(i.path[0] ?? ''))
+    .filter((k, n, all) => k && all.indexOf(k) === n);
+  if (missing.length) return `Fehlt: ${missing.map((k) => `${k} (${FIELD_LABEL[k] ?? k})`).join(', ')}`;
+  const i = e.issues[0];
+  return i ? `${i.path.length ? `${String(i.path[0])}: ` : ''}${i.message}` : 'Ungültig';
 }
 
 /** Katalog des Workspaces (für MCP, Vorschläge). */
@@ -173,18 +219,41 @@ catalog.post('/catalog/batch', async (c) => {
   const kind = raw.kind;
   const errors: { index: number; error: string }[] = [];
   const valid: Record<string, unknown>[] = [];
-  const cats = new Map<string, boolean>();
+  const cats = new Map<string, string[] | null>();
+  // Felder aller Arten (für Produkte ohne Art): bekannte Stammdaten-Schlüssel
+  let anyFields: string[] | null = null;
+  const fieldsOf = async (cat: string) => {
+    if (!cats.has(cat)) cats.set(cat, await getCategoryDef(c, cat).then((d) => d.attributes.map((a) => a.key), () => null));
+    return cats.get(cat)!;
+  };
   for (const [i, item] of raw.items.entries()) {
+    // unbekannte Schlüssel auf oberster Ebene (Tippfehler wie „manufactorer“) nicht still verwerfen
+    const extra = Object.keys(item).filter((k) => !(k in fields[kind].shape));
+    if (extra.length) {
+      errors.push({ index: i, error: `Unbekannte Felder: ${extra.join(', ')}. Möglich: ${Object.keys(fields[kind].shape).join(', ')}` });
+      continue;
+    }
     const p = fields[kind].safeParse(item);
     if (!p.success) {
-      errors.push({ index: i, error: p.error.issues[0]?.message ?? 'Ungültig' });
+      errors.push({ index: i, error: itemError(p.error) });
       continue;
     }
     const cat = (p.data as { category?: string }).category;
-    if (cat) {
-      if (!cats.has(cat)) cats.set(cat, await getCategoryDef(c, cat).then(() => true, () => false));
-      if (!cats.get(cat)) {
-        errors.push({ index: i, error: `Unbekannte Elementart „${cat}“` });
+    const known = cat ? await fieldsOf(cat) : null;
+    if (cat && !known) {
+      errors.push({ index: i, error: `Unbekannte Elementart „${cat}“` });
+      continue;
+    }
+    // v6 D3: Vorgabewerte nur für Stammdaten, die es bei der Art (bzw. irgendeiner Art) gibt; Zulassung steht in `approval`
+    if (kind === 'products') {
+      const defaults = Object.keys((p.data as { defaults: Record<string, unknown> }).defaults);
+      const allowed = known ?? (anyFields ??= [...new Set((await listCategories(c)).flatMap((d) => d.attributes.map((a) => a.key)))]);
+      const unknown = defaults.filter((k) => !allowed.includes(k));
+      if (unknown.length) {
+        errors.push({
+          index: i,
+          error: `Unbekannte Stammdaten in defaults: ${unknown.join(', ')}. Möglich${cat ? ` für diese Art` : ''}: ${allowed.join(', ') || '–'}`,
+        });
         continue;
       }
     }

@@ -22,6 +22,8 @@ import { data } from './data';
 import { type AppEnv, csrfGuard, type Env, requireAuth } from './lib';
 import { plans } from './plans';
 import { reports } from './reports';
+import { team } from './team';
+import { pendingRoutes } from './pending';
 import { TooManyRequests } from './throttle';
 import { walks } from './walkthroughs';
 import { publicApi, work } from './work';
@@ -62,6 +64,7 @@ app.route('/', mcpRoutes((req, c) => Promise.resolve(app.fetch(req, c.env, c.exe
 // Alles Weitere nur mit gültiger Sitzung (einmalige Prüfung)
 const secured = new Hono<AppEnv>();
 secured.use('*', requireAuth);
+secured.route('/', pendingRoutes);
 secured.route('/', categories);
 secured.route('/', catalog);
 secured.route('/', offline);
@@ -79,6 +82,7 @@ secured.route('/', smart);
 secured.route('/', nowRoutes);
 secured.route('/', shares);
 secured.route('/', automation);
+secured.route('/', team);
 app.route('/', secured);
 
 app.notFound((c) => c.json({ error: 'Nicht gefunden' }, 404));

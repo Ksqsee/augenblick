@@ -1746,6 +1746,42 @@ function client() {
     await owner(`/assets/${outside.json.id}`, { method: "DELETE" });
   }
 
+  console.log("· #35 v6 Kreislauf: Team-Liste, Status „ungültig“, wartende Befunde");
+  {
+    const keyCall = async (k, path, { method, body } = {}) => {
+      const r = await fetch(BASE + "/api" + path, {
+        method: method ?? (body !== undefined ? "POST" : "GET"),
+        headers: { authorization: `Bearer ${k}`, ...(body !== undefined ? { "content-type": "application/json" } : {}) },
+        body: body !== undefined ? JSON.stringify(body) : undefined,
+      });
+      return { status: r.status, json: await r.json().catch(() => null) };
+    };
+    // Team: nur der eigene Workspace, keine Bereiche/Einladungen/Partner-Zugänge
+    const mt = await mallory("/team");
+    check(mt.status === 200 && !JSON.stringify(mt.json).includes("demo@example.com") && !JSON.stringify(mt.json).includes("Hansen"), "Team: fremder Workspace unsichtbar");
+    const rk = (await owner("/account/api-keys", { body: { name: "sec35-read", scope: "read", expiresInDays: 1 } })).json;
+    const tr = await keyCall(rk.key, "/team");
+    const flat = JSON.stringify(tr.json);
+    check(tr.status === 200 && tr.json.members.length > 0 && !/propertyIds|token|partner_code|invite/i.test(flat), `Team mit Leseschlüssel ohne Bereiche/Token (${tr.status})`);
+    check((await keyCall(rk.key, "/workspace")).json?.me?.role === "viewer", "Workspace: Rolle des Schlüssels (höchstens Lesezugriff)");
+    // Status „ungültig“: ab Prüfer, Grund Pflicht, Workspace und Bereich
+    const od = (await owner("/defects")).json[0];
+    check((await reader(`/defects/${od.id}`, { method: "PATCH", body: { status: "invalid", reason: "Test" } })).status === 403, "Lesezugriff markiert nicht ungültig");
+    check((await keyCall(rk.key, `/defects/${od.id}`, { method: "PATCH", body: { status: "invalid", reason: "Test" } })).status === 403, "Leseschlüssel markiert nicht ungültig");
+    check((await owner(`/defects/${od.id}`, { method: "PATCH", body: { status: "invalid" } })).status === 400, "ohne Grund → 400");
+    check((await mallory(`/defects/${od.id}`, { method: "PATCH", body: { status: "invalid", reason: "fremd" } })).status === 404, "fremder Workspace → 404");
+    const outside = (await owner("/defects")).json.find((d) => d.propertyId !== S.id && d.assetId);
+    if (outside) {
+      await owner(`/account/members/${pid2}/access`, { method: "PUT", body: { scope: { propertyIds: [S.id], buildingIds: [] }, canCreate: true } });
+      check((await insp(`/defects/${outside.id}`, { method: "PATCH", body: { status: "invalid", reason: "außerhalb" } })).status === 404, "eingeschränkter Prüfer: Mangel außerhalb → 404");
+    }
+    check((await owner(`/defects/${od.id}`)).json.status === "open", "Mangel unverändert offen");
+    // Wartende Befunde: nur im eigenen Workspace
+    const pf = await mallory("/inspections/pending-findings");
+    check(pf.status === 200 && Array.isArray(pf.json) && !pf.json.some((f) => f.propertyName && props.some((p) => p.name === f.propertyName)), "wartende Befunde: fremder Workspace leer");
+    await owner(`/account/api-keys/${rk.id}`, { method: "DELETE" });
+  }
+
   console.log(
     fail.length ? `FAILED ${fail.length}: ${fail.join("; ")}` : "ALL CHECKS OK",
   );
