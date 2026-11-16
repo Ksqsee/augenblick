@@ -35,7 +35,7 @@ export function servicesOf(catalog: unknown): ServiceOption[] {
     })
     .filter((s) => s.title);
 }
-const isRegie = (s: ServiceOption) => /regie|travel|anfahrt|extra/i.test(s.kind);
+const isRegie = (s: ServiceOption) => /regie|travel|anfahrt|extra|labor/i.test(s.kind);
 
 const storeKey = (pid: string) => `pk-offer-extra:${pid}`;
 function loadExtras(pid: string): ExtraLine[] {
