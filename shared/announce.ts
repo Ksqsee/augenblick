@@ -1,9 +1,9 @@
 // „Tür ansagen“ (Plan v7, Paket W): „Tür 354, Typ SK32“ → Nummer, Standort und Typ aus dem Katalog. Läuft im
 // Browser (auch ohne Netz, mit dem geladenen Katalog) und im Worker (MCP inspect). Reine Regeln, keine KI.
 // Dazu das Rohdiktat an der Prüfung: was gesagt oder getippt wurde, bleibt als Text erhalten, bis Claude es auswertet.
-import type { CatalogProduct } from './catalog';
+import type { AttributeField, CatalogProduct } from './catalog';
 import { normalizeSpeech, suggestSeverity } from './smart';
-import { applyProductDefaults, codeNumber, foldText } from './vocab';
+import { codeNumber, describeByType, foldText } from './vocab';
 
 // ---------- Rohdiktat ----------
 export type RawNoteSource = 'app' | 'offline' | 'mcp';
@@ -304,7 +304,7 @@ export function manufacturerForms(manufacturer: string): string[] {
 }
 
 /** So kann der Typ genannt werden: Aliasse (Paket V), Modell, Hersteller + Modell (auch mit Kurzform). */
-export function productPhrases(p: ProductLike): string[] {
+export function productPhrases(p: Pick<ProductLike, 'manufacturer' | 'model' | 'aliases'>): string[] {
   const out = new Set<string>();
   for (const a of Array.isArray(p.aliases) ? p.aliases : []) if (typeof a === 'string' && fold1(a)) out.add(fold1(a));
   const model = fold1(p.model);
@@ -372,6 +372,16 @@ export function matchProductType<P extends ProductLike>(typeText: string, produc
   return { product: null, candidates: byMaker.slice(0, 8), rest: '' };
 }
 
+/**
+ * Typen, deren Schreibweise (Alias, Typ, Hersteller + Typ, auch mit Hersteller-Kurzform) dem ganzen Text entspricht –
+ * die strenge Form von `matchProductType` für Listen, in denen die Zelle nur den Typ enthält (Import).
+ */
+export function wholeTypeMatches<P extends Pick<ProductLike, 'manufacturer' | 'model' | 'category' | 'aliases'>>(typeText: string, products: P[], category?: string | null): P[] {
+  const t = fold1(typeText);
+  if (!t) return [];
+  return products.filter((p) => (!category || !p.category || p.category === category) && productPhrases(p).includes(t));
+}
+
 /** Modell-Eintrag für Türen, deren Typ nicht im Katalog steht. */
 export const UNKNOWN_TYPE = 'unbekannt';
 
@@ -406,22 +416,31 @@ export interface AnnounceAssetBody {
   attributes: Record<string, string | number | boolean | null>;
 }
 
-/** Neue Tür aus der Ansage: feste Nummer, Standort, Stammdaten aus dem Katalog-Typ (bzw. Typ „unbekannt“). */
+/**
+ * Neue Tür aus der Ansage: feste Nummer, Standort, Stammdaten aus dem Katalog-Typ (bzw. Typ „unbekannt“ ohne
+ * Stammdaten – allgemeine Checkliste). Ein bekannter Typ beschreibt die Tür vollständig (`describeByType`).
+ */
 export function announcedAssetBody(
   a: Pick<Announcement, 'number' | 'location'>,
   product: ProductLike | null,
-  allowedAttributes: string[],
+  fields: Pick<AttributeField, 'key' | 'type' | 'options'>[],
   category = 'fire_door',
 ): AnnounceAssetBody {
   if (a.number == null) throw new Error('Nummer fehlt');
+  const cat = product?.category || category;
   return {
-    category: product?.category || category,
+    category: cat,
     number: a.number,
     location: a.location || `Raum ${a.number}`,
     manufacturer: product?.manufacturer ?? '',
     model: product?.model ?? UNKNOWN_TYPE,
     attributes: product
-      ? (applyProductDefaults({}, { defaults: product.defaults ?? {}, approval: product.approval ?? '' }, allowedAttributes) as AnnounceAssetBody['attributes'])
+      ? (describeByType(
+          {},
+          { defaults: product.defaults ?? {}, approval: product.approval ?? '', requirement: product.requirement, model: product.model },
+          fields,
+          cat,
+        ) as AnnounceAssetBody['attributes'])
       : {},
   };
 }

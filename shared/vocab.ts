@@ -1,8 +1,8 @@
 // Fachwortschatz des Workspaces für die Regel-Auswertung (ohne KI): Begriffe aus dem Katalog, typische Mängel mit
 // Schwere/Maßnahme und sprechbare Element-Nummern („Tür 36“, „Nummer 36“). Läuft im Browser und im Worker.
 // Der Katalog selbst liegt je Workspace in D1 (worker/catalog.ts); hier nur reine Funktionen.
-import type { CatalogDefect, CatalogProduct, CatalogTerm, Severity } from './catalog';
-import { normalizeDoorInput } from './catalog-door';
+import type { AttributeField, CatalogDefect, CatalogProduct, CatalogTerm, Severity } from './catalog';
+import { normalizeDoorInput, parseRequirement, type Requirement, requirementOf } from './catalog-door';
 
 export type { CatalogDefect, CatalogProduct, CatalogTerm } from './catalog';
 
@@ -124,6 +124,54 @@ export function applyProductDefaults<T extends Record<string, unknown>>(
   for (const [k, v] of Object.entries(vals)) {
     if (!allowed.includes(k)) continue;
     if (overwrite || out[k] == null || out[k] === '' || out[k] === false) out[k] = v;
+  }
+  return out as T;
+}
+
+/** Auswahlfelder mit eindeutigem Standard je Elementart (nur diese werden bei einem bekannten Typ vorbelegt). */
+export const TYPE_SELECT_DEFAULTS: Record<string, Record<string, string>> = {
+  fire_door: { leaves: '1-flügelig' },
+};
+
+type TypeProduct = Pick<CatalogProduct, 'defaults' | 'approval'> & Partial<Pick<CatalogProduct, 'requirement' | 'model'>>;
+
+/**
+ * Anforderung eines Katalog-Typs: Feld `requirement`, sonst aus alten Vorgaben (`rating`/`smoke`), sonst aus dem
+ * Typnamen („Premio T30-RS“). Null, wenn nichts davon etwas sagt.
+ */
+export function productRequirement(product: TypeProduct): Requirement | null {
+  return (
+    (product.requirement ? parseRequirement(product.requirement) : null) ??
+    requirementOf((product.defaults ?? {}) as Record<string, unknown>) ??
+    (product.model ? parseRequirement(product.model) : null)
+  );
+}
+
+/**
+ * Plan v7 (Entscheidung): Ein bekannter Katalog-Typ beschreibt das Element vollständig. Vorgaben des Typs füllen die
+ * Stammdaten (wie `applyProductDefaults`, Anforderung auch aus alten Vorgaben bzw. dem Typnamen); Ja/Nein-Felder der
+ * Elementart, die weder Typ noch Eingabe setzen, gelten als „nein“; Auswahlfelder bekommen nur einen eindeutigen
+ * Standard der Elementart (Tür: 1-flügelig), sonst bleiben sie offen. So entstehen bei bekannter Tür keine Rückfragen.
+ * Nur für neu entstehende Elemente bzw. eine ausdrückliche Typ-Zuordnung – vorhandene Elemente nicht damit überschreiben.
+ */
+export function describeByType<T extends Record<string, unknown>>(
+  attrs: T,
+  product: TypeProduct,
+  fields: Pick<AttributeField, 'key' | 'type' | 'options'>[],
+  category: string,
+  overwrite = false,
+): T {
+  const keys = fields.map((f) => f.key);
+  const requirement = keys.includes('requirement') ? productRequirement(product) : null;
+  const out: Record<string, unknown> = applyProductDefaults(attrs, { ...product, requirement: requirement ?? undefined }, keys, overwrite);
+  const empty = (k: string) => out[k] == null || out[k] === '';
+  for (const f of fields) {
+    if (!empty(f.key)) continue;
+    if (f.type === 'boolean') out[f.key] = false;
+    else if (f.type === 'select') {
+      const d = TYPE_SELECT_DEFAULTS[category]?.[f.key];
+      if (d && (!f.options || f.options.includes(d))) out[f.key] = d;
+    }
   }
   return out as T;
 }

@@ -5,7 +5,7 @@ import { useNavigate } from 'react-router-dom';
 import { type Category } from '../../shared/catalog';
 import { BUILDING_TYPES, type BuildingType } from '../../shared/walkthrough';
 import { api, type Asset, type PropertyDetail, uploadPhoto, useAction, useCatalog, useProperties, useProperty } from '../api';
-import { applyProductDefaults, foldText, suggestProducts } from '../../shared/vocab';
+import { applyProductDefaults, describeByType, foldText, suggestProducts } from '../../shared/vocab';
 import { CategoryIcon } from './CategoryIcon';
 import { lastFloor, readLastPlace, rememberPlace } from './objects/memory';
 import { Button, ErrorBox, Field, Input, Modal, Notice, Select, Textarea, useToast } from './ui';
@@ -394,7 +394,8 @@ export function AssetForm({
   const productHints = chosen ? [] : suggestProducts({ manufacturer: f.manufacturer, model: f.model }, products, category, 4).filter((p) => !p.category || p.category === category);
   const pickProduct = (p: (typeof products)[number]) => {
     setF((x) => ({ ...x, manufacturer: p.manufacturer, model: p.model }));
-    setAttrs((a) => applyProductDefaults(a, p, def.attributes.map((x) => x.key), true));
+    // neues Element: der Typ beschreibt es vollständig (offene Ja/Nein = nein); beim Bearbeiten nur Vorgaben übernehmen
+    setAttrs((a) => (initial ? applyProductDefaults(a, p, def.attributes.map((x) => x.key), true) : describeByType(a, p, def.attributes, category, true)));
   };
   return (
     <Modal

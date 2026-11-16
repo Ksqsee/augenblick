@@ -5,6 +5,7 @@
 import type { CatalogKind } from './vocab';
 import { foldText } from './vocab';
 import type { CatalogProduct } from './catalog';
+import { wholeTypeMatches } from './announce';
 
 export const CATALOG_FILE_FORMAT = 'pruefkompass-katalog';
 /** Reihenfolge beim Laden: Leistungen vor den Mängeln, die auf sie verweisen */
@@ -78,10 +79,9 @@ export function productForType<P extends Pick<CatalogProduct, 'manufacturer' | '
   products: P[] | undefined,
   opts: { manufacturer?: string; category?: string | null } = {},
 ): P | null {
-  const t = key(type);
-  if (!t || !products?.length) return null;
-  const pool = products.filter((p) => !opts.category || !p.category || p.category === opts.category);
-  const hits = pool.filter((p) => [p.model, `${p.manufacturer} ${p.model}`, ...(p.aliases ?? [])].some((a) => key(a) === t));
+  if (!key(type) || !products?.length) return null;
+  // dieselben Schreibweisen wie bei „Tür ansagen“ (shared/announce.ts), hier aber nur für die ganze Zelle
+  const hits = wholeTypeMatches(type, products, opts.category);
   const m = key((opts.manufacturer ?? '').replace(/[()]/g, ''));
   const byMaker = (p: P) => {
     const pm = key(p.manufacturer);

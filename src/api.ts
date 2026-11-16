@@ -677,6 +677,11 @@ export interface Catalog {
   services: CatalogService[];
 }
 export const useCatalog = (enabled = true) => useQuery({ queryKey: ['catalog'], queryFn: () => api<Catalog>('/catalog'), staleTime: 5 * 60_000, enabled });
+/**
+ * Katalog sicher geladen (für Auswertungen, die nicht auf das Laden warten dürfen, z. B. den Import): wartet auf eine
+ * laufende Anfrage bzw. lädt nach, wenn der Stand älter als 30 s ist.
+ */
+export const loadCatalog = () => queryClient.fetchQuery({ queryKey: ['catalog'], queryFn: () => api<Catalog>('/catalog'), staleTime: 30_000 });
 export const useNotifications = () =>
   useQuery({ queryKey: ['notifications'], queryFn: () => api<{ items: Notification[]; unread: number }>('/notifications'), refetchInterval: 60_000 });
 export const useTaskLabels = () => useQuery({ queryKey: ['task-labels'], queryFn: () => api<TaskLabel[]>('/tasks/labels') });

@@ -1,7 +1,7 @@
 import { CATEGORIES, type CatalogProduct, type Category } from './catalog';
 import { parseRequirement } from './catalog-door';
 import { productForType } from './catalog-file';
-import { applyProductDefaults } from './vocab';
+import { describeByType } from './vocab';
 
 /** Spalten der Import-Vorlage (Reihenfolge = Vorlage). */
 export const IMPORT_COLUMNS = [
@@ -293,7 +293,8 @@ export function toImportRows(
     const days = s('intervalDays') ? Number(s('intervalDays').replace(',', '.')) : null;
     if (days != null && !(Number.isFinite(days) && days >= 7 && days <= 3660)) return errors.push({ line, message: `Intervall nicht lesbar „${s('intervalDays')}“` });
     // Stammdaten: Katalog-Typ (Alias) bzw. Anforderung aus dem Türtyp, Ja/Nein-Spalten, Zulassung
-    const fields = (CATEGORIES as Record<string, (typeof CATEGORIES)[keyof typeof CATEGORIES] | undefined>)[category]?.attributes.map((f) => f.key) ?? [];
+    const fieldDefs = (CATEGORIES as Record<string, (typeof CATEGORIES)[keyof typeof CATEGORIES] | undefined>)[category]?.attributes ?? [];
+    const fields = fieldDefs.map((f) => f.key);
     let attrs: Record<string, string | number | boolean> = {};
     let manufacturer = s('manufacturer').replace(/^\((.*)\)$/, '$1').trim();
     let model = s('model');
@@ -302,7 +303,7 @@ export function toImportRows(
     if (typeText) {
       const product = productForType(typeText, opts.products, { manufacturer, category });
       if (product) {
-        attrs = applyProductDefaults(attrs, product, fields, true) as typeof attrs;
+        attrs = describeByType(attrs, product, fieldDefs, category, true) as typeof attrs;
         manufacturer ||= product.manufacturer;
         model ||= product.model;
         catalogType = `${product.manufacturer} ${product.model}`;

@@ -20,7 +20,7 @@ import {
   suggestSeverity,
 } from "../shared/smart";
 import {
-  applyProductDefaults,
+  describeByType,
   type CatalogDefect,
   type CatalogProduct,
   expandTerms,
@@ -644,7 +644,7 @@ async function announceAsset(
   const body = announcedAssetBody(
     { number: n, location: s(a.location).trim() || `Raum ${n}` },
     product,
-    (cat?.attributes ?? []).map((f) => f.key),
+    cat?.attributes ?? [],
     category,
   );
   let created: { id: string; code: string };
@@ -3447,10 +3447,12 @@ export const TOOLS: Tool[] = [
                   `${name}, ${what}: Produkt „${s(e.product)}“ nicht im Katalog (catalog search) – ohne Vorgaben angelegt`,
                 );
               else {
-                attributes = applyProductDefaults(
+                // Plan v7: ein bekannter Typ beschreibt das Element vollständig
+                attributes = describeByType(
                   attributes,
                   prod,
-                  cat.attributes.map((f) => f.key),
+                  cat.attributes,
+                  cat.key,
                 );
                 manufacturer ||= prod.manufacturer;
                 model ||= prod.model;
@@ -4129,9 +4131,18 @@ export const TOOLS: Tool[] = [
             'Für die Angebotsliste ein Objekt angeben (property). Objekte liefert search(type: "properties").',
           );
         const p = await resolveProperty(x, a.property);
-        const offer = normalizeOffer(
-          await x.api({ method: "GET", path: `/properties/${enc(p.id)}/offer` }),
-        );
+        let raw: unknown;
+        try {
+          raw = await x.api({ method: "GET", path: `/properties/${enc(p.id)}/offer` });
+        } catch (e) {
+          // Preise sind intern: ab Prüfer (Schlüssel „Lesen und schreiben“), nicht mit Leseschlüssel oder Lesezugriff
+          if (e instanceof ApiError && e.status === 403)
+            throw new ToolError(
+              "Die Angebotsliste enthält Preise und ist erst ab der Rolle Prüfer lesbar – dieser Zugang (Schlüssel „Nur lesen“ bzw. Lesezugriff) darf sie nicht abrufen. Mit einem Schlüssel „Lesen und schreiben“ einer Person ab Prüfer geht es; Kennzahlen (what: \"figures\") gehen auch so.",
+            );
+          throw e;
+        }
+        const offer = normalizeOffer(raw);
         return offerText(offer, p.name);
       }
       const prop = a.property ? await resolveProperty(x, a.property) : null;
