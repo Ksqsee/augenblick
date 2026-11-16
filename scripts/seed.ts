@@ -28,7 +28,9 @@ const CODEA = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
 const usedCodes = new Set<string>();
 const code = (cat: Category) => {
   for (;;) {
-    const c = `${CATEGORIES[cat].prefix}-${Array.from({ length: 4 }, () => CODEA[Math.floor(rnd() * CODEA.length)]).join('')}`;
+    // Demobestand wie ältere Workspaces: Türen behalten den Code „FST-…“ (neue Türen bekommen ab v7 „T-…“)
+    const prefix = cat === 'fire_door' ? 'FST' : CATEGORIES[cat].prefix;
+    const c = `${prefix}-${Array.from({ length: 4 }, () => CODEA[Math.floor(rnd() * CODEA.length)]).join('')}`;
     if (!usedCodes.has(c)) return usedCodes.add(c), c;
   }
 };
@@ -421,7 +423,16 @@ for (const ps of properties) {
       const year = Math.floor(between(1998, 2022));
       const attrs: Record<string, unknown> =
         a.cat === 'fire_door'
-          ? { year, rating: pick(['T30', 'T30', 'T90', 'EI2 30']), smoke: rnd() < 0.7, leaves: pick(['1-flügelig', '1-flügelig', '2-flügelig']), holdOpen: rnd() < 0.3, approval: `Z-6.20-${Math.floor(between(1000, 2999))}` }
+          ? // Plan v7: Anforderung statt Feuerwiderstand/Rauchschutz (gleiche Zufallsfolge wie zuvor)
+            // Ausstattung, nach der Prüfpunkte entfallen (Spion, Absenkdichtung, Kartenschloss), ist im Demobestand bekannt
+            (({ rating, smoke, ...rest }) => ({ ...rest, requirement: `${rating === 'T90' ? 'T90' : 'T30'}${smoke ? '-RS' : ''}`, peephole: false, dropSeal: false, cardLock: false }))({
+              year,
+              rating: pick(['T30', 'T30', 'T90', 'EI2 30']),
+              smoke: rnd() < 0.7,
+              leaves: pick(['1-flügelig', '1-flügelig', '2-flügelig']),
+              holdOpen: rnd() < 0.3,
+              approval: `Z-6.20-${Math.floor(between(1000, 2999))}`,
+            })
           : a.cat === 'damper'
             ? { year, damperNo: `BSK-${Math.floor(between(10, 99))}`, rating: pick(['K90', 'EI 90 S']), actuator: pick(['Mechanisch', 'Federrücklaufmotor']), size: pick(['200 x 200', '400 x 300', 'DN 250']) }
             : a.cat === 'extinguisher'
