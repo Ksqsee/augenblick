@@ -12,7 +12,8 @@ import { MetaLine } from './TaskRow';
  */
 export function DefectRow({ d, canEdit, onOpen, onResolve, onReopen }: { d: Defect; canEdit: boolean; onOpen: () => void; onResolve: () => void; onReopen: () => void }) {
   const resolved = d.status === 'resolved';
-  const editable = canEdit && !d.hiddenAt;
+  const invalid = d.status === 'invalid';
+  const editable = canEdit && !d.hiddenAt && !invalid;
   const swipe = useSwipe(editable && !resolved ? onResolve : undefined, 'Beheben');
   return (
     <li data-defect={d.id} data-row-id={d.id} className="group relative overflow-hidden bg-surface before:z-[2]">
@@ -30,7 +31,7 @@ export function DefectRow({ d, canEdit, onOpen, onResolve, onReopen }: { d: Defe
         </span>
         <button type="button" data-row-main onClick={onOpen} className="flex min-h-[52px] min-w-0 flex-1 items-center gap-3 py-2 pr-(--row-px) pl-0.5 text-left outline-none sm:min-h-12">
           <span className="min-w-0 flex-1">
-            <span data-title className={clsx('block truncate text-body', resolved || d.hiddenAt ? 'text-ink-2' : 'text-ink')}>
+            <span data-title className={clsx('block truncate text-body', resolved || invalid || d.hiddenAt ? 'text-ink-2' : 'text-ink', invalid && 'line-through')}>
               {d.title}
             </span>
             <MetaLine
@@ -38,8 +39,8 @@ export function DefectRow({ d, canEdit, onOpen, onResolve, onReopen }: { d: Defe
                 d.code ?? 'Begehung',
                 d.location,
                 d.propertyName,
-                d.hiddenAt ? `Ausgeblendet: ${d.hiddenReason ?? ''}` : resolved ? `behoben ${fmtRelative(d.resolvedAt)}${d.resolvedByName ? ` von ${d.resolvedByName}` : ''}` : fmtRelative(d.createdAt),
-                d.taskId && !resolved && !d.hiddenAt && 'mit Aufgabe',
+                d.hiddenAt ? `Ausgeblendet: ${d.hiddenReason ?? ''}` : invalid ? `Ungültig: ${d.invalidReason ?? ''}` : resolved ? `behoben ${fmtRelative(d.resolvedAt)}${d.resolvedByName ? ` von ${d.resolvedByName}` : ''}` : fmtRelative(d.createdAt),
+                d.taskId && !resolved && !invalid && !d.hiddenAt && 'mit Aufgabe',
               ]}
             />
           </span>

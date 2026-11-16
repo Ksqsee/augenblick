@@ -294,7 +294,8 @@ export interface Defect {
   note: string;
   measure?: string;
   severity: Severity;
-  status: 'open' | 'resolved';
+  /** invalid = ungültig (Duplikat/Fehleintrag, mit Grund; zählt nirgends mit) */
+  status: 'open' | 'resolved' | 'invalid';
   createdAt: number;
   resolvedAt: number | null;
   inspectionId: string | null;
@@ -319,6 +320,12 @@ export interface Defect {
   hiddenAt?: number | null;
   hiddenReason?: string;
   hiddenByName?: string | null;
+  /** Ungültig (v6 B8) */
+  invalidAt?: number | null;
+  invalidReason?: string;
+  invalidByName?: string | null;
+  /** offen und ohne wirksame Aufgabe (keine offene; keine nach dem letzten Wiederöffnen erledigte) */
+  withoutTask?: number | boolean;
 }
 
 export interface DefectDetail extends Defect {

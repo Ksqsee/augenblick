@@ -17,6 +17,7 @@
 //     übernehmen den ersten Ort danach („zwei Türen und eine FSA im Flur“).
 //   - Was keinem Feld zugeordnet werden kann, landet in `unsure` (Vorschau: „bitte prüfen“), nie im Standort.
 import { CATEGORIES, type Severity } from './catalog';
+import { findRelativeDate } from './dates';
 import { type CatalogDefect, clientVocabulary, expandTerms, findElementRef, matchCatalogDefect } from './vocab';
 
 export type CaptureKind = 'defect' | 'task' | 'note' | 'asset';
@@ -723,18 +724,13 @@ export function suggestMeasure(text: string, defects: CatalogDefect[] = clientVo
   return '';
 }
 
-const WEEKDAYS = ['sonntag', 'montag', 'dienstag', 'mittwoch', 'donnerstag', 'freitag', 'samstag'];
-
+/**
+ * Frist in Tagen aus dem Text: relative Angaben über shared/dates.ts (dieselben Regeln wie im MCP), Zeitzone des
+ * Geräts; größere Zahlwörter („in fünfundzwanzig Tagen“) über die eigene Zahlerkennung.
+ */
 function dueInDays(text: string, now = Date.now()): number | null {
-  if (/\b(sofort|heute)\b/i.test(text)) return 0;
-  if (/\bübermorgen\b/i.test(text)) return 2;
-  if (/\bmorgen\b/i.test(text)) return 1;
-  if (/\b(diese|nächste|naechste) woche\b/i.test(text)) return 7;
-  const wd = text.toLowerCase().match(/\b(?:bis |am |zum |bis zum |spätestens )?(sonntag|montag|dienstag|mittwoch|donnerstag|freitag|samstag)\b/);
-  if (wd) {
-    const diff = (WEEKDAYS.indexOf(wd[1]!) - new Date(now).getDay() + 7) % 7;
-    return diff === 0 ? 7 : diff;
-  }
+  const rel = findRelativeDate(text, now);
+  if (rel && rel.days >= 0) return rel.days;
   const m = text.match(new RegExp(`(?<![\\p{L}])(?:in|binnen|innerhalb von) (${NUM}) tag(?:en)?(?![\\p{L}])`, 'iu'));
   if (m) return parseCount(m[1]!);
   const w = text.match(new RegExp(`(?<![\\p{L}])(?:in|binnen|innerhalb von) (${NUM}) wochen?(?![\\p{L}])`, 'iu'));

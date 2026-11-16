@@ -38,7 +38,7 @@ import { zonedDay } from '../shared/i18n';
 import { DAY } from '../shared/logic';
 import { monthBounds } from '../shared/now';
 import { DEFAULT_SLA, HOUR } from '../shared/sla';
-import { defectScope, taskScope, tid } from './data';
+import { defectScope, noActiveTaskSql, taskScope, tid } from './data';
 import { type AppEnv, type Ctx, type Env, id, logActivity, notFound, now, parseJson, RANK, requireRole, type ScopeSetting, scopeSql, type SessionUser, token } from './lib';
 import { type IntervalUndo, revertIntervals } from './intervals';
 import { notify, notifyTenant } from './notify';
@@ -280,7 +280,7 @@ export async function createDefectTasks(c: Ctx, opts: { severities: string[]; in
          FROM defects d LEFT JOIN assets a ON a.id = d.asset_id LEFT JOIN walkthroughs w ON w.id = d.walkthrough_id
         WHERE d.tenant_id = ?1 AND d.status = 'open' AND d.hidden_at IS NULL AND d.severity IN (SELECT value FROM json_each(?2))
           AND (?3 IS NULL OR d.inspection_id = ?3) AND (?4 IS NULL OR d.id = ?4) AND (?5 IS NULL OR d.walkthrough_id = ?5) AND ${defectScope(c, 'd')}
-          AND NOT EXISTS (SELECT 1 FROM tasks k WHERE k.defect_id = d.id) LIMIT 200`,
+          AND ${noActiveTaskSql('d')} LIMIT 200`,
     )
       .bind(t, JSON.stringify(opts.severities), opts.inspectionId ?? null, opts.defectId ?? null, opts.walkthroughId ?? null)
       .all<{ id: string; title: string; measure: string; severity: string; asset_id: string | null; property_id: string; code: string | null; category: string | null; building_id: string | null }>()
@@ -371,15 +371,17 @@ export async function autoDefectTasks(c: Ctx, opts: { inspectionId?: string; wal
 // ---------- Schritt 1: Planen (plan_week) ----------
 function planCandidates(c: Ctx, n: number) {
   return c.env.DB.prepare(
-    `SELECT b.id, b.name, b.property_id AS propertyId, MIN(a.next_due_at) AS earliest, COUNT(*) AS assets
+    // v6 B4: nie geprüfte Elemente (ohne Fälligkeit) gelten als sofort fällig
+    `SELECT b.id, b.name, b.property_id AS propertyId, MIN(COALESCE(a.next_due_at, ?3)) AS earliest, COUNT(*) AS assets,
+            SUM(CASE WHEN a.next_due_at IS NULL THEN 1 ELSE 0 END) AS never
        FROM assets a JOIN buildings b ON b.id = a.building_id JOIN properties p ON p.id = b.property_id
       WHERE a.tenant_id = ?1 AND a.deleted_at IS NULL AND b.deleted_at IS NULL AND p.deleted_at IS NULL
-        AND a.next_due_at IS NOT NULL AND a.next_due_at < ?2 AND ${scopeSql(c, 'b.id', 'building')}
+        AND ((a.next_due_at IS NULL AND a.last_inspected_at IS NULL) OR a.next_due_at < ?2) AND ${scopeSql(c, 'b.id', 'building')}
         AND NOT EXISTS (SELECT 1 FROM tasks k WHERE k.tenant_id = ?1 AND k.building_id = b.id AND k.kind = 'inspection' AND k.status IN ('open','in_progress'))
       GROUP BY b.id ORDER BY earliest LIMIT 100`,
   )
-    .bind(tid(c), n + PLAN_HORIZON_DAYS * DAY)
-    .all<{ id: string; name: string; propertyId: string; earliest: number; assets: number }>();
+    .bind(tid(c), n + PLAN_HORIZON_DAYS * DAY, n)
+    .all<{ id: string; name: string; propertyId: string; earliest: number; assets: number; never: number }>();
 }
 
 /** Je Gebäude mit Fälligkeiten in 14 Tagen einen Prüfauftrag „Rundgang …“ anlegen (keine Dopplung). */
@@ -403,9 +405,9 @@ export async function planWeek(c: Ctx, n = now()) {
     return {
       id: id(),
       title: `Rundgang ${b.name}`.slice(0, 200),
-      description: `${b.assets} ${b.assets === 1 ? 'Element ist' : 'Elemente sind'} in den nächsten ${PLAN_HORIZON_DAYS} Tagen fällig oder überfällig. Vom Autopiloten geplant.`,
+      description: `${b.assets} ${b.assets === 1 ? 'Element ist' : 'Elemente sind'} in den nächsten ${PLAN_HORIZON_DAYS} Tagen fällig, überfällig oder noch nie geprüft${b.never ? ` (davon ${b.never} nie geprüft)` : ''}. Vom Autopiloten geplant.`,
       due: b.earliest,
-      priority: b.earliest < n ? 'high' : 'medium',
+      priority: b.earliest < n || b.never ? 'high' : 'medium',
       assignee: uid && canWorkAt(access.get(uid), place) ? uid : null,
       ...place,
     };
@@ -452,7 +454,7 @@ export async function closeFinishedRounds(c: Ctx, assetId: string, n = now()) {
           AND k.building_id = (SELECT building_id FROM assets WHERE id = ?2 AND tenant_id = ?1)
           AND EXISTS (SELECT 1 FROM automation_log l WHERE l.tenant_id = ?1 AND l.key = 'plan_week' AND l.entity_id = k.id AND l.undone_at IS NULL)
           AND NOT EXISTS (SELECT 1 FROM assets a WHERE a.tenant_id = ?1 AND a.building_id = k.building_id AND a.deleted_at IS NULL
-                            AND a.next_due_at IS NOT NULL AND a.next_due_at < k.created_at + ?3)`,
+                            AND ((a.next_due_at IS NULL AND a.last_inspected_at IS NULL) OR a.next_due_at < k.created_at + ?3))`,
     )
       .bind(t, assetId, PLAN_HORIZON_DAYS * DAY)
       .all<{ id: string; title: string; buildingId: string; propertyId: string | null; assigneeId: string | null }>()
@@ -544,6 +546,7 @@ function staleCandidates(c: Ctx, n: number) {
   return c.env.DB.prepare(
     `SELECT k.id, k.title, k.assignee_id AS assigneeId, k.created_by AS createdBy, k.defect_id AS defectId FROM tasks k JOIN defects d ON d.id = k.defect_id
       WHERE k.tenant_id = ?1 AND k.kind = 'defect' AND k.status = 'done' AND k.closed_at < ?2 AND d.status = 'open' AND d.hidden_at IS NULL AND ${taskScope(c, 'k')}
+        AND k.closed_at >= COALESCE(d.reopened_at, 0)
         AND NOT EXISTS (SELECT 1 FROM automation_log l WHERE l.tenant_id = ?1 AND l.key = 'close_stale' AND l.entity_id = k.id)
         AND NOT EXISTS (SELECT 1 FROM tasks v WHERE v.tenant_id = ?1 AND v.defect_id = d.id AND v.kind = 'inspection' AND v.created_at >= k.closed_at)
       ORDER BY k.closed_at LIMIT 50`,
@@ -722,6 +725,7 @@ function verifyCandidates(c: Ctx, ids: string[] | null) {
        FROM tasks k JOIN defects d ON d.id = k.defect_id AND d.tenant_id = k.tenant_id
        JOIN assets a ON a.id = d.asset_id AND a.deleted_at IS NULL LEFT JOIN inspections i ON i.id = d.inspection_id
       WHERE k.tenant_id = ?1 AND k.kind = 'defect' AND k.status = 'done' AND k.closed_at IS NOT NULL AND d.status = 'open' AND d.hidden_at IS NULL
+        AND k.closed_at >= COALESCE(d.reopened_at, 0)
         AND (?2 IS NULL OR k.id IN (SELECT value FROM json_each(?2))) AND ${taskScope(c, 'k')}
         AND NOT EXISTS (SELECT 1 FROM tasks v WHERE v.tenant_id = ?1 AND v.defect_id = d.id AND v.kind = 'inspection' AND v.status IN ('open','in_progress'))
         AND NOT EXISTS (SELECT 1 FROM automation_log l WHERE l.tenant_id = ?1 AND l.key = 'verify_repairs' AND l.entity_type = 'repair' AND l.entity_id = k.id AND l.at >= k.closed_at)

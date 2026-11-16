@@ -3,10 +3,12 @@
 import { DAY } from './logic';
 
 export type NowKind =
+  | 'pending_findings'
   | 'sign'
   | 'never'
   | 'offline_failures'
   | 'defects_without_task'
+  | 'defects_unassigned'
   | 'overdue_tasks'
   | 'round'
   | 'walkthrough_due'
@@ -60,10 +62,14 @@ export const NOW_LIMIT = 12;
  * der einzige sinnvolle nächste Schritt. Der Abstand zu den Unterschriften ist größer als jeder Altersaufschlag (30).
  */
 const BASE: Record<NowKind, Partial<Record<NowItem['tone'], number>> & { default: number }> = {
+  // v6 A2: kritische/hohe Befunde in bereitgelegten Prüfungen stehen ganz oben – bis zur Unterschrift weiß sonst niemand davon
+  pending_findings: { bad: 240, default: 230 },
   sign: { default: 200 },
   never: { default: 160 },
   offline_failures: { default: 120 },
   defects_without_task: { bad: 110, default: 70 },
+  // v6 E5: schwere Mängel, deren Aufgabe niemandem zugewiesen ist
+  defects_unassigned: { bad: 100, default: 65 },
   overdue_tasks: { bad: 90, default: 60 },
   round: { bad: 80, default: 45 },
   walkthrough_due: { bad: 55, default: 35 },

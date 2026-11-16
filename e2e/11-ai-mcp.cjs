@@ -10,6 +10,7 @@ const TOOLS = [
   "briefing",
   "search",
   "list",
+  "team",
   "get",
   "get_photo",
   "capture",
@@ -202,7 +203,7 @@ const call = async (key, name, args = {}) => {
     tools
       .filter((t) => t.annotations.readOnlyHint)
       .map((t) => t.name)
-      .join() === "briefing,search,list,get,get_photo,tour,report",
+      .join() === "briefing,search,list,team,get,get_photo,tour,report",
     "Nur-Lese-Annotationen",
   );
   r = await mcp(write, "prompts/list");

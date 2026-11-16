@@ -7,7 +7,8 @@ import { BUILDING_TYPES } from "../shared/walkthrough";
 import { type DocLanguage, tr } from "../shared/i18n";
 import { buildXlsx } from "../shared/xlsx";
 import { getCategoryDef, listCategories } from "./categories";
-import { similarity } from "../shared/smart";
+import { findDuplicate } from "../shared/duplicates";
+import { readCatalog } from "./catalog";
 import { freeNumberCode, matchElementRef, numberCode, parseElementRef } from "../shared/vocab";
 import { autoDefectTasks, closeVerificationsOf } from "./automation";
 import { actionRequired } from "./smart";
@@ -60,6 +61,14 @@ export function taskScope(c: Ctx, t: string) {
                WHEN ${t}.property_id IS NOT NULL THEN ${scopeSql(c, `${t}.property_id`, "property")}
                ELSE ${t}.assignee_id = ${me} OR ${t}.created_by = ${me} END)`;
 }
+
+/**
+ * Mangel ohne wirksame Aufgabe (Plan v6 B3): keine offene bzw. in Arbeit befindliche Aufgabe und keine, die nach dem
+ * letzten Wiederöffnen erledigt wurde. Ein wieder geöffneter Mangel oder einer mit abgebrochener Aufgabe braucht also
+ * eine neue – dieselbe Regel für „Jetzt“, Autopilot, `tasks_from_defects` und Berichte.
+ */
+export const noActiveTaskSql = (d: string) =>
+  `NOT EXISTS (SELECT 1 FROM tasks k_ WHERE k_.defect_id = ${d}.id AND (k_.status IN ('open','in_progress') OR (k_.status = 'done' AND COALESCE(k_.closed_at, 0) >= COALESCE(${d}.reopened_at, 0))))`;
 
 /** Element im Zugriffsbereich (und vorhanden)? Liefert das Gebäude. */
 export async function assetInScope(c: Ctx, assetId: string) {
@@ -985,20 +994,19 @@ const DEFECT_COLS = `d.id, d.title, d.note, d.measure, d.severity, d.status, d.c
             d.walkthrough_id AS walkthroughId, d.legal_basis AS legalBasis, d.checkpoint_id AS checkpointId,
             d.photo_key AS photoKey, d.resolution_note AS resolutionNote, d.resolution_photo_key AS resolutionPhotoKey, ru.name AS resolvedByName,
             d.hidden_at AS hiddenAt, d.hidden_reason AS hiddenReason, hu.name AS hiddenByName,
+            d.invalid_at AS invalidAt, d.invalid_reason AS invalidReason, iu.name AS invalidByName, d.reopened_at AS reopenedAt,
+            CASE WHEN d.status = 'open' AND ${noActiveTaskSql("d")} THEN 1 ELSE 0 END AS withoutTask,
             a.id AS assetId, a.code, a.category, a.location, b.name AS buildingName, p.id AS propertyId, p.name AS propertyName,
             (SELECT t.id FROM tasks t WHERE t.defect_id = d.id ORDER BY t.status IN ('done','cancelled'), t.created_at DESC LIMIT 1) AS taskId,
             (SELECT t.status FROM tasks t WHERE t.defect_id = d.id ORDER BY t.status IN ('done','cancelled'), t.created_at DESC LIMIT 1) AS taskStatus`;
 const DEFECT_FROM = `defects d JOIN properties p ON p.id = d.property_id
        LEFT JOIN assets a ON a.id = d.asset_id LEFT JOIN buildings b ON b.id = a.building_id
-       LEFT JOIN users ru ON ru.id = d.resolved_by LEFT JOIN users hu ON hu.id = d.hidden_by`;
+       LEFT JOIN users ru ON ru.id = d.resolved_by LEFT JOIN users hu ON hu.id = d.hidden_by LEFT JOIN users iu ON iu.id = d.invalid_by`;
 
 data.get("/defects", async (c) => {
-  const status =
-    c.req.query("status") === "resolved"
-      ? "resolved"
-      : c.req.query("status") === "all"
-        ? null
-        : "open";
+  // open (Standard) · resolved · invalid (v6 B8: Duplikat/Fehleintrag) · all
+  const q = c.req.query("status");
+  const status = q === "resolved" || q === "invalid" ? q : q === "all" ? null : "open";
   const source = c.req.query("source");
   // Ausgeblendete zählen nicht mit und erscheinen nur mit ?hidden=1 (dann unabhängig vom Status)
   const hidden = c.req.query("hidden") === "1";
@@ -1098,16 +1106,18 @@ data.post("/defects", async (c) => {
     throw new HTTPException(400, { message: "Ungültige Datei" });
   let propertyId = b.propertyId;
   let code: string | null = null;
+  let category: string | null = null;
   if (b.assetId) {
     const a = await c.env.DB.prepare(
-      "SELECT a.code, a.building_id AS bid, b.property_id AS pid FROM assets a JOIN buildings b ON b.id = a.building_id WHERE a.id = ? AND a.tenant_id = ? AND a.deleted_at IS NULL",
+      "SELECT a.code, a.category, a.building_id AS bid, b.property_id AS pid FROM assets a JOIN buildings b ON b.id = a.building_id WHERE a.id = ? AND a.tenant_id = ? AND a.deleted_at IS NULL",
     )
       .bind(b.assetId, tid(c))
-      .first<{ code: string; bid: string; pid: string }>();
+      .first<{ code: string; category: string; bid: string; pid: string }>();
     if (!a) notFound("Element");
     assertInScope(c, "building", a.bid);
     propertyId = a.pid;
     code = a.code;
+    category = a.category;
   } else {
     const p = propertyId
       ? await c.env.DB.prepare(
@@ -1122,24 +1132,36 @@ data.post("/defects", async (c) => {
       });
     assertInScope(c, "property", propertyId);
   }
-  // Duplikat-Warnung: gleicher Mangel schon offen (am Element bzw. am Objekt ohne Element)?
+  // Duplikat-Warnung (v6 B2): gleicher Mangel schon offen oder als Befund in einem Entwurf bzw. einer bereitgelegten
+  // Prüfung desselben Elements? Abkürzungen werden ausgeschrieben, Katalog-Synonyme zählen mit.
   if (!b.force) {
-    const open = await c.env.DB.prepare(
-      b.assetId
-        ? "SELECT id, title, created_at AS createdAt FROM defects WHERE tenant_id = ? AND asset_id = ? AND status = 'open' AND hidden_at IS NULL LIMIT 50"
-        : "SELECT id, title, created_at AS createdAt FROM defects WHERE tenant_id = ? AND property_id = ? AND asset_id IS NULL AND status = 'open' AND hidden_at IS NULL LIMIT 50",
-    )
-      .bind(tid(c), b.assetId ?? propertyId)
-      .all<{ id: string; title: string; createdAt: number }>();
-    const dup = open.results.find((d) => similarity(d.title, b.title) >= 0.6);
-    if (dup)
+    const [open, drafts] = await c.env.DB.batch([
+      c.env.DB.prepare(
+        b.assetId
+          ? "SELECT id, title, created_at AS createdAt FROM defects WHERE tenant_id = ? AND asset_id = ? AND status = 'open' AND hidden_at IS NULL LIMIT 50"
+          : "SELECT id, title, created_at AS createdAt FROM defects WHERE tenant_id = ? AND property_id = ? AND asset_id IS NULL AND status = 'open' AND hidden_at IS NULL LIMIT 50",
+      ).bind(tid(c), b.assetId ?? propertyId),
+      c.env.DB.prepare(
+        `SELECT i.id AS inspectionId, i.ready_at AS readyAt, i.updated_at AS createdAt, json_extract(j.value, '$.title') AS title
+           FROM inspections i, json_each(COALESCE(json_extract(i.maintenance, '$.defects'), '[]')) j
+          WHERE i.tenant_id = ? AND i.asset_id = ? AND i.status = 'draft' LIMIT 100`,
+      ).bind(tid(c), b.assetId ?? ""),
+    ]);
+    type Cand = { id?: string; title: string; createdAt: number; inspectionId?: string; readyAt?: number | null };
+    const candidates = [...(open.results as Cand[]), ...(drafts.results as Cand[]).filter((d) => d.title)];
+    const vocab = candidates.length ? await readCatalog(c) : { terms: [], defects: [] };
+    const hit = findDuplicate(b.title, candidates, vocab, category);
+    if (hit) {
+      const d = hit.candidate;
+      const where = d.inspectionId ? (d.readyAt ? "steht als Befund in einer Prüfung, die auf die Unterschrift wartet" : "steht als Befund in einer angefangenen Prüfung") : "ist bereits offen";
       return c.json(
         {
-          error: `Ähnlicher Mangel ist bereits offen: „${dup.title}“`,
-          duplicate: dup,
+          error: `Ähnlicher Mangel ${where}: „${d.title}“${hit.via ? ` (beides: ${hit.via})` : ""}`,
+          duplicate: { ...d, id: d.id ?? null, inDraft: !!d.inspectionId, ready: !!d.readyAt, via: hit.via ?? null },
         },
         409,
       );
+    }
   }
   const did = id();
   await c.env.DB.prepare(
@@ -1170,22 +1192,32 @@ data.post("/defects", async (c) => {
   return c.json({ id: did, taskCreated });
 });
 
-/** Mangel als behoben markieren (optional mit Behebungsnotiz und Nachher-Foto) oder wieder öffnen. */
+/**
+ * Mangel als behoben markieren (optional mit Behebungsnotiz und Nachher-Foto), als ungültig markieren (v6 B8: Duplikat
+ * oder Fehleintrag, Grund Pflicht – zählt nicht in Quoten und Behebungsdauer) oder wieder öffnen.
+ */
 data.patch("/defects/:id", async (c) => {
   requireRole(c, "inspector");
   const b = z
     .object({
-      status: z.enum(["open", "resolved"]),
+      status: z.enum(["open", "resolved", "invalid"]),
       note: str(2000).default(""),
       photoKey: z.string().max(200).nullable().default(null),
+      /** nur „invalid“: warum (Duplikat von …, Fehleintrag, …) */
+      reason: str(300).default(""),
     })
+    .refine((x) => x.status !== "invalid" || x.reason.length >= 3, { message: "Bitte einen Grund angeben, warum der Mangel ungültig ist (z. B. „Duplikat von …“ oder „Fehleintrag“)", path: ["reason"] })
     .parse(await c.req.json());
   if (b.photoKey && !b.photoKey.startsWith(`${tid(c)}/`))
     throw new HTTPException(400, { message: "Ungültige Datei" });
   const t = now();
   const resolved = b.status === "resolved";
+  const invalid = b.status === "invalid";
   const r = await c.env.DB.prepare(
-    `UPDATE defects SET status=?, resolved_at=?, resolved_by=?, resolution_note=?, resolution_photo_key=? WHERE id=? AND tenant_id=? AND ${defectScope(c, "defects")}`,
+    `UPDATE defects SET status=?, resolved_at=?, resolved_by=?, resolution_note=?, resolution_photo_key=?,
+            invalid_at=?, invalid_by=?, invalid_reason=?,
+            reopened_at = CASE WHEN ? = 'open' AND status != 'open' THEN ? ELSE reopened_at END
+      WHERE id=? AND tenant_id=? AND ${defectScope(c, "defects")}`,
   )
     .bind(
       b.status,
@@ -1193,6 +1225,11 @@ data.patch("/defects/:id", async (c) => {
       resolved ? c.get("user").userId : null,
       resolved ? b.note : "",
       resolved ? b.photoKey : null,
+      invalid ? t : null,
+      invalid ? c.get("user").userId : null,
+      invalid ? b.reason : "",
+      b.status,
+      t,
       c.req.param("id"),
       tid(c),
     )
@@ -1200,17 +1237,40 @@ data.patch("/defects/:id", async (c) => {
   if (!r.meta.changes) notFound("Mangel");
   // Autopilot „Nachprüfen“: offener Nachprüf-Auftrag zu diesem Mangel entfällt
   if (resolved) await closeVerificationsOf(c, [c.req.param("id")], t);
+  // Ungültig: offene Aufgaben zum Mangel sind gegenstandslos
+  if (invalid) await cancelTasksOfInvalid(c, c.req.param("id"), b.reason, t);
+  // Wieder geöffnet (v6 B3): ohne wirksame Aufgabe legt der Autopilot (Stufe „Automatisch“) gleich eine neue an
+  const reopened = b.status === "open" && (await c.env.DB.prepare("SELECT reopened_at FROM defects WHERE id = ?").bind(c.req.param("id")).first<number | null>("reopened_at")) === t;
+  const taskCreated = reopened ? (await autoDefectTasks(c, { defectId: c.req.param("id") })) > 0 : false;
   await logActivity(
     c,
-    resolved ? "resolve" : "reopen",
+    resolved ? "resolve" : invalid ? "invalidate" : "reopen",
     "defect",
     c.req.param("id"),
     resolved
       ? `Mangel behoben${b.note ? `: ${b.note.slice(0, 120)}` : ""}${b.photoKey ? " (mit Foto)" : ""}`
-      : "Mangel wieder geöffnet",
+      : invalid
+        ? `Mangel als ungültig markiert: ${b.reason.slice(0, 160)}`
+        : "Mangel wieder geöffnet",
   );
-  return c.json({ ok: true });
+  return c.json({ ok: true, ...(reopened ? { taskCreated } : {}) });
 });
+
+/** Offene Aufgaben eines ungültigen Mangels abbrechen (mit Kommentar), damit nichts ins Leere läuft. */
+async function cancelTasksOfInvalid(c: Ctx, defectId: string, reason: string, t: number) {
+  const done = await c.env.DB.prepare(
+    `UPDATE tasks SET status = 'cancelled', closed_at = ?1, updated_at = ?1 WHERE tenant_id = ?2 AND defect_id = ?3 AND status IN ('open','in_progress') RETURNING id`,
+  )
+    .bind(t, tid(c), defectId)
+    .all<{ id: string }>();
+  if (!done.results.length) return;
+  await c.env.DB.prepare(
+    `INSERT INTO task_comments (id, tenant_id, task_id, user_id, author_name, body, created_at)
+     SELECT lower(hex(randomblob(8))), ?1, value, ?2, ?3, ?4, ?5 FROM json_each(?6)`,
+  )
+    .bind(tid(c), c.get("user").userId, c.get("user").name, `Mangel als ungültig markiert – Aufgabe entfällt. Grund: ${reason}`, t, JSON.stringify(done.results.map((x) => x.id)))
+    .run();
+}
 
 /** Ausblenden (z. B. Duplikat, nicht relevant) – nur Admins; zählt danach nicht mehr mit. */
 data.post("/defects/:id/hide", async (c) => {

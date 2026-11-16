@@ -5,7 +5,8 @@ import { Hono } from "hono";
 import { DAY } from "../shared/logic";
 import { neverItem, NOW_LIMIT, type NowItem, NOW_VERBS, rankNow } from "../shared/now";
 import { automationSuggestions } from "./automation";
-import { defectScope, taskScope, tid } from "./data";
+import { defectScope, noActiveTaskSql, taskScope, tid } from "./data";
+import { pendingSevereFindings } from "./pending";
 import { adaptMode, intervalSuggestions } from "./intervals";
 import { type AppEnv, type Ctx, now, RANK, scopeSql, walkScope } from "./lib";
 
@@ -86,7 +87,7 @@ export interface Round {
 }
 
 /**
- * Schwere offene Mängel ohne Aufgabe. Standard: ohne jede Aufgabe (genau für diese legt „Anlegen“ an);
+ * Schwere offene Mängel ohne Aufgabe. Standard: ohne wirksame Aufgabe (`noActiveTaskSql`, genau für diese legt „Anlegen“ an);
  * `openOnly`: ohne offene Aufgabe (Alt-Pfad /smart/action-required, wie bisher).
  */
 export function severeDefectsWithoutTask(c: Ctx, openOnly = false) {
@@ -95,7 +96,7 @@ export function severeDefectsWithoutTask(c: Ctx, openOnly = false) {
        FROM defects d JOIN properties p ON p.id = d.property_id LEFT JOIN assets a ON a.id = d.asset_id LEFT JOIN buildings b ON b.id = a.building_id
       WHERE d.tenant_id = ?1 AND d.status = 'open' AND d.hidden_at IS NULL AND d.severity IN ('high','critical') AND p.deleted_at IS NULL
         AND (a.id IS NULL OR a.deleted_at IS NULL) AND ${defectScope(c, "d")}
-        AND NOT EXISTS (SELECT 1 FROM tasks k WHERE k.defect_id = d.id ${openOnly ? "AND k.status IN ('open','in_progress')" : ""}) ORDER BY d.created_at LIMIT 300`,
+        AND ${openOnly ? "NOT EXISTS (SELECT 1 FROM tasks k WHERE k.defect_id = d.id AND k.status IN ('open','in_progress'))" : noActiveTaskSql("d")} ORDER BY d.created_at LIMIT 300`,
   )
     .bind(tid(c))
     .all<{
@@ -108,6 +109,21 @@ export function severeDefectsWithoutTask(c: Ctx, openOnly = false) {
       propertyName: string;
       buildingName: string | null;
     }>();
+}
+
+/** Schwere offene Mängel, deren offene Aufgabe niemandem zugewiesen ist (weder Person noch Partner) – v6 E5. */
+export function severeDefectsUnassigned(c: Ctx) {
+  return c.env.DB.prepare(
+    `SELECT d.id, d.severity, d.created_at AS createdAt, MIN(k.id) AS taskId
+       FROM defects d JOIN properties p ON p.id = d.property_id LEFT JOIN assets a ON a.id = d.asset_id
+       JOIN tasks k ON k.defect_id = d.id AND k.status IN ('open','in_progress') AND k.assignee_id IS NULL AND k.subcontractor_id IS NULL
+      WHERE d.tenant_id = ?1 AND d.status = 'open' AND d.hidden_at IS NULL AND d.severity IN ('high','critical') AND p.deleted_at IS NULL
+        AND (a.id IS NULL OR a.deleted_at IS NULL) AND ${defectScope(c, "d")}
+        AND NOT EXISTS (SELECT 1 FROM tasks x WHERE x.defect_id = d.id AND x.status IN ('open','in_progress') AND (x.assignee_id IS NOT NULL OR x.subcontractor_id IS NOT NULL))
+      GROUP BY d.id ORDER BY d.created_at LIMIT 300`,
+  )
+    .bind(tid(c))
+    .all<{ id: string; severity: string; createdAt: number; taskId: string }>();
 }
 
 /** Überfällige offene Aufgaben im Bereich; `mine`: nur eigene und noch nicht vergebene. */
@@ -136,7 +152,7 @@ export async function collectNow(c: Ctx): Promise<NowItem[]> {
   if (RANK[u.role] < RANK.inspector) return [];
   const n = now();
   const t = tid(c);
-  const [rounds, defects, tasks, drafts, sign, offline, walks, roundOrders, walkedEver] =
+  const [rounds, defects, tasks, drafts, sign, offline, walks, roundOrders, walkedEver, findings, unassigned] =
     await Promise.all([
       dueRounds(c, 14),
       severeDefectsWithoutTask(c),
@@ -174,6 +190,8 @@ export async function collectNow(c: Ctx): Promise<NowItem[]> {
       c.env.DB.prepare("SELECT 1 AS x FROM walkthroughs WHERE tenant_id = ? LIMIT 1")
         .bind(t)
         .first<{ x: number }>(),
+      pendingSevereFindings(c),
+      severeDefectsUnassigned(c),
     ]);
   const out: NowItem[] = [];
   const action = (
@@ -182,6 +200,26 @@ export async function collectNow(c: Ctx): Promise<NowItem[]> {
     label = NOW_VERBS[verb],
   ) => ({ verb, label, ...target });
 
+  // v6 A2: schwere Befunde in bereitgelegten Prüfungen – noch kein Mangel, also sonst nirgends zu sehen
+  if (findings.length) {
+    const crit = findings.filter((f) => f.severity === "critical").length;
+    const insp = [...new Set(findings.map((f) => f.inspectionId))];
+    const mine = findings.some((f) => f.inspectorId === u.userId);
+    const shown = findings.slice(0, 2).map((f) => `${f.code}: ${f.title} (bereitgelegt von ${f.inspector})`);
+    out.push({
+      id: "pending-findings",
+      kind: "pending_findings",
+      tone: crit ? "bad" : "warn",
+      title:
+        findings.length === 1
+          ? `Ein ${crit ? "kritischer" : "hoher"} Befund wartet auf Unterschrift`
+          : `${findings.length} ${crit ? (crit === findings.length ? "kritische" : "kritische/hohe") : "hohe"} Befunde warten auf Unterschrift`,
+      text: `${shown.join(" · ")}${findings.length > 2 ? ` · und ${findings.length - 2} weitere` : ""}. Erst mit der Unterschrift entsteht der Mangel.`,
+      action: mine || insp.length !== 1 ? action("sign", { link: "/unterschreiben" }, mine ? "Unterschreiben" : "Ansehen") : action("open", { link: `/pruefung/${insp[0]}` }),
+      count: findings.length,
+      at: findings[0].readyAt,
+    });
+  }
   if (sign && sign.n > 0)
     out.push({
       id: "sign",
@@ -226,6 +264,21 @@ export async function collectNow(c: Ctx): Promise<NowItem[]> {
       ),
       count: k,
       at: defects.results[0].createdAt,
+    });
+  }
+  // v6 E5: schwere Mängel mit Aufgabe, aber ohne Zuständige
+  const nobody = unassigned.results;
+  if (nobody.length) {
+    const crit = nobody.filter((d) => d.severity === "critical").length;
+    out.push({
+      id: "defects-unassigned",
+      kind: "defects_unassigned",
+      tone: crit ? "bad" : "warn",
+      title: `${nobody.length} schwere ${nobody.length === 1 ? "Mangel" : "Mängel"} ohne Zuständige`,
+      text: `${crit ? `${crit} davon kritisch. ` : ""}Die Aufgabe liegt bei niemandem – einer Person oder einem Partner zuweisen.`,
+      action: action("open", { link: nobody.length === 1 ? `/aufgaben?id=${nobody[0].taskId}` : "/offen?art=aufgaben" }, "Zuweisen"),
+      count: nobody.length,
+      at: nobody[0].createdAt,
     });
   }
   const late = tasks.results;

@@ -17,6 +17,17 @@ import {
   parseElementRef,
   suggestProducts,
 } from "../shared/vocab";
+import { dayIn, monthRange } from "../shared/dates";
+import { expandCatalogDefects, splitFindings } from "../shared/duplicates";
+import {
+  dateArg,
+  fmt,
+  resolvePerson,
+  roleLabel,
+  team as teamOf,
+  tzOf,
+  walkthroughsDue,
+} from "./mcp-help";
 
 export type Json = Record<string, unknown>;
 export type Call = {
@@ -136,17 +147,7 @@ const day = (ms: unknown) =>
   typeof ms === "number" && ms > 0 ? dayFmt.format(ms) : null;
 const dayTime = (ms: unknown) =>
   typeof ms === "number" && ms > 0 ? timeFmt.format(ms) : null;
-/** ISO-Datum/-Zeit oder Zahl → Millisekunden */
-function toMs(v: unknown, field: string): number | undefined {
-  if (v == null || v === "") return undefined;
-  if (typeof v === "number") return v;
-  const t = Date.parse(String(v));
-  if (Number.isNaN(t))
-    throw new ToolError(
-      `${field}: „${String(v)}“ ist kein Datum. Bitte ISO angeben, z. B. 2026-11-30 oder 2026-11-30T14:00.`,
-    );
-  return t;
-}
+// Datumseingaben: dateArg (worker/mcp-help.ts, shared/dates.ts) – streng, relativ, in der Zeitzone des Workspaces
 const sev = (s: unknown) => SEVERITIES[s as Severity] ?? String(s ?? "");
 const RESULT: Record<string, string> = {
   ok: "ohne Mängel",
@@ -375,6 +376,36 @@ async function resolveBuilding(x: Ctx, q: unknown, propertyHint?: unknown) {
   );
 }
 
+/**
+ * Gebäude ohne Angabe (v6 C2): hat das Objekt (bzw. ohne Objekt der ganze Zugriffsbereich) genau ein Gebäude, gilt
+ * dieses – sonst Fehler mit Auswahl.
+ */
+async function onlyBuilding(x: Ctx, propertyHint?: unknown) {
+  const [bs, ps] = await Promise.all([
+    x.api({ method: "GET", path: "/buildings" }) as Promise<BuildingRow[]>,
+    properties(x),
+  ]);
+  const prop = lc(propertyHint)
+    ? pickOne(ps, propertyHint, "Objekt", 'Objekte liefert search(type: "properties").')
+    : null;
+  const pool = prop ? bs.filter((b) => b.propertyId === prop.id) : bs;
+  const pName = new Map(ps.map((p) => [p.id, p.name]));
+  if (pool.length === 1)
+    return { ...pool[0], propertyName: pName.get(pool[0].propertyId) ?? "" };
+  if (!pool.length)
+    throw new ToolError(
+      prop
+        ? `Objekt „${prop.name}“ hat noch kein Gebäude. Mit setup anlegen (oder in der App).`
+        : "Kein Gebäude im Zugriffsbereich. Mit setup Objekt und Gebäude anlegen.",
+    );
+  throw new ToolError(
+    `Welches Gebäude? ${prop ? `„${prop.name}“ hat` : "Es gibt"} mehrere: ${pool
+      .slice(0, 10)
+      .map((b) => (prop ? b.name : `${b.name} (${pName.get(b.propertyId)})`))
+      .join(", ")}. Bitte \`building\` angeben.`,
+  );
+}
+
 /** Verweis auf ein Bild für get_photo */
 const photoRef = (key: unknown) => (key ? `foto:${s(key)}` : null);
 const planRef = (id: unknown) => (id ? `plan:${s(id)}` : null);
@@ -409,18 +440,28 @@ const defectLine = (d: Json) =>
     defectId: d.id,
     title: d.title,
     severity: sev(d.severity),
-    status: d.status === "resolved" ? "behoben" : "offen",
+    status: DEFECT_STATUS[s(d.status)] ?? "offen",
     at: d.code
       ? `${d.code}${d.location ? ` (${d.location})` : ""}`
       : "Objekt/Begehung",
     property: d.propertyName,
     since: day(d.createdAt),
-    task: d.taskStatus
-      ? TASK_STATUS[s(d.taskStatus)]
-      : d.status === "open"
+    // „keine Aufgabe“ nach derselben Regel wie Autopilot und Bericht (v6 B3: wieder geöffnet → neue Aufgabe nötig)
+    task:
+      d.status === "open" && d.withoutTask
         ? "keine Aufgabe"
-        : null,
+        : d.taskStatus
+          ? TASK_STATUS[s(d.taskStatus)]
+          : d.status === "open"
+            ? "keine Aufgabe"
+            : null,
+    invalidReason: d.status === "invalid" ? d.invalidReason : null,
   });
+const DEFECT_STATUS: Record<string, string> = {
+  open: "offen",
+  resolved: "behoben",
+  invalid: "ungültig",
+};
 const taskLine = (t: Json, n = Date.now()) =>
   compact({
     taskId: t.id,
@@ -489,6 +530,9 @@ function findCheckpoint(
   return text ? matchCheckpoint(text, cps) : null;
 }
 
+/** v6 E9: ein Satz für alles, was nur Admins in der App dürfen. */
+const ADMIN_ONLY = "Das können nur Admins in der App.";
+
 const NEW_STRUCTURE_NOTE =
   "neue Objekte und Gebäude anlegen darf dieser Zugang nicht – dafür braucht es einen Schreib-Schlüssel einer Admin- oder Inhaber-Person (oder in der App: Objekte → Neu).";
 const NEW_STRUCTURE_HINT = (what: string) =>
@@ -509,22 +553,31 @@ async function canCreateStructure(x: Ctx) {
   }
 }
 
+/** Wirksame Stufe des Autopilot-Schritts „Nachprüfen“ (off, wenn der Autopilot aus ist). */
+async function verifyMode(x: Ctx): Promise<string> {
+  const steps = (await x.api({ method: "GET", path: "/automation" }).catch(() => [])) as Json[];
+  return s(steps.find((v) => v.key === "verify_repairs")?.effectiveMode) || "off";
+}
+
 // ---------- Werkzeuge ----------
 export const TOOLS: Tool[] = [
   {
     name: "briefing",
     title: "Lagebild",
     description:
-      "Die Lage in einem Aufruf – der beste Einstieg ins Gespräch („Was steht heute an?“). Liefert Kennzahlen (überfällig, bald fällig, nie geprüft, offene und kritische Mängel, offene Aufgaben), die „Jetzt“-Liste (höchstens 12 Dinge, die eine Entscheidung oder Handlung brauchen, dringendstes zuerst), wie viele Prüfungen in der App auf die Unterschrift warten, und was der Autopilot seit `since` getan hat (Standard: letzte 7 Tage). Nur lesend.",
+      "Die Lage in einem Aufruf – der beste Einstieg ins Gespräch („Was steht heute an?“). Ganz oben `attention`: kritische und hohe Befunde in Prüfungen, die zur Unterschrift bereitliegen (noch kein Mangel – erst mit der Unterschrift in der App). Dann Kennzahlen (überfällig, bald fällig, nie geprüft, offene Mängel, kritische Mängel getrennt nach offen und wartend auf Unterschrift, offene Aufgaben, fällige Begehungen), die „Jetzt“-Liste (höchstens 12 Dinge, die eine Entscheidung oder Handlung brauchen, dringendstes zuerst), wie viele Prüfungen auf die Unterschrift warten, und was der Autopilot seit `since` getan hat (Standard: letzte 7 Tage). Zeiten ohne Zone gelten in der Zeitzone des Workspaces. Nur lesend.",
     inputSchema: obj({
       since: str(
-        "Autopilot-Protokoll ab diesem Zeitpunkt (ISO), z. B. das Datum des letzten Briefings: „2026-11-10“ oder „2026-11-10T07:30“",
+        "Autopilot-Protokoll ab diesem Zeitpunkt, z. B. das letzte Briefing: „2026-11-10“, „2026-11-10T07:30“ (Ortszeit des Workspaces) oder „gestern“",
       ),
     }),
     readOnly: true,
     run: async (a, x) => {
-      const since = toMs(a.since, "since") ?? Date.now() - 7 * 86_400_000;
-      const [dash, now, log, ready] = await Promise.all([
+      const f = await fmt(x);
+      const since =
+        (await dateArg(x, a.since, "since", { allowPast: true, time: "start" })) ??
+        Date.now() - 7 * 86_400_000;
+      const [dash, now, log, ready, findings, walks] = await Promise.all([
         x.api({ method: "GET", path: "/dashboard" }) as Promise<{
           counts: Json;
           tasks: Json[];
@@ -536,11 +589,39 @@ export const TOOLS: Tool[] = [
         x
           .api({ method: "GET", path: "/inspections?status=ready" })
           .catch(() => []) as Promise<Json[]>,
+        x
+          .api({ method: "GET", path: "/inspections/pending-findings" })
+          .catch(() => []) as Promise<Json[]>,
+        walkthroughsDue(x),
       ]);
       const c = dash.counts;
       const entries = log.filter((e) => Number(e.at) >= since);
+      const critWaiting = findings.filter((d) => d.severity === "critical").length;
+      const highWaiting = findings.length - critWaiting;
       return {
-        asOf: dayTime(Date.now()),
+        asOf: f.dayTime(Date.now()),
+        ...(findings.length
+          ? {
+              attention: {
+                text: `${findings.length === 1 ? `Ein ${critWaiting ? "kritischer" : "hoher"} Befund wartet` : `${findings.length} ${critWaiting ? (highWaiting ? "kritische/hohe" : "kritische") : "hohe"} Befunde warten`} auf Unterschrift – bis dahin ist es kein Mangel und hat keine Aufgabe.`,
+                criticalWaitingForSignature: critWaiting,
+                highWaitingForSignature: highWaiting,
+                findings: findings.slice(0, 20).map((d) =>
+                  compact({
+                    element: `${s(d.code)}${d.location ? ` (${s(d.location)})` : ""}`,
+                    property: d.propertyName,
+                    finding: d.title,
+                    severity: d.severity,
+                    severityLabel: sev(d.severity),
+                    readyBy: d.inspector,
+                    readySince: f.dayTime(d.readyAt),
+                    inspectionId: d.inspectionId,
+                  }),
+                ),
+                hint: "In der App: Prüfen → Unterschreiben (nur die prüfende Person).",
+              },
+            }
+          : {}),
         counts: compact({
           properties: c.properties,
           elements: c.assets,
@@ -550,26 +631,30 @@ export const TOOLS: Tool[] = [
           notInspectable: c.notInspectable,
           openDefects:
             Number(c.openDefects ?? 0) + Number(c.openWalkDefects ?? 0),
-          criticalDefects: c.criticalDefects,
+          criticalDefects: {
+            open: Number(c.criticalDefects ?? 0),
+            waitingForSignature: critWaiting,
+          },
           inspectionsLast30Days: c.inspections30d,
           drafts: c.drafts,
-          walkthroughsDue: c.walkDue,
+          walkthroughsDue: walks.length || null,
         }),
         readyToSign: ready.length
           ? `${ready.length} ${ready.length === 1 ? "Prüfung wartet" : "Prüfungen warten"} in der App auf die Unterschrift`
           : 0,
         now,
         autopilot: {
-          since: dayTime(since),
+          since: f.dayTime(since),
           entries: entries
             .slice(0, 30)
             .map((e) =>
               compact({
-                at: dayTime(e.at),
+                id: e.id,
+                at: f.dayTime(e.at),
                 step: e.title,
                 summary: e.summary,
                 undone: e.undoneAt ? true : null,
-                undoEntry: e.undoable ? e.id : null,
+                undoable: !!e.undoable,
               }),
             ),
           ...(entries.length > 30 ? { more: entries.length - 30 } : {}),
@@ -766,11 +851,12 @@ export const TOOLS: Tool[] = [
           },
         ),
         status: str(
-          "Mängel: open|resolved|all; Aufgaben: open|in_progress|done|cancelled|active|all (Standard active = offen + in Arbeit); Prüfungen: submitted|draft|ready",
+          "Mängel: open|resolved|invalid|all (invalid = ungültig: Duplikat/Fehleintrag); Aufgaben: open|in_progress|done|cancelled|active|all (Standard active = offen + in Arbeit); Prüfungen: submitted|draft|ready",
           {
             enum: [
               "open",
               "resolved",
+              "invalid",
               "all",
               "in_progress",
               "done",
@@ -786,8 +872,8 @@ export const TOOLS: Tool[] = [
         category: str("Elementart (Schlüssel oder Bezeichnung)"),
         property: str("Objektname"),
         building: str("Gebäudename (nur Elemente)"),
-        from: str("ab Datum (ISO), nur inspections"),
-        to: str("bis Datum (ISO), nur inspections"),
+        from: str("ab Datum (nur inspections): ISO wie „2026-11-01“ (Ortszeit des Workspaces), „01.11.“ oder relativ wie „gestern“"),
+        to: str("bis Datum einschließlich, nur inspections"),
         limit: int("höchstens so viele Einträge (Standard 50)", 1, 200),
       },
       ["what"],
@@ -828,7 +914,7 @@ export const TOOLS: Tool[] = [
           );
         }
         case "defects": {
-          const st = ["resolved", "all"].includes(s(a.status))
+          const st = ["resolved", "invalid", "all"].includes(s(a.status))
             ? s(a.status)
             : "open";
           const rows = (
@@ -868,8 +954,8 @@ export const TOOLS: Tool[] = [
             qs.set("status", s(a.status));
           if (prop) qs.set("propertyId", prop.id);
           if (cat) qs.set("category", cat.key);
-          const from = toMs(a.from, "from");
-          const to = toMs(a.to, "to");
+          const from = await dateArg(x, a.from, "from", { allowPast: true, time: "start" });
+          const to = await dateArg(x, a.to, "to", { allowPast: true, time: "end" });
           if (from) qs.set("from", String(from));
           if (to) qs.set("to", String(to));
           const rows = (await x.api({
@@ -904,7 +990,20 @@ export const TOOLS: Tool[] = [
           const rows = (
             (await x.api({ method: "GET", path: "/walkthroughs" })) as Json[]
           ).filter((w) => !prop || w.propertyId === prop.id);
-          return cut(
+          // v6 E4: fällige Begehungen aus derselben Quelle wie briefing.counts.walkthroughsDue
+          const due = (await walkthroughsDue(x)).filter(
+            (w) => !prop || w.propertyId === prop.id,
+          );
+          const dueList = due.map((w) =>
+            compact({
+              property: w.property,
+              nextDue: day(w.nextDue) ?? "noch keine Begehung",
+              overdue: w.overdue || null,
+            }),
+          );
+          return {
+            due: { total: due.length, properties: dueList },
+            ...cut(
             rows.map((w) =>
               compact({
                 walkthroughId: w.id,
@@ -919,13 +1018,50 @@ export const TOOLS: Tool[] = [
               }),
             ),
             "walkthroughs",
-          );
+            ),
+          };
         }
         default:
           throw new ToolError(
             "`what` muss assets, defects, tasks, inspections oder walkthroughs sein.",
           );
       }
+    },
+  },
+  {
+    name: "team",
+    title: "Team",
+    description:
+      "Wer im Workspace Aufgaben übernehmen kann: Mitglieder mit Rolle (Inhaber, Admin, Prüfer, Lesezugriff) und E-Mail, dazu Partner (Subunternehmer, Firma und Gewerk), und wer „ich“ bin. Zuständige gibst du in capture und update_tasks per Name, E-Mail, „ich“ oder Partner-Firma an – aufgelöst über genau diese Liste. Nur lesend.",
+    inputSchema: obj({
+      query: str("nur Personen/Partner, deren Name, E-Mail oder Firma das enthält"),
+    }),
+    readOnly: true,
+    run: async (a, x) => {
+      const t = await teamOf(x);
+      const q = lc(a.query);
+      const hit = (...v: unknown[]) => !q || v.some((y) => lc(y).includes(q));
+      const me = t.members.find((m) => m.id === t.me);
+      return compact({
+        me: me ? `${me.name} (${roleLabel(me.role)})` : null,
+        members: t.members
+          .filter((m) => hit(m.name, m.email))
+          .map((m) =>
+            compact({
+              name: m.name,
+              email: m.email,
+              role: roleLabel(m.role),
+              takesTasks: m.canTakeTasks ? null : "nein (nur Lesezugriff)",
+              limitedTo: m.scoped ? "einzelne Objekte/Gebäude" : null,
+            }),
+          ),
+        partners: t.partners
+          .filter((p) => hit(p.company, p.contactName, p.trade))
+          .map((p) =>
+            compact({ company: p.company, contact: p.contactName, trade: p.trade }),
+          ),
+        hint: 'Zuweisen: update_tasks(assignee: "Name", "E-Mail", "ich" oder Partner-Firma).',
+      });
     },
   },
   {
@@ -1401,7 +1537,15 @@ export const TOOLS: Tool[] = [
               priority: str("Aufgabe: Priorität", {
                 enum: ["low", "medium", "high"],
               }),
-              due: str("Aufgabe: Frist (ISO-Datum), z. B. „2026-11-20“"),
+              due: str(
+                "Aufgabe: Frist – ISO „2026-11-20“, „20.11.“ oder relativ: heute, morgen, übermorgen, Freitag, nächste Woche, in 3 Tagen, Ende des Monats (Zeitzone des Workspaces). Ungültige Daten (30.02.) werden abgelehnt.",
+              ),
+              allowPast: bool(
+                "Aufgabe: Frist in der Vergangenheit ausdrücklich erlauben (sonst Fehler)",
+              ),
+              assignee: str(
+                "Aufgabe: zuständig – Name, E-Mail, „ich“ oder Partner (Firma); siehe team",
+              ),
               asset: str(
                 "Element-Code für diesen Eintrag – oder Nummer wie „Tür 36“ (mit `property`)",
               ),
@@ -1409,7 +1553,9 @@ export const TOOLS: Tool[] = [
               category: str(
                 "asset: Elementart (Schlüssel oder Bezeichnung, z. B. „Feuerlöscher“)",
               ),
-              building: str("asset: Gebäude (Name)"),
+              building: str(
+                "asset: Gebäude (Name) – entfällt, wenn das Objekt nur ein Gebäude hat",
+              ),
               floor: str("asset: Etage, z. B. „EG“, „1. OG“"),
               location: str("asset: Standort, z. B. „Flur vor Raum 1.04“"),
               count: int("asset: Anzahl gleicher Elemente", 1, 50),
@@ -1473,11 +1619,9 @@ export const TOOLS: Tool[] = [
         try {
           if (it.kind === "asset") {
             const cat = await resolveCategory(x, it.category ?? it.title);
-            const b = await resolveBuilding(
-              x,
-              it.building ?? "",
-              it.property ?? a.property,
-            );
+            const b = lc(it.building)
+              ? await resolveBuilding(x, it.building, it.property ?? a.property)
+              : await onlyBuilding(x, it.property ?? a.property);
             const count = clamp(it.count, 1, 50, 1);
             const codes: string[] = [];
             for (let i = 0; i < count; i++) {
@@ -1547,16 +1691,28 @@ export const TOOLS: Tool[] = [
                 skipped.push(
                   compact({
                     item: label,
-                    reason: "ähnlicher Mangel schon offen",
+                    reason: dup?.inDraft
+                      ? dup.ready
+                        ? "steht schon als Befund in einer Prüfung, die auf die Unterschrift wartet"
+                        : "steht schon als Befund in einer angefangenen Prüfung"
+                      : "ähnlicher Mangel schon offen",
                     existing: dup?.title,
                     existingDefectId: dup?.id,
+                    inspectionId: dup?.inspectionId,
+                    sameAs: dup?.via ? `beides „${s(dup.via)}“ (Katalog)` : null,
                     since: day(dup?.createdAt),
                   }),
                 );
               } else throw e;
             }
           } else {
-            const due = toMs(it.due, "due");
+            // v6 A6/C1: Frist streng prüfen (30.02. → Fehler), relativ in der Zeitzone des Workspaces
+            const due = await dateArg(x, it.due, "due", {
+              allowPast: it.allowPast === true,
+            });
+            const who = lc(it.assignee)
+              ? await resolvePerson(x, it.assignee)
+              : null;
             await x.api({
               method: "POST",
               path: "/tasks",
@@ -1571,11 +1727,14 @@ export const TOOLS: Tool[] = [
                       : "medium",
                 dueAt: due ?? null,
                 assetId: asset?.id ?? null,
-                propertyId: asset ? null : (prop?.id ?? null),
+                // v6 B5: Objekt vom Element erben (Liste, Filter und Bericht finden die Aufgabe)
+                propertyId: asset?.propertyId || prop?.id || null,
+                assigneeId: who?.kind === "member" ? who.id : null,
+                subcontractorId: who?.kind === "partner" ? who.id : null,
               },
             });
             created.push(
-              `${it.kind === "note" ? "Notiz" : "Aufgabe"} „${title}“${code ? ` zu ${code}` : prop ? ` in ${prop.name}` : ""}${due ? `, fällig ${day(due)}` : ""}`,
+              `${it.kind === "note" ? "Notiz" : "Aufgabe"} „${title}“${code ? ` zu ${code}` : prop ? ` in ${prop.name}` : ""}${due ? `, fällig ${dayIn(due, await tzOf(x))}` : ""}${who ? `, an ${who.name}` : ""}`,
             );
           }
         } catch (e) {
@@ -1725,7 +1884,7 @@ export const TOOLS: Tool[] = [
     name: "update_tasks",
     title: "Aufgaben ändern",
     description:
-      'Eine oder mehrere Aufgaben ändern: Status (open, in_progress, done, cancelled – „done“ schließt einen verknüpften Mangel), Zuständige (Name oder ID; null = niemand), Frist (ISO-Datum oder null), Priorität, und/oder einen internen Kommentar anhängen (für Subunternehmer unsichtbar). taskIds stammen aus list(what: "tasks"), briefing oder get. Beispiel: {taskIds: ["k3x…"], status: "done", comment: "Schließer am 12.11. getauscht"}.',
+      'Eine oder mehrere Aufgaben ändern: Status (open, in_progress, done, cancelled), Zuständige (`assignee`: Name, E-Mail, „ich“ oder Partner-Firma – alle Mitglieder und Partner, siehe team; null = niemand), Frist (ISO, „30.11.“ oder relativ wie „morgen“, „Freitag“, „in 3 Tagen“; null = keine), Priorität, und/oder einen internen Kommentar (für Partner unsichtbar). „done“ an einer Mängelbehebung läuft wie in der App: Ist der Autopilot-Schritt „Nachprüfen“ an, bleibt der Mangel offen und es entsteht ein Nachprüf-Auftrag; sonst wird der Mangel behoben und der Kommentar zur Behebungsnotiz (`resolveDefect` erzwingt bzw. verhindert das). taskIds aus list(what: "tasks"), briefing oder get. Beispiel: {taskIds: ["k3x…"], status: "done", comment: "Schließer am 12.11. getauscht"}.',
     inputSchema: obj(
       {
         taskIds: arr({ type: "string" }, "IDs der Aufgaben", 200),
@@ -1735,15 +1894,21 @@ export const TOOLS: Tool[] = [
         assignee: {
           type: ["string", "null"],
           description:
-            "zuständige Person: Name (wie in get/list angezeigt) oder Nutzer-ID; null = niemand",
+            "zuständig: Name, E-Mail, „ich“ oder Partner (Firma) – über alle Mitglieder und Partner; null = niemand",
         },
         due: {
           type: ["string", "null"],
           description:
-            "neue Frist (ISO-Datum, z. B. „2026-11-30“) oder null für keine",
+            "neue Frist: „2026-11-30“, „30.11.“, „morgen“, „Freitag“, „nächste Woche“, „in 3 Tagen“, „Ende des Monats“ (Zeitzone des Workspaces) oder null für keine",
         },
+        allowPast: bool("Frist in der Vergangenheit ausdrücklich erlauben"),
         priority: str("Priorität", { enum: ["low", "medium", "high"] }),
-        comment: str("interner Kommentar für jede genannte Aufgabe"),
+        comment: str(
+          "interner Kommentar für jede genannte Aufgabe; bei „done“ einer Mängelbehebung zugleich die Behebungsnotiz",
+        ),
+        resolveDefect: bool(
+          "nur bei done: verknüpften Mangel sofort als behoben markieren (true) bzw. offen lassen (false). Ohne Angabe wie in der App: mit Nachprüfen-Schritt offen bis zur Nachprüfung, sonst behoben.",
+        ),
       },
       ["taskIds"],
     ),
@@ -1758,42 +1923,39 @@ export const TOOLS: Tool[] = [
       if (a.status) body.status = a.status;
       if (a.priority) body.priority = a.priority;
       if (a.due !== undefined)
-        body.dueAt = a.due === null ? null : toMs(a.due, "due");
+        body.dueAt =
+          a.due === null
+            ? null
+            : await dateArg(x, a.due, "due", { allowPast: a.allowPast === true });
+      let who: Awaited<ReturnType<typeof resolvePerson>> | null = null;
       if (a.assignee !== undefined) {
-        if (a.assignee === null || a.assignee === "") body.assigneeId = null;
-        else {
-          // Namen aus den sichtbaren Aufgaben auflösen (Mitgliederliste ist mit Schlüssel nicht abrufbar)
-          const known = new Map<string, string>();
-          for (const t of (await x.api({
-            method: "GET",
-            path: "/tasks",
-          })) as Json[])
-            if (t.assigneeId) known.set(s(t.assigneeId), s(t.assigneeName));
-          const q = lc(a.assignee);
-          const hits = [...known].filter(
-            ([id, name]) =>
-              id === s(a.assignee) || lc(name) === q || lc(name).includes(q),
-          );
-          if (hits.length !== 1)
-            throw new ToolError(
-              hits.length
-                ? `„${s(a.assignee)}“ ist mehrdeutig: ${hits.map(([, n]) => n).join(", ")}.`
-                : `Person „${s(a.assignee)}“ nicht gefunden. Bekannt aus Aufgaben: ${[...known.values()].join(", ") || "niemand"}. Sonst die Nutzer-ID angeben (get(kind: "task") zeigt assigneeId).`,
-            );
-          body.assigneeId = hits[0][0];
+        if (a.assignee === null || a.assignee === "") {
+          body.assigneeId = null;
+          body.subcontractorId = null;
+        } else {
+          // v6 B1: über alle Mitglieder und Partner (nicht nur Namen, die schon an Aufgaben stehen)
+          who = await resolvePerson(x, a.assignee);
+          if (who.kind === "member") body.assigneeId = who.id;
+          else body.subcontractorId = who.id;
         }
       }
       const out: Json = {};
-      if (Object.keys(body).length) {
-        const r = (await x.api({
-          method: "POST",
-          path: "/tasks/bulk",
-          body: { ids, ...body },
-        })) as { updated: number; skipped: number };
-        out.updated = r.updated;
-        if (r.skipped)
-          out.notFound = `${r.skipped} ID(s) unbekannt oder außerhalb deines Bereichs`;
-      }
+      // Mängelbehebungen, die jetzt erledigt werden (v6 B3: derselbe Weg wie in der App)
+      const done = a.status === "done";
+      const before = done
+        ? ((await x.api({ method: "GET", path: "/tasks" })) as Json[]).filter(
+            (t) =>
+              ids.includes(s(t.id)) &&
+              t.status !== "done" &&
+              t.kind === "defect" &&
+              t.defectId &&
+              t.defectStatus === "open",
+          )
+        : [];
+      const verify = done && before.length ? await verifyMode(x) : "off";
+      const resolveNow =
+        a.resolveDefect === true || (a.resolveDefect !== false && verify === "off");
+      // Kommentar zuerst: er steht im Verlauf vor dem Statuswechsel
       if (a.comment) {
         let n = 0;
         const fails: string[] = [];
@@ -1812,6 +1974,41 @@ export const TOOLS: Tool[] = [
         out.commented = n;
         if (fails.length) out.commentErrors = fails;
       }
+      if (Object.keys(body).length) {
+        const r = (await x.api({
+          method: "POST",
+          path: "/tasks/bulk",
+          // Mangel nie nebenbei schließen – das entscheidet der Schritt unten (wie der Dialog in der App)
+          body: { ids, ...body, ...(done ? { resolveDefects: false } : {}) },
+        })) as { updated: number; skipped: number };
+        out.updated = r.updated;
+        if (who) out.assignee = who.kind === "partner" ? `${who.name} (Partner)` : who.name;
+        if (r.skipped)
+          out.notFound = `${r.skipped} ID(s) unbekannt oder außerhalb deines Bereichs`;
+      }
+      if (before.length) {
+        const defects: string[] = [];
+        for (const t of before) {
+          if (resolveNow) {
+            await x.api({
+              method: "PATCH",
+              path: `/defects/${enc(s(t.defectId))}`,
+              body: { status: "resolved", note: s(a.comment) },
+            });
+            defects.push(
+              `Mangel „${s(t.defectTitle)}“ behoben${a.comment ? " (Kommentar als Behebungsnotiz)" : ""}`,
+            );
+          } else
+            defects.push(
+              verify === "auto"
+                ? `Mangel „${s(t.defectTitle)}“ bleibt offen bis zur Nachprüfung – Nachprüf-Auftrag angelegt`
+                : verify === "suggest"
+                  ? `Mangel „${s(t.defectTitle)}“ bleibt offen – Nachprüfung steht als Vorschlag unter „Jetzt“`
+                  : `Mangel „${s(t.defectTitle)}“ bleibt offen (resolveDefect: false)`,
+            );
+        }
+        out.defects = defects;
+      }
       if (!Object.keys(out).length)
         throw new ToolError(
           "Nichts zu ändern: status, assignee, due, priority oder comment angeben.",
@@ -1821,17 +2018,21 @@ export const TOOLS: Tool[] = [
   },
   {
     name: "update_defect",
-    title: "Mangel beheben oder öffnen",
+    title: "Mangel beheben, öffnen oder als ungültig markieren",
     description:
-      'Einen Mangel als behoben markieren (`action: "resolve"`, mit Notiz wer/was/wann) oder wieder öffnen (`action: "reopen"`). defectId aus list(what: "defects"), search oder get. Beispiel: {defectId: "d7…", action: "resolve", note: "Dichtung durch Fa. Hansen erneuert"}.',
+      'Einen Mangel als behoben markieren (`action: "resolve"`, mit Notiz wer/was/wann), wieder öffnen (`action: "reopen"` – braucht danach eine neue Aufgabe, siehe plan tasks_from_defects) oder als ungültig markieren (`action: "invalid"` mit `reason`, z. B. „Duplikat von …“ oder „Fehleintrag“ – zählt dann nicht in Behebungsquote und -dauer, offene Aufgaben dazu entfallen; mit reopen rückgängig). defectId aus list(what: "defects"), search oder get. Beispiel: {defectId: "d7…", action: "resolve", note: "Dichtung durch Fa. Hansen erneuert"}.',
     inputSchema: obj(
       {
         defectId: str("ID des Mangels"),
-        action: str("resolve = behoben, reopen = wieder offen", {
-          enum: ["resolve", "reopen"],
-        }),
+        action: str(
+          "resolve = behoben, reopen = wieder offen, invalid = ungültig (Duplikat/Fehleintrag)",
+          { enum: ["resolve", "reopen", "invalid"] },
+        ),
         note: str(
           "Behebungsnotiz, z. B. „Schließer getauscht durch Fa. Hansen“",
+        ),
+        reason: str(
+          "nur invalid (Pflicht): warum ungültig, z. B. „Duplikat von FST-004 Schließer“",
         ),
       },
       ["defectId", "action"],
@@ -1839,6 +2040,10 @@ export const TOOLS: Tool[] = [
     readOnly: false,
     run: async (a, x) => {
       const id = s(a.defectId);
+      if (a.action === "invalid" && s(a.reason).trim().length < 3)
+        throw new ToolError(
+          "Für „ungültig“ bitte `reason` angeben, z. B. „Duplikat von FST-004 Schließer“ oder „Fehleintrag“.",
+        );
       try {
         await x.api({
           method: "PATCH",
@@ -1846,7 +2051,9 @@ export const TOOLS: Tool[] = [
           body:
             a.action === "reopen"
               ? { status: "open" }
-              : { status: "resolved", note: s(a.note) },
+              : a.action === "invalid"
+                ? { status: "invalid", reason: s(a.reason).trim() }
+                : { status: "resolved", note: s(a.note) },
         });
       } catch (e) {
         if (e instanceof ApiError && e.status === 404)
@@ -1862,8 +2069,13 @@ export const TOOLS: Tool[] = [
       return compact({
         defect: d.title,
         at: d.code,
-        status: d.status === "resolved" ? "behoben" : "offen",
+        status: DEFECT_STATUS[s(d.status)] ?? s(d.status),
         note: d.resolutionNote,
+        reason: d.status === "invalid" ? d.invalidReason : null,
+        task:
+          d.status === "open" && d.withoutTask
+            ? 'ohne Aufgabe – plan(action: "tasks_from_defects") oder der Autopilot legt eine an'
+            : null,
       });
     },
   },
@@ -1871,7 +2083,7 @@ export const TOOLS: Tool[] = [
     name: "plan",
     title: "Planen",
     description:
-      'Rundgänge planen. `action: "view"` (Standard): fällige Prüfungen je Gebäude als Rundgang – überfällig, in `days` Tagen fällig, nie geprüft – mit Elementen in Laufreihenfolge (Etage, Standort). `action: "plan_week"`: die Wochenplanung des Autopiloten jetzt einmal ausführen (Rundgang-Aufträge an die Zuständigen). `action: "tasks_from_defects"`: für offene Mängel ohne Aufgabe Aufgaben mit Frist anlegen (Standard: Schwere high und critical).',
+      'Rundgänge planen. `action: "view"` (Standard): fällige Prüfungen je Gebäude als Rundgang – überfällig, in `days` Tagen fällig, nie geprüft – mit Elementen in Laufreihenfolge (Etage, Standort). `action: "plan_week"`: die Wochenplanung des Autopiloten jetzt einmal ausführen (Rundgang-Aufträge an die Zuständigen; nie geprüfte Elemente gelten als sofort fällig). `action: "tasks_from_defects"`: für offene Mängel ohne wirksame Aufgabe (auch wieder geöffnete) Aufgaben mit Frist anlegen (Standard: Schwere high und critical).',
     inputSchema: obj({
       action: str(
         "view = ansehen, plan_week = Wochenplanung auslösen, tasks_from_defects = Aufgaben aus Mängeln",
@@ -1895,9 +2107,10 @@ export const TOOLS: Tool[] = [
         })) as Json;
         return {
           done: r.done,
+          // v6 B4: nie geprüfte Elemente gelten als sofort fällig und werden mit eingeplant
           text: Number(r.done)
-            ? `${s(r.done)} Rundgang-Auftrag/-Aufträge angelegt bzw. aktualisiert.`
-            : "Nichts zu planen – keine neuen Fälligkeiten im Planungsfenster.",
+            ? `${s(r.done)} Rundgang-Auftrag/-Aufträge angelegt (überfällig, in 14 Tagen fällig oder noch nie geprüft).`
+            : "Nichts zu planen – nichts überfällig, nichts in 14 Tagen fällig, nichts nie geprüft, oder für die Gebäude gibt es schon offene Rundgang-Aufträge.",
         };
       }
       if (action === "tasks_from_defects") {
@@ -1909,7 +2122,12 @@ export const TOOLS: Tool[] = [
               ? { severities: a.severities }
               : {},
         })) as Json;
-        return { created: r.created };
+        return {
+          created: r.created,
+          text: Number(r.created)
+            ? `${s(r.created)} Aufgabe(n) für Mängel ohne wirksame Aufgabe angelegt (auch wieder geöffnete und solche mit abgebrochener Aufgabe).`
+            : "Keine offenen Mängel dieser Schwere ohne Aufgabe.",
+        };
       }
       const days = clamp(a.days, 1, 365, 14);
       let rounds = (await x.api({
@@ -2619,7 +2837,7 @@ export const TOOLS: Tool[] = [
     name: "catalog",
     title: "Katalog",
     description:
-      'Fachwissen des Workspaces: Produkte (Hersteller, Typ, Art, Vorgabewerte der Stammdaten wie {rating: "T30", smoke: true}, Zulassung), typische Mängel (Titel, Synonyme, Schwere, Maßnahme, Art) und Begriffe (Abkürzung → Bedeutung, z. B. OTS → Obentürschließer). `action: "search"` mit `list` (products|defects|terms, ohne = alle) und optional `query`/`category`. `action: "suggest"` mit `text` (z. B. ein Befund „OTS zieht nicht zu“): passende Katalog-Mängel mit Schwere und Maßnahme und ausgeschriebene Begriffe; mit `manufacturer`/`model` passende Produkte. `action: "upsert"` mit `list` und `items` (höchstens 200): legt neu an oder ändert vorhandene Einträge mit gleichem Schlüssel (Hersteller+Typ, Art+Titel, Begriff) – so baust du den Katalog aus Datenblättern, Prüfprotokollen oder Preislisten auf. Immer zuerst mit `preview: true` (Standard) aufrufen und die Vorschau zeigen, nach Bestätigung mit `preview: false`. Anlegen/Ändern darf nur ein Schreib-Schlüssel einer Admin- oder Inhaber-Person; Löschen nur in der App (Einstellungen → Katalog). Beispiel: {action: "upsert", list: "defects", preview: true, items: [{title: "Haftmagnet brummt", severity: "low", measure: "Netzteil prüfen", category: "Feststellanlage"}]}.',
+      'Fachwissen des Workspaces: Produkte (Hersteller, Typ, Art, Vorgabewerte der Stammdaten wie {rating: "T30", smoke: true}, Zulassung), typische Mängel (Titel, Synonyme, Schwere, Maßnahme, Art) und Begriffe (Abkürzung → Bedeutung, z. B. OTS → Obentürschließer). `action: "search"` mit `list` (products|defects|terms, ohne = alle) und optional `query`/`category`. `action: "suggest"` mit `text` (z. B. ein Befund „OTS zieht nicht zu“ – mehrere Befunde in einem Satz werden einzeln unter `findings` zugeordnet): passende Katalog-Mängel mit Schwere und Maßnahme und ausgeschriebene Begriffe; mit `manufacturer`/`model` passende Produkte. `action: "upsert"` mit `list` und `items` (höchstens 200): legt neu an oder ändert vorhandene Einträge mit gleichem Schlüssel (Hersteller+Typ, Art+Titel, Begriff) – so baust du den Katalog aus Datenblättern, Prüfprotokollen oder Preislisten auf. Immer zuerst mit `preview: true` (Standard) aufrufen und die Vorschau zeigen, nach Bestätigung mit `preview: false`. Unbekannte Felder und unbekannte Stammdaten in `defaults` werden je Eintrag als Fehler gemeldet. Anlegen/Ändern darf nur ein Schreib-Schlüssel einer Admin- oder Inhaber-Person; Löschen: Das können nur Admins in der App (Einstellungen → Katalog). Beispiel: {action: "upsert", list: "defects", preview: true, items: [{title: "Haftmagnet brummt", severity: "low", measure: "Netzteil prüfen", category: "Feststellanlage"}]}.',
     inputSchema: obj(
       {
         action: str("search, suggest oder upsert", {
@@ -2730,10 +2948,19 @@ export const TOOLS: Tool[] = [
           throw new ToolError(
             "suggest braucht `text` oder `manufacturer`/`model`.",
           );
+        // v6 C3: mehrere Befunde in einem Satz einzeln zuordnen; Katalog-Einträge auch mit ausgeschriebenen Begriffen
+        const pool = expandCatalogDefects(c.defects, c.terms);
+        const parts = text ? splitFindings(text) : [];
         const expanded = expandTerms(text, c.terms);
-        const defects = text
-          ? matchCatalogDefects(expanded, c.defects, { category: cat?.key })
-          : [];
+        const perPart = parts.map((p) => {
+          const e = expandTerms(p, c.terms);
+          return {
+            text: p,
+            expanded: e,
+            hits: matchCatalogDefects(e, pool, { category: cat?.key, limit: 3 }),
+          };
+        });
+        const defects = parts.length === 1 ? perPart[0].hits : [];
         const products =
           lc(a.manufacturer) || lc(a.model)
             ? suggestProducts(
@@ -2742,17 +2969,29 @@ export const TOOLS: Tool[] = [
                 cat?.key,
               )
             : [];
+        const line = (m: (typeof defects)[number]) =>
+          compact({
+            title: m.defect.title,
+            severity: m.defect.severity,
+            severityLabel: sev(m.defect.severity),
+            measure: m.defect.measure,
+            art: label(m.defect.category),
+            match: `${Math.round(m.score * 100)} %`,
+          });
         return compact({
           understood: expanded !== text ? expanded : null,
-          defects: defects.map((m) =>
-            compact({
-              title: m.defect.title,
-              severity: m.defect.severity,
-              measure: m.defect.measure,
-              art: label(m.defect.category),
-              match: `${Math.round(m.score * 100)} %`,
-            }),
-          ),
+          defects: defects.map(line),
+          findings:
+            parts.length > 1
+              ? perPart.map((p) =>
+                  compact({
+                    text: p.text,
+                    understood: p.expanded !== p.text ? p.expanded : null,
+                    defects: p.hits.map(line),
+                    hint: p.hits.length ? null : "kein passender Katalog-Mangel",
+                  }),
+                )
+              : null,
           products: products.map((p) =>
             compact({
               manufacturer: p.manufacturer,
@@ -2762,7 +3001,7 @@ export const TOOLS: Tool[] = [
             }),
           ),
           hint:
-            !defects.length && text
+            text && !perPart.some((p) => p.hits.length)
               ? "Kein passender Katalog-Mangel – mit upsert ergänzen, wenn er öfter vorkommt."
               : null,
         });
@@ -2813,7 +3052,7 @@ export const TOOLS: Tool[] = [
         } catch (e) {
           if (e instanceof ApiError && e.status === 403)
             throw new ToolError(
-              "Den Katalog ändern darf nur ein Schreib-Schlüssel einer Admin- oder Inhaber-Person (oder ein Admin in der App: Einstellungen → Katalog). Lesen und suggest gehen weiterhin.",
+              `Katalog ändern: ${ADMIN_ONLY} (Einstellungen → Katalog) – oder über einen Schreib-Schlüssel einer Admin- bzw. Inhaber-Person. Lesen und suggest gehen weiterhin.`,
             );
           throw e;
         }
@@ -2825,7 +3064,7 @@ export const TOOLS: Tool[] = [
     name: "autopilot",
     title: "Autopilot",
     description:
-      'Den Autopiloten (Kreislauf aus Schritten wie Planen, Zuweisen, Nachhalten) ansehen und bedienen. `action: "view"`: Schritte mit Stufe (Aus, Vorschlagen, Automatisch) und letzter Ausführung, dazu das Protokoll (neueste zuerst). `action: "run"` mit `step` (Schlüssel aus view): den Schritt jetzt einmal ausführen. `action: "undo"` mit `entry` (ID aus dem Protokoll, nur wenn undoable): einen Eintrag rückgängig machen (z. B. angelegte, noch unbearbeitete Aufgaben wieder entfernen). Stufen ändern geht nur in der App durch Admins (Einstellungen → Automatik) – über diesen Zugang nie.',
+      'Den Autopiloten (Kreislauf aus Schritten wie Planen, Zuweisen, Nachhalten) ansehen und bedienen. `action: "view"`: Schritte mit Stufe (Aus, Vorschlagen, Automatisch) und letzter Ausführung, dazu das Protokoll (neueste zuerst). `action: "run"` mit `step` (Schlüssel aus view): den Schritt jetzt einmal ausführen. `action: "undo"` mit `entry` (ID aus dem Protokoll, nur wenn undoable): einen Eintrag rückgängig machen (z. B. angelegte, noch unbearbeitete Aufgaben wieder entfernen). Je Protokolleintrag `id` und `undoable`. Stufen ändern: Das können nur Admins in der App (Einstellungen → Automatik) – über diesen Zugang nie.',
     inputSchema: obj(
       {
         action: str("view, run oder undo", { enum: ["view", "run", "undo"] }),
@@ -2852,21 +3091,38 @@ export const TOOLS: Tool[] = [
           throw new ToolError(
             `Schritt „${s(a.step)}“ unbekannt. Möglich: ${steps.map((v) => `${s(v.key)} (${s(v.title)})`).join(", ")}.`,
           );
-        const r = (await x.api({
-          method: "POST",
-          path: `/automation/${enc(s(st.key))}/run`,
-        })) as Json;
-        return { step: st.title, done: r.done };
+        if (st.adminOnly)
+          throw new ToolError(`„${s(st.title)}“: ${ADMIN_ONLY}`);
+        try {
+          const r = (await x.api({
+            method: "POST",
+            path: `/automation/${enc(s(st.key))}/run`,
+          })) as Json;
+          return { step: st.title, done: r.done };
+        } catch (e) {
+          if (e instanceof ApiError && e.status === 403)
+            throw new ToolError(`„${s(st.title)}“ ausführen: ${ADMIN_ONLY}`);
+          throw e;
+        }
       }
       if (a.action === "undo") {
         if (!a.entry)
           throw new ToolError(
-            'entry fehlt – IDs rückgängig machbarer Einträge zeigt autopilot(action: "view") als undoEntry.',
+            'entry fehlt – autopilot(action: "view") zeigt je Eintrag `id` und `undoable`.',
           );
-        const r = (await x.api({
-          method: "POST",
-          path: `/automation/log/${enc(s(a.entry))}/undo`,
-        })) as Json;
+        let r: Json;
+        try {
+          r = (await x.api({
+            method: "POST",
+            path: `/automation/log/${enc(s(a.entry))}/undo`,
+          })) as Json;
+        } catch (e) {
+          if (e instanceof ApiError && e.status === 403)
+            throw new ToolError(
+              `Diesen Eintrag rückgängig machen darf nur, wem er etwas zugewiesen hat – sonst: ${ADMIN_ONLY}`,
+            );
+          throw e;
+        }
         return compact({
           undone: true,
           reverted: r.reverted,
@@ -2875,6 +3131,7 @@ export const TOOLS: Tool[] = [
             : null,
         });
       }
+      const f = await fmt(x);
       const MODE: Record<string, string> = {
         off: "Aus",
         suggest: "Vorschlagen",
@@ -2893,22 +3150,28 @@ export const TOOLS: Tool[] = [
             step: v.key,
             title: v.title,
             mode: MODE[s(v.mode)] ?? v.mode,
+            effective:
+              v.effectiveMode && v.effectiveMode !== v.mode
+                ? `${MODE[s(v.effectiveMode)] ?? v.effectiveMode} (Autopilot aus)`
+                : null,
             what: v.description,
-            lastRun: dayTime(v.lastRunAt),
+            lastRun: f.dayTime(v.lastRunAt),
             adminOnly: v.adminOnly ? true : null,
           }),
         ),
+        // v6 B7: je Eintrag ID und ob er sich rückgängig machen lässt (undo mit entry: id)
         log: log.map((e) =>
           compact({
-            at: dayTime(e.at),
+            id: e.id,
+            at: f.dayTime(e.at),
             step: e.title,
             summary: e.summary,
             by: e.actorName,
             undone: e.undoneAt ? true : null,
-            undoEntry: e.undoable ? e.id : null,
+            undoable: !!e.undoable,
           }),
         ),
-        note: "Stufen ändern nur in der App (Einstellungen → Automatik, Admins).",
+        note: `Stufen ändern: ${ADMIN_ONLY} (Einstellungen → Automatik)`,
       };
     },
   },
@@ -2916,37 +3179,46 @@ export const TOOLS: Tool[] = [
     name: "report",
     title: "Kennzahlen",
     description:
-      "Kennzahlen als fertiger Text für einen Zeitraum und optional ein Objekt: Prüfungen (Anzahl, Ergebnisse, Nachprüfungen), Prüfquote (Anteil der Elemente, die nicht überfällig sind), neue und behobene Mängel nach Schwere, mittlere Behebungsdauer, offene Mängel und Aufgaben, Begehungen. Zeitraum: `month` („2026-10“), `year` (2026) oder `from`/`to` (ISO); Standard: die letzten 30 Tage. Gut als Grundlage für einen Monatsbericht. Nur lesend.",
+      "Kennzahlen als fertiger Text für einen Zeitraum und optional ein Objekt: Prüfungen (Anzahl, Ergebnisse, Nachprüfungen), Prüfquote (Anteil der schon einmal geprüften Elemente, die nicht überfällig sind – nie geprüfte stehen getrennt), neue und behobene Mängel nach Schwere, mittlere Behebungsdauer (ungültige Mängel zählen nicht), offene Mängel und Aufgaben, Entwürfe und Unterschrifts-Rückstau, Begehungen. Zeitraum in der Zeitzone des Workspaces: `month` („2026-10“, ganzer Monat bis zum letzten Tag), `year` (2026) oder `from`/`to` (ISO oder „30.11.“); Standard: die letzten 30 Tage. Gut als Grundlage für einen Monatsbericht. Nur lesend.",
     inputSchema: obj({
       property: str("Objektname; ohne Angabe alle im Zugriffsbereich"),
       month: str("Monat „JJJJ-MM“, z. B. „2026-10“"),
       year: int("Kalenderjahr", 2000, 2100),
-      from: str("ab (ISO-Datum)"),
-      to: str("bis einschließlich (ISO-Datum)"),
+      from: str("ab (Datum)"),
+      to: str("bis einschließlich (Datum)"),
     }),
     readOnly: true,
     run: async (a, x) => {
       const prop = a.property ? await resolveProperty(x, a.property) : null;
+      const tz = await tzOf(x);
+      const de = (ms: number) => {
+        const [y, m, d] = dayIn(ms, tz).split("-");
+        return `${d}.${m}.${y}`;
+      };
       let from: number;
       let to: number;
-      if (a.month) {
-        const m = /^(\d{4})-(\d{2})$/.exec(s(a.month));
-        if (!m)
-          throw new ToolError("month bitte als „JJJJ-MM“, z. B. „2026-10“.");
-        from = Date.UTC(Number(m[1]), Number(m[2]) - 1, 1);
-        to = Date.UTC(Number(m[1]), Number(m[2]), 1) - 1;
-      } else if (a.year) {
-        from = Date.UTC(Number(a.year), 0, 1);
-        to = Date.UTC(Number(a.year) + 1, 0, 1) - 1;
-      } else {
-        to =
-          (toMs(a.to, "to") ?? Date.now()) +
-          (a.to && /^\d{4}-\d{2}-\d{2}$/.test(s(a.to)) ? 86_400_000 - 1 : 0);
-        from = toMs(a.from, "from") ?? to - 30 * 86_400_000;
+      try {
+        if (a.month) {
+          // v6 E2: Monatsgrenzen in der Zeitzone des Workspaces – „bis 30.11.“, nicht „bis 01.12.“
+          ({ from, to } = monthRange(s(a.month), tz));
+        } else if (a.year) {
+          from = monthRange(`${Number(a.year)}-01`, tz).from;
+          to = monthRange(`${Number(a.year)}-12`, tz).to;
+        } else {
+          to =
+            (await dateArg(x, a.to, "to", { allowPast: true, time: "end" })) ??
+            Date.now();
+          from =
+            (await dateArg(x, a.from, "from", { allowPast: true, time: "start" })) ??
+            to - 30 * 86_400_000;
+        }
+      } catch (e) {
+        if (e instanceof Error && !(e instanceof ApiError)) throw new ToolError(e.message);
+        throw e;
       }
       if (from > to) throw new ToolError("from liegt nach to.");
       const pq = prop ? `&propertyId=${enc(prop.id)}` : "";
-      const [insp, defects, tasks, props, walks] = await Promise.all([
+      const [insp, defects, tasks, props, walks, drafts] = await Promise.all([
         x.api({
           method: "GET",
           path: `/inspections?status=submitted&from=${from}&to=${to}${pq}`,
@@ -2957,18 +3229,18 @@ export const TOOLS: Tool[] = [
         x.api({ method: "GET", path: "/tasks" }) as Promise<Json[]>,
         properties(x),
         x.api({ method: "GET", path: "/walkthroughs" }) as Promise<Json[]>,
+        x
+          .api({ method: "GET", path: `/inspections?status=draft${pq}` })
+          .catch(() => []) as Promise<Json[]>,
       ]);
       const inProp = (r: Json) => !prop || r.propertyId === prop.id;
-      const ds = defects.filter(inProp);
-      const newD = ds.filter(
-        (d) => Number(d.createdAt) >= from && Number(d.createdAt) <= to,
-      );
-      const fixed = ds.filter(
-        (d) =>
-          d.status === "resolved" &&
-          Number(d.resolvedAt) >= from &&
-          Number(d.resolvedAt) <= to,
-      );
+      const all = defects.filter(inProp);
+      // v6 B8: ungültige Mängel (Duplikat/Fehleintrag) zählen weder als neu noch in Quote und Dauer
+      const ds = all.filter((d) => d.status !== "invalid");
+      const inPeriod = (v: unknown) => Number(v) >= from && Number(v) <= to;
+      const newD = ds.filter((d) => inPeriod(d.createdAt));
+      const invalidD = all.filter((d) => d.status === "invalid" && inPeriod(d.invalidAt));
+      const fixed = ds.filter((d) => d.status === "resolved" && inPeriod(d.resolvedAt));
       const durations = fixed
         .map((d) => (Number(d.resolvedAt) - Number(d.createdAt)) / 86_400_000)
         .filter((v) => v >= 0);
@@ -3001,16 +3273,18 @@ export const TOOLS: Tool[] = [
       );
       const wk = walks
         .filter(inProp)
-        .filter(
-          (w) =>
-            w.status === "submitted" &&
-            Number(w.inspectedAt) >= from &&
-            Number(w.inspectedAt) <= to,
-        );
+        .filter((w) => w.status === "submitted" && inPeriod(w.inspectedAt));
       const pct = (n: number, of: number) =>
         of ? `${Math.round((n / of) * 100)} %` : "–";
+      // v6 E3: Quote nur über schon einmal geprüfte Elemente; nie geprüfte getrennt
+      const checked = el - never;
+      const ready = drafts.filter((d) => d.readyAt);
+      const oldestReady = ready.reduce<number | null>(
+        (m, d) => (m == null || Number(d.readyAt) < m ? Number(d.readyAt) : m),
+        null,
+      );
       return [
-        `Kennzahlen ${prop ? `„${prop.name}“` : "alle Objekte"} · ${day(from)} bis ${day(to)}`,
+        `Kennzahlen ${prop ? `„${prop.name}“` : "alle Objekte"} · ${de(from)} bis ${de(to)}`,
         "",
         "Prüfungen",
         `- durchgeführt: ${insp.length}${
@@ -3021,18 +3295,23 @@ export const TOOLS: Tool[] = [
             : ""
         }`,
         `- davon Nachprüfungen: ${insp.filter((i) => i.purpose === "follow_up").length}`,
-        `- Prüfquote heute: ${pct(el - overdue - never, el)} von ${el} Elementen nicht überfällig (${overdue} überfällig, ${never} nie geprüft)`,
+        `- Prüfquote heute: ${pct(checked - overdue, checked)} der ${checked} schon geprüften Elemente fristgerecht (${overdue} überfällig)`,
+        `- nie geprüft: ${never} von ${el} Elementen (nicht in der Quote)`,
+        `- in Arbeit: ${drafts.length - ready.length} Entwürfe; Unterschrifts-Rückstau: ${ready.length}${oldestReady ? ` (älteste bereit seit ${de(oldestReady)})` : ""}`,
         "",
         "Mängel",
         `- neu: ${newD.length} (${bySev(newD)}); davon aus Begehungen: ${newD.filter((d) => d.walkthroughId).length}`,
         `- behoben: ${fixed.length}${durations.length ? `, im Mittel nach ${(durations.reduce((m, v) => m + v, 0) / durations.length).toFixed(1).replace(".", ",")} Tagen` : ""}`,
-        `- offen heute: ${openNow.length} (${bySev(openNow)}); ohne Aufgabe: ${openNow.filter((d) => !d.taskStatus || d.taskStatus === "done" || d.taskStatus === "cancelled").length}`,
+        ...(invalidD.length
+          ? [`- als ungültig markiert: ${invalidD.length} (Duplikat/Fehleintrag, zählen nicht mit)`]
+          : []),
+        `- offen heute: ${openNow.length} (${bySev(openNow)}); ohne Aufgabe: ${openNow.filter((d) => d.withoutTask).length}`,
         "",
         "Aufgaben",
         `- offen: ${ts.length}, davon überfällig: ${lateTasks.length}`,
         "",
         "Begehungen",
-        `- durchgeführt: ${wk.length}${wk.length ? ` (${wk.map((w) => `${day(w.inspectedAt)} ${s(w.propertyName)}`).join("; ")})` : ""}`,
+        `- durchgeführt: ${wk.length}${wk.length ? ` (${wk.map((w) => `${de(Number(w.inspectedAt))} ${s(w.propertyName)}`).join("; ")})` : ""}`,
       ].join("\n");
     },
   },
@@ -3043,7 +3322,7 @@ export function errorText(e: unknown): string {
   if (e instanceof ToolError) return e.message;
   if (e instanceof ApiError) {
     if (e.status === 403)
-      return `Keine Berechtigung: ${e.message}. Dieser Zugang darf das nicht (z. B. Schlüssel „Nur lesen“, kein Recht zum Anlegen oder Admin-Funktion). Schreiben geht mit einem Schlüssel „Lesen und schreiben“ (Prüfkompass → Einstellungen → API); Admin-Funktionen nur in der App.`;
+      return `Keine Berechtigung: ${e.message}. Dieser Zugang darf das nicht (z. B. Schlüssel „Nur lesen“, kein Recht zum Anlegen oder Admin-Funktion). Schreiben geht mit einem Schlüssel „Lesen und schreiben“ (Prüfkompass → Einstellungen → API). Admin-Funktionen: Das können nur Admins in der App.`;
     if (e.status === 404)
       return `${e.message} – nicht vorhanden oder außerhalb deines Zugriffsbereichs. Mit search oder list nachsehen.`;
     if (e.status === 409) return `${e.message}.`;
