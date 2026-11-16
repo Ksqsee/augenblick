@@ -11,11 +11,20 @@ describe('Checkliste je Typ', () => {
   it('nur zutreffende Punkte, Unbekanntes „falls vorhanden“', () => {
     const conds = door.checkpoints.filter((c) => c.appliesIf);
     expect(conds.length).toBeGreaterThan(0);
-    // alle Bedingungen erfüllt → alle Punkte
-    const yes = Object.fromEntries(conds.map((c) => [c.appliesIf!.attr, c.appliesIf!.equals]));
+    // alle Bedingungen erfüllt → alle Punkte (je Stammdatum ein Wert, der alle Bedingungen trifft)
+    type Cond = { attr: string; equals?: unknown; in?: unknown[] };
+    const cs = conds.map((c) => c.appliesIf as Cond);
+    const allowed = (c: Cond) => (c.in ? c.in : [c.equals]);
+    const yes: Record<string, unknown> = {};
+    const no: Record<string, unknown> = {};
+    for (const attr of new Set(cs.map((c) => c.attr))) {
+      const mine = cs.filter((c) => c.attr === attr);
+      yes[attr] = allowed(mine[0]!).find((v) => mine.every((c) => allowed(c).includes(v)));
+      expect(yes[attr], attr).not.toBeUndefined();
+      no[attr] = typeof yes[attr] === 'boolean' ? !yes[attr] : attr === 'requirement' ? 'keine' : '__anders__';
+    }
     expect(buildChecklist(door.checkpoints, 'fire_door', yes).total).toBe(door.checkpoints.length);
     // keine Bedingung erfüllt → bedingte Punkte entfallen
-    const no = Object.fromEntries(conds.map((c) => [c.appliesIf!.attr, typeof c.appliesIf!.equals === 'boolean' ? !c.appliesIf!.equals : '__anders__']));
     const n = buildChecklist(door.checkpoints, 'fire_door', no);
     expect(n.total).toBe(door.checkpoints.length - conds.length);
     expect(n.omitted).toEqual(conds.map((c) => c.label));
