@@ -9,11 +9,15 @@ export const PDF_PLACEHOLDERS: Record<string, string> = {
   ergebnis: 'Ergebnis',
 };
 
-export const DEFAULT_PDF_PATTERN = '{datum}_{code}_{art}';
+/** Standard (Plan v7 X): Ident, Datum, Art – Tür- und FSA-Protokoll derselben Öffnung überschreiben sich nicht. */
+export const DEFAULT_PDF_PATTERN = '{code}_{datum}_{art}';
+/** Früherer Standard, wie er als Spaltenvorgabe in neuen Workspaces steht – gilt als „nicht selbst gewählt“. */
+export const LEGACY_PDF_PATTERN = '{datum}_{code}_{art}';
+export const effectivePattern = (pattern: string | null | undefined) => (!pattern || pattern === LEGACY_PDF_PATTERN ? DEFAULT_PDF_PATTERN : pattern);
 
-/** Dateiname aus Muster, z. B. „{datum}_{code}_{objekt}“ → „2026-10-10_FST-7K2M_Grundschule.pdf“. */
+/** Dateiname aus Muster, z. B. „{datum}_{code}_{objekt}“ → „2026-10-10_FST-7K2M_Grundschule.pdf“; Standard „FST-036_2026-10-10_Tür.pdf“. */
 export function buildFileName(pattern: string | null | undefined, vars: Partial<Record<keyof typeof PDF_PLACEHOLDERS, string>>, ext = 'pdf'): string {
-  const raw = (pattern || DEFAULT_PDF_PATTERN).replace(/\{(\w+)\}/g, (_, k: string) => vars[k as keyof typeof vars] ?? '');
+  const raw = effectivePattern(pattern).replace(/\{(\w+)\}/g, (_, k: string) => vars[k as keyof typeof vars] ?? '');
   const clean = raw
     .normalize('NFC')
     .replace(/[/\\?%*:|"<>\n\r\t]/g, '-')

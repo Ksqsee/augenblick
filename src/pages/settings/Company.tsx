@@ -5,7 +5,7 @@ import clsx from 'clsx';
 import { Download, ImageUp, Plus, X } from 'lucide-react';
 import { useMemo, useRef, useState } from 'react';
 import { DOC_LANGUAGES, type DocLanguage, TIME_ZONES } from '../../../shared/i18n';
-import { buildFileName, DEFAULT_PDF_PATTERN, PDF_PLACEHOLDERS } from '../../../shared/filename';
+import { buildFileName, effectivePattern, PDF_PLACEHOLDERS } from '../../../shared/filename';
 import { api, downscale, fileUrl, type Me, queryClient, uploadBlob, useAction, useMe } from '../../api';
 import { MeterBar, RowDivider, SaveBar, SettingRow, SettingsSection } from '../../components/admin';
 import { categoryLabel, fmtDateTime } from '../../format';
@@ -18,7 +18,7 @@ function initialForm(t: Me['tenant']) {
     phone: t.phone,
     email: t.email,
     website: t.website,
-    pdfPattern: t.pdfPattern || DEFAULT_PDF_PATTERN,
+    pdfPattern: effectivePattern(t.pdfPattern),
     logoKey: t.logoKey as string | null,
     archive: (t.archiveAfterMonths ?? '') as number | '',
     language: (t.language ?? 'de') as DocLanguage,

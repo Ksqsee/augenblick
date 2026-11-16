@@ -479,6 +479,7 @@ account.post('/delete', async (c) => {
     c.env.DB.prepare('DELETE FROM password_resets WHERE user_id = ?').bind(u.userId),
     c.env.DB.prepare('DELETE FROM login_events WHERE user_id = ?').bind(u.userId),
     c.env.DB.prepare('DELETE FROM memberships WHERE user_id = ?').bind(u.userId),
+    c.env.DB.prepare('DELETE FROM member_credentials WHERE user_id = ?').bind(u.userId),
     c.env.DB.prepare('DELETE FROM task_watchers WHERE user_id = ?').bind(u.userId),
     c.env.DB.prepare('UPDATE api_keys SET revoked_at = ? WHERE created_by = ? AND revoked_at IS NULL').bind(now(), u.userId),
     c.env.DB.prepare('UPDATE tasks SET assignee_id = NULL WHERE assignee_id = ?').bind(u.userId),
