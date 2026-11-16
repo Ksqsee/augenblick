@@ -17,6 +17,7 @@ const LABEL: Record<CatalogKind, string> = { products: 'Produkt', defects: 'Kata
 
 // ---------- Eingaben ----------
 import { CATALOG_FIELDS as fields } from '../shared/catalog-schema';
+import { normalizeDoorInput } from '../shared/catalog-door';
 type Input = {
   products: z.infer<typeof fields.products>;
   defects: z.infer<typeof fields.defects>;
@@ -301,7 +302,12 @@ catalog.post('/catalog/batch', async (c) => {
       errors.push({ index: i, error: `Unbekannte Felder: ${extra.join(', ')}. Möglich: ${Object.keys(fields[kind].shape).join(', ')}` });
       continue;
     }
-    const p = fields[kind].safeParse(item);
+    const legacy = kind === 'products' ? legacyProduct(item) : { item };
+    if (legacy.error) {
+      errors.push({ index: i, error: legacy.error });
+      continue;
+    }
+    const p = fields[kind].safeParse(legacy.item);
     if (!p.success) {
       errors.push({ index: i, error: itemError(p.error) });
       continue;
@@ -327,7 +333,7 @@ catalog.post('/catalog/batch', async (c) => {
         continue;
       }
     }
-    const named = Object.fromEntries(Object.entries(p.data as Record<string, unknown>).filter(([k]) => k in item));
+    const named = Object.fromEntries(Object.entries(p.data as Record<string, unknown>).filter(([k]) => k in legacy.item));
     valid.push(named);
     full.set(entryKey(kind, p.data as Record<string, unknown>), p.data as Record<string, unknown>);
   }
@@ -366,7 +372,7 @@ catalog.post('/catalog/batch', async (c) => {
 catalog.post('/catalog/:kind', async (c) => {
   requireStructure(c);
   const kind = kindParam(c);
-  const b = fields[kind].parse(await c.req.json()) as Input[typeof kind];
+  const b = fields[kind].parse(legacyOrThrow(kind, await c.req.json())) as Input[typeof kind];
   if ('category' in b) await assertCategory(c, b.category);
   await assertAttributeKeys(c, kind, b);
   await ensureCatalog(c);
@@ -389,7 +395,7 @@ catalog.patch('/catalog/:kind/:id', async (c) => {
   const old = await c.env.DB.prepare(`SELECT * FROM ${TABLE[kind]} WHERE id = ? AND tenant_id = ?`).bind(c.req.param('id'), tid(c)).first<Row>();
   if (!old) notFound(LABEL[kind]);
   // Teiländerung: fehlende Felder vom Bestand
-  const merged = { ...fromRow(kind, old), ...((await c.req.json()) as Record<string, unknown>) };
+  const merged = { ...fromRow(kind, old), ...legacyOrThrow(kind, await c.req.json()) };
   const b = fields[kind].parse(merged) as Input[typeof kind];
   if ('category' in b) await assertCategory(c, b.category);
   await assertAttributeKeys(c, kind, b);
@@ -435,4 +441,27 @@ async function assertAttributeKeys(c: Ctx, kind: CatalogKind, b: Record<string, 
   const allowed = cat ? (await getCategoryDef(c, cat)).attributes.map((a) => a.key) : [...new Set((await listCategories(c)).flatMap((d) => d.attributes.map((a) => a.key)))];
   const unknown = keys.filter((k) => !allowed.includes(k));
   if (unknown.length) throw new HTTPException(400, { message: `Unbekannte Stammdaten in ${field}: ${unknown.join(', ')}` });
+}
+
+/**
+ * Tür (Plan v7): Produkte mit alten Vorgabewerten `rating`/`smoke` (API-Bestand, MCP, ältere Dateien) → Anforderung am
+ * Produkt. Nur für die Art Tür (oder ohne Art, wenn der Wert ein Tür-Feuerwiderstand ist); sonst unverändert.
+ */
+function legacyProduct(item: Record<string, unknown>): { item: Record<string, unknown>; error?: string } {
+  const d = item.defaults as Record<string, unknown> | undefined;
+  if (!d || typeof d !== 'object' || Array.isArray(d) || !('rating' in d || 'smoke' in d)) return { item };
+  const cat = String(item.category ?? '');
+  const doorish = /^(fire_door|t[uü]r|feuerschutzt[uü]r)$/i.test(cat) || (!cat && !/^(K|EI\s?\d)/i.test(String(d.rating ?? '')));
+  if (!doorish) return { item };
+  const n = normalizeDoorInput(d);
+  if (n.error) return { item, error: n.error };
+  const { requirement, ...rest } = n.attrs;
+  return { item: { ...item, defaults: rest, ...(requirement && !item.requirement ? { requirement } : {}) } };
+}
+function legacyOrThrow(kind: CatalogKind, body: unknown): Record<string, unknown> {
+  const b = (body && typeof body === 'object' ? body : {}) as Record<string, unknown>;
+  if (kind !== 'products') return b;
+  const r = legacyProduct(b);
+  if (r.error) throw new HTTPException(400, { message: r.error });
+  return r.item;
 }

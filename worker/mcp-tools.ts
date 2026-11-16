@@ -5,6 +5,7 @@
 import { allOkAnswers, conditionOf, conditionReason } from "../shared/applies";
 import { validateAttributes } from "../shared/asset-fields";
 import { SEVERITIES, type Severity } from "../shared/catalog";
+import { parseCategory } from "../shared/importing";
 import { groupCheckpoints } from "../shared/checkpoint-groups";
 import {
   assignCheckpoint,
@@ -238,6 +239,8 @@ async function resolveCategory(x: Ctx, v: unknown) {
   const hit =
     cats.find((c) => c.key === q) ??
     cats.find((c) => lc(c.label) === q || lc(c.plural) === q) ??
+    // Plan v7: feste Synonyme („Feuerschutztür“ → Tür, „Türantrieb“ → Drehtürantrieb) vor der Teilwort-Suche
+    cats.find((c) => c.key === parseCategory(s(v), cats)) ??
     cats.find(
       (c) =>
         lc(c.label).includes(q) ||
