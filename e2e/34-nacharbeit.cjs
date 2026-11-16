@@ -322,7 +322,7 @@ async function mcp(key, name, args = {}) {
   check(/76,50\s€/.test(await p.locator('[data-offer-net]').innerText()), 'Regie wieder entfernt');
 
   step('MCP report(what: "offer")');
-  const key = (await api('/account/api-keys', { data: { name: 'Claude', scope: 'read', expiresInDays: 1 } })).json.key;
+  const key = (await api('/account/api-keys', { data: { name: 'Claude', scope: 'write', expiresInDays: 1 } })).json.key;
   const t = await mcp(key, 'report', { what: 'offer', property: P });
   if (real.status === 200) check(!t.isError && /Angebotsliste „Hotel Seeblick \(Test\)“/.test(t.text) && /Summe netto/.test(t.text), `MCP-Angebotsliste (${t.text.slice(0, 160)})`);
   else check(t.isError && !/Interner Fehler/.test(t.text), `MCP ohne Endpunkt: saubere Meldung (${t.text.slice(0, 120)})`);
@@ -341,7 +341,7 @@ async function mcp(key, name, args = {}) {
   await nf.getByLabel('Bezeichnung').fill('Befähigte Person für Brandschutztüren');
   await nf.getByLabel('Aussteller').fill('DGWZ');
   await nf.getByLabel('Nummer').fill('DGWZ-0815');
-  await nf.getByRole('checkbox', { name: doorDef.label }).check();
+  await nf.getByRole('checkbox', { name: doorDef.label, exact: true }).check();
   await nf.getByRole('button', { name: 'Hinzufügen' }).click();
   await md.getByText('DGWZ-0815', { exact: false }).waitFor();
   await shot(p, 'nachweise-team');
