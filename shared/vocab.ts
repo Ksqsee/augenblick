@@ -167,7 +167,8 @@ export function describeByType<T extends Record<string, unknown>>(
   const empty = (k: string) => out[k] == null || out[k] === '';
   for (const f of fields) {
     if (!empty(f.key)) continue;
-    if (f.type === 'boolean') out[f.key] = false;
+    // Obentürschließer bleibt offen: bei Feuer- und Rauchschutztüren ist „nein“ fachlich falsch, kein Prüfpunkt hängt daran.
+    if (f.type === 'boolean') { if (f.key !== 'closer') out[f.key] = false; }
     else if (f.type === 'select') {
       const d = TYPE_SELECT_DEFAULTS[category]?.[f.key];
       if (d && (!f.options || f.options.includes(d))) out[f.key] = d;

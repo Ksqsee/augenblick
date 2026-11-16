@@ -195,7 +195,8 @@ describe('Bekannter Typ beschreibt die Tür (Plan v7)', () => {
   });
   it('offene Ja/Nein-Felder = nein, Flügel 1-flügelig, Vorgaben und Eingaben bleiben', () => {
     const a: Record<string, unknown> = describeByType({ peephole: true }, sk32, door.attributes, 'fire_door');
-    expect(a).toMatchObject({ requirement: 'keine', dropSeal: true, peephole: true, holdOpen: false, cardLock: false, closer: false, leaves: '1-flügelig' });
+    expect(a).toMatchObject({ requirement: 'keine', dropSeal: true, peephole: true, holdOpen: false, cardLock: false, leaves: '1-flügelig' });
+    expect('closer' in a).toBe(false); // Obentürschließer bleibt offen
     // Freitext- und Auswahlfelder ohne eindeutigen Standard bleiben offen
     expect(a.frame).toBeUndefined();
     expect(a.doorType).toBeUndefined();
