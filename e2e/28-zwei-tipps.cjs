@@ -90,7 +90,7 @@ const overlap = (a, b) => !!a && !!b && a.x < b.x + b.width && b.x < a.x + a.wid
   const doors = [];
   // Stammdaten bekannt (zweiflügelig mit Feststellanlage): alle Punkte treffen zu, „Alles in Ordnung“ beantwortet alle
   for (const loc of ['Flur EG', 'Flur OG', 'Treppenhaus'])
-    doors.push((await api('/assets', { data: { buildingId: bld.id, category: 'fire_door', location: loc, floor: 'EG', attributes: { holdOpen: true, leaves: '2-flügelig' } } })).json);
+    doors.push((await api('/assets', { data: { buildingId: bld.id, category: 'fire_door', location: loc, floor: 'EG', attributes: { holdOpen: true, leaves: '2-flügelig', requirement: 'T30-RS', cardLock: true, dropSeal: true, peephole: true } } })).json);
   check(doors.every((d) => d?.id), 'drei Türen angelegt');
   const now = (await api('/now?limit=50')).json;
   check(!now.items.some((i) => i.automation === 'monthly_report'), 'keine Monatsberichte ohne Prüfungen im Vormonat');
@@ -146,10 +146,11 @@ const overlap = (a, b) => !!a && !!b && a.x < b.x + b.width && b.x < a.x + a.wid
   await p.getByRole('button', { name: 'Alles in Ordnung' }).waitFor();
   // Start: alle Gruppen eingeklappt, keine Antwortknöpfe sichtbar
   const groups = p.locator('[data-group] > button[aria-expanded]');
-  check((await groups.count()) === 4, `vier Gruppen (${await groups.count()})`);
+  // Tür (Plan v7): zehn Gruppen nach Bauteil
+  check((await groups.count()) === 10, `zehn Gruppen (${await groups.count()})`);
   check((await p.locator('[data-group] > button[aria-expanded="true"]').count()) === 0, 'am Anfang alles eingeklappt');
   check((await p.getByRole('radio', { name: 'Mangel' }).count()) === 0, 'keine 16 × 3 Knöpfe');
-  check((await p.locator('[data-group]').first().innerText()).includes('0 von 1 i. O.'), 'Gruppenzähler');
+  check((await p.locator('[data-group]').first().innerText()).includes('0 von 2 i. O.'), 'Gruppenzähler');
   const okBox = await p.getByRole('button', { name: 'Alles in Ordnung' }).boundingBox();
   check(okBox.height >= 56 && okBox.y < 200, `„Alles in Ordnung“ groß und oben (${Math.round(okBox.height)} px bei y=${Math.round(okBox.y)})`);
   await noOverflow('Prüfung Start');
@@ -161,7 +162,7 @@ const overlap = (a, b) => !!a && !!b && a.x < b.x + b.width && b.x < a.x + a.wid
   await toastClear('nach „Alles in Ordnung“');
   check((await p.locator('[data-toast]').innerText()).includes('Rückgängig'), 'Meldung mit „Rückgängig“');
   check((await p.locator('[data-group] > button[aria-expanded="true"]').count()) === 0, 'alles i. O.: Gruppen bleiben zu');
-  check((await p.locator('[data-group]').nth(2).innerText()).includes('6 von 6 i. O.'), '„6 von 6 i. O.“');
+  check((await p.locator('[data-group]').nth(2).innerText()).includes('3 von 3 i. O.'), '„3 von 3 i. O.“');
   check(await p.getByRole('heading', { name: 'Unterschrift' }).isVisible(), 'springt zur Unterschrift');
   await p.waitForTimeout(900);
   await p.screenshot({ path: OUT + 'm-pruefung-alles-ok.png' });
@@ -184,15 +185,15 @@ const overlap = (a, b) => !!a && !!b && a.x < b.x + b.width && b.x < a.x + a.wid
   await p.getByRole('button', { name: 'Alles in Ordnung' }).click();
   await p.locator('[data-toast]').getByRole('button', { name: 'Rückgängig' }).click();
   await p.waitForTimeout(200);
-  check((await p.locator('[data-group]').nth(2).innerText()).includes('0 von 6 i. O.'), 'Rückgängig: Punkte wieder offen');
+  check((await p.locator('[data-group]').nth(2).innerText()).includes('0 von 3 i. O.'), 'Rückgängig: Punkte wieder offen');
   check(await p.getByRole('button', { name: 'Alles in Ordnung' }).isVisible(), 'Rückgängig: „Alles in Ordnung“ wieder da');
   await new Promise((res) => setTimeout(res, 900));
   check(!(await api(`/inspections/${id2}`)).json.signature, 'Rückgängig: gemerkte Unterschrift wieder entfernt');
   // Gruppe von Hand aufklappen, einzelner Punkt bleibt voll bedienbar
-  await p.getByRole('button', { name: /Beschläge und Mechanik/ }).click();
-  const mech = p.locator('[data-group="mechanics"]');
-  check((await mech.getByRole('radiogroup').count()) === 6, 'aufgeklappt: sechs Punkte');
-  await mech.locator('[data-cp="p7"]').getByRole('radio', { name: 'Nicht zutreffend' }).click();
+  await p.getByRole('button', { name: /Schließmittel und OTS/ }).click();
+  const mech = p.locator('[data-group="g:Schließmittel und OTS"]');
+  check((await mech.getByRole('radiogroup').count()) === 3, 'aufgeklappt: drei Punkte');
+  await mech.locator('[data-cp="p11"]').getByRole('radio', { name: 'Nicht zutreffend' }).click();
   check((await mech.locator('> button').innerText()).includes('1 n. z.'), 'einzelner Punkt beantwortet');
   await mech.locator('> button').click();
   check((await mech.getByRole('radiogroup').count()) === 0, 'Gruppe wieder eingeklappt');
@@ -222,7 +223,7 @@ const overlap = (a, b) => !!a && !!b && a.x < b.x + b.width && b.x < a.x + a.wid
   check(/1 Mangel eingetragen/.test(await p.locator('[data-toast]').innerText()), 'Meldung nennt den Mangel');
   const open = await p.locator('[data-group] > button[aria-expanded="true"]').count();
   check(open === 1 && (await mech.locator('> button').getAttribute('aria-expanded')) === 'true', `nur die Gruppe mit Mangel offen (${open})`);
-  check((await mech.locator('[data-cp="p5"]').getByRole('radio', { name: 'Mangel' }).getAttribute('aria-checked')) === 'true', 'Mangel beim Obentürschließer');
+  check((await mech.locator('[data-cp="p10"]').getByRole('radio', { name: 'Mangel' }).getAttribute('aria-checked')) === 'true', 'Mangel beim Obentürschließer');
   check((await mech.locator('> button').innerText()).includes('1 Mangel'), 'Gruppenzähler mit Mangel');
   await p.evaluate(() => window.scrollTo(0, 0));
   await p.waitForTimeout(300);
