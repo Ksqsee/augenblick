@@ -43,11 +43,21 @@ API: [`docs/api.md`](docs/api.md)
     „mit Feststellanlage/OTS/Absenkdichtung/Spion“ sind Türfelder, „und eine Feststellanlage“ ein eigenes Element.
     Spracherkennung wird geglättet („T 30“, „t dreißig“, „O G“, „Erd Geschoss“, Zahlwörter bis hundert).
   - **Nummern**: „Tür 36“, „Türen 12 bis 15“, „Nummer 36 bis 40“ legen feste Nummern an (`POST /assets` mit `number`);
-    im Modus Mängel hängt „Tür 36 schließt nicht“ am Element Nr. 36 des gewählten Objekts (`matchElementRef`).
+    im Modus Mängel hängt „Tür 36 schließt nicht“ am Element Nr. 36 des gewählten Objekts (`matchElementRef`). Artwort
+    und Nummer müssen zusammenpassen: Ist Nr. 4 ein Feuerlöscher, zeigt „Tür 4“ „Nummer 4 ist ein Feuerlöscher (FL-004)“
+    statt den Löscher zu treffen – ebenso in der Suche und im MCP (`elementRefConflict`).
   - **Unsicher**: Reste, die keinem Feld zuzuordnen sind, stehen in der Vorschau als Punkt + „bitte prüfen“, nie im Standort.
   - **Korpus**: `shared/corpus.test.ts` (über 160 gesprochene Sätze mit Erwartung, mit und ohne Katalog-Begriffe;
     Ungelöstes als `todo` mit Grund). Neue Regeln dort zuerst als Satz ergänzen.
-- **Diktat in jedem Textfeld** und „Befund einsprechen“ im Prüfablauf (Mängel landen beim passenden Prüfpunkt);
+- **Rundgang in Laufreihenfolge** (`shared/walk-order.ts`): Etagen von unten nach oben (TG/UG, EG, ZG, 1. OG … DG),
+  innerhalb der Etage in der Reihenfolge der Anlage (`assets.sort_index`) – gleich in Rundgang-API, App, Offline-Rundgang
+  und MCP (`tour`, `plan`).
+- **Prüfpunkte mit Bedingung** (`appliesIf` in `shared/catalog.ts`, `shared/applies.ts`): „Feststellanlage löst aus“
+  nur mit Feststellanlage, „Schließfolge“ nur zweiflügelig. „Alles in Ordnung“ setzt nicht Zutreffendes auf „entfällt“;
+  fehlt das Stammdatum, bleibt der Punkt offen und die App fragt („Hat die Tür eine Feststellanlage?“) – die Antwort wird
+  am Element gespeichert (offline nur für diese Prüfung).
+- **Diktat in jedem Textfeld** und „Befund einsprechen“ im Prüfablauf (Mängel landen beim passenden Prüfpunkt – nur bei
+  eindeutigem Treffer, `shared/inspect-match.ts`);
   Vorschläge für Maßnahme und Schweregrad; Spracherkennung des Browsers und Regel-Parser (`shared/smart.ts`) – der Worker
   ruft **keine KI** auf (keine KI-Kosten bei Cloudflare); Hören, Lesen und Sehen übernimmt Claude über den MCP-Server
 - **Suche in normaler Sprache** (Strg+K): „überfällige Feuerlöscher Grundschule“ öffnet die passend gefilterte Liste
@@ -219,7 +229,7 @@ npm run check              # Typprüfung + Unit-Tests + Build
 ## Tests
 
 - **Unit-Tests** (`npm test`, Vitest): Fachlogik, Autopilot-Kreislauf, Rangfolge „Jetzt“, Import/Export, Übersetzungen, Ruhezeiten, Web Push.
-- **Browser-Tests** (`e2e/`, Playwright): Reihen von der Registrierung über Sicherheitskorrekturen und Massenoperationen bis zu Berichtigung, Nachprüfung sowie Aufgaben und Mängeln (`14-tasks-defects`), dem Autopiloten (`20-autopilot`) und den offenen Punkten aus der Analyse (`21-offene-punkte`: Offline-Fehlliste, Intervalle, Partner-Zugang), dem MCP-Server (`11-ai-mcp`) und „Sprache zuerst“ (`23-sprache`: Rundgang über Claude, Unterschrift mit einem Tipp; `24-unterschreiben-offline`: Seite „Unterschreiben“, Befund einsprechen, Erfassen und Rundgang ohne Netz) sowie der Navigation mit fünf Orten (`25-fuenf-orte`: Leisten, Umleitungen, Prüfen, Offen, Heute am Handy, 390 px) und dem Fachwissen (`26-katalog`: Feststellanlage, laufende Nummern, Typ- und Mangel-Vorschläge, Katalogseite, MCP `catalog`) sowie dem Einstieg (`27-einstieg`: leeres Konto → Objektname → ein Satz → Elemente angelegt in 4 Tipps und 2 Eingaben, Erfassen ohne Ort, ein/zwei Gebäude, Hauptknopf der Objektseite, 390 px) sowie dem Prüfen in zwei Tipps (`28-zwei-tipps`: Tipps zählen, Rückgängig, Mangel eingesprochen, Gruppen, Meldungen über keiner Leiste, „Jetzt“ im neuen Konto, leere Seiten Prüfen/Offen) und dem Durchgang bis zur ersten unterschriebenen Prüfung (`29-erste-pruefung`: Objektname → ein Satz mit drei Orten/Arten/Herstellern → Rundgang → Unterschrift zeichnen und merken; 8 Tipps + 1 Satz + Unterschrift, feste Nummern, Mangel per Nummer, „bitte prüfen“).
+- **Browser-Tests** (`e2e/`, Playwright): Reihen von der Registrierung über Sicherheitskorrekturen und Massenoperationen bis zu Berichtigung, Nachprüfung sowie Aufgaben und Mängeln (`14-tasks-defects`), dem Autopiloten (`20-autopilot`) und den offenen Punkten aus der Analyse (`21-offene-punkte`: Offline-Fehlliste, Intervalle, Partner-Zugang), dem MCP-Server (`11-ai-mcp`) und „Sprache zuerst“ (`23-sprache`: Rundgang über Claude, Unterschrift mit einem Tipp; `24-unterschreiben-offline`: Seite „Unterschreiben“, Befund einsprechen, Erfassen und Rundgang ohne Netz) sowie der Navigation mit fünf Orten (`25-fuenf-orte`: Leisten, Umleitungen, Prüfen, Offen, Heute am Handy, 390 px) und dem Fachwissen (`26-katalog`: Feststellanlage, laufende Nummern, Typ- und Mangel-Vorschläge, Katalogseite, MCP `catalog`) sowie dem Einstieg (`27-einstieg`: leeres Konto → Objektname → ein Satz → Elemente angelegt in 4 Tipps und 2 Eingaben, Erfassen ohne Ort, ein/zwei Gebäude, Hauptknopf der Objektseite, 390 px) sowie dem Prüfen in zwei Tipps (`28-zwei-tipps`: Tipps zählen, Rückgängig, Mangel eingesprochen, Gruppen, Meldungen über keiner Leiste, „Jetzt“ im neuen Konto, leere Seiten Prüfen/Offen) und dem Durchgang bis zur ersten unterschriebenen Prüfung (`29-erste-pruefung`: Objektname → ein Satz mit drei Orten/Arten/Herstellern → Rundgang → Unterschrift zeichnen und merken; 8 Tipps + 1 Satz + Unterschrift, feste Nummern, Mangel per Nummer, „bitte prüfen“) und den Befunden aus dem MCP-Praxistest (`30-mcp-element`: je Punkt aus Plan v6, Paket T, der Aufruf aus dem Bericht – „Tür 4“ trifft nie FL-004, Laufreihenfolge, „Alles i. O.“ mit Bedingungen, Prüfpunkt-Zuordnung, Widersprüche, Stammdaten-Prüfung, setup mit Stammdaten und Zugang; die App-Seite von A3/A4 bei 390 px in `28-zwei-tipps`).
   Vor jeder Reihe wird die lokale D1 geleert und mit Demodaten befüllt.
 
 ```bash

@@ -62,7 +62,7 @@ async function tool(name, args) {
   const e1 = t.data?.element;
   check(e1?.code && e1.checkpoints.length > 0 && e1.location !== undefined, `tour start (${t.text?.slice(0, 160)})`);
   t = await tool('inspect', { asset: e1.code, allOk: true, defects: [{ title: 'Sprache: Feststellanlage löst nicht aus', severity: 'high', measure: 'Feststellanlage instand setzen' }] });
-  check(t.data?.status?.startsWith('bereit'), `inspect 1 bereit (${t.text?.slice(0, 160)})`);
+  check(t.data?.status === 'ready', `inspect 1 bereit (${t.text?.slice(0, 160)})`);
   const i1 = t.data?.inspectionId;
   t = await tool('tour', { action: 'next', building });
   const e2 = t.data?.element;
@@ -71,14 +71,14 @@ async function tool(name, args) {
   const e2id = (await api(`/assets/by-code/${e2.code}`)).json.id;
   const old = (await api('/defects', { body: { assetId: e2id, title: 'Sprache Altmangel Beschilderung', severity: 'low', force: true } })).json.id;
   t = await tool('inspect', { asset: e2.code, allOk: true, known: [{ defect: 'Altmangel', status: 'fixed' }], notes: 'Per Sprache geprüft' });
-  check(t.data?.status?.startsWith('bereit') && t.data.fixed?.includes('Sprache Altmangel Beschilderung'), `inspect 2 bereit, Altmangel behoben gemeldet (${t.text?.slice(0, 200)})`);
+  check(t.data?.status === 'ready' && t.data.fixed?.includes('Sprache Altmangel Beschilderung'), `inspect 2 bereit, Altmangel behoben gemeldet (${t.text?.slice(0, 200)})`);
   const i2 = t.data?.inspectionId;
   t = await tool('tour', { action: 'next', building });
   const e3 = t.data?.element;
   check(e3?.code && ![e1.code, e2.code].includes(e3.code), `tour überspringt Erledigtes (${e3?.code})`);
   t = await tool('inspect', { asset: e3.code, allOk: true });
   const i3 = t.data?.inspectionId;
-  check(t.data?.status?.startsWith('bereit'), 'inspect 3 bereit');
+  check(t.data?.status === 'ready', 'inspect 3 bereit');
   t = await tool('tour', { action: 'status', building });
   check([e1, e2, e3].every((e) => t.data?.readyToSign?.includes(e.code)) && /^3 von/.test(t.data.progress), `tour status (${t.data?.progress})`);
 

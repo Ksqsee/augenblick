@@ -2,7 +2,8 @@
 // mit gemerkter Unterschrift (Tipps werden gezählt), Rückgängig, Abweichung einsprechen (getippt) + „Alles andere in
 // Ordnung“, Gruppen ein-/ausgeklappt, „Weitere Angaben“, Rundgang springt weiter, Meldung überdeckt keine Knöpfe,
 // GET /now im neuen Konto (keine Monatsberichte/Begehung, dafür „nie geprüft“ mit Rundgang), Hauptknopf auf „Heute“,
-// leere Seiten Prüfen/Offen, kein Überlauf. Bilder in e2e/.out/28-zwei-tipps (für docs/design/v3/v5). Nur lokal.
+// leere Seiten Prüfen/Offen, kein Überlauf; Plan v6: Rundgang in Laufreihenfolge (UG → EG → 2. OG, A3) und „Alles in
+// Ordnung“ mit Prüfpunkten, die nach den Stammdaten entfallen bzw. nachgefragt werden (A4). Bilder in e2e/.out/28-zwei-tipps (für docs/design/v3/v5). Nur lokal.
 const { chromium } = require('playwright');
 if (!process.env.DEMO_PASSWORD) throw new Error('DEMO_PASSWORD fehlt');
 const fs = require('fs');
@@ -87,8 +88,9 @@ const overlap = (a, b) => !!a && !!b && a.x < b.x + b.width && b.x < a.x + a.wid
   const prop = (await api('/properties', { data: { name: 'Seehafer Elemente' } })).json;
   const bld = (await api(`/properties/${prop.id}/buildings`, { data: { name: 'Hauptgebäude' } })).json;
   const doors = [];
+  // Stammdaten bekannt (zweiflügelig mit Feststellanlage): alle Punkte treffen zu, „Alles in Ordnung“ beantwortet alle
   for (const loc of ['Flur EG', 'Flur OG', 'Treppenhaus'])
-    doors.push((await api('/assets', { data: { buildingId: bld.id, category: 'fire_door', location: loc, floor: 'EG' } })).json);
+    doors.push((await api('/assets', { data: { buildingId: bld.id, category: 'fire_door', location: loc, floor: 'EG', attributes: { holdOpen: true, leaves: '2-flügelig' } } })).json);
   check(doors.every((d) => d?.id), 'drei Türen angelegt');
   const now = (await api('/now?limit=50')).json;
   check(!now.items.some((i) => i.automation === 'monthly_report'), 'keine Monatsberichte ohne Prüfungen im Vormonat');
@@ -258,6 +260,59 @@ const overlap = (a, b) => !!a && !!b && a.x < b.x + b.width && b.x < a.x + a.wid
   await dp.waitForTimeout(900);
   await dp.screenshot({ path: OUT + 'd-heute.png', fullPage: true });
   await dctx.close();
+
+  step('Plan v6 A3/A4 (390 px): Laufreihenfolge im Rundgang, „entfällt“ und Rückfrage nach Stammdaten');
+  const bld2 = (await api(`/properties/${prop.id}/buildings`, { data: { name: 'Nebenhaus' } })).json;
+  // angelegt 2. OG → EG → UG → EG; gelaufen wird von unten nach oben, in der Etage in Anlage-Reihenfolge
+  const made = [];
+  for (const [floor, loc, attributes] of [
+    ['2. OG', 'Dachflur', { holdOpen: false, leaves: '1-flügelig' }],
+    ['EG', 'Eingang', {}],
+    ['UG', 'Heizraum', { holdOpen: false, leaves: '1-flügelig' }],
+    ['EG', 'Küche', { holdOpen: false, leaves: '1-flügelig' }],
+  ])
+    made.push((await api('/assets', { data: { buildingId: bld2.id, category: 'fire_door', location: loc, floor, attributes } })).json);
+  await p.goto(BASE + `/rundgang/${bld2.id}`);
+  await p.getByRole('button', { name: 'Prüfung starten' }).waitFor();
+  const firstCode = (await p.locator('.text-h2').first().innerText()).trim();
+  const after = await p.getByRole('list', { name: 'Danach' }).locator('li').allInnerTexts();
+  const walkOrder = [firstCode, ...after.map((t) => t.replace(/^\d+\s*/, '').split(' ')[0])];
+  const codeOf = (i) => made[i].code;
+  check(walkOrder.join(',') === [codeOf(2), codeOf(1), codeOf(3), codeOf(0)].join(','), `Rundgang UG → EG (Eingang, Küche) → 2. OG (${walkOrder.join(',')})`);
+  await noOverflow('Rundgang Laufreihenfolge');
+  await p.screenshot({ path: OUT + 'm-rundgang-reihenfolge.png' });
+  // einflügelig ohne Feststellanlage: drei Punkte „entfällt“, keine Rückfrage
+  await p.getByRole('button', { name: 'Prüfung starten' }).click();
+  await p.waitForURL(/\/pruefung\//);
+  const id4 = p.url().split('/pruefung/')[1].split('?')[0];
+  await p.getByRole('button', { name: 'Alles in Ordnung' }).click();
+  check(/3 entfällt/.test(await p.locator('[data-toast]').innerText()), `Meldung nennt „3 entfällt“ (${await p.locator('[data-toast]').innerText()})`);
+  check(!(await p.locator('[data-question]').count()), 'keine Rückfrage bei bekannten Stammdaten');
+  await p.getByRole('button', { name: 'Abschließen', exact: true }).click();
+  await p.waitForURL(/\/rundgang\/.*fertig=/);
+  const i4 = (await api(`/inspections/${id4}`)).json;
+  check(i4.status === 'submitted' && i4.answers.p6 === 'na' && i4.answers.p12 === 'na' && i4.answers.p13 === 'na' && i4.answers.p5 === 'ok', `einflügelig ohne FSA: p6/p12/p13 entfällt (${JSON.stringify([i4.answers.p6, i4.answers.p12, i4.answers.p13])})`);
+  // Stammdaten unbekannt: Punkte bleiben offen, gezielte Rückfrage; die Antwort wird am Element gespeichert
+  await p.getByRole('button', { name: 'Prüfung starten' }).click();
+  await p.waitForURL(/\/pruefung\//);
+  const id5 = p.url().split('/pruefung/')[1].split('?')[0];
+  await p.getByRole('button', { name: 'Alles in Ordnung' }).click();
+  const qFsa = p.getByRole('group', { name: 'Hat die Tür eine Feststellanlage?' });
+  const qLeaves = p.getByRole('group', { name: 'Ist die Tür ein- oder zweiflügelig?' });
+  await qFsa.waitFor();
+  check(await qLeaves.isVisible(), 'Rückfrage ein-/zweiflügelig');
+  check(/offen – bitte Rückfrage beantworten/.test(await p.locator('[data-toast]').innerText()), 'Meldung nennt die offenen Punkte');
+  await noOverflow('Prüfung mit Rückfrage');
+  await p.screenshot({ path: OUT + 'm-pruefung-rueckfrage.png' });
+  await qFsa.getByRole('button', { name: 'Nein' }).click();
+  await qLeaves.getByRole('button', { name: '2-flügelig' }).click();
+  check(!(await p.locator('[data-question]').count()), 'Rückfragen beantwortet');
+  await p.getByRole('button', { name: 'Abschließen', exact: true }).click();
+  await p.waitForURL(/\/rundgang\/.*fertig=/);
+  const i5 = (await api(`/inspections/${id5}`)).json;
+  check(i5.status === 'submitted' && i5.answers.p6 === 'ok' && i5.answers.p12 === 'na' && i5.answers.p13 === 'na', `Antworten: zweiflügelig → Schließfolge i. O., ohne FSA → entfällt (${JSON.stringify([i5.answers.p6, i5.answers.p12])})`);
+  const a5 = (await api(`/assets/${made[1].id}`)).json;
+  check(a5.attributes.holdOpen === false && a5.attributes.leaves === '2-flügelig', `Stammdaten am Element gespeichert (${JSON.stringify(a5.attributes)})`);
 
   check(!errors.length, `Browserfehler: ${errors.slice(0, 3).join(' | ')}`);
   await b.close();

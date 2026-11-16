@@ -18,6 +18,7 @@
 //   - Was keinem Feld zugeordnet werden kann, landet in `unsure` (Vorschau: „bitte prüfen“), nie im Standort.
 import { CATEGORIES, type Severity } from './catalog';
 import { type CatalogDefect, clientVocabulary, expandTerms, findElementRef, matchCatalogDefect } from './vocab';
+import { assignCheckpoint } from './inspect-match';
 
 export type CaptureKind = 'defect' | 'task' | 'note' | 'asset';
 
@@ -744,15 +745,12 @@ function dueInDays(text: string, now = Date.now()): number | null {
 const stem = (w: string) => w.toLowerCase().replace(/[^a-zäöüß]/g, '').slice(0, 6);
 const words = (s: string) => s.split(/\s+/).map(stem).filter((w) => w.length >= 4);
 
-/** Prüfpunkt mit den meisten gemeinsamen Wortstämmen (mindestens einer). */
+/**
+ * Prüfpunkt zum Mangeltext – nur bei klarem Treffer (shared/inspect-match.ts, Plan v6 A5); passen mehrere gleich gut,
+ * bleibt der Mangel ohne Prüfpunkt.
+ */
 export function matchCheckpoint(text: string, checkpoints: { id: string; label: string }[] = []): string | null {
-  const t = new Set(words(text));
-  let best: { id: string; score: number } | null = null;
-  for (const cp of checkpoints) {
-    const score = words(cp.label).filter((w) => t.has(w)).length;
-    if (score > 0 && (!best || score > best.score)) best = { id: cp.id, score };
-  }
-  return best?.id ?? null;
+  return assignCheckpoint(text, checkpoints, { defects: clientVocabulary().defects }).id;
 }
 
 /** Ähnlichkeit zweier Beschreibungen (0–1, Anteil gemeinsamer Wortstämme) – für die Duplikat-Warnung. */

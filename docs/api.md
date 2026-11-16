@@ -39,11 +39,11 @@ Für API-Schlüssel gelten diese Regeln:
 | Endpunkt | Beschreibung |
 |----------|--------------|
 | `GET /dashboard` | Kennzahlen (überfällig, bald fällig, nie geprüft, nicht prüfbar, neue Elemente, Mängel …) |
-| `GET /search?q=&propertyId=` | Suche über Objekte, Gebäude, Elemente; „Tür 36“, „Nummer 36“, „FSA 2“ (mit `propertyId` auch „36“) finden Elemente über ihre laufende Nummer – zuerst |
+| `GET /search?q=&propertyId=` | Suche über Objekte, Gebäude, Elemente; „Tür 36“, „Nummer 36“, „FSA 2“ (mit `propertyId` auch „36“) finden Elemente über ihre laufende Nummer – zuerst; mit Artwort nur in dieser Art („Tür 4“ trifft nie den Feuerlöscher Nr. 4, statt dessen `refHint: "Nummer 4 ist ein Feuerlöscher (FL-004)"`) |
 | `GET /properties` | Objekte mit Status (überfällig, bald fällig, Mängel, nächste Begehung) |
-| `POST /properties` | Objekt anlegen: `{ name, address?, description?, contactName?, …, withBuilding? }` → `{ id }`; mit `withBuilding: true` entsteht im selben Aufruf ein Gebäude „Hauptgebäude“ → `{ id, buildingId }` |
+| `POST /properties` | Objekt anlegen: `{ name, address?, description?, contactName?, access?, …, withBuilding? }` (`access` = Zugang: Schlüssel, Zeiten, Hinweise; `PATCH` ohne `access` lässt ihn unverändert) → `{ id }`; mit `withBuilding: true` entsteht im selben Aufruf ein Gebäude „Hauptgebäude“ → `{ id, buildingId }` |
 | `GET /buildings` | Alle Gebäude (`id`, `name`, `propertyId`) |
-| `GET /properties/:id` | Objekt mit Gebäuden, Elementen, Grundrissen, Begehungen, Brandschutzbeauftragten |
+| `GET /properties/:id` | Objekt (mit `access`) mit Gebäuden, Elementen, Grundrissen, Begehungen, Brandschutzbeauftragten |
 | `GET /assets` | Elemente. Filter: `due=overdue\|soon\|never\|not_inspectable\|new\|defects`, `schedule=<Prüfart>`, `propertyId`, `buildingId`, `category`, `q` |
 | `GET /assets/:id` | Element mit Prüfarten, Historie, offenen Mängeln, Anhängen |
 | `GET /assets/by-code/:code?propertyId=` | Element über Code oder QR-Etikett; mit `propertyId` auch über die laufende Nummer („Tür 36“, „36“), wenn eindeutig |
@@ -166,7 +166,7 @@ Ungültige oder widerrufene Codes liefern `404` und werden je IP gedrosselt (`to
 | `GET /smart/intervals?assetId=` | Selbstanpassende Prüfintervalle: `{ mode: "off"\|"suggest"\|"auto", suggestions }` – je Vorschlag `assetId`, `schedule`, `kind` (`shorten`/`restore`), `from`, `to`, `standard`, `text`. Das angepasste Intervall steht am Element unter `schedules.<Prüfart>.intervalMonths` |
 | `POST /smart/intervals/apply` | Vorschlag übernehmen (Admin): `{ assetId, schedule, months }` – `months` muss dem aktuellen Vorschlag entsprechen (sonst 409); der nächste Termin wird ab der letzten Prüfung neu berechnet; Eintrag im Autopilot-Protokoll (`adapt_intervals`, rückgängig zu machen) |
 | `POST /smart/intervals/reset` | Angepasstes Intervall auf den Standard zurücksetzen (Admin): `{ assetId, schedule }` |
-| `GET /smart/rounds?days=30` | Fällige Elemente je Gebäude in Laufreihenfolge (Etage, Standort) |
+| `GET /smart/rounds?days=30` | Fällige Elemente je Gebäude in Laufreihenfolge: Etagen von unten nach oben (TG/UG, EG, ZG, 1. OG … DG, Unbekanntes zuletzt), innerhalb der Etage in Anlage-Reihenfolge (`sortIndex`) |
 | `GET /ai/status` | Fester Stand `{ transcribe: false, structure: "rules", vision: false }` – der Worker ruft keine KI auf |
 | `POST /ai/parse` | Text (z. B. Diktat) regelbasiert (`shared/smart.ts`) in Elemente/Mängel/Aufgaben/Notizen zerlegen: `{ text, checkpoints?, categories?, prefer? }` → `{ items, source: "rules" }`. Elemente: `kind: "asset"` mit `count` (max. 50), `category` (Schlüssel oder null), `floor`, `location`, `manufacturer`, `attributes` (z. B. `rating`, `smoke`); `categories[].synonyms` ergänzt Wörter je Art; `prefer: "assets"` nimmt auch ein bloßes Artwort als Element, `"findings"` nur mit Anzahl oder Hersteller; `categories: []` schaltet sie ab, ohne Angabe gelten die Arten des Workspaces |
 
@@ -205,19 +205,24 @@ Folgeaufruf sie braucht; Fehler als `isError` mit Hinweis, was stattdessen geht)
 | `briefing` | Lage in einem Aufruf: Kennzahlen, „Jetzt“-Liste (max. 12), wartende Unterschriften, Autopilot-Protokoll seit `since` |
 | `search` | Suche über Elemente, Objekte, Gebäude, Mängel, Aufgaben; `type: "properties"`/`"categories"` als Übersicht |
 | `list` | Listen mit Filtern: `what: assets\|defects\|tasks\|inspections\|walkthroughs` |
-| `get` | Ein Ding vollständig (`kind` + `ref`: Code, Name oder ID) mit Verlauf und Foto-/Grundriss-Verweisen (`foto:…`, `plan:…`) |
+| `get` | Ein Ding vollständig (`kind` + `ref`: Code, Name oder ID) mit Verlauf und Foto-/Grundriss-Verweisen (`foto:…`, `plan:…`). `asset` (auch „Tür 36“ mit `property`): Stammdaten mit `missingData`, Prüfpunkte als Gruppen-Kurzfassung (`detail: true` = Volltext), was nach den Stammdaten entfällt, letzte Prüfungen, offene Mängel, Fotos. `property`: mit Ansprechperson und `access` (Zugang) |
 | `get_photo` | Foto oder Grundriss als MCP-Bildinhalt (JPEG/PNG/WebP bis 4 MB; SVG-Grundrisse als Text) |
 | `capture` | Mehrere Mängel, Aufgaben, Notizen, Elemente auf einmal; ähnliche offene Mängel → `skipped`, mit `force` trotzdem. Element per Code oder – mit `property` – „Tür 36“; ohne Angabe Schwere/Maßnahme aus dem Katalog |
-| `update_asset` | Stammdaten nachtragen (Hersteller, Modell, Baujahr, Seriennummer, Zulassung, Standort, Etage, Etikett, weitere Felder) |
+| `update_asset` | Stammdaten nachtragen (Hersteller, Modell, Baujahr, Seriennummer, Zulassung, Standort, Etage, Etikett, weitere Felder). Werte werden geprüft: Auswahllisten nur mit erlaubten Werten (eindeutige Kurzformen wie „zwei“ → „2-flügelig“), Zahlen, Baujahr 1950 bis nächstes Jahr, Ja/Nein, Datum – bei einem Fehler wird nichts gespeichert |
 | `update_tasks` | Status, Zuständige, Frist, Priorität, Kommentar – für eine oder mehrere Aufgaben |
 | `update_defect` | Mangel beheben (mit Notiz) oder wieder öffnen |
 | `plan` | Rundgänge ansehen, Wochenplanung auslösen, Aufgaben aus Mängeln |
-| `tour` | Rundgang führen: `start` (Gebäude) → nächstes fälliges Element mit Standort, Prüfpunkten und bekannten Mängeln; `next`; `status` |
-| `inspect` | Prüfung aus dem Gesagten ausfüllen (`allOk`, Mängel mit Prüfpunkt-Zuordnung, bekannte Mängel `still`/`fixed`, Arbeiten, Bemerkung, nicht prüfbar) und **zur Unterschrift bereitlegen** – nie abschließen |
-| `setup` | Objekt, Gebäude, Elemente (Etage, Standort, Art, Marker auf dem Grundriss) in einem Rutsch; zuerst `preview: true` (zeigt neue Objekte/Gebäude als „wird neu angelegt“). Neue Objekte/Gebäude nur mit Schreib-Schlüssel einer Admin-/Inhaber-Person, sonst weist die Vorschau darauf hin |
+| `tour` | Rundgang führen in Laufreihenfolge (Etagen von unten nach oben, innerhalb der Etage Anlage-Reihenfolge): `start` (Gebäude) → Zugang/Ansprechperson des Objekts und nächstes fälliges Element mit Standort, Prüfpunkten als Gruppen-Kurzfassung (`detail: true` = Volltext), `notApplicable`, Rückfragen bei fehlenden Stammdaten (`askFirst`) und bekannten Mängeln; `next`; `status` |
+| `inspect` | Prüfung aus dem Gesagten ausfüllen und **zur Unterschrift bereitlegen** – nie abschließen. `allOk` setzt Offenes auf i. O., nicht Zutreffendes (keine Feststellanlage, einflügelig) auf „entfällt“, bei fehlendem Stammdatum bleibt der Punkt offen und `ask` fragt nach (Antwort mit `fields`, z. B. `{holdOpen: false}`, setzt das Stammdatum gleich mit). Mängel ohne `checkpoint` nur bei eindeutigem Treffer einem Prüfpunkt zugeordnet, sonst Rückfrage. Bekannte Mängel per defectId oder Titel `still`/`fixed`; gleichlautende neue Befunde werden mit dem offenen Mangel zusammengeführt (`merged`). Arbeiten auch mit anderen Worten („Batterie gewechselt“). `notInspectable` nur mit `reason`; spätere Befunde/`allOk` heben es auf (`stateChange`). Widersprüche (i. O. + Mangel am selben Punkt, „Melder gereinigt“ + „Melder verschmutzt“) → `ask`, Prüfung bleibt Entwurf. Antwort mit `status` (`draft`/`ready`), Mängel mit `severity` und `severityLabel` |
+| `setup` | Objekt (mit `access` = Zugang), Gebäude, Elemente (Etage, Standort, Art, Hersteller, Typ, Stammdaten `fields`, feste `number`, Katalog-`product`, Marker auf dem Grundriss) in einem Rutsch; die Reihenfolge der Elemente ist die Laufreihenfolge. Zuerst `preview: true` (zeigt neue Objekte/Gebäude als „wird neu angelegt“, `possibleDuplicates` bei gleicher Art, Etage und Standort, vergebene Nummern unter `problems`). Neue Objekte/Gebäude nur mit Schreib-Schlüssel einer Admin-/Inhaber-Person, sonst weist die Vorschau darauf hin |
 | `catalog` | Fachwissen: `search` (Produkte, Mängel, Begriffe), `suggest` (Befund → typischer Mangel mit Schwere/Maßnahme, ausgeschriebene Begriffe; Hersteller/Typ → Produkte), `upsert` im Stapel mit Vorschau (`preview: true` zuerst; Art als Bezeichnung möglich); ändern nur mit Schreib-Schlüssel einer Admin-/Inhaber-Person |
 | `autopilot` | Schritte und Protokoll ansehen, Schritt einmal ausführen, Eintrag rückgängig machen; Stufen ändern nur Admins in der App |
 | `report` | Kennzahlen für Zeitraum (`month`, `year`, `from`/`to`) und Objekt als Text |
+
+Element-Verweise wie „Tür 36“ müssen zur Art passen: Ist Nr. 4 ein Feuerlöscher, liefert „Tür 4“ in allen Werkzeugen den
+Fehler „Nummer 4 ist ein Feuerlöscher (FL-004)“ (ohne Artwort, „Nummer 4“, wie bisher). Schwere steht überall als
+Schlüssel und Wort (`severity: "medium"`, `severityLabel: "Mittel"`), der Status von Prüfungen als `draft` (Entwurf),
+`ready` (wartet auf Unterschrift) oder `submitted`; Hinweis zum Unterschreiben immer „In der App: Prüfen → Unterschreiben“.
 
 **Prompts** (`prompts/list`, `prompts/get`, erscheinen in Claude als fertige Befehle): Tagesbriefing (`seit`),
 Diktat erfassen (`text`, `element`), Woche planen (`tage`), Typenschilder nachtragen (`objekt`), Monatsbericht schreiben

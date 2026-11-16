@@ -1,6 +1,6 @@
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { markRoundDone } from './Round';
-import { api, type Inspection, queryClient, useInspection } from '../api';
+import { api, type AssetDetail, type Inspection, queryClient, useInspection } from '../api';
 import { InspectionForm } from '../components/run';
 import { ButtonLink, ErrorBox, Notice, Skeleton, Surface, useToast } from '../components/ui';
 import { fmtDate } from '../format';
@@ -71,6 +71,24 @@ function Online({ insp }: { insp: Inspection }) {
         resolvedDefects: insp.resolvedDefects ?? [],
       }}
       knownDefects={insp.knownDefects}
+      onAttribute={async (attr, value) => {
+        // Rückfrage („Hat die Tür eine Feststellanlage?“) dauerhaft am Element speichern
+        const a = await api<AssetDetail>(`/assets/${insp.assetId}`);
+        await api(`/assets/${insp.assetId}`, {
+          method: 'PATCH',
+          body: {
+            buildingId: a.buildingId,
+            location: a.location,
+            floor: a.floor,
+            manufacturer: a.manufacturer,
+            model: a.model,
+            labelCode: a.labelCode || undefined,
+            number: a.number ?? undefined,
+            warnDays: a.warnDays ?? null,
+            attributes: { ...a.attributes, [attr]: value },
+          },
+        });
+      }}
       persist={(d) => api(`/inspections/${insp.id}`, { method: 'PUT', body: d })}
       submit={async (d) => {
         await api(`/inspections/${insp.id}/submit`, { body: d });

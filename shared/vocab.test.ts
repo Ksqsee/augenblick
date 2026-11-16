@@ -11,6 +11,8 @@ import {
   matchCatalogDefect,
   matchCatalogDefects,
   matchElementRef,
+  elementRefConflict,
+  kindArticle,
   numberCode,
   parseElementRef,
   planCatalogMerge,
@@ -75,9 +77,39 @@ describe('Element-Verweise („Tür 36“)', () => {
       { code: 'FST-7K2M', number: null, category: 'fire_door' },
     ];
     expect(matchElementRef({ number: 36, category: 'fire_door', match: '' }, assets).map((a) => a.code)).toEqual(['FST-036']);
-    expect(matchElementRef({ number: 37, category: 'fire_door', match: '' }, assets).map((a) => a.code)).toEqual(['FSA-037']);
+    // Plan v6 A1: Artwort und Nummer müssen zusammenpassen – „Tür 37“ trifft nicht die Feststellanlage FSA-037
+    expect(matchElementRef({ number: 37, category: 'fire_door', match: '' }, assets)).toEqual([]);
+    expect(matchElementRef({ number: 37, category: null, match: '' }, assets).map((a) => a.code)).toEqual(['FSA-037']);
     expect(matchElementRef({ number: 36, category: null, match: '' }, assets.slice(2)).map((a) => a.code)).toEqual(['FST-36']);
     expect(matchElementRef({ number: 99, category: null, match: '' }, assets)).toEqual([]);
+  });
+});
+
+describe('Elementbezug mit Art (Plan v6, A1)', () => {
+  const assets = [
+    { code: 'FST-001', number: 1, category: 'fire_door' },
+    { code: 'FL-004', number: 4, category: 'extinguisher' },
+    { code: 'FSA-005', number: 5, category: 'hold_open' },
+  ];
+  const label = (k: string) => ({ fire_door: 'Feuerschutztür', extinguisher: 'Feuerlöscher', hold_open: 'Feststellanlage' })[k] ?? k;
+  it('„Tür 4“ trifft nicht den Feuerlöscher FL-004, sondern meldet den Widerspruch', () => {
+    const ref = parseElementRef('Tür 4')!;
+    expect(matchElementRef(ref, assets)).toEqual([]);
+    expect(elementRefConflict(ref, assets, label)).toBe('Nummer 4 ist ein Feuerlöscher (FL-004)');
+    expect(elementRefConflict(parseElementRef('Tür 5')!, assets, label)).toBe('Nummer 5 ist eine Feststellanlage (FSA-005)');
+  });
+  it('ohne Artwort wie bisher, passende Art ohne Hinweis', () => {
+    expect(matchElementRef(parseElementRef('Nummer 4')!, assets).map((a) => a.code)).toEqual(['FL-004']);
+    expect(elementRefConflict(parseElementRef('Nummer 4')!, assets, label)).toBeNull();
+    expect(matchElementRef(parseElementRef('Löscher 4')!, assets).map((a) => a.code)).toEqual(['FL-004']);
+    expect(elementRefConflict(parseElementRef('Tür 1')!, assets, label)).toBeNull();
+    expect(elementRefConflict(parseElementRef('Tür 9')!, assets, label)).toBeNull();
+  });
+  it('Artikel', () => {
+    expect(kindArticle('Feuerlöscher')).toBe('ein');
+    expect(kindArticle('Rauchwarnmelder')).toBe('ein');
+    expect(kindArticle('Feuerschutztür')).toBe('eine');
+    expect(kindArticle('Brandschutzklappe')).toBe('eine');
   });
 });
 

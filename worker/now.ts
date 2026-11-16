@@ -4,6 +4,7 @@
 import { Hono } from "hono";
 import { DAY } from "../shared/logic";
 import { neverItem, NOW_LIMIT, type NowItem, NOW_VERBS, rankNow } from "../shared/now";
+import { walkSort } from "../shared/walk-order";
 import { automationSuggestions } from "./automation";
 import { defectScope, taskScope, tid } from "./data";
 import { adaptMode, intervalSuggestions } from "./intervals";
@@ -24,6 +25,7 @@ export async function dueRounds(c: Ctx, days: number) {
   const rows = (
     await c.env.DB.prepare(
       `SELECT a.id, a.code, a.category, a.location, a.floor, a.next_due_at AS nextDueAt,
+              a.sort_index AS sortIndex, a.number, a.created_at AS createdAt,
               b.id AS buildingId, b.name AS buildingName, p.id AS propertyId, p.name AS propertyName
          FROM assets a JOIN buildings b ON b.id = a.building_id JOIN properties p ON p.id = b.property_id
         WHERE a.tenant_id = ?1 AND a.deleted_at IS NULL AND b.deleted_at IS NULL AND p.deleted_at IS NULL
@@ -54,6 +56,8 @@ export async function dueRounds(c: Ctx, days: number) {
     g.assets.push(r);
     by.set(r.buildingId, g);
   }
+  // Laufreihenfolge: Etagen von unten nach oben, dann Anlage-Reihenfolge (shared/walk-order.ts, Plan v6 A3)
+  for (const g of by.values()) g.assets = walkSort(g.assets);
   return [...by.values()].sort(
     (a, b) =>
       b.overdue - a.overdue ||
@@ -68,6 +72,9 @@ interface DueAsset {
   location: string;
   floor: string;
   nextDueAt: number | null;
+  sortIndex: number | null;
+  number: number | null;
+  createdAt: number;
   buildingId: string;
   buildingName: string;
   propertyId: string;

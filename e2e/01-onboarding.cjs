@@ -66,6 +66,9 @@ require('fs').mkdirSync(OUT, { recursive: true });
   await p.getByRole('button', { name: /Bauteil und Einbau/ }).click();
   await p.locator('[data-cp="p9"]').getByRole('radio', { name: 'Mangel' }).click();
   await p.getByRole('button', { name: 'Alles andere in Ordnung' }).click();
+  // Stammdaten der neuen Tür unbekannt: Rückfragen (Plan v6 A4) beantworten
+  await p.getByRole('group', { name: 'Hat die Tür eine Feststellanlage?' }).getByRole('button', { name: 'Nein' }).click();
+  await p.getByRole('group', { name: 'Ist die Tür ein- oder zweiflügelig?' }).getByRole('button', { name: '1-flügelig' }).click();
   await p.getByRole('radio', { name: 'Hoch' }).click();
   await p.getByPlaceholder('Beschreibung (optional)').fill('Dichtung oben 20 cm abgerissen');
   await p.getByRole('button', { name: /Weitere Angaben/ }).click();
