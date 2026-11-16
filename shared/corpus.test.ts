@@ -50,8 +50,10 @@ const el = (count: number, category: string, floor = '', location = '', more: Pa
 const def = (more: Partial<Exp> = {}): Exp => ({ kind: 'defect', ...more });
 const task = (more: Partial<Exp> = {}): Exp => ({ kind: 'task', ...more });
 const note = (): Exp => ({ kind: 'note' });
-const T30 = { rating: 'T30' };
-const RS = { smoke: true };
+// Tür (Plan v7): Feuerwiderstand und Rauchschutz als Anforderung
+const T30 = { requirement: 'T30' };
+const RS = { requirement: 'RS' };
+const T30RS = { requirement: 'T30-RS' };
 
 const A = (text: string, ...expect: Exp[]): Case => ({ text, mode: 'assets', expect });
 const F = (text: string, ...expect: Exp[]): Case => ({ text, mode: 'findings', expect });
@@ -66,7 +68,7 @@ const ELEMENTS: Case[] = [
     el(2, FD, '1. OG', 'Treppenhaus', { manufacturer: 'Schüco', attributes: RS }),
   ),
   A('drei Feuerschutztüren im EG Flur und eine Feststellanlage', el(3, FD, 'EG', 'Flur'), el(1, HO, 'EG', 'Flur')),
-  A('Erdgeschoss Treppenhaus Nord zwei Rauchschutztüren T30 von Hörmann', el(2, FD, 'EG', 'Treppenhaus Nord', { manufacturer: 'Hörmann', attributes: { ...T30, ...RS } })),
+  A('Erdgeschoss Treppenhaus Nord zwei Rauchschutztüren T30 von Hörmann', el(2, FD, 'EG', 'Treppenhaus Nord', { manufacturer: 'Hörmann', attributes: { ...T30RS } })),
   A('ähm im zweiten Stock Flur links drei Brandschutztüren', el(3, FD, '2. OG', 'Flur links')),
   A('Tür 36 im EG Flur', el(1, FD, 'EG', 'Flur', { number: 36 })),
   A('Türen 12 bis 15 im ersten OG', el(4, FD, '1. OG', '', { number: 12 })),
@@ -75,9 +77,9 @@ const ELEMENTS: Case[] = [
   A('eine Stahltür T30 im Heizungsraum', el(1, FD, '', 'Heizungsraum', { attributes: { ...T30, doorType: 'Stahltür' } })),
   A(
     'zwei Alu-Rohrrahmentüren T30 RS im Foyer von Schörghuber',
-    el(2, FD, '', 'Foyer', { manufacturer: 'Schörghuber', attributes: { ...T30, ...RS, doorType: 'Alu-Rohrrahmentür' } }),
+    el(2, FD, '', 'Foyer', { manufacturer: 'Schörghuber', attributes: { ...T30RS, doorType: 'Alu-Rohrrahmentür' } }),
   ),
-  A('Doppeltür T90 im Untergeschoss zur Tiefgarage', el(1, FD, 'UG', 'Zur Tiefgarage', { attributes: { rating: 'T90', leaves: '2-flügelig' } })),
+  A('Doppeltür T90 im Untergeschoss zur Tiefgarage', el(1, FD, 'UG', 'Zur Tiefgarage', { attributes: { requirement: 'T90', leaves: '2-flügelig' } })),
   A('drei Feststellanlagen im EG', el(3, HO, 'EG')),
   A('FSA im zweiten OG Flur Ost', el(1, HO, '2. OG', 'Flur Ost')),
   A('eine Haftmagnet-Anlage am Treppenhaus im ersten Obergeschoss', el(1, HO, '1. OG', 'Treppenhaus', { attributes: { holdDevice: 'Haftmagnet' } })),
@@ -85,7 +87,7 @@ const ELEMENTS: Case[] = [
   A('zwei T30-Türen mit Obentürschließer und Absenkdichtung im Keller', el(2, FD, 'UG', '', { attributes: { ...T30, closer: true, dropSeal: true } })),
   A(
     'Wohnungseingangstür mit Spion, T30 RS, dritter Stock links',
-    el(1, FD, '3. OG', 'Links', { attributes: { ...T30, ...RS, peephole: true, doorType: 'Wohnungseingangstür' } }),
+    el(1, FD, '3. OG', 'Links', { attributes: { ...T30RS, peephole: true, doorType: 'Wohnungseingangstür' } }),
   ),
   A('5 Feuerlöscher im Lager', el(5, EX, '', 'Lager')),
   A('zwei Löscher sechs Kilo Pulver EG Werkstatt', el(2, EX, 'EG', 'Werkstatt', { attributes: { size: '6', agent: 'ABC-Pulver' } })),
@@ -102,7 +104,7 @@ const ELEMENTS: Case[] = [
   A('Im Erdgeschoss eine Tür zum Hof und im Keller zwei Türen zur Tiefgarage', el(1, FD, 'EG', 'Zum Hof'), el(2, FD, 'UG', 'Zur Tiefgarage')),
   A('Dachgeschoss: eine Feuerschutztür zum Dachboden', el(1, FD, 'DG', 'Zum Dachboden')),
   A('In der Tiefgarage zwei Feuerschutztore', el(2, FD, 'TG')),
-  A('Zwischengeschoss Technik eine T90 Tür', el(1, FD, 'ZG', 'Technik', { attributes: { rating: 'T90' } })),
+  A('Zwischengeschoss Technik eine T90 Tür', el(1, FD, 'ZG', 'Technik', { attributes: { requirement: 'T90' } })),
   A('im Hochparterre zwei Feuerlöscher', el(2, EX, 'EG')),
   A('1. Stock Küche ein Feuerlöscher und ein Rauchmelder', el(1, EX, '1. OG', 'Küche'), el(1, SM, '1. OG', 'Küche')),
   A('erster Stock Flur drei Rauchmelder, zweiter Stock Flur drei Rauchmelder', el(3, SM, '1. OG', 'Flur'), el(3, SM, '2. OG', 'Flur')),
@@ -116,13 +118,13 @@ const ELEMENTS: Case[] = [
   A('Feststelleinrichtung mit zwei Rauchmeldern und Handtaster im EG', el(1, HO, 'EG', '', { attributes: { detectors: '2', manualRelease: true } })),
   A(
     'Im Keller: Heizraum eine T90-Tür, Elektroraum eine T30-Tür',
-    el(1, FD, 'UG', 'Heizraum', { attributes: { rating: 'T90' } }),
+    el(1, FD, 'UG', 'Heizraum', { attributes: { requirement: 'T90' } }),
     el(1, FD, 'UG', 'Elektroraum', { attributes: T30 }),
   ),
   A('Feuerlöscher drei Stück Werkstatt', el(3, EX, '', 'Werkstatt')),
   A('eine Brandschutzklappe K90 im Schacht 3. OG', el(1, DA, '3. OG', 'Schacht', { attributes: { rating: 'K90' } })),
   A('vier Feuerschutzabschlüsse in der TG', el(4, FD, 'TG')),
-  A('T30 RS Tür Flur Nord EG', el(1, FD, 'EG', 'Flur Nord', { attributes: { ...T30, ...RS } })),
+  A('T30 RS Tür Flur Nord EG', el(1, FD, 'EG', 'Flur Nord', { attributes: { ...T30RS } })),
   A('Und dann noch im DG zwei Rauchschutztüren', el(2, FD, 'DG', '', { attributes: RS })),
   A('ein Feuerlöscher', el(1, EX)),
   A('Feststellanlage', el(1, HO)),
@@ -131,7 +133,7 @@ const ELEMENTS: Case[] = [
     el(2, FD, '1. OG', '', { manufacturer: 'Hörmann' }),
     el(2, FD, '1. OG', '', { manufacturer: 'Schörghuber' }),
   ),
-  A('Elektroraum UG Brandschutztür T90 Hersteller Hörmann Baujahr 2015', el(1, FD, 'UG', 'Elektroraum', { manufacturer: 'Hörmann', attributes: { rating: 'T90', year: '2015' } })),
+  A('Elektroraum UG Brandschutztür T90 Hersteller Hörmann Baujahr 2015', el(1, FD, 'UG', 'Elektroraum', { manufacturer: 'Hörmann', attributes: { requirement: 'T90', year: '2015' } })),
   A('zwei Rauchschutztüren mit Feststellanlage im Treppenhaus', el(2, FD, '', 'Treppenhaus', { attributes: { ...RS, holdOpen: true } })),
   A('Rauchschutztür und Feststellanlage im Treppenhaus 2. OG', el(1, FD, '2. OG', 'Treppenhaus', { attributes: RS }), el(1, HO, '2. OG', 'Treppenhaus')),
   A('Im Flur hinten eine Feuerschutztür, die ist von Hörmann', el(1, FD, '', 'Flur hinten', { manufacturer: 'Hörmann' })),
@@ -141,7 +143,7 @@ const ELEMENTS: Case[] = [
   // Rest, der keinem Feld zugeordnet werden kann: Standort sauber, Zeile „bitte prüfen“
   A('neun Feuerschutztüren im Treppenhaus, jeweils eine pro Etage', el(9, FD, '', 'Treppenhaus', { unsure: true })),
   A('zwei FST und eine FSA im UG Schleuse', el(2, FD, 'UG', 'Schleuse'), el(1, HO, 'UG', 'Schleuse')),
-  A('Feuerschutztür EI2 30 Sa im Flur', el(1, FD, '', 'Flur', { attributes: { rating: 'EI2 30', smoke: true } })),
+  A('Feuerschutztür EI2 30 Sa im Flur', el(1, FD, '', 'Flur', { attributes: T30RS })),
   A('Drehflügeltür T30 im EG', el(1, FD, 'EG', '', { attributes: { ...T30, doorType: 'Drehflügeltür' } })),
   A('zwei Schiebetore T30 in der Halle', el(2, FD, '', 'Halle', { attributes: { ...T30, doorType: 'Schiebetor' } })),
   A('eine Brandschutztür im 10. OG Technik', el(1, FD, '10. OG', 'Technik')),
@@ -154,7 +156,7 @@ const ELEMENTS: Case[] = [
   A('zwei CO2-Löscher im Serverraum', el(2, EX, '', 'Serverraum', { attributes: { agent: 'CO₂' } })),
   A('Tür 36 bis 38 Flur Ost zweites Obergeschoss', el(3, FD, '2. OG', 'Flur Ost', { number: 36 })),
   A('Feststellanlage an der Tür zum Treppenhaus im 1. OG', el(1, HO, '1. OG', 'Tür zum Treppenhaus')),
-  A('Kellergeschoss drei Stahltüren T90 von Hörmann', el(3, FD, 'UG', '', { manufacturer: 'Hörmann', attributes: { rating: 'T90', doorType: 'Stahltür' } })),
+  A('Kellergeschoss drei Stahltüren T90 von Hörmann', el(3, FD, 'UG', '', { manufacturer: 'Hörmann', attributes: { requirement: 'T90', doorType: 'Stahltür' } })),
   A('eine Tür', el(1, FD)),
   A('zwei Rauchschutztüren und eine Feststellanlage. Im Keller noch zwei Feuerlöscher.', el(2, FD, '', '', { attributes: RS }), el(1, HO), el(2, EX, 'UG')),
   A('drei Feuerschutztüren im EG Flur. Zwei Feuerlöscher.', el(3, FD, 'EG', 'Flur'), el(2, EX, 'EG', 'Flur')),
@@ -274,7 +276,7 @@ const BLIND: Case[] = [
   A('Tiefgarage Ebene minus eins zwei Feuerschutztore', el(2, FD, 'TG', 'Ebene minus eins')),
   A(
     'Feuerschutztür T30-RS zweiflügelig mit Feststellanlage Hersteller Schörghuber Flur EG',
-    el(1, FD, 'EG', 'Flur', { manufacturer: 'Schörghuber', attributes: { ...T30, ...RS, leaves: '2-flügelig', holdOpen: true } }),
+    el(1, FD, 'EG', 'Flur', { manufacturer: 'Schörghuber', attributes: { ...T30RS, leaves: '2-flügelig', holdOpen: true } }),
   ),
   A('äh ja also zwei Brandschutzklappen in der Lüftungszentrale Dach', el(2, DA, '', 'Lüftungszentrale Dach')),
   A('Rauchmelder Kinderzimmer, Rauchmelder Schlafzimmer, Rauchmelder Flur', el(1, SM, '', 'Kinderzimmer'), el(1, SM, '', 'Schlafzimmer'), el(1, SM, '', 'Flur')),

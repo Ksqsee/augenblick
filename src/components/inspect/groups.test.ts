@@ -3,12 +3,23 @@ import { CATEGORIES } from '../../../shared/catalog';
 import { countGroup, groupCheckpoints, groupSummary } from './groups';
 
 describe('Prüfpunkte in Gruppen', () => {
-  it('Feuerschutztür: vier sprechende Gruppen, jeder Punkt genau einmal, Nummern bleiben', () => {
+  it('Tür (v7): Gruppen nach Bauteil, jeder Punkt genau einmal, Nummern bleiben', () => {
     const cps = CATEGORIES.fire_door.checkpoints;
     const g = groupCheckpoints(cps);
-    expect(g.map((x) => x.label)).toEqual(['Kennzeichnung und Zugang', 'Bauteil und Einbau', 'Beschläge und Mechanik', 'Auslösung und Funktion']);
+    expect(g.map((x) => x.label)).toEqual([
+      'Kennzeichnung und Zulassung',
+      'Zarge',
+      'Türblatt',
+      'Bänder',
+      'Schließmittel und OTS',
+      'Drücker und Schloss',
+      'Dichtungen',
+      'Zusatzausstattung',
+      'Feststellanlage',
+      'Funktion',
+    ]);
     expect(g.flatMap((x) => x.items.map((i) => i.n)).sort((a, b) => a - b)).toEqual(cps.map((_, i) => i + 1));
-    expect(g[2].items.map((i) => i.n)).toEqual([4, 5, 6, 7, 8, 15]);
+    expect(g[4].items.map((i) => i.n)).toEqual([10, 11, 12]);
   });
 
   it('alle eingebauten Prüflisten: keine Gruppe „Weitere Punkte“ mit mehr als zwei Punkten', () => {

@@ -3,7 +3,7 @@
 // „entfällt“; ist das Stammdatum unbekannt, bleibt der Punkt offen und es wird gezielt nachgefragt.
 import type { Answer } from './logic';
 import { CATEGORIES, type Checkpoint, type CheckpointCondition, isBuiltin, schedulesOf } from './catalog';
-import { FIRE_REQUIREMENTS, requirementOf, SMOKE_REQUIREMENTS } from './catalog-door';
+import { requirementOf } from './catalog-door';
 
 /** Gezielte Rückfrage je Stammdatum; eigene Felder bekommen eine allgemeine Frage. */
 const QUESTIONS: Record<string, string> = {
@@ -21,9 +21,7 @@ const QUESTIONS: Record<string, string> = {
  * Bedingungen älterer Vorlagen (v6), deren Bezeichnung es in der Tür-Vorlage (v7) nicht mehr gibt – damit Entwürfe
  * von vor der Umstellung weiter richtig entfallen.
  */
-const LEGACY: Record<string, CheckpointCondition> = {
-  'Dichtungen (Rauch- und Brandschutz) vollständig, nicht übermalt': { attr: 'requirement', in: [...new Set([...FIRE_REQUIREMENTS, ...SMOKE_REQUIREMENTS])] },
-};
+const LEGACY: Record<string, CheckpointCondition> = {};
 
 /** Kurzer Grund, warum ein Punkt entfällt (Antworten von MCP und App): „ohne Feststellanlage“, „ohne Brandschutz“ … */
 export function conditionReason(cond: CheckpointCondition): string {

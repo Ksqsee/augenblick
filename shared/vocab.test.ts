@@ -164,7 +164,7 @@ describe('Mängel aus dem Katalog', () => {
 
 describe('Produkte', () => {
   const products: CatalogProduct[] = [
-    { id: 'p1', manufacturer: 'Hörmann', model: 'H3 OD', category: 'fire_door', defaults: { rating: 'T30', smoke: true, doorType: 'T30-1' }, approval: 'Z-6.20-1', note: '' },
+    { id: 'p1', manufacturer: 'Hörmann', model: 'H3 OD', category: 'fire_door', defaults: { requirement: 'T30-RS', doorType: 'T30-1' }, approval: 'Z-6.20-1', note: '' },
     { id: 'p2', manufacturer: 'Hörmann', model: 'HM 50', category: 'hold_open', defaults: { holdDevice: 'Haftmagnet' }, approval: '', note: '' },
     { id: 'p3', manufacturer: 'Teckentrup', model: 'RS 62', category: 'fire_door', defaults: {}, approval: '', note: '' },
   ];
@@ -175,8 +175,8 @@ describe('Produkte', () => {
   });
   it('Vorgaben füllen nur leere, erlaubte Felder', () => {
     const allowed = CATEGORIES.fire_door.attributes.map((a) => a.key);
-    expect(applyProductDefaults({ rating: 'T90', smoke: false }, products[0]!, allowed)).toEqual({ rating: 'T90', smoke: true, doorType: 'T30-1', approval: 'Z-6.20-1' });
-    expect(applyProductDefaults({ rating: 'T90' }, products[0]!, allowed, true)).toMatchObject({ rating: 'T30' });
+    expect(applyProductDefaults({ requirement: 'T90', holdOpen: false }, products[0]!, allowed)).toEqual({ requirement: 'T90', holdOpen: false, doorType: 'T30-1', approval: 'Z-6.20-1' });
+    expect(applyProductDefaults({ requirement: 'T90' }, products[0]!, allowed, true)).toMatchObject({ requirement: 'T30-RS' });
     expect(applyProductDefaults({}, { defaults: { fremd: 'x' }, approval: '' }, allowed)).toEqual({});
   });
 });

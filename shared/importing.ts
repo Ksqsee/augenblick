@@ -29,6 +29,17 @@ for (const c of Object.values(CATEGORIES)) {
   for (const a of [c.key, c.label, c.plural, c.prefix]) CATEGORY_ALIASES[norm(a)] = c.key;
 }
 Object.assign(CATEGORY_ALIASES, {
+  [norm('Feuerschutztür')]: 'fire_door',
+  [norm('Feuerschutztüren')]: 'fire_door',
+  [norm('FST')]: 'fire_door',
+  [norm('Drehflügeltür')]: 'fire_door',
+  [norm('Türantrieb')]: 'door_drive',
+  [norm('Drehflügelantrieb')]: 'door_drive',
+  [norm('Antrieb')]: 'door_drive',
+  [norm('Fensterelement')]: 'window',
+  [norm('Window')]: 'window',
+  [norm('Door operator')]: 'door_drive',
+  [norm('Door')]: 'fire_door',
   [norm('Brandschutztür')]: 'fire_door',
   [norm('Brandschutztuer')]: 'fire_door',
   [norm('Tür')]: 'fire_door',
