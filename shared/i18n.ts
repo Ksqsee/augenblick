@@ -554,10 +554,7 @@ const EN: Record<string, string> = {
   pauschal: 'lump sum',
   // Checkliste je Typ (Plan v7 W, shared/checklist.ts, src/pdf/checklist.ts)
   Checkliste: 'Checklist',
-  Typ: 'Type',
-  Anforderung: 'Requirement',
   Zulassung: 'Approval',
-  Element: 'Item',
   'Türen mit Abweichung / Notiz': 'Doors with deviation / note',
   'falls vorhanden': 'if fitted',
   'Nur Abweichungen ansagen – alles Übrige gilt als in Ordnung.': 'Only report deviations – everything else counts as OK.',
