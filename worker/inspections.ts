@@ -7,11 +7,14 @@ import { type Answer, addMonths, applyInspection, computeResult, DAY, finalResul
 import { describeProposal, effectiveInterval, type IntervalProposal, proposeInterval } from '../shared/intervals';
 import { getCategoryDef, getSchedule, listCategories } from './categories';
 import { assetQuery, mapAsset, severityEnum, str, tid } from './data';
-import { type AppEnv, assertInScope, type Ctx, id, logActivity, notFound, now, parseJson, requireRole, scopeSql } from './lib';
+import { type AppEnv, assertInScope, type Ctx, id, logActivity, notFound, now, parseJson, RANK, requireRole, requireStructure, scopeSql } from './lib';
 import { adaptMode, intervalHistory, logIntervalChange, writeSchedules } from './intervals';
 import { notify } from './notify';
 import { notifyCriticalReady } from './pending';
 import { afterTasksDone, afterVerification, autoDefectTasks, closeFinishedRounds } from './automation';
+import { mergeRawNotes, RAW_NOTE_TEXT_MAX, RAW_NOTES_MAX, type RawNote } from '../shared/announce';
+import { conditionOf } from '../shared/applies';
+import { readCatalog } from './catalog';
 
 export const inspections = new Hono<AppEnv>();
 
@@ -46,6 +49,54 @@ const inspectionBody = z.object({
   resolvedDefects: z.array(z.string().max(40)).max(100).default([]),
 });
 type InspectionBody = z.infer<typeof inspectionBody>;
+
+/** Rohnotiz aus App, Offline-Warteschlange oder Claude (Plan v7 W). „ausgewertet“ setzt nur PATCH …/raw-notes. */
+const rawNoteInput = z.object({
+  id: z.string().regex(/^[A-Za-z0-9_-]{6,40}$/, 'Ungültige Notiz-ID'),
+  text: str(RAW_NOTE_TEXT_MAX).min(1, 'Notiz ohne Text'),
+  at: z.number().int().min(0),
+  source: z.enum(['app', 'offline', 'mcp']).default('app'),
+  kind: z.enum(['announce', 'finding', 'type']).optional(),
+  summary: str(300).optional(),
+  critical: z.boolean().optional(),
+});
+type RawNoteInput = z.infer<typeof rawNoteInput>;
+
+/**
+ * Eingehende Rohnotizen bereinigen: nie schon „ausgewertet“, Zeit nicht in der Zukunft, Quelle passend zum Zugang
+ * (API-Schlüssel/OAuth = Claude bzw. Fremdsystem → „mcp“; Browser-Sitzung → „app“ oder „offline“).
+ */
+function cleanRawNotes(c: Ctx, notes: RawNoteInput[]): RawNote[] {
+  const viaKey = !!c.get('user').apiKeyId;
+  const t = now();
+  return notes.map((n) => ({
+    id: n.id,
+    text: n.text,
+    at: Math.min(n.at, t),
+    source: viaKey ? 'mcp' : n.source === 'mcp' ? 'app' : n.source,
+    ...(n.kind ? { kind: n.kind } : {}),
+    ...(n.summary ? { summary: n.summary } : {}),
+    ...(n.critical ? { critical: true } : {}),
+    evaluated: false,
+  }));
+}
+
+/** Rohnotizen anhängen – Vergleich und Tausch in einer Anweisung, damit gleichzeitige Einträge nicht verloren gehen. */
+async function appendRawNotes(c: Ctx, iid: string, add: RawNote[]): Promise<RawNote[]> {
+  for (let attempt = 0; attempt < 5; attempt++) {
+    const cur = await c.env.DB.prepare('SELECT raw_notes FROM inspections WHERE id = ? AND tenant_id = ?').bind(iid, tid(c)).first<string>('raw_notes');
+    if (cur == null) notFound('Prüfung');
+    const next = mergeRawNotes(parseJson<RawNote[]>(cur, []), add);
+    const r = await c.env.DB.prepare('UPDATE inspections SET raw_notes = ?, updated_at = ? WHERE id = ? AND tenant_id = ? AND raw_notes = ?')
+      .bind(JSON.stringify(next), now(), iid, tid(c), cur)
+      .run();
+    if (r.meta.changes) return next;
+  }
+  throw new HTTPException(409, { message: 'Notiz konnte nicht gespeichert werden – bitte erneut versuchen' });
+}
+
+/** SQL: Zahl der nicht ausgewerteten Rohnotizen einer Prüfung (Alias i). */
+const RAW_PENDING_SQL = "(SELECT COUNT(*) FROM json_each(i.raw_notes) j WHERE COALESCE(json_extract(j.value, '$.evaluated'), 0) = 0)";
 
 /** Eigene Prüfungsarten des Workspaces. */
 export async function tenantKinds(c: Ctx): Promise<CustomKind[]> {
@@ -115,7 +166,7 @@ inspections.get('/inspections', async (c) => {
   const rows = await c.env.DB.prepare(
     `SELECT i.id, i.kind, i.kinds, i.purpose, i.schedule, i.status, i.result, i.inspected_at AS inspectedAt, i.created_at AS createdAt, i.next_due_at AS nextDueAt,
             i.archived_at AS archivedAt, i.ready_at AS readyAt, i.superseded_at AS supersededAt, i.superseded_by AS supersededBy, i.supersedes_id AS supersedesId, a.id AS assetId, a.code, a.category, a.location, b.name AS buildingName, p.id AS propertyId, p.name AS propertyName,
-            u.name AS inspector, i.inspector_id AS inspectorId, b.id AS buildingId
+            u.name AS inspector, i.inspector_id AS inspectorId, b.id AS buildingId, ${RAW_PENDING_SQL} AS rawPending
        FROM inspections i JOIN assets a ON a.id = i.asset_id JOIN buildings b ON b.id = a.building_id
        JOIN properties p ON p.id = b.property_id JOIN users u ON u.id = i.inspector_id
       WHERE i.tenant_id = ?1 AND ${scopeSql(c, 'a.building_id', 'building')} AND ${where.join(' AND ')} ORDER BY COALESCE(i.inspected_at, i.created_at) DESC LIMIT 1000`,
@@ -201,13 +252,17 @@ export async function recomputeAssets(c: Ctx, assetIds: string[]) {
 inspections.post('/assets/:id/inspections', async (c) => {
   requireRole(c, 'inspector');
   const a = await loadAsset(c, c.req.param('id'));
-  const body: { schedule?: string; purpose: 'regular' | 'follow_up'; followUpOf?: string; taskId?: string; repair?: boolean } = z
+  const body: { schedule?: string; purpose: 'regular' | 'follow_up'; followUpOf?: string; taskId?: string; repair?: boolean; general?: boolean; rawNote?: RawNoteInput } = z
     .object({
       schedule: z.string().max(40).optional(),
       purpose: z.enum(['regular', 'follow_up']).default('regular'),
       followUpOf: z.string().max(40).optional(),
       /** aus einer Aufgabe gestartet: Prüfauftrag = Regelprüfung, Mängelbehebung = Nachprüfung der Ausgangsprüfung */
       taskId: z.string().max(40).optional(),
+      /** Typ unbekannt (Plan v7 W): allgemeine Checkliste – nur Prüfpunkte ohne Bedingung auf Stammdaten */
+      general: z.boolean().optional(),
+      /** Ansage bzw. gesprochener Typ gleich als Rohnotiz an die Prüfung */
+      rawNote: rawNoteInput.optional(),
     })
     .parse(await c.req.json().catch(() => ({})));
   if (body.taskId && body.purpose === 'regular') {
@@ -242,8 +297,15 @@ inspections.post('/assets/:id/inspections', async (c) => {
   )
     .bind(a.id, tid(c), c.get('user').userId, schedule, body.purpose, origin?.id ?? '')
     .first<{ id: string }>();
-  if (existing) return c.json(existing);
+  if (existing) {
+    if (body.rawNote) await appendRawNotes(c, existing.id, cleanRawNotes(c, [body.rawNote]));
+    return c.json(existing);
+  }
   let checkpoints = (await getSchedule(c, a.category, schedule)).checkpoints;
+  if (body.general && !origin) {
+    const plain = checkpoints.filter((p) => !conditionOf(p, a.category));
+    if (plain.length) checkpoints = plain;
+  }
   if (origin) {
     // Nachprüfung: nur die Prüfpunkte, die bei der Ausgangsprüfung einen Mangel hatten
     const answers = parseJson<Record<string, Answer>>(origin.answers, {});
@@ -256,10 +318,25 @@ inspections.post('/assets/:id/inspections', async (c) => {
   const last = await c.env.DB.prepare("SELECT 1 FROM inspections WHERE asset_id = ? AND status = 'submitted' LIMIT 1").bind(a.id).first();
   const kind = origin ? 'after_repair' : body.repair ? 'after_repair' : last || summarizeSchedules(a.schedules).lastAt ? 'periodic' : 'initial';
   await c.env.DB.prepare(
-    `INSERT INTO inspections (id, tenant_id, asset_id, inspector_id, kind, kinds, purpose, follow_up_of, reason, status, schedule, answers, maintenance, checkpoints, created_at, updated_at)
-     VALUES (?,?,?,?,?,?,?,?,?,'draft',?,'{}','{"items":[],"defects":[]}',?,?,?)`,
+    `INSERT INTO inspections (id, tenant_id, asset_id, inspector_id, kind, kinds, purpose, follow_up_of, reason, status, schedule, answers, maintenance, checkpoints, created_at, updated_at, raw_notes)
+     VALUES (?,?,?,?,?,?,?,?,?,'draft',?,'{}','{"items":[],"defects":[]}',?,?,?,?)`,
   )
-    .bind(iid, tid(c), a.id, c.get('user').userId, kind, JSON.stringify([kind]), body.purpose, origin?.id ?? null, 'planned', schedule, JSON.stringify(checkpoints), t, t)
+    .bind(
+      iid,
+      tid(c),
+      a.id,
+      c.get('user').userId,
+      kind,
+      JSON.stringify([kind]),
+      body.purpose,
+      origin?.id ?? null,
+      'planned',
+      schedule,
+      JSON.stringify(checkpoints),
+      t,
+      t,
+      JSON.stringify(body.rawNote ? cleanRawNotes(c, [body.rawNote]) : []),
+    )
     .run();
   return c.json({ id: iid });
 });
@@ -360,6 +437,8 @@ export async function loadInspection(c: Ctx, iid: string) {
     nextDueAt: row.next_due_at as number | null,
     /** Entwurf vollständig, wartet auf die Unterschrift */
     readyAt: (row.ready_at as number | null) ?? null,
+    /** Rohdiktat (Plan v7 W): gesprochene bzw. getippte Texte, bis Claude sie auswertet */
+    rawNotes: parseJson<RawNote[]>(row.raw_notes as string, []),
     archivedAt: row.archived_at as number | null,
     createdAt: row.created_at as number,
     asset: {
@@ -382,6 +461,44 @@ export async function loadInspection(c: Ctx, iid: string) {
   };
 }
 export type LoadedInspection = Awaited<ReturnType<typeof loadInspection>>;
+
+/**
+ * Prüfungen mit Rohdiktat (Standard: nur mit nicht ausgewerteten Notizen) – für Claude (MCP `list raw_notes`,
+ * `briefing`). Eigene Prüfungen; Admins sehen alle im Zugriffsbereich. Je Prüfung Element, Stammdaten, Rohtexte und
+ * die bisherige Zuordnung (Mängel, Antworten).
+ */
+inspections.get('/inspections/raw-notes', async (c) => {
+  requireRole(c, 'inspector');
+  const q = c.req.query();
+  const admin = RANK[c.get('user').role] >= RANK.admin;
+  const rows = await c.env.DB.prepare(
+    `SELECT i.id, i.status, i.ready_at AS readyAt, i.inspected_at AS inspectedAt, i.created_at AS createdAt, i.raw_notes AS rawNotes, i.answers, i.maintenance,
+            i.checkpoints, i.notes, u.name AS inspector, a.id AS assetId, a.code, a.number, a.category, a.location, a.floor, a.manufacturer, a.model, a.attributes,
+            b.name AS buildingName, p.id AS propertyId, p.name AS propertyName, ${RAW_PENDING_SQL} AS pending
+       FROM inspections i JOIN assets a ON a.id = i.asset_id JOIN buildings b ON b.id = a.building_id JOIN properties p ON p.id = b.property_id
+       JOIN users u ON u.id = i.inspector_id
+      WHERE i.tenant_id = ?1 AND ${scopeSql(c, 'a.building_id', 'building')} AND i.superseded_at IS NULL AND i.archived_at IS NULL AND a.deleted_at IS NULL
+        AND (?2 OR i.inspector_id = ?3) AND (?4 = '' OR p.id = ?4) AND i.raw_notes != '[]' AND (?5 OR ${RAW_PENDING_SQL} > 0)
+      ORDER BY COALESCE(i.inspected_at, i.created_at) DESC LIMIT 200`,
+  )
+    .bind(tid(c), admin ? 1 : 0, c.get('user').userId, q.propertyId ?? '', q.all === '1' ? 1 : 0)
+    .all<Record<string, unknown>>();
+  return c.json(
+    rows.results.map((r) => {
+      const extra = parseJson<{ defects?: { title: string; severity: string; checkpointId?: string; knownId?: string }[] }>(r.maintenance as string, {});
+      const { maintenance: _m, answers, checkpoints, rawNotes, attributes, ...rest } = r;
+      return {
+        ...rest,
+        pending: Number(r.pending) || 0,
+        rawNotes: parseJson<RawNote[]>(rawNotes as string, []),
+        attributes: parseJson<Record<string, unknown>>(attributes as string, {}),
+        answers: parseJson<Record<string, Answer>>(answers as string, {}),
+        checkpoints: parseJson<Checkpoint[]>(checkpoints as string, []).map((p) => ({ id: p.id, label: p.label })),
+        defects: (extra.defects ?? []).map((d) => ({ title: d.title, severity: d.severity, checkpointId: d.checkpointId ?? null, known: !!d.knownId })),
+      };
+    }),
+  );
+});
 
 inspections.get('/inspections/:id', async (c) => c.json(await loadInspection(c, c.req.param('id'))));
 
@@ -730,7 +847,26 @@ export const offlineBody = inspectionBody
     assetId: z.string().max(40),
     schedule: z.string().max(40).default('main'),
     inspectedAt: z.number().int(),
-    checkpoints: z.array(z.object({ id: str(40).min(1), label: str(300).min(1), hint: str(300).optional(), group: str(60).optional() })).min(1).max(100),
+    checkpoints: z
+      .array(
+        z.object({
+          id: str(40).min(1),
+          label: str(300).min(1),
+          hint: str(300).optional(),
+          group: str(60).optional(),
+          appliesIf: z.object({ attr: z.string().max(40), equals: z.union([z.string().max(60), z.boolean()]) }).optional(),
+        }),
+      )
+      .min(1)
+      .max(100),
+    /** Rohdiktat ohne Netz (Plan v7 W) */
+    rawNotes: z.array(rawNoteInput).max(RAW_NOTES_MAX).default([]),
+    /**
+     * Nur als Entwurf übertragen (Tür angesagt, Befund eingesprochen, noch ohne Unterschrift): legt den Entwurf an bzw.
+     * ergänzt den offenen Entwurf der Person; mit `ready` und vollständig → bereit zur Unterschrift.
+     */
+    draftOnly: z.boolean().default(false),
+    ready: z.boolean().optional(),
   });
 
 /**
@@ -749,12 +885,14 @@ export async function submitOffline(c: Ctx, raw: unknown, inspectorId: string, r
   const n = now();
   // Plausibel zum Zeitpunkt des Eingangs (beim erneuten Versuch: der ersten Übertragung)
   if (body.inspectedAt > receivedAt + 5 * 60_000 || body.inspectedAt < receivedAt - 90 * DAY) throw new HTTPException(400, { message: 'Prüfdatum unplausibel' });
+  const notes = cleanRawNotes(c, body.rawNotes).map((x) => (x.source === 'app' ? { ...x, source: 'offline' as const } : x));
+  if (body.draftOnly) return submitOfflineDraft(c, body, kinds, a, inspectorId, notes);
   const iid = id();
   await c.env.DB.prepare(
-    `INSERT INTO inspections (id, tenant_id, asset_id, inspector_id, kind, reason, status, schedule, answers, maintenance, checkpoints, client_id, created_at, updated_at)
-     VALUES (?,?,?,?,?,'offline','draft',?,'{}','{"items":[],"defects":[]}',?,?,?,?)`,
+    `INSERT INTO inspections (id, tenant_id, asset_id, inspector_id, kind, reason, status, schedule, answers, maintenance, checkpoints, client_id, created_at, updated_at, raw_notes)
+     VALUES (?,?,?,?,?,'offline','draft',?,'{}','{"items":[],"defects":[]}',?,?,?,?,?)`,
   )
-    .bind(iid, tid(c), a.id, inspectorId, kinds[0] ?? 'periodic', body.schedule, JSON.stringify(body.checkpoints), body.clientId, body.inspectedAt, n)
+    .bind(iid, tid(c), a.id, inspectorId, kinds[0] ?? 'periodic', body.schedule, JSON.stringify(body.checkpoints), body.clientId, body.inspectedAt, n, JSON.stringify(mergeRawNotes([], notes)))
     .run();
   await storeDraft(c, iid, body, kinds).run();
   try {
@@ -777,6 +915,104 @@ export async function submitOffline(c: Ctx, raw: unknown, inspectorId: string, r
     throw e;
   }
 }
+
+/**
+ * Offline angesagte Tür als Entwurf übernehmen (ohne Unterschrift): ergänzt den offenen Entwurf derselben Person für
+ * dieses Element (offline ist neuer) oder legt einen an. Vollständig und `ready` → bereit zur Unterschrift.
+ */
+async function submitOfflineDraft(
+  c: Ctx,
+  body: z.infer<typeof offlineBody>,
+  kinds: string[],
+  a: Awaited<ReturnType<typeof loadAsset>>,
+  inspectorId: string,
+  notes: RawNote[],
+) {
+  const open = await c.env.DB.prepare(
+    "SELECT id FROM inspections WHERE asset_id = ? AND tenant_id = ? AND status = 'draft' AND inspector_id = ? AND schedule = ? AND purpose = 'regular' AND follow_up_of IS NULL ORDER BY created_at LIMIT 1",
+  )
+    .bind(a.id, tid(c), inspectorId, body.schedule)
+    .first<{ id: string }>();
+  let iid: string;
+  if (open) {
+    iid = open.id;
+    await c.env.DB.prepare('UPDATE inspections SET checkpoints = ?, client_id = COALESCE(client_id, ?) WHERE id = ?').bind(JSON.stringify(body.checkpoints), body.clientId, iid).run();
+  } else {
+    iid = id();
+    await c.env.DB.prepare(
+      `INSERT INTO inspections (id, tenant_id, asset_id, inspector_id, kind, kinds, reason, status, schedule, answers, maintenance, checkpoints, client_id, created_at, updated_at, raw_notes)
+       VALUES (?,?,?,?,?,?,'offline','draft',?,'{}','{"items":[],"defects":[]}',?,?,?,?,'[]')`,
+    )
+      .bind(iid, tid(c), a.id, inspectorId, kinds[0] ?? 'periodic', JSON.stringify(kinds), body.schedule, JSON.stringify(body.checkpoints), body.clientId, body.inspectedAt, now())
+      .run();
+  }
+  await storeDraft(c, iid, body, kinds).run();
+  if (notes.length) await appendRawNotes(c, iid, notes);
+  const missing = draftMissing(body.checkpoints, body, kinds);
+  const ready = !missing.length && body.ready === true;
+  if (ready) {
+    const r = await c.env.DB.prepare('UPDATE inspections SET ready_at = ? WHERE id = ? AND ready_at IS NULL').bind(now(), iid).run();
+    if (r.meta.changes) await notifyCriticalReady(c, iid);
+  } else await c.env.DB.prepare('UPDATE inspections SET ready_at = NULL WHERE id = ?').bind(iid).run();
+  await logActivity(c, 'offline_draft', 'inspection', iid, `Offline angesagte Prüfung ${a.code} als Entwurf übertragen`);
+  return { id: iid, draft: true, ready, missing };
+}
+
+// ---------- Rohdiktat (Plan v7 W) ----------
+/** Rohnotizen an einen Entwurf hängen (eigener Entwurf, Admins auch fremde – wie beim Speichern). */
+inspections.post('/inspections/:id/raw-notes', async (c) => {
+  requireRole(c, 'inspector');
+  const b = z.object({ notes: z.array(rawNoteInput).min(1).max(10) }).parse(await c.req.json());
+  const insp = await loadInspection(c, c.req.param('id'));
+  if (insp.status !== 'draft') throw new HTTPException(409, { message: 'Prüfung ist bereits abgeschlossen' });
+  if (insp.inspectorId !== c.get('user').userId && RANK[c.get('user').role] < RANK.admin) throw new HTTPException(403, { message: 'Nur der Prüfer kann diesen Entwurf bearbeiten' });
+  return c.json({ rawNotes: await appendRawNotes(c, insp.id, cleanRawNotes(c, b.notes)) });
+});
+
+/** Rohnotizen als ausgewertet markieren (oder zurücknehmen) – Claude über MCP `inspect`, in der App von Hand. */
+inspections.patch('/inspections/:id/raw-notes', async (c) => {
+  requireRole(c, 'inspector');
+  const b = z
+    .object({ ids: z.array(z.string().max(40)).max(RAW_NOTES_MAX).optional(), all: z.boolean().optional(), evaluated: z.boolean() })
+    .refine((x) => x.all || x.ids?.length, 'Welche Notizen? `ids` oder `all: true`')
+    .parse(await c.req.json());
+  const insp = await loadInspection(c, c.req.param('id'));
+  if (insp.inspectorId !== c.get('user').userId && RANK[c.get('user').role] < RANK.admin) throw new HTTPException(403, { message: 'Nur die prüfende Person oder ein Admin' });
+  for (let attempt = 0; attempt < 5; attempt++) {
+    const cur = await c.env.DB.prepare('SELECT raw_notes FROM inspections WHERE id = ?').bind(insp.id).first<string>('raw_notes');
+    const list = parseJson<RawNote[]>(cur, []);
+    const t = now();
+    let changed = 0;
+    const next = list.map((n) => {
+      if (!(b.all || b.ids!.includes(n.id)) || n.evaluated === b.evaluated) return n;
+      changed++;
+      return { ...n, evaluated: b.evaluated, evaluatedAt: b.evaluated ? t : null };
+    });
+    if (!changed) return c.json({ changed: 0, rawNotes: list });
+    const r = await c.env.DB.prepare('UPDATE inspections SET raw_notes = ?, updated_at = ? WHERE id = ? AND raw_notes = ?').bind(JSON.stringify(next), t, insp.id, cur).run();
+    if (r.meta.changes) {
+      await logActivity(c, 'evaluate', 'inspection', insp.id, `Diktat zu ${insp.asset.code}: ${changed} ${changed === 1 ? 'Notiz' : 'Notizen'} ${b.evaluated ? 'ausgewertet' : 'wieder offen'}`);
+      return c.json({ changed, rawNotes: next });
+    }
+  }
+  throw new HTTPException(409, { message: 'Bitte erneut versuchen' });
+});
+
+// ---------- Element archivieren (v6 B8-Rest, Plan v7 W) ----------
+/**
+ * Element archivieren = in den Papierkorb (30 Tage in der App wiederherstellbar, Admins). Admin-Sitzung oder
+ * Schreib-Schlüssel/Token einer Person, die bei diesem Aufruf Admin/Inhaber ohne Bereichseinschränkung ist
+ * (`requireStructure`, wie #33) – damit auch über Claude (MCP `update_asset` mit `archive: true`).
+ */
+inspections.post('/assets/:id/archive', async (c) => {
+  requireStructure(c);
+  const b = z.object({ reason: str(300).default('') }).parse(await c.req.json().catch(() => ({})));
+  const a = await c.env.DB.prepare('SELECT id, code FROM assets WHERE id = ? AND tenant_id = ? AND deleted_at IS NULL').bind(c.req.param('id'), tid(c)).first<{ id: string; code: string }>();
+  if (!a) notFound('Element');
+  await c.env.DB.prepare('UPDATE assets SET deleted_at = ?, deleted_label = label_code, label_code = NULL WHERE id = ? AND deleted_at IS NULL').bind(now(), a.id).run();
+  await logActivity(c, 'archive', 'asset', a.id, `Element ${a.code} archiviert${b.reason ? ` (${b.reason})` : ''}`);
+  return c.json({ ok: true, code: a.code });
+});
 
 inspections.delete('/inspections/:id', async (c) => {
   requireRole(c, 'inspector');
@@ -912,7 +1148,9 @@ inspections.get('/offline/buildings/:id', async (c) => {
   )
     .bind(tid(c), b.id)
     .all();
-  return c.json({ building: b, assets: assets.results.map(mapAsset), categories: await listCategories(c), openDefects: openDefects.results, preparedAt: now() });
+  // Katalog-Typen für „Tür ansagen“ ohne Netz (Plan v7 W) – ab Prüfer
+  const products = RANK[c.get('user').role] >= RANK.inspector ? (await readCatalog(c)).products : [];
+  return c.json({ building: b, assets: assets.results.map(mapAsset), categories: await listCategories(c), openDefects: openDefects.results, products, preparedAt: now() });
 });
 
 // ---------- Anhänge an Elementen ----------
