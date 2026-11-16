@@ -1,7 +1,7 @@
 import { keepPreviousData, QueryClient, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import type { AssignRule, AutomationKey, AutomationMode, Recurrence } from '../shared/automation';
 import type { NowItem } from '../shared/now';
-import type { AttributeField, CatalogDefect, CatalogProduct, CatalogTerm, Category, CategoryDef, Checkpoint, CustomKind, InspectionKind, InspectionPurpose, Role, Severity, WalkPurpose } from '../shared/catalog';
+import type { AttributeField, CatalogDefect, CatalogProduct, CatalogService, CatalogTerm, Category, CategoryDef, Checkpoint, CustomKind, InspectionKind, InspectionPurpose, Role, Severity, WalkPurpose } from '../shared/catalog';
 import type { Answer, Result, ResultOverride, Schedules } from '../shared/logic';
 import type { TaskKind } from '../shared/tasks';
 import type { KnownDefect } from '../shared/carry';
@@ -666,6 +666,8 @@ export interface Catalog {
   products: CatalogProduct[];
   defects: CatalogDefect[];
   terms: CatalogTerm[];
+  /** Plan v7: Leistungen mit Preis (Angebotsliste) */
+  services: CatalogService[];
 }
 export const useCatalog = (enabled = true) => useQuery({ queryKey: ['catalog'], queryFn: () => api<Catalog>('/catalog'), staleTime: 5 * 60_000, enabled });
 export const useNotifications = () =>
