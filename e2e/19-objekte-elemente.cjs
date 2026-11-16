@@ -110,7 +110,7 @@ const check = (ok, m) => {
   await p.keyboard.press('Escape');
   // … und auch auf „Elemente“ (Objekt/Gebäude vorausgewählt)
   await p.goto(`${BASE}/elemente?neu=1`);
-  await p.getByRole('dialog').getByRole('button', { name: /Feuerschutztür/ }).click();
+  await p.getByRole('dialog').getByRole('button', { name: /^Tür/ }).click();
   await p.getByLabel('Gebäude').locator(`option[value="${building.id}"]`).waitFor({ state: 'attached' });
   check((await p.getByLabel('Objekt', { exact: true }).inputValue()) === prop.id && (await p.getByLabel('Gebäude').inputValue()) === building.id, 'Objekt und Gebäude gemerkt');
   await p.keyboard.press('Escape');
@@ -124,6 +124,8 @@ const check = (ok, m) => {
   const firstRow = p.getByRole('list', { name: /^Überfällig \d+$/ }).getByRole('listitem').nth(1);
   check(((await firstRow.innerText()).match(/überfällig/gi) ?? []).length === 1, 'ein Statuswort je Elementzeile');
   check((await firstRow.locator('[class*="bg-"][class*="size-8"], [class*="bg-"][class*="size-10"]').count()) === 0, 'keine Symbolkachel in der Zeile');
+  // Die Suche schreibt 250 ms nach dem Laden ihren Stand in die URL – erst danach filtern (sonst überschreibt sie den Filter)
+  await p.waitForTimeout(400);
   await p.getByRole('button', { name: 'Überfällig', exact: true }).click();
   await p.waitForURL((u) => u.searchParams.get('status') === 'overdue' && u.searchParams.get('kategorie') === 'extinguisher');
   await p.getByRole('searchbox').fill('Reihe');

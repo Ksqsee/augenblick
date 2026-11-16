@@ -8,6 +8,7 @@ import { type DocLanguage, tr } from "../shared/i18n";
 import { buildXlsx } from "../shared/xlsx";
 import { getCategoryDef, listCategories } from "./categories";
 import { findDuplicate } from "../shared/duplicates";
+import { withLegacyDoorFields } from "../shared/asset-fields";
 import { readCatalog } from "./catalog";
 import { elementRefConflict, freeNumberCode, matchElementRef, numberCode, parseElementRef } from "../shared/vocab";
 import { autoDefectTasks, closeVerificationsOf } from "./automation";
@@ -607,6 +608,16 @@ const assetBody = z.object({
   warnDays: z.number().int().min(1).max(365).nullable().default(null),
 });
 
+/**
+ * Tür (Plan v7): alte Felder `rating`/`smoke` als Anforderung annehmen (API-Bestand, ältere Clients). Nicht
+ * umrechenbare Werte ergeben 400 mit den erlaubten Anforderungen.
+ */
+function legacyAttributes(fields: { key: string }[], attrs: Record<string, string | number | boolean | null>) {
+  const r = withLegacyDoorFields(fields, attrs);
+  if (r.error) throw new HTTPException(400, { message: r.error });
+  return r.attrs as Record<string, string | number | boolean | null>;
+}
+
 /** Zufälliger Code-Teil ohne verwechselbare Zeichen (0/O, 1/I). */
 export function randomCode(len: number) {
   const alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
@@ -685,6 +696,7 @@ data.post("/assets", async (c) => {
   assertInScope(c, "building", b.buildingId);
   const { propertyId } = await buildingProperty(c, b.buildingId);
   const def = await getCategoryDef(c, b.category);
+  b.attributes = legacyAttributes(def.attributes, b.attributes);
   const label = b.labelCode?.toUpperCase() || null;
   if (label) await assertLabelFree(c, label);
   // Laufende Nummer je Objekt: fest angegeben (muss frei sein) oder die nächste; mit eigenem Code ohne Nummer
@@ -819,9 +831,10 @@ data.patch("/assets/:id", async (c) => {
   const label = b.labelCode?.toUpperCase() || null;
   if (label) await assertLabelFree(c, label, c.req.param("id"));
   // Laufende Nummer: neu gesetzt (muss im Objekt frei sein) bzw. beim Umzug in ein anderes Objekt neu vergeben; Code bleibt
-  const old = await c.env.DB.prepare("SELECT a.number, b.property_id AS propertyId FROM assets a JOIN buildings b ON b.id = a.building_id WHERE a.id = ?")
+  const old = await c.env.DB.prepare("SELECT a.number, a.category, b.property_id AS propertyId FROM assets a JOIN buildings b ON b.id = a.building_id WHERE a.id = ?")
     .bind(cur.id)
-    .first<{ number: number | null; propertyId: string }>();
+    .first<{ number: number | null; category: string; propertyId: string }>();
+  if (old) b.attributes = legacyAttributes((await getCategoryDef(c, old.category).catch(() => null))?.attributes ?? [], b.attributes);
   let number = old?.number ?? null;
   if (b.number != null && (b.number !== number || old?.propertyId !== propertyId)) {
     if (await numberFree(c, propertyId, b.number, cur.id)) throw new HTTPException(409, { message: `Nummer ${b.number} ist in diesem Objekt schon vergeben` });

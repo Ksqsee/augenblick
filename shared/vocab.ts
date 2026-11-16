@@ -2,6 +2,7 @@
 // Schwere/Maßnahme und sprechbare Element-Nummern („Tür 36“, „Nummer 36“). Läuft im Browser und im Worker.
 // Der Katalog selbst liegt je Workspace in D1 (worker/catalog.ts); hier nur reine Funktionen.
 import type { CatalogDefect, CatalogProduct, CatalogTerm, Severity } from './catalog';
+import { normalizeDoorInput } from './catalog-door';
 
 export type { CatalogDefect, CatalogProduct, CatalogTerm } from './catalog';
 
@@ -96,15 +97,30 @@ export function suggestProducts(query: { manufacturer?: string; model?: string }
   const t = foldText(query.model ?? '');
   return products
     .filter((p) => !category || !p.category || p.category === category)
-    .filter((p) => (!m || foldText(p.manufacturer).includes(m)) && (!t || foldText(p.model).includes(t) || foldText(`${p.manufacturer} ${p.model}`).includes(t)))
+    .filter(
+      (p) =>
+        (!m || foldText(p.manufacturer).includes(m)) &&
+        (!t || foldText(p.model).includes(t) || foldText(`${p.manufacturer} ${p.model}`).includes(t) || (p.aliases ?? []).some((a) => foldText(a).includes(t))),
+    )
     .sort((a, b) => Number(b.category === category) - Number(a.category === category) || `${a.manufacturer} ${a.model}`.localeCompare(`${b.manufacturer} ${b.model}`))
     .slice(0, limit);
 }
 
 /** Vorgaben eines Produkts auf Stammdaten anwenden: leere Felder füllen, vorhandene Werte bleiben (außer `overwrite`). */
-export function applyProductDefaults<T extends Record<string, unknown>>(attrs: T, product: Pick<CatalogProduct, 'defaults' | 'approval'>, allowed: string[], overwrite = false): T {
+export function applyProductDefaults<T extends Record<string, unknown>>(
+  attrs: T,
+  product: Pick<CatalogProduct, 'defaults' | 'approval'> & Pick<Partial<CatalogProduct>, 'requirement'>,
+  allowed: string[],
+  overwrite = false,
+): T {
   const out: Record<string, unknown> = { ...attrs };
-  const vals: Record<string, unknown> = { ...product.defaults, ...(product.approval ? { approval: product.approval } : {}) };
+  // Tür (Plan v7): alte Vorgaben Feuerwiderstand/Rauchschutz als Anforderung; die Anforderung am Produkt gewinnt
+  const defaults = allowed.includes('requirement') && !allowed.includes('rating') ? normalizeDoorInput(product.defaults ?? {}).attrs : (product.defaults ?? {});
+  const vals: Record<string, unknown> = {
+    ...defaults,
+    ...(product.requirement && allowed.includes('requirement') ? { requirement: product.requirement } : {}),
+    ...(product.approval ? { approval: product.approval } : {}),
+  };
   for (const [k, v] of Object.entries(vals)) {
     if (!allowed.includes(k)) continue;
     if (overwrite || out[k] == null || out[k] === '' || out[k] === false) out[k] = v;
@@ -129,7 +145,8 @@ export function freeNumberCode(prefix: string, n: number, taken: (code: string) 
 
 /** Laufende Nummer aus einem Code („FSA-012“ → 12, „FST-001-2“ → 1); Zufallscodes → null. */
 export function codeNumber(code: string): number | null {
-  const m = code.match(/^[A-Za-z0-9]{2,5}-(\d{1,5})(?:-\d{1,3})?$/);
+  // Präfix ab einem Zeichen: „T-036“ (Tür ab v7), „FST-036“, „FSA-002“
+  const m = code.match(/^[A-Za-z][A-Za-z0-9]{0,4}-(\d{1,5})(?:-\d{1,3})?$/);
   return m ? Number(m[1]) : null;
 }
 
@@ -154,6 +171,11 @@ const KIND_WORDS: Record<string, string> = {
   rauchmelder: 'smoke_alarm',
   rauchwarnmelder: 'smoke_alarm',
   rwm: 'smoke_alarm',
+  fenster: 'window',
+  drehtuerantrieb: 'door_drive',
+  tuerantrieb: 'door_drive',
+  drehfluegelantrieb: 'door_drive',
+  antrieb: 'door_drive',
 };
 /** Allgemeine Wörter vor einer Nummer (ohne Art). */
 const GENERIC_WORDS = new Set(['nummer', 'nr', 'no', 'element', 'position', 'pos', 'ident', 'identnummer', 'id']);
@@ -168,7 +190,10 @@ export interface KindWordSource {
 function kindOf(word: string, categories: KindWordSource[]): string | null {
   const w = foldText(word).replace(/\s+/g, '');
   for (const c of categories) {
-    if ([c.label, c.plural ?? '', c.prefix ?? ''].some((f) => f && foldText(f).replace(/\s+/g, '') === w)) return c.key;
+    if ([c.label, c.plural ?? ''].some((f) => f && foldText(f).replace(/\s+/g, '') === w)) return c.key;
+    // Präfix nur ab zwei Zeichen („T 30“ ist eine Anforderung, keine Tür 30) und kurze nur groß geschrieben („da 2“)
+    const p = c.prefix ?? '';
+    if (p.length >= 2 && (p.length > 2 || word === word.toUpperCase()) && foldText(p) === w) return c.key;
   }
   return KIND_WORDS[w] ?? KIND_WORDS[w.replace(/(en|n|e|s)$/, '')] ?? null;
 }
@@ -254,8 +279,8 @@ export function elementRefConflict<T extends NumberedAsset>(ref: ElementRef, ass
 }
 
 // ---------- Katalog-Abgleich (Stapel aus MCP/Import) ----------
-export type CatalogKind = 'products' | 'defects' | 'terms';
-const KEY_FIELDS: Record<CatalogKind, string[]> = { products: ['manufacturer', 'model'], defects: ['category', 'title'], terms: ['term'] };
+export type CatalogKind = 'products' | 'defects' | 'terms' | 'services';
+const KEY_FIELDS: Record<CatalogKind, string[]> = { products: ['manufacturer', 'model'], defects: ['category', 'title'], terms: ['term'], services: ['key'] };
 
 /** Schlüssel eines Eintrags je Liste (Dubletten-Erkennung, eindeutig je Workspace). */
 export function entryKey(kind: CatalogKind, e: Record<string, unknown>): string {

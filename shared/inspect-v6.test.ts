@@ -41,8 +41,10 @@ describe('Laufreihenfolge (A3)', () => {
 describe('Bedingungen an Prüfpunkten (A4)', () => {
   const answersFor = (attrs: Record<string, unknown>) => allOkAnswers(door.checkpoints, {}, 'fire_door', attrs);
   const id = (label: RegExp) => door.checkpoints.find((c) => label.test(c.label))!.id;
+  // Plan v7: weitere Bedingungen (Anforderung, Ausstattung) – hier alle bekannt, damit nur die v6-Punkte zählen
+  const v7 = { requirement: 'T30-RS', cardLock: true, dropSeal: true, peephole: true };
   it('FST ohne Feststellanlage: „löst aus“ und „Melder der FSA“ entfallen, einflügelig: Schließfolge entfällt', () => {
-    const r = answersFor({ holdOpen: false, leaves: '1-flügelig' });
+    const r = answersFor({ ...v7, holdOpen: false, leaves: '1-flügelig' });
     expect(r.answers[id(/Feststellanlage löst/)]).toBe('na');
     expect(r.answers[id(/Rauchmelder der Feststellanlage/)]).toBe('na');
     expect(r.answers[id(/Schließfolge/)]).toBe('na');
@@ -51,7 +53,7 @@ describe('Bedingungen an Prüfpunkten (A4)', () => {
     expect(r.na).toHaveLength(3);
   });
   it('mit Feststellanlage und zweiflügelig: alles i. O.', () => {
-    const r = answersFor({ holdOpen: true, leaves: '2-flügelig' });
+    const r = answersFor({ ...v7, holdOpen: true, leaves: '2-flügelig' });
     expect(Object.values(r.answers).every((a) => a === 'ok')).toBe(true);
     expect(r.ok).toHaveLength(door.checkpoints.length);
   });
@@ -120,9 +122,10 @@ describe('Wartungsarbeiten mit Synonymen (C4) und Widersprüche (C6)', () => {
 describe('Stammdaten prüfen (D1)', () => {
   const year = new Date().getFullYear();
   it('Bericht: rating „T45“, leaves „zwei“ als Auswahl, Baujahr 1890', () => {
+    // v7: alter Feldname Feuerwiderstand wird als Anforderung geprüft
     const r = validateAttributes(door.attributes, { rating: 'T45', leaves: 'zwei', year: 1890 });
-    expect(r.errors.map((e) => e.key).sort()).toEqual(['rating', 'year']);
-    expect(r.errors.find((e) => e.key === 'rating')!.message).toMatch(/T30/);
+    expect(r.errors.map((e) => e.key).sort()).toEqual(['requirement', 'year']);
+    expect(r.errors.find((e) => e.key === 'requirement')!.message).toMatch(/T45.*T30/);
     expect(r.errors.find((e) => e.key === 'year')!.message).toMatch(/1950/);
     // „zwei“ ist eindeutig „2-flügelig“
     expect(r.values.leaves).toBe('2-flügelig');
@@ -130,7 +133,8 @@ describe('Stammdaten prüfen (D1)', () => {
   it('gültige Werte werden vereinheitlicht', () => {
     const r = validateAttributes(door.attributes, { rating: 't30', year: '2019', holdOpen: 'ja', smoke: 'nein', leaves: '1' });
     expect(r.errors).toEqual([]);
-    expect(r.values).toEqual({ rating: 'T30', year: 2019, holdOpen: true, smoke: false, leaves: '1-flügelig' });
+    expect(r.values).toEqual({ requirement: 'T30', year: 2019, holdOpen: true, leaves: '1-flügelig' });
+    expect(validateAttributes(door.attributes, { requirement: 't30 rs' }).values).toEqual({ requirement: 'T30-RS' });
     expect(validateAttributes(door.attributes, { year: year + 1 }).errors).toEqual([]);
     expect(validateAttributes(door.attributes, { year: year + 2 }).errors).toHaveLength(1);
     expect(validateAttributes(door.attributes, { leaves: 'drei' }).errors).toHaveLength(1);

@@ -54,7 +54,7 @@ const check = (ok, m) => {
   const anyAsset = (await api('/assets')).json[0];
   const buildingId = anyAsset.buildingId;
   const propertyId = anyAsset.propertyId;
-  let r = await api('/assets', { data: { buildingId, category: 'fire_door', location: 'E2E Smart Tür', floor: 'EG', attributes: { holdOpen: true, leaves: '2-flügelig' } } });
+  let r = await api('/assets', { data: { buildingId, category: 'fire_door', location: 'E2E Smart Tür', floor: 'EG', attributes: { holdOpen: true, leaves: '2-flügelig', requirement: 'T30-RS', cardLock: true, dropSeal: true, peephole: true } } });
   check(r.status === 200, `Element angelegt (${r.status})`);
   const door = r.json;
 

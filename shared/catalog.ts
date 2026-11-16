@@ -1,12 +1,15 @@
 // Prüfkataloge – eigene Formulierungen, orientiert an den einschlägigen Normen
 // (DIN 14677, DIN EN 15650 / DIN 31051, DIN 14406-4, DIN 14676).
+import { FIRE_REQUIREMENTS, RATED_REQUIREMENTS, REQUIREMENTS, SMOKE_REQUIREMENTS } from "./catalog-door";
 
 export type BuiltinCategory =
   | "fire_door"
   | "damper"
   | "extinguisher"
   | "smoke_alarm"
-  | "hold_open";
+  | "hold_open"
+  | "window"
+  | "door_drive";
 /** Eingebaute Kategorie oder eigener Typ des Workspaces (Schlüssel „c_…“). */
 export type Category = string;
 
@@ -26,7 +29,10 @@ export interface Checkpoint {
 export interface CheckpointCondition {
   /** Schlüssel des Stammdatums (AttributeField.key) */
   attr: string;
-  equals: string | boolean;
+  /** Wert, der zutreffen muss (Ja/Nein oder Auswahlwert) */
+  equals?: string | boolean;
+  /** einer dieser Auswahlwerte (Plan v7: Anforderung T30/T30-RS/T90/T90-RS für Brandschutz-Punkte) */
+  in?: string[];
 }
 
 /** Bedingungen an Prüfpunkte hängen: {Nummer (1-basiert): Bedingung} */
@@ -34,6 +40,53 @@ const when = (cps: Checkpoint[], conds: Record<number, CheckpointCondition>): Ch
   cps.map((c, i) => (conds[i + 1] ? { ...c, appliesIf: conds[i + 1] } : c));
 const HOLD_OPEN: CheckpointCondition = { attr: "holdOpen", equals: true };
 const TWO_LEAVES: CheckpointCondition = { attr: "leaves", equals: "2-flügelig" };
+const has = (attr: string): CheckpointCondition => ({ attr, equals: true });
+/** Brandschutz-Punkte nur bei T30/T90 (mit oder ohne RS), Rauchschutz-Punkte nur mit RS, Kennzeichnung bei jeder Anforderung */
+const FIRE: CheckpointCondition = { attr: "requirement", in: FIRE_REQUIREMENTS };
+const SMOKE: CheckpointCondition = { attr: "requirement", in: SMOKE_REQUIREMENTS };
+const RATED: CheckpointCondition = { attr: "requirement", in: RATED_REQUIREMENTS };
+
+/**
+ * Prüfpunkte der Tür nach Bauteil (Plan v7) – eigene Formulierungen. Bewährte Bezeichnungen aus v1–v6 bleiben gleich,
+ * damit Übersetzungen, Vorlagen-Anpassungen und laufende Entwürfe passen.
+ */
+function door(): Checkpoint[] {
+  const list: [string, string | [string, string], CheckpointCondition?][] = [
+    // [Gruppe, Bezeichnung (mit Hinweis), Bedingung]
+    ["Kennzeichnung und Zulassung", ["Kennzeichnungsschild vorhanden und lesbar", "Zulassung / Hersteller / Baujahr"], RATED],
+    ["Kennzeichnung und Zulassung", "Bauteile entsprechen der Zulassung, keine eigenmächtigen Änderungen", RATED],
+    ["Zarge", "Zarge fest verankert, Anschlussfuge geschlossen"],
+    ["Zarge", "Zarge ohne Verformung, Schließblech fest"],
+    ["Türblatt", "Türblatt ohne Beschädigung, Verzug oder nachträgliche Bohrungen"],
+    ["Türblatt", "Verglasung unbeschädigt, Glasleisten fest"],
+    ["Türblatt", "Schwellenbereich frei, Bodenspalt im zulässigen Bereich"],
+    ["Bänder", "Bänder und Sicherungsstifte fest, kein Spiel"],
+    ["Bänder", "Bänder gängig, bewegliche Teile gesäubert und gefettet"],
+    ["Schließmittel und OTS", "Obentürschließer schließt die Tür aus jeder Öffnungsstellung"],
+    ["Schließmittel und OTS", "Schließgeschwindigkeit, Endschlag und Öffnungsdämpfung eingestellt"],
+    ["Schließmittel und OTS", "Schließfolgeregelung bei zweiflügeligen Türen wirksam", TWO_LEAVES],
+    ["Drücker und Schloss", "Schloss rastet selbsttätig ein, Falle gängig"],
+    ["Drücker und Schloss", "Drücker / Panikbeschlag vollständig und funktionsfähig"],
+    ["Drücker und Schloss", "Kartenschloss bzw. elektronischer Beschlag arbeitet, Notöffnung möglich", has("cardLock")],
+    ["Dichtungen", "Dichtungen (Rauch- und Brandschutz) vollständig, nicht übermalt"],
+    ["Dichtungen", "Rauchschutz: Falz und Bodenanschluss umlaufend geschlossen", SMOKE],
+    ["Dichtungen", "Dämmschichtbildner im Falz vorhanden und unbeschädigt", FIRE],
+    ["Dichtungen", "Absenkdichtung senkt ab und liegt am Boden an", has("dropSeal")],
+    ["Zusatzausstattung", "Türspion zugelassen und fest eingebaut", has("peephole")],
+    ["Zusatzausstattung", "Türstopper fest, Türblatt schlägt nicht an"],
+    ["Feststellanlage", ["Feststellanlage löst bei Auslösung aus", "nur wenn vorhanden"], HOLD_OPEN],
+    ["Feststellanlage", "Rauchmelder der Feststellanlage gereinigt / im Prüfzeitraum", HOLD_OPEN],
+    ["Funktion", "Keine unzulässigen Keile, Haken oder Festhaltungen"],
+    ["Funktion", "Tür öffnet leichtgängig, Schwenkbereich frei"],
+    ["Funktion", "Abschließende Funktionsprüfung bestanden"],
+  ];
+  return list.map(([group, l, cond], i) => ({
+    id: `p${i + 1}`,
+    ...(Array.isArray(l) ? { label: l[0], hint: l[1] } : { label: l }),
+    group,
+    ...(cond ? { appliesIf: cond } : {}),
+  }));
+}
 
 export interface AttributeField {
   key: string;
@@ -86,53 +139,36 @@ const grouped = (
 export const CATEGORIES: Record<BuiltinCategory, CategoryDef> = {
   fire_door: {
     key: "fire_door",
-    label: "Feuerschutztür",
-    plural: "Feuerschutztüren",
-    prefix: "FST",
-    norm: "DIN 14677",
+    label: "Tür",
+    plural: "Türen",
+    prefix: "T",
+    norm: "DIN 14677 / Zulassung",
     intervalMonths: 12,
-    checkpoints: when(cp([
-      [
-        "Kennzeichnungsschild vorhanden und lesbar",
-        "Zulassung / Hersteller / Baujahr",
-      ],
-      "Türblatt ohne Beschädigung, Verzug oder nachträgliche Bohrungen",
-      "Zarge fest verankert, Anschlussfuge geschlossen",
-      "Bänder und Sicherungsstifte fest, kein Spiel",
-      "Obentürschließer schließt die Tür aus jeder Öffnungsstellung",
-      "Schließfolgeregelung bei zweiflügeligen Türen wirksam",
-      "Schloss rastet selbsttätig ein, Falle gängig",
-      "Drücker / Panikbeschlag vollständig und funktionsfähig",
-      "Dichtungen (Rauch- und Brandschutz) vollständig, nicht übermalt",
-      "Verglasung unbeschädigt, Glasleisten fest",
-      "Keine unzulässigen Keile, Haken oder Festhaltungen",
-      ["Feststellanlage löst bei Auslösung aus", "nur wenn vorhanden"],
-      "Rauchmelder der Feststellanlage gereinigt / im Prüfzeitraum",
-      "Schwellenbereich frei, Bodenspalt im zulässigen Bereich",
-      "Freilauf / Schließgeschwindigkeit plausibel eingestellt",
-      "Abschließende Funktionsprüfung bestanden",
-    ]), { 6: TWO_LEAVES, 12: HOLD_OPEN, 13: HOLD_OPEN }),
+    // Plan v7: Prüfpunkte nach Bauteil; Bedingungen auf die Stammdaten (Anforderung, Flügel, Ausstattung)
+    checkpoints: door(),
     attributes: [
+      { key: "requirement", label: "Anforderung", type: "select", options: [...REQUIREMENTS] },
       { key: "year", label: "Baujahr", type: "number" },
       { key: "approval", label: "Zulassungsnummer" },
-      {
-        key: "rating",
-        label: "Feuerwiderstand",
-        type: "select",
-        options: ["T30", "T60", "T90", "EI2 30", "EI2 60", "EI2 90"],
-      },
-      { key: "smoke", label: "Rauchschutz (RS)", type: "boolean" },
       {
         key: "leaves",
         label: "Flügel",
         type: "select",
         options: ["1-flügelig", "2-flügelig"],
       },
-      { key: "holdOpen", label: "Feststellanlage", type: "boolean" },
+      { key: "frame", label: "Zargenart", type: "select", options: ["Umfassungszarge", "Blockzarge", "Eckzarge", "Holzfutterzarge", "Rohrrahmen"] },
       { key: "doorType", label: "Türtyp / Bauart" },
-      { key: "dropSeal", label: "Absenkdichtung", type: "boolean" },
+      { key: "soundproof", label: "Schallschutz", type: "boolean" },
+      { key: "wetRoom", label: "Feucht-/Nassraum", type: "boolean" },
       { key: "closer", label: "Obentürschließer", type: "boolean" },
+      { key: "freeSwing", label: "Freilauf", type: "boolean" },
+      { key: "holdOpen", label: "Feststellanlage", type: "boolean" },
+      { key: "dropSeal", label: "Absenkdichtung", type: "boolean" },
       { key: "peephole", label: "Türspion", type: "boolean" },
+      { key: "doorStop", label: "Türstopper", type: "boolean" },
+      { key: "kickPlate", label: "Sockelblech", type: "boolean" },
+      { key: "cardLock", label: "Kartenschloss / elektronischer Beschlag", type: "boolean" },
+      { key: "drive", label: "Antrieb", type: "boolean" },
     ],
     schedules: [
       {
@@ -160,6 +196,8 @@ export const CATEGORIES: Record<BuiltinCategory, CategoryDef> = {
       { key: "seals", label: "Dichtungen getauscht" },
       { key: "hinges", label: "Bänder geschmiert" },
       { key: "lock", label: "Schloss gewartet" },
+      { key: "dropSeal", label: "Absenkdichtung eingestellt" },
+      { key: "doorStop", label: "Türstopper befestigt" },
       { key: "other", label: "Sonstige Arbeiten" },
     ],
   },
@@ -441,6 +479,75 @@ export const CATEGORIES: Record<BuiltinCategory, CategoryDef> = {
       { key: "other", label: "Sonstige Arbeiten" },
     ],
   },
+  // Plan v7: Fenster und Drehtürantrieb mit kurzer Checkliste nach den Wartungsvorlagen des Betriebs (eigene Texte)
+  window: {
+    key: "window",
+    label: "Fenster",
+    plural: "Fenster",
+    prefix: "F",
+    norm: "Herstellervorgaben",
+    intervalMonths: 12,
+    checkpoints: [
+      { id: "p1", group: "Rahmen und Verglasung", label: "Rahmen und Flügel unbeschädigt, fest eingebaut" },
+      { id: "p2", group: "Rahmen und Verglasung", label: "Verglasung unbeschädigt, Glasleisten fest" },
+      { id: "p3", group: "Beschläge", label: "Beschläge vollständig, fest und gängig" },
+      { id: "p4", group: "Beschläge", label: "Beschläge gereinigt und gefettet" },
+      { id: "p5", group: "Beschläge", label: "Flügel nachgestellt, schließt ohne zu schleifen" },
+      { id: "p6", group: "Dichtungen", label: "Dichtungen vollständig und elastisch, Entwässerung frei" },
+      { id: "p7", group: "Funktion", label: "Öffnen, Kippen und Verriegeln funktionieren" },
+      { id: "p8", group: "Funktion", label: "Oberlicht und Scherenbeschlag öffnen und schließen sicher", appliesIf: has("fanlight") },
+    ],
+    attributes: [
+      { key: "year", label: "Baujahr", type: "number" },
+      { key: "leaves", label: "Flügel", type: "select", options: ["1-flügelig", "2-flügelig", "3-flügelig"] },
+      { key: "size", label: "Größe", type: "select", options: ["bis 1 × 2 m", "größer als 1 × 2 m"] },
+      { key: "opening", label: "Öffnungsart", type: "select", options: ["Dreh-Kipp", "Dreh", "Kipp", "Festverglasung", "Terrassentür"] },
+      { key: "fanlight", label: "Oberlicht", type: "boolean" },
+      { key: "fixedGlazing", label: "Festverglasung", type: "boolean" },
+    ],
+    schedules: [{ key: "main", label: "Jährliche Wartung", intervalMonths: 12, optional: false }],
+    maintenance: [
+      { key: "greased", label: "Beschläge gefettet" },
+      { key: "adjusted", label: "Beschläge nachgestellt" },
+      { key: "seals", label: "Dichtungen gereinigt" },
+      { key: "other", label: "Sonstige Arbeiten" },
+    ],
+  },
+  door_drive: {
+    key: "door_drive",
+    label: "Drehtürantrieb",
+    plural: "Drehtürantriebe",
+    prefix: "DA",
+    norm: "DIN 18650 / Herstellervorgaben",
+    intervalMonths: 12,
+    checkpoints: [
+      { id: "p1", group: "Dokumentation", label: "Prüfbuch vorhanden und fortgeschrieben" },
+      { id: "p2", group: "Antrieb", label: "Antrieb und Gestänge fest montiert, Abdeckung vollständig" },
+      { id: "p3", group: "Antrieb", label: "Öffnungs- und Schließgeschwindigkeit sowie Offenhaltezeit eingestellt" },
+      { id: "p4", group: "Sicherheit", label: "Sensoren erkennen Personen im Schwenkbereich" },
+      { id: "p5", group: "Sicherheit", label: "Kraftbegrenzung wirksam, Tür stoppt oder kehrt um" },
+      { id: "p6", group: "Sicherheit", label: "Taster und Bewegungsmelder lösen zuverlässig aus" },
+      { id: "p7", group: "Funktion", label: "Bei Stromausfall lässt sich die Tür von Hand öffnen" },
+      { id: "p8", group: "Funktion", label: "Bei Brandalarm schließt die Tür selbsttätig", appliesIf: has("fireDoor") },
+      { id: "p9", group: "Funktion", label: "Abschließende Funktionsprüfung bestanden" },
+    ],
+    attributes: [
+      { key: "year", label: "Baujahr", type: "number" },
+      { key: "leaves", label: "Flügel", type: "select", options: ["1-flügelig", "2-flügelig"] },
+      { key: "fireDoor", label: "An einer Brandschutztür", type: "boolean" },
+      { key: "mode", label: "Betriebsart", type: "select", options: ["Niedrigenergie", "Vollautomatik"] },
+      { key: "door", label: "Zugehörige Tür" },
+    ],
+    schedules: [{ key: "main", label: "Jährliche Prüfung und Wartung", intervalMonths: 12, optional: false }],
+    maintenance: [
+      { key: "adjusted", label: "Antrieb eingestellt" },
+      { key: "sensors", label: "Sensoren justiert" },
+      { key: "greased", label: "Gestänge gefettet" },
+      { key: "component", label: "Komponente getauscht" },
+      { key: "vendor", label: "Herstellerwartung durchgeführt" },
+      { key: "other", label: "Sonstige Arbeiten" },
+    ],
+  },
 };
 
 export const isBuiltin = (k: string): k is BuiltinCategory => k in CATEGORIES;
@@ -548,6 +655,12 @@ export interface CatalogProduct {
   defaults: Record<string, string | number | boolean | null>;
   approval: string;
   note: string;
+  /** Plan v7: so, wie der Typ in Listen und Ansagen genannt wird („SK32“, „T30 RS“, „Premio T30-RS“) */
+  aliases?: string[];
+  /** Zulassung bzw. Prüfzeugnis gültig bis (JJJJ-MM-TT) oder null */
+  approvalValidUntil?: string | null;
+  /** Anforderung der Tür (keine, RS, T30, T30-RS, T90, T90-RS) oder leer */
+  requirement?: string;
 }
 
 /** Typischer Mangel mit Schwere und Maßnahme; Synonyme helfen beim Erkennen im Diktat. */
@@ -559,6 +672,37 @@ export interface CatalogDefect {
   measure: string;
   /** Elementart (Schlüssel) oder leer = alle */
   category: string;
+  /** Plan v7: Leistungen (Kürzel) für die Angebotsliste – die zur Tür passende Bedingung entscheidet */
+  serviceKeys?: string[];
+  /** Menge je Mangel (z. B. 1 Stück, 2 lfm) */
+  quantity?: number;
+  note?: string;
+}
+
+/** Art einer Leistung: Wartung je Element, Instandsetzung/Nachrüstung, Regie/Anfahrt. */
+export const SERVICE_KINDS = { maintenance: 'Wartung', repair: 'Instandsetzung', labor: 'Regie und Anfahrt' } as const;
+export type ServiceKind = keyof typeof SERVICE_KINDS;
+
+/**
+ * Bedingung einer Leistung auf die Stammdaten des Elements, z. B. {requirement: ["T30-RS"], leaves: "1-flügelig"}:
+ * alle Felder müssen passen; eine Liste heißt „einer dieser Werte“, Ja/Nein als true/false.
+ */
+export type ServiceCondition = Record<string, string | number | boolean | string[]>;
+
+/** Leistungsposition mit Preis (Plan v7, Angebotsliste): Mangel → Leistung → Menge → Türen → Preis. */
+export interface CatalogService {
+  id: string;
+  /** Kürzel, eindeutig je Workspace (z. B. „IS-SCHALLEX-T30“ oder eine Positionsnummer) */
+  key: string;
+  title: string;
+  unit: string;
+  /** Preis netto je Einheit in Euro */
+  price: number;
+  condition: ServiceCondition;
+  kind: ServiceKind;
+  /** Elementart (Schlüssel) oder leer = alle */
+  category: string;
+  note: string;
 }
 
 /** Abkürzung bzw. Fachbegriff → Bedeutung (z. B. OTS → Obentürschließer). */
@@ -573,6 +717,7 @@ export const CATALOG_LIMITS = {
   products: 2000,
   defects: 1000,
   terms: 500,
+  services: 1000,
 } as const;
 
 /** Grundausstattung für neue Workspaces – eigene Formulierungen. */
@@ -628,7 +773,7 @@ export const CATALOG_SEED_DEFECTS: Omit<CatalogDefect, "id">[] = [
     "Tür mit Keil oder Haken offen gehalten",
     "high",
     "Festhaltung entfernen, Nutzer unterweisen; bei Bedarf zugelassene Feststellanlage vorsehen",
-    ["verkeilt", "Keil untergelegt", "festgebunden"],
+    ["Keil untergelegt", "festgebunden"],
   ),
   seedDefect(
     "fire_door",
@@ -747,7 +892,7 @@ export const CATALOG_SEED_DEFECTS: Omit<CatalogDefect, "id">[] = [
     "Melder verschmutzt",
     "medium",
     "Melder reinigen oder tauschen",
-    ["Verschmutzungsanzeige", "Melder staubig"],
+    ["Melder staubig"],
   ),
   seedDefect(
     "hold_open",
@@ -775,7 +920,7 @@ export const CATALOG_SEED_DEFECTS: Omit<CatalogDefect, "id">[] = [
     "Nicht zugelassene Komponente verbaut",
     "high",
     "Komponente gemäß Zulassung tauschen und Abnahme wiederholen",
-    ["Fremdkomponente", "falscher Melder"],
+    ["falscher Melder"],
   ),
   seedDefect(
     "hold_open",

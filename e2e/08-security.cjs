@@ -1782,6 +1782,73 @@ function client() {
     await owner(`/account/api-keys/${rk.id}`, { method: "DELETE" });
   }
 
+  console.log("· #36 v7 Katalog-Leistungen und Angebotsliste: Rechte, Workspace, Bereich, Eingaben");
+  {
+    const keyCall = async (k, path, { method, body } = {}) => {
+      const r = await fetch(BASE + "/api" + path, {
+        method: method ?? (body !== undefined ? "POST" : "GET"),
+        headers: { authorization: `Bearer ${k}`, ...(body !== undefined ? { "content-type": "application/json" } : {}) },
+        body: body !== undefined ? JSON.stringify(body) : undefined,
+      });
+      return { status: r.status, json: await r.json().catch(() => null) };
+    };
+    // Leistungen: lesen ab Prüfer, schreiben nur requireStructure
+    const svc = await owner("/catalog/services", { body: { key: "SEC36-A", title: "Sicherheitsprobe", price: 12.5, category: "fire_door", condition: { requirement: ["T30"] } } });
+    check(svc.status === 200 && svc.json.price === 12.5, `Leistung angelegt (${svc.status})`);
+    check((await reader("/catalog/services")).status === 403, "Lesezugriff liest keine Leistungen (Preise)");
+    check((await insp("/catalog/services")).status === 200, "Prüfer liest Leistungen");
+    check((await insp("/catalog/services", { body: { key: "SEC36-I", title: "Prüfer", price: 1 } })).status === 403, "Prüfer legt keine Leistung an");
+    check((await insp(`/catalog/services/${svc.json.id}`, { method: "PATCH", body: { price: 0 } })).status === 403, "Prüfer ändert keinen Preis");
+    check((await insp("/catalog/batch", { body: { kind: "services", items: [{ key: "SEC36-B", title: "Stapel", price: 1 }] } })).status === 403, "Prüfer: auch keine Stapel-Vorschau");
+    const wk = (await insp("/account/api-keys", { body: { name: "sec36", scope: "write", expiresInDays: 1 } })).json;
+    if (wk?.key) check((await keyCall(wk.key, "/catalog/services", { body: { key: "SEC36-K", title: "Schlüssel", price: 1 } })).status === 403, "Schreib-Schlüssel eines Prüfers legt keine Leistung an");
+    // fremder Workspace
+    check(!JSON.stringify((await mallory("/catalog/services")).json ?? []).includes("SEC36-A"), "fremder Workspace sieht die Leistung nicht");
+    check((await mallory(`/catalog/services/${svc.json.id}`, { method: "PATCH", body: { price: 0 } })).status === 404, "fremder Workspace ändert nicht (404)");
+    check((await mallory(`/catalog/services/${svc.json.id}`, { method: "DELETE" })).status === 404, "fremder Workspace löscht nicht (404)");
+    // Eingaben
+    const bad = [
+      [{ key: "SEC36-N", title: "Negativ", price: -1 }, "negativer Preis"],
+      [{ key: "SEC36-G", title: "Zu teuer", price: 1e9 }, "Preis über der Grenze"],
+      [{ key: "'; DROP TABLE x;--", title: "SQL", price: 1 }, "Kürzel mit Sonderzeichen"],
+      [{ key: "../x", title: "Pfad", price: 1 }, "Kürzel mit Pfad"],
+      [{ key: "SEC36-C", title: "Bedingung", price: 1, condition: { requirement: { nested: true } } }, "verschachtelte Bedingung"],
+      [{ key: "SEC36-U", title: "Feld", price: 1, category: "fire_door", condition: { "x-y": "1" } }, "Feldname mit Sonderzeichen"],
+      [{ key: "SEC36-F", title: "Fremdes Feld", price: 1, category: "fire_door", condition: { farbe: "rot" } }, "unbekanntes Stammdatum in der Bedingung"],
+      [{ key: "SEC36-K", title: "Art", price: 1, kind: "geheim" }, "unbekannte Art"],
+      [{ key: "SEC36-E", title: "x".repeat(201), price: 1 }, "Titel zu lang"],
+    ];
+    for (const [body, what] of bad) check((await owner("/catalog/services", { body })).status === 400, `Leistung: ${what} → 400`);
+    check((await owner("/catalog/products", { body: { manufacturer: "Sec36", model: "D", approvalValidUntil: "2026-02-30" } })).status === 400, "Produkt: Datum, das es nicht gibt → 400");
+    check((await owner("/catalog/products", { body: { manufacturer: "Sec36", model: "A", aliases: Array.from({ length: 31 }, (_, i) => `a${i}`) } })).status === 400, "Produkt: mehr als 30 Aliasse → 400");
+    check((await owner("/catalog/products", { body: { manufacturer: "Sec36", model: "R", requirement: "T45" } })).status === 400, "Produkt: Anforderung T45 → 400");
+    check((await owner("/catalog/defects", { body: { title: "Sec36 Menge", quantity: -2 } })).status === 400, "Mangel: negative Menge → 400");
+    check((await owner("/catalog/defects", { body: { title: "Sec36 Viele", serviceKeys: Array.from({ length: 13 }, (_, i) => `k${i}`) } })).status === 400, "Mangel: mehr als 12 Leistungen → 400");
+    check((await owner("/catalog/gibtsnicht")).status === 404, "unbekannte Katalogliste → 404");
+    // Angebotsliste: ab Prüfer, Workspace, Bereich, Eingaben
+    check((await reader(`/properties/${S.id}/offer`)).status === 403, "Lesezugriff bekommt keine Angebotsliste");
+    check((await mallory(`/properties/${S.id}/offer`)).status === 404, "fremder Workspace: Angebotsliste → 404");
+    const own = await owner(`/properties/${S.id}/offer`);
+    check(own.status === 200 && Array.isArray(own.json.lines) && Array.isArray(own.json.unmapped) && typeof own.json.net === "number", `Angebotsliste des eigenen Objekts (${own.status})`);
+    await owner(`/account/members/${pid2}/access`, { method: "PUT", body: { scope: { propertyIds: [S.id], buildingIds: [] }, canCreate: true } });
+    check((await insp(`/properties/${O.id}/offer`)).status === 404, "eingeschränkter Prüfer: Objekt außerhalb → 404");
+    check((await insp(`/properties/${S.id}/offer`)).status === 200, "eingeschränkter Prüfer: eigenes Objekt");
+    check((await owner(`/properties/${S.id}/offer?inspectionIds=${Array.from({ length: 501 }, (_, i) => `i${i}`).join(",")}`)).status === 400, "zu viele Prüfungen → 400");
+    check((await owner(`/properties/${S.id}/offer?from=gestern`)).status === 400, "ungültiges Datum → 400");
+    check((await owner(`/properties/${S.id}/offer?from=2026-05-01&to=2026-04-01`)).status === 400, "von nach bis → 400");
+    const inj = await owner(`/properties/${S.id}/offer?inspectionIds=${encodeURIComponent("') OR 1=1 --")}`);
+    check(inj.status === 200 && inj.json.lines.length === 0 && inj.json.unmapped.length === 0, "inspectionIds als Daten, nicht als SQL");
+    // Mangel eines fremden Workspaces taucht nie auf
+    const mOff = await mallory("/properties");
+    const mp = mOff.json?.[0];
+    if (mp) {
+      const mo = await mallory(`/properties/${mp.id}/offer`);
+      check(mo.status === 200 && !JSON.stringify(mo.json).includes(svc.json.key), "fremde Angebotsliste nutzt nur den eigenen Katalog");
+    }
+    if (wk?.id) await insp(`/account/api-keys/${wk.id}`, { method: "DELETE" });
+    await owner(`/catalog/services/${svc.json.id}`, { method: "DELETE" });
+  }
+
   console.log(
     fail.length ? `FAILED ${fail.length}: ${fail.join("; ")}` : "ALL CHECKS OK",
   );

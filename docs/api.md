@@ -55,9 +55,10 @@ Für API-Schlüssel gelten diese Regeln:
 | `GET /smart/action-required` (auch `GET /defects/action-required`) | Alt-Pfad (Quellen wie `GET /now`; die Oberfläche nutzt ihn nicht mehr): kritische/hohe offene Mängel ohne offene Aufgabe, überfällige Aufgaben und überfällige Elemente, nach `urgency` absteigend; je Eintrag `kind` (`defect`/`task`/`asset`), `id`, `title`, `subtitle`, `reason`, `level`, `at` |
 | `GET /tasks`, `GET /tasks/:id/comments`, `GET /tasks/stats?days=30` | Aufgaben (mit `kind`: `inspection` = Prüfauftrag, `defect` = Mängelbehebung, `other`; `createdBy`, `watchers`, `watching`, `defectStatus`), Kommentare (mit `mentions`), Statistik |
 | `GET /tasks/:id/watchers` | Beobachter einer Aufgabe |
-| `GET /categories` | Elementarten mit Prüfarten und Prüfpunkten (eingebaut: `fire_door`, `hold_open` (Feststellanlage, FSA), `damper`, `extinguisher`, `smoke_alarm`) |
-| `GET /catalog` | Katalog des Workspaces `{ products, defects, terms }` (ab Prüfer, Leseschlüssel haben Rolle Lesezugriff → `403`); beim ersten Lesen bekommt ein Workspace die Grundausstattung |
-| `GET /catalog/:list?q=&category=` | eine Liste: `products`, `defects` oder `terms` |
+| `GET /categories` | Elementarten mit Prüfarten und Prüfpunkten (eingebaut: `fire_door` (Tür, Präfix `T`), `hold_open` (Feststellanlage, FSA), `window` (Fenster, `F`), `door_drive` (Drehtürantrieb, `DA`), `damper`, `extinguisher`, `smoke_alarm`). Prüfpunkte tragen `group` (Bauteil) und ggf. `appliesIf` = Bedingung auf ein Stammdatum: `{ attr, equals }` oder `{ attr, in: [...] }` (z. B. `{ attr: "requirement", in: ["T30", "T30-RS", "T90", "T90-RS"] }`) |
+| `GET /catalog` | Katalog des Workspaces `{ products, defects, terms, services }` (ab Prüfer, Leseschlüssel haben Rolle Lesezugriff → `403`); beim ersten Lesen bekommt ein Workspace die Grundausstattung (ohne Leistungen) |
+| `GET /catalog/:list?q=&category=` | eine Liste: `products`, `defects`, `services` oder `terms` |
+| `GET /properties/:id/offer?inspectionIds=a,b&from=JJJJ-MM-TT&to=JJJJ-MM-TT` | **Angebotsliste** eines Objekts (ab Prüfer, nur im Zugriffsbereich; Preise sind intern). Rechnet aus den offenen, nicht ausgeblendeten Mängeln (optional nur aus diesen Prüfungen bzw. angelegt im Zeitraum, Tage in UTC) über den Katalog: Mangel → Katalog-Mangel (gleiche Bezeichnung/Formulierung, sonst eindeutiger Treffer der Art) → zugeordnete Leistungen (`serviceKeys`), davon die, deren Bedingung zu den Stammdaten des Elements passt (z. B. Dichtung mit/ohne Brandschutz nach `requirement`) → Menge je Mangel, gleiche Leistungen zusammengefasst. Antwort siehe unten |
 | `GET /reports`, `GET /reports/:id/file` | Archiv erstellter Berichte (PDF/ZIP) |
 | `GET /reports/annual?year=2026&propertyId=` | Daten des Jahresberichts je Objekt: Prüfungen nach Ergebnis/Art, Mängel mit Behebungsquote, Begehungen (mit Qualifikation der durchführenden Person), Brandschutzbeauftragte |
 | `GET /export/assets.xlsx`, `GET /export/assets.csv` | Elementliste in der Dokumentsprache des Workspaces |
@@ -66,7 +67,7 @@ Für API-Schlüssel gelten diese Regeln:
 
 | Endpunkt | Beschreibung |
 |----------|--------------|
-| `POST /assets` | Element anlegen: `{ buildingId, category, location, floor, manufacturer, model, attributes, number?, code?, warnDays? }` → `{ id, code, number }`. Ohne `code`/`number` nächste laufende Nummer im Objekt (`FST-001` …, über alle Arten; im Workspace schon vergebener Code → `FST-001-2`); `number` (1–99999) = feste Nummer, im Objekt schon vergeben → `409`; mit eigenem `code` ohne Nummer. `warnDays`: eigene Vorwarnzeit in Tagen |
+| `POST /assets` | Element anlegen: `{ buildingId, category, location, floor, manufacturer, model, attributes, number?, code?, warnDays? }` → `{ id, code, number }`. Ohne `code`/`number` nächste laufende Nummer im Objekt (`T-001`, `FSA-002` …, über alle Arten; im Workspace schon vergebener Code → `T-001-2`; Türen von vor v7 behalten ihre Codes `FST-…`). Tür: `attributes.requirement` = `keine`, `RS`, `T30`, `T30-RS`, `T90` oder `T90-RS`; die alten Felder `rating` + `smoke` werden weiter angenommen und umgerechnet (`{ rating: "T30", smoke: true }` → `T30-RS`, nicht umrechenbar wie `T45` → `400`; gilt auch für `PATCH`, MCP und Import); `number` (1–99999) = feste Nummer, im Objekt schon vergeben → `409`; mit eigenem `code` ohne Nummer. `warnDays`: eigene Vorwarnzeit in Tagen |
 | `PATCH /assets/:id` | Element ändern; `number` setzt die laufende Nummer neu (Code bleibt), beim Umzug in ein anderes Objekt bekommt ein nummeriertes Element dort die nächste Nummer |
 | `PUT /assets/:id/schedules` | Prüfart aktivieren/deaktivieren: `{ key, enabled, nextDueAt? }` |
 | `POST /assets/:id/inspections` | Prüfungsentwurf anlegen: `{ schedule? }` oder Nachprüfung `{ purpose: "follow_up", followUpOf }`; `{ taskId }` = aus einer Aufgabe gestartet (Mängelbehebung → Nachprüfung der Ausgangsprüfung). Art vorbelegt: `initial` bei nie geprüften Elementen, sonst `periodic` |
@@ -79,15 +80,37 @@ Für API-Schlüssel gelten diese Regeln:
 | `POST /tasks/bulk` | Mehrfachbearbeitung: `{ ids, status?, assigneeId? (null = niemand), priority?, dueAt? (null = ohne), resolveDefects? }` → `{ updated, skipped }`; nur Aufgaben im eigenen Bereich |
 | `POST /tasks/:id/watch`, `DELETE /tasks/:id/watch` | Aufgabe beobachten / nicht mehr beobachten (auch Lesezugriff) |
 | `POST /tasks/:id/comments` | Interne Notiz: `{ body, mentions? }` – `mentions` sind Nutzer-IDs von Mitgliedern, die die Aufgabe sehen dürfen (sonst 400); Erwähnte werden benachrichtigt und beobachten die Aufgabe. Notizen erscheinen nie im Link für Subunternehmer |
-| `POST /import/assets` | Massenimport (wie Import-Seite); je Zeile optional `number` (Spalte „Nummer“/„Nr.“/„Ident-Nr.“) |
-| `POST /catalog/:list`, `PATCH /catalog/:list/:id`, `DELETE /catalog/:list/:id` | Katalogeintrag anlegen/ändern (teilweise)/löschen – nur Admin-Sitzung oder Schreib-Schlüssel einer Admin-/Inhaber-Person (#34). Produkte `{ manufacturer, model, category?, defaults?, approval?, note? }`, Mängel `{ title, synonyms?, severity, measure?, category? }`, Begriffe `{ term, meaning }`; gleicher Schlüssel (Hersteller+Typ, Art+Titel, Begriff – ohne Schreibweise) → `409` |
-| `POST /catalog/batch` | Stapel `{ kind, items (≤ 200), dryRun = true }` → `{ create, update: [{ entry, changes }], unchanged, errors }`; vorhandene Einträge (gleicher Schlüssel) werden geändert, mit `dryRun: false` in einer Transaktion gespeichert |
+| `POST /import/assets` | Massenimport (wie Import-Seite); je Zeile optional `number` (Spalte „Nummer“/„Nr.“/„Ident-Nr.“/„Ident Nummer“), `attributes` (Stammdaten, geprüft wie bei MCP), `nextDueAt`, `intervalMonths`, `catalogType`. Die Import-Seite erkennt die Wartungsübersicht (`shared/importing.ts`): Protokoll Nummer (1 = FSA, 2 = Tür, 3 = Drehtürantrieb), Ident Nummer, Prüf-Intervall in Tagen, letzte/nächste Prüfung, Objektbeschreibung, Etage, Raum, Türtyp (über Aliasse der Katalog-Produkte, sonst Freitext mit Anforderung aus dem Text), Hersteller, Absenkdichtung/OTS/Spion („JA“/leer), Zulassung / Prüfzeugnis. Ohne Gebäudespalte → „Hauptgebäude“; importierte Elemente bekommen die Laufreihenfolge der Datei (`sort_index`) |
+| `POST /catalog/:list`, `PATCH /catalog/:list/:id`, `DELETE /catalog/:list/:id` | Katalogeintrag anlegen/ändern (teilweise)/löschen – nur Admin-Sitzung oder Schreib-Schlüssel einer Admin-/Inhaber-Person (#34). Produkte `{ manufacturer, model, category?, defaults?, approval?, approvalValidUntil? (JJJJ-MM-TT), requirement? (Anforderung der Tür), aliases? (≤ 30, so wie der Typ in Listen heißt), note? }`, Mängel `{ title, synonyms?, severity, measure?, category?, serviceKeys? (≤ 12 Kürzel), quantity? (Menge je Mangel, Standard 1), note? }`, Leistungen `{ key, title, unit = "Stk", price (netto, €), kind = "repair" (maintenance\|repair\|labor), category?, condition? ({ stammdatum: wert \| [werte] \| true/false }, nur Felder der Art), note? }`, Begriffe `{ term, meaning }`; gleicher Schlüssel (Hersteller+Typ, Art+Titel, Kürzel, Begriff – ohne Schreibweise) → `409` |
+| `POST /catalog/batch` | Stapel `{ kind, items (≤ 200), dryRun = true }` → `{ create, update: [{ entry, changes }], unchanged, errors, warnings }`; vorhandene Einträge (gleicher Schlüssel) werden geändert – nur die genannten Felder –, mit `dryRun: false` in einer Transaktion gespeichert. `warnings`: Mängel mit Leistungen, die es (noch) nicht gibt. Die Katalogseite lädt Katalog-Dateien (`docs/wissen/katalog-seehafer.json`, Format `pruefkompass-katalog`, `shared/catalog-file.ts`) über diesen Endpunkt: Leistungen, Produkte, Mängel, Begriffe |
 | `POST /defects` | Mangel ohne Prüfung melden: `{ assetId? , propertyId?, title, severity, note?, measure?, photoKey? }` – Element oder Objekt ist Pflicht; bei `high`/`critical` (und Schweregraden aus Zuweisungsregeln) entsteht in Stufe „Automatisch“ der Regel `assign_defect_tasks` sofort eine Aufgabe, ggf. zugewiesen; Antwort `{ id, taskCreated }` |
 | `POST /smart/tasks-from-defects` | Für offene Mängel ohne Aufgabe je eine Aufgabe (Frist und Zuständige nach Zuweisungsregeln, sonst SLA-Frist): `{ severities? }` → `{ created }`; wird protokolliert |
 | `POST /inspections/offline` | Offline erfasste Prüfung übernehmen (idempotent über `clientId`): Prüfungsdaten wie beim Abschluss plus `{ clientId, assetId, schedule, inspectedAt, checkpoints }`. Inhaltliche Ablehnung (Validierung, Element gelöscht, Konflikt …) → Fehler mit `failureId`; die Übertragung bleibt dann unter `GET /offline/failures` (nicht bei 401/403/429) |
 | `GET /offline/failures` | Vom Server abgelehnte Offline-Übertragungen: Admins alle des Workspaces, Prüfer nur eigene. Je Eintrag `reason`, `status`, `userName`, `assetCode`, `assetAvailable`, `retryable`, `attempts`, `inspectedAt` – ohne Prüfungsdaten |
 | `POST /offline/failures/:id/retry` | Serverseitig erneut übertragen: `{ assetId? }` (Ersatz-Element derselben Art, wenn das ursprüngliche fehlt) → `{ inspectionId }`; die Prüfung bleibt der prüfenden Person zugeordnet. Scheitert er, zählt `attempts` hoch und der Fehler kommt zurück |
 | `DELETE /offline/failures/:id` | Abgelehnte Übertragung endgültig verwerfen (eigene oder als Admin) |
+
+### Angebotsliste (`GET /properties/:id/offer`)
+
+```json
+{
+  "lines": [
+    { "serviceKey": "IS-SCHWELLE", "title": "Bodenschwelle Halbmond Edelstahl, unterfüttert und verklebt", "unit": "Stk",
+      "unitPrice": 152.5, "quantity": 2, "total": 305, "doors": ["T-007", "T-012"], "defects": ["d1…", "d2…"] }
+  ],
+  "unmapped": [{ "defectId": "d3…", "title": "Zarge irreparabel beschädigt", "door": "T-007", "reason": "Keine Leistung zugeordnet" }],
+  "net": 305
+}
+```
+
+- `lines` in der Reihenfolge des ersten Auftretens (Mängel nach laufender Nummer des Elements); `doors` = Codes der Elemente
+  (natürlich sortiert, ohne Doppelte), `defects` = IDs der Mängel; `quantity` = Summe der Mengen je Mangel (Katalog-Mangel
+  `quantity`, z. B. 5 lfm), `total` = `unitPrice × quantity` auf Cent gerundet, `net` = Summe der `total`.
+- `unmapped`: Mängel ohne passenden Katalog-Mangel, ohne zugeordnete Leistung, deren Leistung fehlt, oder bei denen keine
+  Bedingung passt bzw. das Stammdatum fehlt (`reason`, z. B. „Stammdaten fehlen: Anforderung“). `door` = Code oder `null`
+  (Mangel ohne Element). `reason` ist ein Zusatz zur Form aus Plan v7.
+- Bedingungen: alle Felder müssen passen; eine Liste heißt „einer dieser Werte“; `requirement` gilt bei älteren Türen auch
+  aus `rating` + `smoke`. Passen mehrere Leistungen eines Mangels (z. B. eine mit und eine ohne Bedingung), zählen alle.
 
 ## Autopilot
 
@@ -168,7 +191,7 @@ Ungültige oder widerrufene Codes liefern `404` und werden je IP gedrosselt (`to
 | `POST /smart/intervals/reset` | Angepasstes Intervall auf den Standard zurücksetzen (Admin): `{ assetId, schedule }` |
 | `GET /smart/rounds?days=30` | Fällige Elemente je Gebäude in Laufreihenfolge: Etagen von unten nach oben (TG/UG, EG, ZG, 1. OG … DG, Unbekanntes zuletzt), innerhalb der Etage in Anlage-Reihenfolge (`sortIndex`) |
 | `GET /ai/status` | Fester Stand `{ transcribe: false, structure: "rules", vision: false }` – der Worker ruft keine KI auf |
-| `POST /ai/parse` | Text (z. B. Diktat) regelbasiert (`shared/smart.ts`) in Elemente/Mängel/Aufgaben/Notizen zerlegen: `{ text, checkpoints?, categories?, prefer? }` → `{ items, source: "rules" }`. Elemente: `kind: "asset"` mit `count` (max. 50), `category` (Schlüssel oder null), `floor`, `location`, `manufacturer`, `attributes` (z. B. `rating`, `smoke`); `categories[].synonyms` ergänzt Wörter je Art; `prefer: "assets"` nimmt auch ein bloßes Artwort als Element, `"findings"` nur mit Anzahl oder Hersteller; `categories: []` schaltet sie ab, ohne Angabe gelten die Arten des Workspaces |
+| `POST /ai/parse` | Text (z. B. Diktat) regelbasiert (`shared/smart.ts`) in Elemente/Mängel/Aufgaben/Notizen zerlegen: `{ text, checkpoints?, categories?, prefer? }` → `{ items, source: "rules" }`. Elemente: `kind: "asset"` mit `count` (max. 50), `category` (Schlüssel oder null), `floor`, `location`, `manufacturer`, `attributes` (z. B. `requirement` bei Türen, `rating` bei Klappen); `categories[].synonyms` ergänzt Wörter je Art; `prefer: "assets"` nimmt auch ein bloßes Artwort als Element, `"findings"` nur mit Anzahl oder Hersteller; `categories: []` schaltet sie ab, ohne Angabe gelten die Arten des Workspaces |
 
 Keine KI im Worker (seit v4): Sprache erkennt der Browser, Texte zerlegt der Regel-Parser. Server-Transkription
 (`/ai/transcribe`), Typenschild- und Bilderkennung (`/ai/typeplate`, `/ai/identify`) gibt es nicht mehr (`404`) –
@@ -216,7 +239,7 @@ Folgeaufruf sie braucht; Fehler als `isError` mit Hinweis, was stattdessen geht)
 | `update_tasks` | Status, Zuständige (`assignee`: Name, E-Mail, „ich“ oder Partner-Firma über alle Mitglieder und Partner), Frist, Priorität, Kommentar. „done“ an einer Mängelbehebung wie in der App: mit Schritt „Nachprüfen“ bleibt der Mangel offen und ein Nachprüf-Auftrag entsteht, sonst behoben mit dem Kommentar als Behebungsnotiz (`resolveDefect` übersteuert) |
 | `update_defect` | Mangel beheben (mit Notiz), wieder öffnen (zählt dann „ohne Aufgabe“; Autopilot „Zuweisen“ automatisch legt sofort eine an) oder als ungültig markieren (`action: invalid` + `reason`: Duplikat/Fehleintrag, zählt nicht in Quote und Dauer, offene Aufgaben entfallen) |
 | `plan` | Rundgänge ansehen, Wochenplanung auslösen (nie geprüfte Elemente gelten als sofort fällig), Aufgaben aus Mängeln ohne wirksame Aufgabe |
-| `catalog` | Fachwissen: `search` (Produkte, Mängel, Begriffe), `suggest` (Befund → typischer Mangel mit Schwere/Maßnahme, ausgeschriebene Begriffe; Hersteller/Typ → Produkte), `upsert` im Stapel mit Vorschau (`preview: true` zuerst; Art als Bezeichnung möglich); ändern nur mit Schreib-Schlüssel einer Admin-/Inhaber-Person |
+| `catalog` | Fachwissen: `search` (Produkte mit Aliassen und Anforderung, Mängel mit Leistungen, Leistungen mit Preis und Bedingung, Begriffe), `suggest` (Befund → typischer Mangel mit Schwere/Maßnahme, ausgeschriebene Begriffe; Hersteller/Typ/Alias → Produkte), `upsert` im Stapel mit Vorschau (`preview: true` zuerst; `list`: products, defects, services, terms; Art als Bezeichnung möglich; `warnings` bei unbekannten Leistungen); ändern nur mit Schreib-Schlüssel einer Admin-/Inhaber-Person |
 | `autopilot` | Schritte und Protokoll ansehen, Schritt einmal ausführen, Eintrag rückgängig machen; Stufen ändern nur Admins in der App |
 | `report` | Kennzahlen für Zeitraum (`month` bis zum Monatsletzten, `year`, `from`/`to`; Zeitzone des Workspaces) und Objekt als Text: Prüfquote ohne nie geprüfte (diese getrennt), Entwürfe und Unterschrifts-Rückstau, ungültige Mängel getrennt |
 

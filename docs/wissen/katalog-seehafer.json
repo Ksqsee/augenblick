@@ -1,0 +1,2062 @@
+{
+  "format": "pruefkompass-katalog",
+  "version": 1,
+  "titel": "Katalog Türwartung (Wartungsunterlagen des Betriebs)",
+  "stand": "2026-11-16",
+  "quelle": "docs/wissen/seehafer-unterlagen.md – Türtypen (2), Mängel-Bausteine (5a), Preise der Angebotsvorlagen (6.1–6.4), Folgerungen (9)",
+  "hinweis": "Preise netto aus den Vorlagen (Stand der Türen-Vorlage 10.11.2025), nicht aus dem abweichenden Angebot vom 16.11.2026. Einträge mit \"unsicher\": true sind Deutungen oder offen – vor dem Laden in die Produktion mit der Betriebsleitung klären. Nicht als Grundausstattung für alle Workspaces gedacht.",
+  "services": [
+    {
+      "key": "1.001",
+      "title": "Arbeitsvorbereitung und Terminabstimmung je Wohnung",
+      "unit": "Stk",
+      "price": 5.5,
+      "kind": "labor",
+      "category": ""
+    },
+    {
+      "key": "1.002",
+      "title": "Terminvereinbarung je Objekt",
+      "unit": "Stk",
+      "price": 120.0,
+      "kind": "labor",
+      "category": ""
+    },
+    {
+      "key": "1.003",
+      "title": "Türenliste für nicht von uns gelieferte Türen erstellen",
+      "unit": "Stk",
+      "price": 275.0,
+      "kind": "labor",
+      "category": ""
+    },
+    {
+      "key": "1.004",
+      "title": "Tür vor Ort erfassen und in die Türenliste aufnehmen",
+      "unit": "Stk",
+      "price": 7.0,
+      "kind": "labor",
+      "category": ""
+    },
+    {
+      "key": "1.005",
+      "title": "Baustelle einrichten",
+      "unit": "Stk",
+      "price": 250.0,
+      "kind": "labor",
+      "category": ""
+    },
+    {
+      "key": "1.006",
+      "title": "Aufwand bzw. Wartezeit Servicetechniker",
+      "unit": "h",
+      "price": 85.0,
+      "kind": "labor",
+      "category": ""
+    },
+    {
+      "key": "1.007",
+      "title": "An- und Abfahrt Zone 1 (bis 25 km), je Termin",
+      "unit": "Termin",
+      "price": 85.0,
+      "kind": "labor",
+      "category": ""
+    },
+    {
+      "key": "1.008",
+      "title": "An- und Abfahrt Zone 2 (26–50 km), je Termin",
+      "unit": "Termin",
+      "price": 159.0,
+      "kind": "labor",
+      "category": ""
+    },
+    {
+      "key": "1.009",
+      "title": "An- und Abfahrt Zone 3 (51–100 km), je Termin",
+      "unit": "Termin",
+      "price": 270.0,
+      "kind": "labor",
+      "category": ""
+    },
+    {
+      "key": "1.010",
+      "title": "An- und Abfahrt Zone 4 (ab 101 km), je km",
+      "unit": "km",
+      "price": 1.47,
+      "kind": "labor",
+      "category": "",
+      "note": "Einheit uneinheitlich: in der Türen-Vorlage „Stk“, in den anderen Vorlagen „km“.",
+      "unsicher": true
+    },
+    {
+      "key": "1.011",
+      "title": "Zusätzlicher Techniker ohne Fahrzeug",
+      "unit": "h",
+      "price": 85.0,
+      "kind": "labor",
+      "category": "",
+      "note": "Einheit uneinheitlich (Stk bzw. Std) – hier als Stunde angesetzt.",
+      "unsicher": true
+    },
+    {
+      "key": "1.012",
+      "title": "Übernachtungspauschale je Monteur und Nacht",
+      "unit": "Nacht",
+      "price": 100.0,
+      "kind": "labor",
+      "category": ""
+    },
+    {
+      "key": "1.013",
+      "title": "Hotelkosten je Monteur und Nacht (nach Aufwand)",
+      "unit": "Nacht",
+      "price": 150.0,
+      "kind": "labor",
+      "category": ""
+    },
+    {
+      "key": "1.014",
+      "title": "Parkgebühren je Tag und Fahrzeug (nach Aufwand)",
+      "unit": "Tag",
+      "price": 32.0,
+      "kind": "labor",
+      "category": ""
+    },
+    {
+      "key": "R-AUFMASS",
+      "title": "Aufmaßtechniker, Tagessatz",
+      "unit": "Tag",
+      "price": 1000.0,
+      "kind": "labor",
+      "category": "",
+      "note": "Nur in der Vorlage Instandsetzung."
+    },
+    {
+      "key": "R-GESELLE",
+      "title": "Stundensatz Geselle",
+      "unit": "h",
+      "price": 85.0,
+      "kind": "labor",
+      "category": "",
+      "note": "Standardsatz; Rahmenverträge haben eigene Sätze."
+    },
+    {
+      "key": "R-MEISTER",
+      "title": "Stundensatz Meister",
+      "unit": "h",
+      "price": 95.0,
+      "kind": "labor",
+      "category": "",
+      "note": "Standardsatz; Rahmenverträge haben eigene Sätze."
+    },
+    {
+      "key": "2.001",
+      "title": "Wartung Tür ohne Anforderung, 1-flg., mit Obentürschließer bzw. Öffnungsbegrenzer",
+      "unit": "Stk",
+      "price": 17.0,
+      "kind": "maintenance",
+      "category": "fire_door",
+      "condition": {
+        "requirement": [
+          "keine"
+        ],
+        "leaves": "1-flügelig",
+        "closer": true
+      }
+    },
+    {
+      "key": "2.002",
+      "title": "Wartung Tür ohne Anforderung, 1-flg., ohne Obentürschließer",
+      "unit": "Stk",
+      "price": 10.0,
+      "kind": "maintenance",
+      "category": "fire_door",
+      "condition": {
+        "requirement": [
+          "keine"
+        ],
+        "leaves": "1-flügelig",
+        "closer": false
+      },
+      "note": "Feststellanlage, Freilauf oder Antrieb werden gesondert berechnet."
+    },
+    {
+      "key": "2.003",
+      "title": "Wartung Tür ohne Anforderung, 2-flg., mit Obentürschließer bzw. Öffnungsbegrenzer",
+      "unit": "Stk",
+      "price": 32.0,
+      "kind": "maintenance",
+      "category": "fire_door",
+      "condition": {
+        "requirement": [
+          "keine"
+        ],
+        "leaves": "2-flügelig",
+        "closer": true
+      }
+    },
+    {
+      "key": "2.004",
+      "title": "Wartung Tür ohne Anforderung, 2-flg., ohne Obentürschließer",
+      "unit": "Stk",
+      "price": 18.0,
+      "kind": "maintenance",
+      "category": "fire_door",
+      "condition": {
+        "requirement": [
+          "keine"
+        ],
+        "leaves": "2-flügelig",
+        "closer": false
+      }
+    },
+    {
+      "key": "3.001",
+      "title": "Wartung Schallschutztür, 1-flg., mit Obentürschließer",
+      "unit": "Stk",
+      "price": 25.0,
+      "kind": "maintenance",
+      "category": "fire_door",
+      "condition": {
+        "requirement": [
+          "keine"
+        ],
+        "soundproof": true,
+        "leaves": "1-flügelig",
+        "closer": true
+      }
+    },
+    {
+      "key": "3.002",
+      "title": "Wartung Schallschutztür, 1-flg., ohne Obentürschließer",
+      "unit": "Stk",
+      "price": 18.0,
+      "kind": "maintenance",
+      "category": "fire_door",
+      "condition": {
+        "requirement": [
+          "keine"
+        ],
+        "soundproof": true,
+        "leaves": "1-flügelig",
+        "closer": false
+      }
+    },
+    {
+      "key": "3.003",
+      "title": "Wartung Schallschutztür, 2-flg., mit Obentürschließer bzw. Schließfolgeregelung",
+      "unit": "Stk",
+      "price": 47.0,
+      "kind": "maintenance",
+      "category": "fire_door",
+      "condition": {
+        "requirement": [
+          "keine"
+        ],
+        "soundproof": true,
+        "leaves": "2-flügelig",
+        "closer": true
+      }
+    },
+    {
+      "key": "3.004",
+      "title": "Wartung Schallschutztür, 2-flg., ohne Obentürschließer",
+      "unit": "Stk",
+      "price": 33.0,
+      "kind": "maintenance",
+      "category": "fire_door",
+      "condition": {
+        "requirement": [
+          "keine"
+        ],
+        "soundproof": true,
+        "leaves": "2-flügelig",
+        "closer": false
+      }
+    },
+    {
+      "key": "4.001",
+      "title": "Wartung Brandschutztür ohne Rauchschutz, 1-flg., mit Standardschließer",
+      "unit": "Stk",
+      "price": 22.0,
+      "kind": "maintenance",
+      "category": "fire_door",
+      "condition": {
+        "requirement": [
+          "T30",
+          "T90"
+        ],
+        "leaves": "1-flügelig"
+      }
+    },
+    {
+      "key": "4.002",
+      "title": "Wartung Brandschutztür ohne Rauchschutz, 2-flg., mit Standardschließer",
+      "unit": "Stk",
+      "price": 41.0,
+      "kind": "maintenance",
+      "category": "fire_door",
+      "condition": {
+        "requirement": [
+          "T30",
+          "T90"
+        ],
+        "leaves": "2-flügelig"
+      }
+    },
+    {
+      "key": "4.003",
+      "title": "Wartung Brandschutztür mit Rauchschutz, 1-flg., mit Standardschließer",
+      "unit": "Stk",
+      "price": 25.0,
+      "kind": "maintenance",
+      "category": "fire_door",
+      "condition": {
+        "requirement": [
+          "RS",
+          "T30-RS",
+          "T90-RS"
+        ],
+        "leaves": "1-flügelig",
+        "soundproof": false,
+        "holdOpen": false
+      },
+      "note": "Reine Rauchschutztüren (RS ohne T30/T90) nennt die Vorlage nicht eigens – hier wie „mit RS“ angesetzt.",
+      "unsicher": true
+    },
+    {
+      "key": "4.004",
+      "title": "Wartung Brandschutztür mit Rauchschutz, 2-flg., mit Standardschließer",
+      "unit": "Stk",
+      "price": 47.0,
+      "kind": "maintenance",
+      "category": "fire_door",
+      "condition": {
+        "requirement": [
+          "RS",
+          "T30-RS",
+          "T90-RS"
+        ],
+        "leaves": "2-flügelig",
+        "soundproof": false,
+        "holdOpen": false
+      },
+      "note": "Reine Rauchschutztüren wie 4.003 angesetzt.",
+      "unsicher": true
+    },
+    {
+      "key": "4.005",
+      "title": "Wartung Brandschutztür mit Rauchschutz, 1-flg., Feststellanlage/Freilauf/Antrieb gesondert",
+      "unit": "Stk",
+      "price": 18.0,
+      "kind": "maintenance",
+      "category": "fire_door",
+      "condition": {
+        "requirement": [
+          "RS",
+          "T30-RS",
+          "T90-RS"
+        ],
+        "leaves": "1-flügelig",
+        "soundproof": false,
+        "holdOpen": true
+      },
+      "note": "Die Vorlage nennt FSA, Freilauf oder Antrieb; die Bedingung prüft nur die Feststellanlage.",
+      "unsicher": true
+    },
+    {
+      "key": "4.006",
+      "title": "Wartung Brandschutztür mit Rauchschutz, 2-flg., Feststellanlage/Freilauf/Antrieb gesondert",
+      "unit": "Stk",
+      "price": 40.0,
+      "kind": "maintenance",
+      "category": "fire_door",
+      "condition": {
+        "requirement": [
+          "RS",
+          "T30-RS",
+          "T90-RS"
+        ],
+        "leaves": "2-flügelig",
+        "soundproof": false,
+        "holdOpen": true
+      },
+      "note": "Wie 4.005.",
+      "unsicher": true
+    },
+    {
+      "key": "4.007",
+      "title": "Wartung Brandschutztür mit Rauchschutz und Schallschutz, 1-flg.",
+      "unit": "Stk",
+      "price": 31.0,
+      "kind": "maintenance",
+      "category": "fire_door",
+      "condition": {
+        "requirement": [
+          "RS",
+          "T30-RS",
+          "T90-RS"
+        ],
+        "soundproof": true,
+        "leaves": "1-flügelig",
+        "holdOpen": false
+      }
+    },
+    {
+      "key": "4.008",
+      "title": "Wartung Brandschutztür mit Rauchschutz und Schallschutz, 1-flg., Feststellanlage/Freilauf/Antrieb gesondert",
+      "unit": "Stk",
+      "price": 25.0,
+      "kind": "maintenance",
+      "category": "fire_door",
+      "condition": {
+        "requirement": [
+          "RS",
+          "T30-RS",
+          "T90-RS"
+        ],
+        "soundproof": true,
+        "leaves": "1-flügelig",
+        "holdOpen": true
+      }
+    },
+    {
+      "key": "4.009",
+      "title": "Wartung Brandschutztür mit Rauchschutz und Schallschutz, 2-flg.",
+      "unit": "Stk",
+      "price": 56.0,
+      "kind": "maintenance",
+      "category": "fire_door",
+      "condition": {
+        "requirement": [
+          "RS",
+          "T30-RS",
+          "T90-RS"
+        ],
+        "soundproof": true,
+        "leaves": "2-flügelig",
+        "holdOpen": false
+      }
+    },
+    {
+      "key": "4.010",
+      "title": "Wartung Brandschutztür mit Rauchschutz und Schallschutz, 2-flg., Feststellanlage/Freilauf/Antrieb gesondert",
+      "unit": "Stk",
+      "price": 49.0,
+      "kind": "maintenance",
+      "category": "fire_door",
+      "condition": {
+        "requirement": [
+          "RS",
+          "T30-RS",
+          "T90-RS"
+        ],
+        "soundproof": true,
+        "leaves": "2-flügelig",
+        "holdOpen": true
+      }
+    },
+    {
+      "key": "5.001",
+      "title": "Wartung Feststellanlage bzw. Freilaufschließer an Brandschutztür, 1-flg. (nach Herstellervorschrift, Eintrag im Prüfbuch)",
+      "unit": "Stk",
+      "price": 91.0,
+      "kind": "maintenance",
+      "category": "fire_door",
+      "condition": {
+        "holdOpen": true,
+        "leaves": "1-flügelig"
+      },
+      "note": "Bedingung auf die Tür mit Feststellanlage; Freilauf/Antrieb ggf. von Hand wählen."
+    },
+    {
+      "key": "5.002",
+      "title": "Wartung Feststellanlage bzw. Freilaufschließer an Brandschutztür, 2-flg. (nach Herstellervorschrift, Eintrag im Prüfbuch)",
+      "unit": "Stk",
+      "price": 184.0,
+      "kind": "maintenance",
+      "category": "fire_door",
+      "condition": {
+        "holdOpen": true,
+        "leaves": "2-flügelig"
+      },
+      "note": "Wie 5.001."
+    },
+    {
+      "key": "6.001",
+      "title": "Wartung Drehflügelantrieb ohne Brandschutz, 1-flg.",
+      "unit": "Stk",
+      "price": 230.0,
+      "kind": "maintenance",
+      "category": "door_drive",
+      "condition": {
+        "fireDoor": false,
+        "leaves": "1-flügelig"
+      }
+    },
+    {
+      "key": "6.002",
+      "title": "Wartung Drehflügelantrieb ohne Brandschutz, 2-flg.",
+      "unit": "Stk",
+      "price": 365.0,
+      "kind": "maintenance",
+      "category": "door_drive",
+      "condition": {
+        "fireDoor": false,
+        "leaves": "2-flügelig"
+      }
+    },
+    {
+      "key": "6.003",
+      "title": "Wartung Drehflügelantrieb mit Brandschutz, 1-flg.",
+      "unit": "Stk",
+      "price": 250.0,
+      "kind": "maintenance",
+      "category": "door_drive",
+      "condition": {
+        "fireDoor": true,
+        "leaves": "1-flügelig"
+      }
+    },
+    {
+      "key": "6.004",
+      "title": "Wartung Drehflügelantrieb mit Brandschutz, 2-flg.",
+      "unit": "Stk",
+      "price": 385.0,
+      "kind": "maintenance",
+      "category": "door_drive",
+      "condition": {
+        "fireDoor": true,
+        "leaves": "2-flügelig"
+      }
+    },
+    {
+      "key": "7.001",
+      "title": "Aufpreis Lichtausschnitt, Oberlicht oder Seitenteil als Festverglasung bis 1 × 2 m",
+      "unit": "Stk",
+      "price": 5.0,
+      "kind": "maintenance",
+      "category": ""
+    },
+    {
+      "key": "7.002",
+      "title": "Aufpreis Lichtausschnitt, Oberlicht oder Seitenteil als Festverglasung ab 1,01 × 2,01 m",
+      "unit": "Stk",
+      "price": 7.5,
+      "kind": "maintenance",
+      "category": ""
+    },
+    {
+      "key": "7.003",
+      "title": "Aufpreis Deckenrauchschalter",
+      "unit": "Stk",
+      "price": 17.0,
+      "kind": "maintenance",
+      "category": ""
+    },
+    {
+      "key": "7.004",
+      "title": "Aufpreis Tür ohne 3D-Bänder, 1-flg.",
+      "unit": "Stk",
+      "price": 20.0,
+      "kind": "maintenance",
+      "category": "fire_door",
+      "condition": {
+        "leaves": "1-flügelig"
+      },
+      "note": "Merkmal „3D-Bänder“ gibt es in den Stammdaten nicht – Position von Hand wählen.",
+      "unsicher": true
+    },
+    {
+      "key": "7.005",
+      "title": "Aufpreis Tür ohne 3D-Bänder, 2-flg.",
+      "unit": "Stk",
+      "price": 36.0,
+      "kind": "maintenance",
+      "category": "fire_door",
+      "condition": {
+        "leaves": "2-flügelig"
+      },
+      "note": "Wie 7.004.",
+      "unsicher": true
+    },
+    {
+      "key": "7.006",
+      "title": "Aufpreis Absenkdichtung bei Türen ohne Rauch- oder Schallschutz",
+      "unit": "Stk",
+      "price": 3.0,
+      "kind": "maintenance",
+      "category": "fire_door",
+      "condition": {
+        "requirement": [
+          "keine"
+        ],
+        "soundproof": false,
+        "dropSeal": true
+      }
+    },
+    {
+      "key": "7.007",
+      "title": "Aufpreis Fingerklemmschutz (Band- und/oder Bandgegenseite), je Tür",
+      "unit": "Stk",
+      "price": 10.0,
+      "kind": "maintenance",
+      "category": "fire_door"
+    },
+    {
+      "key": "7.008",
+      "title": "Aufpreis E-Öffner",
+      "unit": "Stk",
+      "price": 2.5,
+      "kind": "maintenance",
+      "category": "fire_door"
+    },
+    {
+      "key": "7.009",
+      "title": "Aufpreis Einhand-Fluchttürwächter",
+      "unit": "Stk",
+      "price": 10.0,
+      "kind": "maintenance",
+      "category": "fire_door"
+    },
+    {
+      "key": "7.010",
+      "title": "Neues Prüfbuch liefern, ausfüllen und übergeben",
+      "unit": "Stk",
+      "price": 102.5,
+      "kind": "repair",
+      "category": ""
+    },
+    {
+      "key": "7.011",
+      "title": "Akku für Feststellanlage Dorma Ubivis liefern und tauschen",
+      "unit": "Stk",
+      "price": 199.55,
+      "kind": "repair",
+      "category": "hold_open",
+      "note": "Laut Vorlage einmal im Jahr erforderlich."
+    },
+    {
+      "key": "F.001",
+      "title": "Wartung Fenster 1-flg. bis 1 × 2 m",
+      "unit": "Stk",
+      "price": 19.7,
+      "kind": "maintenance",
+      "category": "window",
+      "condition": {
+        "leaves": "1-flügelig",
+        "size": "bis 1 × 2 m",
+        "fanlight": false
+      }
+    },
+    {
+      "key": "F.002",
+      "title": "Wartung Fenster 1-flg. größer als 1 × 2 m",
+      "unit": "Stk",
+      "price": 25.47,
+      "kind": "maintenance",
+      "category": "window",
+      "condition": {
+        "leaves": "1-flügelig",
+        "size": "größer als 1 × 2 m",
+        "fanlight": false
+      }
+    },
+    {
+      "key": "F.003",
+      "title": "Wartung Fenster 2-flg. (Stulp) bis 1 × 2 m",
+      "unit": "Stk",
+      "price": 44.21,
+      "kind": "maintenance",
+      "category": "window",
+      "condition": {
+        "leaves": "2-flügelig",
+        "size": "bis 1 × 2 m",
+        "fanlight": false
+      }
+    },
+    {
+      "key": "F.004",
+      "title": "Wartung Fenster 2-flg. (Stulp) größer als 1 × 2 m",
+      "unit": "Stk",
+      "price": 53.83,
+      "kind": "maintenance",
+      "category": "window",
+      "condition": {
+        "leaves": "2-flügelig",
+        "size": "größer als 1 × 2 m",
+        "fanlight": false
+      }
+    },
+    {
+      "key": "F.005",
+      "title": "Wartung Fenster 1-flg. mit Oberlicht und Scherenbeschlag",
+      "unit": "Stk",
+      "price": 41.33,
+      "kind": "maintenance",
+      "category": "window",
+      "condition": {
+        "leaves": "1-flügelig",
+        "fanlight": true
+      }
+    },
+    {
+      "key": "F.006",
+      "title": "Wartung Fenster 2-flg. mit zwei Oberlichtern",
+      "unit": "Stk",
+      "price": 47.09,
+      "kind": "maintenance",
+      "category": "window",
+      "condition": {
+        "leaves": "2-flügelig",
+        "fanlight": true
+      }
+    },
+    {
+      "key": "F.007",
+      "title": "Wartung Fenster 3-flg. bis 1 × 2 m",
+      "unit": "Stk",
+      "price": 49.58,
+      "kind": "maintenance",
+      "category": "window",
+      "condition": {
+        "leaves": "3-flügelig",
+        "size": "bis 1 × 2 m"
+      }
+    },
+    {
+      "key": "F.008",
+      "title": "Wartung Fenster 3-flg. größer als 1 × 2 m",
+      "unit": "Stk",
+      "price": 53.83,
+      "kind": "maintenance",
+      "category": "window",
+      "condition": {
+        "leaves": "3-flügelig",
+        "size": "größer als 1 × 2 m"
+      }
+    },
+    {
+      "key": "F.009",
+      "title": "Wartung Element aus zwei Festverglasungen und Terrassentür mit Oberlicht",
+      "unit": "Stk",
+      "price": 57.0,
+      "kind": "maintenance",
+      "category": "window",
+      "condition": {
+        "opening": "Terrassentür"
+      }
+    },
+    {
+      "key": "F.010",
+      "title": "Wartung Festverglasung bis 1 × 2 m",
+      "unit": "Stk",
+      "price": 5.0,
+      "kind": "maintenance",
+      "category": "window",
+      "condition": {
+        "opening": "Festverglasung",
+        "size": "bis 1 × 2 m"
+      }
+    },
+    {
+      "key": "F.011",
+      "title": "Wartung Festverglasung größer als 1 × 2 m",
+      "unit": "Stk",
+      "price": 7.5,
+      "kind": "maintenance",
+      "category": "window",
+      "condition": {
+        "opening": "Festverglasung",
+        "size": "größer als 1 × 2 m"
+      }
+    },
+    {
+      "key": "IS-OTS-DEMONT",
+      "title": "Bauseitigen Obentürschließer demontieren und entsorgen",
+      "unit": "Stk",
+      "price": 24.9,
+      "kind": "repair",
+      "category": "fire_door"
+    },
+    {
+      "key": "IS-OTS-NEU",
+      "title": "Obentürschließer mit Gleitschiene (GEZE TS 5000 oder ECO TS 62), Bandseite, liefern und montieren",
+      "unit": "Stk",
+      "price": 282.79,
+      "kind": "repair",
+      "category": "fire_door"
+    },
+    {
+      "key": "IS-OTS-LIEFERN",
+      "title": "Obentürschließer mit Gleitschiene (GEZE TS 5000 oder ECO TS 62) nur liefern",
+      "unit": "Stk",
+      "price": 265.79,
+      "kind": "repair",
+      "category": "fire_door"
+    },
+    {
+      "key": "IS-OTS-BGS",
+      "title": "Mehrpreis Obentürschließer auf der Bandgegenseite (ECO TS-62 G / TS 61 G)",
+      "unit": "Stk",
+      "price": 34.5,
+      "kind": "repair",
+      "category": "fire_door",
+      "note": "Achtung: Durchgangshöhe wird geringer."
+    },
+    {
+      "key": "IS-SFR",
+      "title": "Obentürschließer mit Schließfolgeregelung (Dorma TS93 G SR) nachrüsten, 2-flg.",
+      "unit": "Stk",
+      "price": 1525.0,
+      "kind": "repair",
+      "category": "fire_door",
+      "condition": {
+        "requirement": [
+          "keine"
+        ],
+        "leaves": "2-flügelig"
+      },
+      "note": "Laut Vorlage für Flurtüren ohne Brandschutz."
+    },
+    {
+      "key": "IS-OEB",
+      "title": "Öffnungsbegrenzer (ECO TS 42–62)",
+      "unit": "Stk",
+      "price": 38.45,
+      "kind": "repair",
+      "category": "fire_door"
+    },
+    {
+      "key": "IS-RAST",
+      "title": "Rastfeststeller (ECO TS 42–62)",
+      "unit": "Stk",
+      "price": 59.25,
+      "kind": "repair",
+      "category": "fire_door"
+    },
+    {
+      "key": "IS-FSA-GEZE",
+      "title": "Feststellanlage GEZE TS 5000 R austauschen (ohne Deckenmelder, mit Etiketten, Prüfbuch und Abnahme)",
+      "unit": "Stk",
+      "price": 1688.0,
+      "kind": "repair",
+      "category": "hold_open",
+      "note": "1-flg.; Leitung und Strom bauseits."
+    },
+    {
+      "key": "IS-FSA-DORMA",
+      "title": "Feststellanlage Dorma TS 98 XEA G-EMR mit integriertem Rauchmelder austauschen",
+      "unit": "Stk",
+      "price": 2107.5,
+      "kind": "repair",
+      "category": "hold_open",
+      "note": "1-flg.; Leitung und Strom bauseits."
+    },
+    {
+      "key": "IS-ORS",
+      "title": "Deckenrauchschalter ORS 142, Satz mit zwei Stück je Tür",
+      "unit": "Satz",
+      "price": 675.2,
+      "kind": "repair",
+      "category": "hold_open",
+      "note": "Gerüst bauseits."
+    },
+    {
+      "key": "IS-FSA-AKKU",
+      "title": "Feststellanlage mit Akkubetrieb (XEA 98 mit Ubivis) einschließlich Inbetriebnahme und Prüfbuch",
+      "unit": "Stk",
+      "price": 2560.0,
+      "kind": "repair",
+      "category": "hold_open"
+    },
+    {
+      "key": "IS-SPION-0",
+      "title": "Türspion nachrüsten, Tür ohne Brandschutz (Türstärke 35–78 mm)",
+      "unit": "Stk",
+      "price": 48.6,
+      "kind": "repair",
+      "category": "fire_door",
+      "condition": {
+        "requirement": [
+          "keine"
+        ]
+      }
+    },
+    {
+      "key": "IS-SPION-BS",
+      "title": "Türspion nachrüsten, Tür mit Rauch- bzw. Brandschutz (feuerhemmend, Türstärke 43 mm)",
+      "unit": "Stk",
+      "price": 49.31,
+      "kind": "repair",
+      "category": "fire_door",
+      "condition": {
+        "requirement": [
+          "RS",
+          "T30",
+          "T30-RS",
+          "T90",
+          "T90-RS"
+        ]
+      },
+      "note": "Hersteller und Zulassung des Spions sind einzutragen."
+    },
+    {
+      "key": "IS-STOPPER",
+      "title": "Bodentürstopper liefern (Abholpreis, ohne Montage)",
+      "unit": "Stk",
+      "price": 5.0,
+      "kind": "repair",
+      "category": "fire_door"
+    },
+    {
+      "key": "IS-STOPPER-FEST",
+      "title": "Bauseitigen Türstopper neu befestigen",
+      "unit": "Stk",
+      "price": 17.5,
+      "kind": "repair",
+      "category": "fire_door"
+    },
+    {
+      "key": "IS-STOPPER-UNTERLEGER",
+      "title": "Unterleger für Bodentürstopper",
+      "unit": "Stk",
+      "price": 23.75,
+      "kind": "repair",
+      "category": "fire_door"
+    },
+    {
+      "key": "IS-OBERFL",
+      "title": "Oberfläche des Türblatts instand setzen (Wachs, Lackstift; nur einfarbig)",
+      "unit": "Stk",
+      "price": 193.0,
+      "kind": "repair",
+      "category": "fire_door"
+    },
+    {
+      "key": "IS-SOCKEL",
+      "title": "Sockelblech Edelstahl bis 200 × 985 mm, geklebt",
+      "unit": "Stk",
+      "price": 175.0,
+      "kind": "repair",
+      "category": "fire_door"
+    },
+    {
+      "key": "IS-KONTER",
+      "title": "Konterschrauben für dreiteilige Bänder",
+      "unit": "Stk",
+      "price": 1.4,
+      "kind": "repair",
+      "category": "fire_door",
+      "note": "Montage nach Aufwand."
+    },
+    {
+      "key": "IS-BAND-SELBST",
+      "title": "Selbstschließende Bänder für Badtüren (ohne Montage)",
+      "unit": "Stk",
+      "price": 31.5,
+      "kind": "repair",
+      "category": "fire_door"
+    },
+    {
+      "key": "IS-BAD-UMRUEST",
+      "title": "Badtür auf selbstschließende Bänder umrüsten (zwei Bänder)",
+      "unit": "Tür",
+      "price": 89.0,
+      "kind": "repair",
+      "category": "fire_door",
+      "note": "Die Bänder sorgen nur für ein Zulaufen."
+    },
+    {
+      "key": "IS-SCHALLEX-0",
+      "title": "Absenkdichtung (Schall-Ex) für Tür ohne Anforderung erneuern",
+      "unit": "Stk",
+      "price": 335.0,
+      "kind": "repair",
+      "category": "fire_door",
+      "condition": {
+        "requirement": [
+          "keine"
+        ]
+      }
+    },
+    {
+      "key": "IS-SCHALLEX-T30",
+      "title": "Absenkdichtung (Schall-Ex) für T30-RS-Tür erneuern (ca. 1 m)",
+      "unit": "Stk",
+      "price": 651.0,
+      "kind": "repair",
+      "category": "fire_door",
+      "condition": {
+        "requirement": [
+          "RS",
+          "T30",
+          "T30-RS"
+        ]
+      },
+      "note": "Die Vorlage nennt T30-RS; für RS- und T30-Türen übernommen. Preis je nach Länge und Fabrikat.",
+      "unsicher": true
+    },
+    {
+      "key": "IS-SCHALLEX-T90",
+      "title": "Absenkdichtung (Schall-Ex) für T90-RS-Stahltür erneuern",
+      "unit": "Stk",
+      "price": 980.0,
+      "kind": "repair",
+      "category": "fire_door",
+      "condition": {
+        "requirement": [
+          "T90",
+          "T90-RS"
+        ]
+      },
+      "note": "Preis je nach Länge und Fabrikat."
+    },
+    {
+      "key": "IS-SCHWELLE",
+      "title": "Bodenschwelle Halbmond Edelstahl, unterfüttert und verklebt",
+      "unit": "Stk",
+      "price": 152.5,
+      "kind": "repair",
+      "category": "fire_door"
+    },
+    {
+      "key": "IS-PANIK",
+      "title": "Panikschloss für Alu-Rohrrahmentür ohne Brandschutz",
+      "unit": "Stk",
+      "price": 507.45,
+      "kind": "repair",
+      "category": "fire_door",
+      "condition": {
+        "requirement": [
+          "keine",
+          "RS"
+        ]
+      }
+    },
+    {
+      "key": "IS-PANIK-3",
+      "title": "Panikschloss für Alu-Rohrrahmentür ohne Brandschutz, mit Dreifachverriegelung",
+      "unit": "Stk",
+      "price": 1035.0,
+      "kind": "repair",
+      "category": "fire_door",
+      "condition": {
+        "requirement": [
+          "keine",
+          "RS"
+        ]
+      }
+    },
+    {
+      "key": "IS-BZ-KURZ",
+      "title": "Blindzylinder 50–76 mm (T30–T90)",
+      "unit": "Stk",
+      "price": 48.89,
+      "kind": "repair",
+      "category": "fire_door"
+    },
+    {
+      "key": "IS-BZ-LANG",
+      "title": "Blindzylinder 77–132 mm (T30–T90)",
+      "unit": "Stk",
+      "price": 54.67,
+      "kind": "repair",
+      "category": "fire_door"
+    },
+    {
+      "key": "IS-DICHT-0",
+      "title": "Türdichtung in der Zarge erneuern, Tür ohne Brandschutz",
+      "unit": "lfm",
+      "price": 17.35,
+      "kind": "repair",
+      "category": "fire_door",
+      "condition": {
+        "requirement": [
+          "keine"
+        ]
+      },
+      "note": "Muster der vorhandenen Dichtung nötig."
+    },
+    {
+      "key": "IS-DICHT-BS",
+      "title": "Türdichtung in der Zarge erneuern, Tür mit Rauch- bzw. Brandschutz",
+      "unit": "lfm",
+      "price": 0.0,
+      "kind": "repair",
+      "category": "fire_door",
+      "condition": {
+        "requirement": [
+          "RS",
+          "T30",
+          "T30-RS",
+          "T90",
+          "T90-RS"
+        ]
+      },
+      "note": "Preis fehlt in den Vorlagen (nur im abweichenden Angebot vom 16.11.2026 genannt) – bitte festlegen.",
+      "unsicher": true
+    },
+    {
+      "key": "IS-SCHLIESSBLECH",
+      "title": "Schließblech für Holzfutterzarge",
+      "unit": "Stk",
+      "price": 34.65,
+      "kind": "repair",
+      "category": "fire_door"
+    },
+    {
+      "key": "IS-KLEINMAT",
+      "title": "Klein- und Verbrauchsmaterial",
+      "unit": "pauschal",
+      "price": 1.0,
+      "kind": "repair",
+      "category": ""
+    },
+    {
+      "key": "PM-ANTRIEB",
+      "title": "Drehtürantrieb Hörmann PortaMatic, weiß",
+      "unit": "Stk",
+      "price": 840.0,
+      "kind": "repair",
+      "category": "door_drive"
+    },
+    {
+      "key": "PM-PLATTE",
+      "title": "Montageplatte für PortaMatic",
+      "unit": "Stk",
+      "price": 150.0,
+      "kind": "repair",
+      "category": "door_drive"
+    },
+    {
+      "key": "PM-SMARTKEY",
+      "title": "Smart Key (Öffnen per Schlüssel bzw. App)",
+      "unit": "Stk",
+      "price": 420.0,
+      "kind": "repair",
+      "category": "door_drive"
+    },
+    {
+      "key": "PM-TASTER",
+      "title": "Taster FIT 1",
+      "unit": "Stk",
+      "price": 150.0,
+      "kind": "repair",
+      "category": "door_drive"
+    },
+    {
+      "key": "PM-HANDSENDER",
+      "title": "Handsender",
+      "unit": "Stk",
+      "price": 135.0,
+      "kind": "repair",
+      "category": "door_drive"
+    },
+    {
+      "key": "PM-WELLE-1",
+      "title": "Wellenverlängerung, kurz",
+      "unit": "Stk",
+      "price": 48.0,
+      "kind": "repair",
+      "category": "door_drive",
+      "note": "Längen der drei Wellenverlängerungen nicht genannt.",
+      "unsicher": true
+    },
+    {
+      "key": "PM-WELLE-2",
+      "title": "Wellenverlängerung, mittel",
+      "unit": "Stk",
+      "price": 54.0,
+      "kind": "repair",
+      "category": "door_drive",
+      "note": "Wie PM-WELLE-1.",
+      "unsicher": true
+    },
+    {
+      "key": "PM-WELLE-3",
+      "title": "Wellenverlängerung, lang",
+      "unit": "Stk",
+      "price": 63.0,
+      "kind": "repair",
+      "category": "door_drive",
+      "note": "Wie PM-WELLE-1.",
+      "unsicher": true
+    },
+    {
+      "key": "PM-SCHERE",
+      "title": "Scherengestänge für die Bandgegenseite",
+      "unit": "Stk",
+      "price": 90.0,
+      "kind": "repair",
+      "category": "door_drive"
+    },
+    {
+      "key": "PM-FUNKSTECKDOSE",
+      "title": "Funk-Steckdose",
+      "unit": "Stk",
+      "price": 180.0,
+      "kind": "repair",
+      "category": "door_drive"
+    },
+    {
+      "key": "PM-FUNKSENDER",
+      "title": "Funk-Unterputzsender",
+      "unit": "Stk",
+      "price": 126.0,
+      "kind": "repair",
+      "category": "door_drive"
+    },
+    {
+      "key": "PM-ZENTRALE",
+      "title": "Smart-Home-Zentrale",
+      "unit": "Stk",
+      "price": 510.0,
+      "kind": "repair",
+      "category": "door_drive"
+    },
+    {
+      "key": "PM-ELEKTRIKER",
+      "title": "Elektriker zuzüglich Anfahrt",
+      "unit": "Stk",
+      "price": 240.0,
+      "kind": "repair",
+      "category": "door_drive"
+    },
+    {
+      "key": "PM-FOLGETERMIN",
+      "title": "Folgetermin zur Anpassung nach drei Monaten",
+      "unit": "Termin",
+      "price": 250.0,
+      "kind": "repair",
+      "category": "door_drive"
+    },
+    {
+      "key": "PM-KABEL",
+      "title": "Kabel",
+      "unit": "lfm",
+      "price": 15.0,
+      "kind": "repair",
+      "category": "door_drive"
+    }
+  ],
+  "products": [
+    {
+      "manufacturer": "Herholz",
+      "model": "RS-1 Typ 4.1",
+      "category": "fire_door",
+      "aliases": [
+        "Herholz RS-1 Typ 4.1",
+        "RS / SSK 3"
+      ],
+      "requirement": "RS",
+      "defaults": {
+        "leaves": "1-flügelig",
+        "soundproof": true,
+        "frame": "Umfassungszarge",
+        "closer": true,
+        "cardLock": true,
+        "doorStop": true,
+        "holdOpen": false,
+        "dropSeal": false,
+        "peephole": false
+      },
+      "approval": "289IFT-7044679-2-4",
+      "note": "Hotelzimmer-Eingang; Schallschutz SSK 3 (> 37 dB); Stahlumfassungszarge zweiteilig.",
+      "unsicher": true
+    },
+    {
+      "manufacturer": "Hersteller offen",
+      "model": "Feuchtraumtür",
+      "category": "fire_door",
+      "aliases": [
+        "FRT"
+      ],
+      "requirement": "keine",
+      "defaults": {
+        "leaves": "1-flügelig",
+        "wetRoom": true,
+        "closer": false,
+        "frame": "Umfassungszarge",
+        "holdOpen": false
+      },
+      "note": "Steigende Bänder, Unterschnitt 20 mm, kein Obentürschließer.",
+      "unsicher": true
+    },
+    {
+      "manufacturer": "Herholz",
+      "model": "T30-RS Typ 4.1",
+      "category": "fire_door",
+      "aliases": [
+        "T30-RS Typ 4.1"
+      ],
+      "requirement": "T30-RS",
+      "defaults": {
+        "leaves": "1-flügelig",
+        "closer": true,
+        "frame": "Umfassungszarge"
+      },
+      "approval": "Z-6.20-1838"
+    },
+    {
+      "manufacturer": "Novoferm",
+      "model": "Premio T30-RS",
+      "category": "fire_door",
+      "aliases": [
+        "Premio T30-RS",
+        "Novo Premio T30-RS"
+      ],
+      "requirement": "T30-RS",
+      "defaults": {
+        "leaves": "1-flügelig",
+        "closer": true,
+        "frame": "Umfassungszarge"
+      },
+      "approval": "Z-6.20-2205",
+      "note": "In der Liste „Novo“; mit oder ohne Bodenschwelle."
+    },
+    {
+      "manufacturer": "Novoferm",
+      "model": "Premio T90-RS",
+      "category": "fire_door",
+      "aliases": [
+        "Premio T90-RS",
+        "Premio T90-RS-2"
+      ],
+      "requirement": "T90-RS",
+      "defaults": {
+        "closer": true,
+        "dropSeal": true,
+        "frame": "Umfassungszarge"
+      },
+      "approval": "Z-6.20-2221",
+      "note": "„-2“ = zweiflügelig."
+    },
+    {
+      "manufacturer": "Novoferm",
+      "model": "Premio RS",
+      "category": "fire_door",
+      "aliases": [
+        "Premio RS"
+      ],
+      "requirement": "RS",
+      "defaults": {
+        "leaves": "1-flügelig",
+        "closer": true,
+        "frame": "Umfassungszarge"
+      },
+      "approval": "P-5009 DMT DO",
+      "note": "Rauchschutztür aus Stahl."
+    },
+    {
+      "manufacturer": "Novoferm",
+      "model": "Premio MZ-1",
+      "category": "fire_door",
+      "aliases": [
+        "Premio MZ-1",
+        "MZ",
+        "DST Stahltür",
+        "Stahltür"
+      ],
+      "requirement": "keine",
+      "defaults": {
+        "leaves": "1-flügelig",
+        "closer": true,
+        "frame": "Umfassungszarge",
+        "doorType": "Stahltür"
+      },
+      "note": "Mehrzwecktür aus Stahl, teils mit Glasausschnitt."
+    },
+    {
+      "manufacturer": "Hersteller offen",
+      "model": "Röhrenspan-Tür",
+      "category": "fire_door",
+      "aliases": [
+        "Röhrenspan",
+        "Röspan"
+      ],
+      "requirement": "keine",
+      "defaults": {
+        "leaves": "1-flügelig",
+        "frame": "Umfassungszarge",
+        "doorType": "Holztür"
+      },
+      "note": "Mit Eco TS 41 oder ohne Obentürschließer.",
+      "unsicher": true
+    },
+    {
+      "manufacturer": "Herholz",
+      "model": "SSK 1",
+      "category": "fire_door",
+      "aliases": [
+        "Herholz SSK 1",
+        "SSK 1"
+      ],
+      "requirement": "keine",
+      "defaults": {
+        "leaves": "1-flügelig",
+        "soundproof": true,
+        "frame": "Umfassungszarge"
+      },
+      "note": "Schallschutz 27 dB."
+    },
+    {
+      "manufacturer": "Hersteller offen",
+      "model": "Nassraumtür",
+      "category": "fire_door",
+      "aliases": [
+        "NRT"
+      ],
+      "requirement": "keine",
+      "defaults": {
+        "leaves": "1-flügelig",
+        "wetRoom": true,
+        "frame": "Umfassungszarge"
+      },
+      "unsicher": true
+    },
+    {
+      "manufacturer": "Hersteller offen",
+      "model": "Vollspan-Tür",
+      "category": "fire_door",
+      "aliases": [
+        "Vollspan",
+        "DST"
+      ],
+      "requirement": "keine",
+      "defaults": {
+        "leaves": "1-flügelig",
+        "closer": true,
+        "frame": "Umfassungszarge",
+        "doorType": "Holztür"
+      },
+      "note": "Abkürzung DST in der Liste nicht erklärt.",
+      "unsicher": true
+    },
+    {
+      "manufacturer": "Hersteller offen",
+      "model": "Feuchtraumtür mit Drehflügelantrieb",
+      "category": "fire_door",
+      "aliases": [
+        "FRT - Antrieb"
+      ],
+      "requirement": "keine",
+      "defaults": {
+        "leaves": "1-flügelig",
+        "wetRoom": true,
+        "drive": true,
+        "frame": "Umfassungszarge"
+      },
+      "note": "Barrierefrei, Antrieb Dorma ED 100 ziehend.",
+      "unsicher": true
+    },
+    {
+      "manufacturer": "Hersteller offen",
+      "model": "T30-RS (Z-6.20-2030)",
+      "category": "fire_door",
+      "aliases": [
+        "T30-RS"
+      ],
+      "requirement": "T30-RS",
+      "defaults": {
+        "leaves": "1-flügelig",
+        "closer": true,
+        "peephole": true,
+        "cardLock": true,
+        "doorStop": true
+      },
+      "approval": "Z-6.20-2030",
+      "note": "Hotelzimmertür: gefälzt, zwei Bänder, OTS GEZE TS 5000 auf der Bandseite, Kartenschloss mit Notschließung, Spion. Hersteller in der Liste nicht genannt.",
+      "unsicher": true
+    },
+    {
+      "manufacturer": "Westag + Getalit",
+      "model": "SK32",
+      "category": "fire_door",
+      "aliases": [
+        "SK32"
+      ],
+      "requirement": "keine",
+      "defaults": {
+        "leaves": "1-flügelig",
+        "soundproof": true,
+        "closer": true,
+        "dropSeal": true,
+        "peephole": true
+      },
+      "note": "Bedeutung von „SK32“ offen (Schallschutzklasse 32 dB?) – keine Zulassung eingetragen.",
+      "unsicher": true
+    },
+    {
+      "manufacturer": "Westag + Getalit",
+      "model": "T30 RS",
+      "category": "fire_door",
+      "aliases": [
+        "T30 RS"
+      ],
+      "requirement": "T30-RS",
+      "defaults": {
+        "leaves": "1-flügelig",
+        "closer": true,
+        "dropSeal": true
+      },
+      "approval": "Z-6.16-1211 / P-3785/7858",
+      "note": "Spion nur bei Zimmertüren."
+    },
+    {
+      "manufacturer": "Westag + Getalit",
+      "model": "T30",
+      "category": "fire_door",
+      "aliases": [
+        "T30"
+      ],
+      "requirement": "T30",
+      "defaults": {
+        "leaves": "1-flügelig",
+        "closer": true
+      },
+      "approval": "Z-6.16-1211",
+      "note": "Keine Absenkdichtung eingetragen."
+    },
+    {
+      "manufacturer": "Ferro-WICSTYLE",
+      "model": "Alu-Rohrrahmentür",
+      "category": "fire_door",
+      "aliases": [
+        "RS Alu-Rohr-Rahmen mit Seitenteil",
+        "RS Alu-Rohr-Rahmen",
+        "Alu-Rohr Rahmen"
+      ],
+      "requirement": "RS",
+      "defaults": {
+        "leaves": "1-flügelig",
+        "frame": "Rohrrahmen",
+        "closer": true,
+        "dropSeal": true,
+        "doorType": "Alu-Rohrrahmentür"
+      },
+      "approval": "28119620",
+      "note": "Teils mit Seitenteil und Feststellanlage. „28119620“ ist eher eine Nummer als eine Zulassung.",
+      "unsicher": true
+    },
+    {
+      "manufacturer": "Ferro-WICSTYLE",
+      "model": "Alu-Rohrrahmentür mit Standflügel",
+      "category": "fire_door",
+      "aliases": [
+        "T30 RS Alu-Rohr-Rahmen mit Standflügel"
+      ],
+      "requirement": "T30-RS",
+      "defaults": {
+        "leaves": "2-flügelig",
+        "frame": "Rohrrahmen",
+        "closer": true,
+        "dropSeal": true,
+        "doorType": "Alu-Rohrrahmentür"
+      },
+      "approval": "Z-6.14-1716 / P281 21455",
+      "note": "Gang- und Standflügel."
+    },
+    {
+      "manufacturer": "Schüco",
+      "model": "Alu-Rohrrahmentür mit Seitenteil und Oberlicht",
+      "category": "fire_door",
+      "aliases": [
+        "RS Alu-Rohr-Rahmen mit Seitenteil und OL"
+      ],
+      "requirement": "RS",
+      "defaults": {
+        "leaves": "1-flügelig",
+        "frame": "Rohrrahmen",
+        "closer": true,
+        "dropSeal": true,
+        "doorType": "Alu-Rohrrahmentür"
+      },
+      "approval": "P-5004-DNT DO",
+      "note": "In der Liste „Schüko“."
+    },
+    {
+      "manufacturer": "Teckentrup",
+      "model": "Stahl-Blockelement T30 RS",
+      "category": "fire_door",
+      "aliases": [
+        "T30 RS Block-Stahhl",
+        "T30 RS Block-Stahl"
+      ],
+      "requirement": "T30-RS",
+      "defaults": {
+        "leaves": "1-flügelig",
+        "frame": "Blockzarge",
+        "closer": true,
+        "dropSeal": true,
+        "doorType": "Stahltür"
+      },
+      "approval": "Z-6.20-1923",
+      "note": "„Block-Stahhl“ ist ein Tippfehler im Original."
+    },
+    {
+      "manufacturer": "Hörmann",
+      "model": "Stahl-Blockelement",
+      "category": "fire_door",
+      "aliases": [
+        "Block-Stahl-Element"
+      ],
+      "defaults": {
+        "leaves": "1-flügelig",
+        "frame": "Blockzarge",
+        "doorType": "Stahltür"
+      },
+      "note": "Keine Anforderung eingetragen.",
+      "unsicher": true
+    },
+    {
+      "manufacturer": "Schörghuber",
+      "model": "Rauchschutztür (Holz)",
+      "category": "fire_door",
+      "aliases": [
+        "RS"
+      ],
+      "requirement": "RS",
+      "defaults": {
+        "leaves": "1-flügelig",
+        "closer": true,
+        "dropSeal": true,
+        "doorType": "Holztür"
+      },
+      "approval": "3684/3820-1MPABS",
+      "note": "In der Liste nur „RS“ – passt beim Import nur zusammen mit dem Hersteller.",
+      "unsicher": true
+    },
+    {
+      "manufacturer": "Hersteller offen",
+      "model": "Stahl-Element",
+      "category": "fire_door",
+      "aliases": [
+        "Stahl-Element"
+      ],
+      "defaults": {
+        "doorType": "Stahltür"
+      },
+      "note": "Keine weiteren Angaben in der Liste.",
+      "unsicher": true
+    },
+    {
+      "manufacturer": "Jeld-Wen",
+      "model": "RS / Schallschutz",
+      "category": "fire_door",
+      "aliases": [
+        "BST-DC80",
+        "RS/ Schallschutz"
+      ],
+      "requirement": "RS",
+      "defaults": {
+        "leaves": "1-flügelig",
+        "soundproof": true
+      },
+      "approval": "P-12-000525-PR01",
+      "note": "Baujahr 2020."
+    },
+    {
+      "manufacturer": "GEZE",
+      "model": "TS 5000 R",
+      "category": "hold_open",
+      "aliases": [
+        "GEZE TS 5000 R",
+        "TS 5000 R"
+      ],
+      "defaults": {
+        "holdDevice": "Gleitschiene mit Feststellung"
+      }
+    },
+    {
+      "manufacturer": "Dorma",
+      "model": "TS 98 XEA G-EMR",
+      "category": "hold_open",
+      "aliases": [
+        "TS 98 XEA G-EMR",
+        "Dorma TS 98 XEA"
+      ],
+      "defaults": {
+        "holdDevice": "Gleitschiene mit Feststellung",
+        "trigger": "Rauchschalter im Sturz"
+      },
+      "note": "Mit integriertem Rauchmelder."
+    },
+    {
+      "manufacturer": "Dorma",
+      "model": "TS 98 XEA mit Ubivis (Akku)",
+      "category": "hold_open",
+      "aliases": [
+        "Ubivis",
+        "XEA 98 Ubivis"
+      ],
+      "defaults": {
+        "holdDevice": "Gleitschiene mit Feststellung"
+      },
+      "note": "Akku einmal im Jahr tauschen."
+    },
+    {
+      "manufacturer": "ECO",
+      "model": "TS 61 EFR III",
+      "category": "hold_open",
+      "aliases": [
+        "Eco TS 61 EFR III",
+        "EFR III"
+      ],
+      "defaults": {
+        "holdDevice": "Freilauftürschließer"
+      },
+      "note": "Freilauf-Gleitschiene (Deutung von EFR).",
+      "unsicher": true
+    },
+    {
+      "manufacturer": "Dorma",
+      "model": "ED 100",
+      "category": "door_drive",
+      "aliases": [
+        "Dorma ED 100 BS ziehend",
+        "ED 100"
+      ],
+      "defaults": {
+        "leaves": "1-flügelig"
+      }
+    },
+    {
+      "manufacturer": "Dorma",
+      "model": "ED 250",
+      "category": "door_drive",
+      "aliases": [
+        "ED 250"
+      ],
+      "defaults": {}
+    },
+    {
+      "manufacturer": "Hörmann",
+      "model": "PortaMatic",
+      "category": "door_drive",
+      "aliases": [
+        "PortaMatic"
+      ],
+      "defaults": {
+        "leaves": "1-flügelig",
+        "fireDoor": false,
+        "mode": "Niedrigenergie"
+      },
+      "note": "Nachrüst-Antrieb für Wohnungs- und Innentüren.",
+      "unsicher": true
+    }
+  ],
+  "defects": [
+    {
+      "title": "Türstopper lose",
+      "severity": "low",
+      "measure": "Türstopper neu befestigen",
+      "category": "fire_door",
+      "synonyms": [
+        "Türstopper muss neu befestigt werden",
+        "Stopper locker"
+      ],
+      "serviceKeys": [
+        "IS-STOPPER-FEST"
+      ]
+    },
+    {
+      "title": "Türstopper defekt",
+      "severity": "low",
+      "measure": "Türstopper erneuern",
+      "category": "fire_door",
+      "synonyms": [
+        "Türstopper defekt muss erneuert werden",
+        "Stopper kaputt"
+      ],
+      "serviceKeys": [
+        "IS-STOPPER",
+        "IS-STOPPER-FEST"
+      ],
+      "note": "Neuer Stopper als Abholpreis plus Befestigen angesetzt.",
+      "unsicher": true
+    },
+    {
+      "title": "Türstopper fehlt",
+      "severity": "low",
+      "measure": "Türstopper liefern und montieren",
+      "category": "fire_door",
+      "synonyms": [
+        "kein Türstopper",
+        "Bummsinchen fehlt",
+        "Türpuffer fehlt"
+      ],
+      "serviceKeys": [
+        "IS-STOPPER",
+        "IS-STOPPER-FEST"
+      ],
+      "note": "Wie „Türstopper defekt“.",
+      "unsicher": true
+    },
+    {
+      "title": "Türblatt beschädigt",
+      "severity": "medium",
+      "measure": "Schaden begutachten; Oberfläche instand setzen bzw. Türblatt nach Herstellervorgabe tauschen",
+      "category": "fire_door",
+      "synonyms": [
+        "Türblatt Kante beschädigt",
+        "Kratzer im Türblatt"
+      ],
+      "serviceKeys": [
+        "IS-OBERFL"
+      ],
+      "note": "Oberflächen-Instandsetzung nur bei kleinen Schäden; sonst Angebot nach Aufmaß.",
+      "unsicher": true
+    },
+    {
+      "title": "Zarge irreparabel beschädigt",
+      "severity": "high",
+      "measure": "Zarge bzw. Element erneuern – Angebot nach Aufmaß",
+      "category": "fire_door",
+      "synonyms": [
+        "Zarge kaputt",
+        "Zarge nicht mehr zu reparieren"
+      ]
+    },
+    {
+      "title": "Absenkdichtung nachgestellt",
+      "severity": "low",
+      "measure": "Absenkdichtung eingestellt (erledigt)",
+      "category": "fire_door",
+      "synonyms": [
+        "Schall-ex eingestellt",
+        "Schallex eingestellt"
+      ],
+      "note": "Kleinigkeit vor Ort behoben – eher als Wartungsarbeit erfassen; ohne Angebotsposition."
+    },
+    {
+      "title": "Absenkdichtung defekt",
+      "severity": "medium",
+      "measure": "Absenkdichtung passend zur Anforderung erneuern",
+      "category": "fire_door",
+      "synonyms": [
+        "Schall-ex defekt",
+        "Schallex defekt",
+        "Absenkdichtung kaputt"
+      ],
+      "serviceKeys": [
+        "IS-SCHALLEX-0",
+        "IS-SCHALLEX-T30",
+        "IS-SCHALLEX-T90"
+      ]
+    },
+    {
+      "title": "Gelenkarm des Obentürschließers lose",
+      "severity": "medium",
+      "measure": "Gelenkarm befestigen und Schließer einstellen",
+      "category": "fire_door",
+      "synonyms": [
+        "OTS Gelenkarm lose",
+        "Schließerarm lose"
+      ]
+    },
+    {
+      "title": "Obentürschließer nachgestellt",
+      "severity": "low",
+      "measure": "Obentürschließer eingestellt (erledigt)",
+      "category": "fire_door",
+      "synonyms": [
+        "OTS eingestellt"
+      ],
+      "note": "Kleinigkeit vor Ort behoben – eher als Wartungsarbeit erfassen; ohne Angebotsposition."
+    },
+    {
+      "title": "Türschließerarm wieder eingehängt",
+      "severity": "low",
+      "measure": "Arm eingehängt (erledigt)",
+      "category": "fire_door",
+      "synonyms": [
+        "Türschließerarm eingehängt",
+        "Schließerarm ausgehängt"
+      ],
+      "note": "Kleinigkeit vor Ort behoben – eher als Wartungsarbeit erfassen; ohne Angebotsposition."
+    },
+    {
+      "title": "Band defekt oder lose",
+      "severity": "medium",
+      "measure": "Band nachziehen bzw. tauschen; dreiteilige Bänder mit Konterschrauben sichern",
+      "category": "fire_door",
+      "synonyms": [
+        "Band defekt/lose",
+        "Band lose",
+        "Band defekt"
+      ],
+      "serviceKeys": [
+        "IS-KONTER"
+      ],
+      "quantity": 3,
+      "note": "Menge geschätzt (drei Bänder); Montage nach Aufwand.",
+      "unsicher": true
+    },
+    {
+      "title": "Bodenluft zu groß, Schwelle nötig",
+      "severity": "medium",
+      "measure": "Bodenschwelle setzen",
+      "category": "fire_door",
+      "synonyms": [
+        "Bodenluft zu groß",
+        "Schwelle benötigt",
+        "Bodenschwelle fehlt"
+      ],
+      "serviceKeys": [
+        "IS-SCHWELLE"
+      ]
+    },
+    {
+      "title": "Türblatt liegt auf dem Bodenbelag auf",
+      "severity": "medium",
+      "measure": "Tür nachstellen bzw. Bodenbelag anpassen lassen (bauseits)",
+      "category": "fire_door",
+      "synonyms": [
+        "Türblatt liegt auf Teppich auf",
+        "Tür schleift am Boden"
+      ]
+    },
+    {
+      "title": "Seitenteil unten nicht versiegelt",
+      "severity": "low",
+      "measure": "Anschlussfuge am Seitenteil versiegeln",
+      "category": "fire_door",
+      "synonyms": [
+        "Seitenteil nicht versiegelt"
+      ]
+    },
+    {
+      "title": "Glasdichtung verrutscht",
+      "severity": "low",
+      "measure": "Glasdichtung richten bzw. erneuern",
+      "category": "fire_door",
+      "synonyms": [
+        "Dichtung Glasscheibe verrutscht",
+        "Glasdichtung lose"
+      ]
+    },
+    {
+      "title": "Dichtung fehlt",
+      "severity": "medium",
+      "measure": "Dichtung nach Muster der vorhandenen ersetzen",
+      "category": "fire_door",
+      "synonyms": [
+        "Zargendichtung fehlt",
+        "Dichtung nicht vorhanden"
+      ],
+      "serviceKeys": [
+        "IS-DICHT-0",
+        "IS-DICHT-BS"
+      ],
+      "quantity": 5,
+      "note": "Menge geschätzt: rund 5 lfm je einflügeliger Tür.",
+      "unsicher": true
+    },
+    {
+      "title": "Prüfbuch der Feststellanlage fehlt",
+      "severity": "medium",
+      "measure": "Neues Prüfbuch liefern, ausfüllen und übergeben",
+      "category": "hold_open",
+      "synonyms": [
+        "Prüfbücher nicht vorhanden",
+        "Unterlagen der Feststellanlage fehlen"
+      ],
+      "serviceKeys": [
+        "7.010"
+      ]
+    },
+    {
+      "title": "Rauchschalter ohne Herstelldatum",
+      "severity": "medium",
+      "measure": "Herstelldatum klären, Melder bei Bedarf tauschen",
+      "category": "hold_open",
+      "synonyms": [
+        "Datumangaben der Rauchschalter nicht vorhanden",
+        "Rauchschalter ohne Datum"
+      ]
+    }
+  ],
+  "terms": [
+    {
+      "term": "FRT",
+      "meaning": "Feuchtraumtür"
+    },
+    {
+      "term": "NRT",
+      "meaning": "Nassraumtür"
+    },
+    {
+      "term": "SUZ",
+      "meaning": "Stahlumfassungszarge"
+    },
+    {
+      "term": "BLZ",
+      "meaning": "Blockzarge"
+    },
+    {
+      "term": "PZ",
+      "meaning": "Profilzylinder"
+    },
+    {
+      "term": "BZ",
+      "meaning": "Blindzylinder"
+    },
+    {
+      "term": "US",
+      "meaning": "Unterschnitt"
+    },
+    {
+      "term": "SSK",
+      "meaning": "Schallschutzklasse"
+    },
+    {
+      "term": "MZ",
+      "meaning": "Mehrzwecktür"
+    },
+    {
+      "term": "Röspan",
+      "meaning": "Röhrenspan"
+    },
+    {
+      "term": "T0",
+      "meaning": "Tür ohne Feuerwiderstand"
+    },
+    {
+      "term": "ESG",
+      "meaning": "Einscheibensicherheitsglas"
+    },
+    {
+      "term": "VSG",
+      "meaning": "Verbundsicherheitsglas"
+    },
+    {
+      "term": "GK",
+      "meaning": "Gipskarton"
+    },
+    {
+      "term": "STB",
+      "meaning": "Stahlbeton"
+    },
+    {
+      "term": "BS",
+      "meaning": "Bandseite"
+    },
+    {
+      "term": "BGS",
+      "meaning": "Bandgegenseite"
+    },
+    {
+      "term": "FLR-OTS",
+      "meaning": "Freilauf-Obentürschließer mit Rauchschalter"
+    },
+    {
+      "term": "EÖ",
+      "meaning": "E-Öffner"
+    },
+    {
+      "term": "Schall-Ex",
+      "meaning": "Absenkdichtung"
+    }
+  ]
+}

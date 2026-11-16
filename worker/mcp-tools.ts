@@ -2,9 +2,10 @@
 // Jedes Werkzeug ruft die normale API mit dem Schlüssel/Token des Aufrufs auf: Rollen, Lese-/Schreibrecht,
 // Zugriffsbereich und „darf anlegen“ gelten dadurch unverändert. Antworten sind knapp und nennen Codes und
 // Namen statt interner IDs – IDs nur dort, wo ein Folgeaufruf sie braucht.
-import { allOkAnswers, conditionOf } from "../shared/applies";
-import { validateAttributes } from "../shared/asset-fields";
+import { allOkAnswers, conditionOf, conditionReason } from "../shared/applies";
+import { validateAttributes, withLegacyDoorFields } from "../shared/asset-fields";
 import { SEVERITIES, type Severity } from "../shared/catalog";
+import { parseCategory } from "../shared/importing";
 import { groupCheckpoints } from "../shared/checkpoint-groups";
 import {
   assignCheckpoint,
@@ -115,7 +116,7 @@ interface CheckpointInfo {
   id: string;
   label: string;
   group?: string;
-  appliesIf?: { attr: string; equals: string | boolean };
+  appliesIf?: { attr: string; equals?: string | boolean; in?: string[] };
 }
 
 // ---------- Schema-Bausteine ----------
@@ -238,6 +239,8 @@ async function resolveCategory(x: Ctx, v: unknown) {
   const hit =
     cats.find((c) => c.key === q) ??
     cats.find((c) => lc(c.label) === q || lc(c.plural) === q) ??
+    // Plan v7: feste Synonyme („Feuerschutztür“ → Tür, „Türantrieb“ → Drehtürantrieb) vor der Teilwort-Suche
+    cats.find((c) => c.key === parseCategory(s(v), cats)) ??
     cats.find(
       (c) =>
         lc(c.label).includes(q) ||
@@ -578,12 +581,8 @@ function findCheckpoint(
 }
 
 /** Grund, warum Punkte entfallen (für die Kurzfassung) */
-const naReason = (attr: string, equals: unknown) =>
-  attr === "holdOpen"
-    ? "ohne Feststellanlage"
-    : attr === "leaves"
-      ? "einflügelig"
-      : `${attr} ≠ ${s(equals)}`;
+/** Grund, warum Punkte entfallen (Plan v7: Anforderung, Ausstattung – shared/applies.ts) */
+const naReason = (cond: Parameters<typeof conditionReason>[0]) => conditionReason(cond);
 
 /**
  * Prüfpunkte als Gruppen-Kurzfassung (Plan v6, C5) – zum Vorlesen statt 8–20 Punkten im Volltext. Dazu, was nach den
@@ -600,7 +599,7 @@ function checkpointBrief(
   const reasons = new Set(
     r.na.map((id) => {
       const c = conditionOf(cps.find((k) => k.id === id)!, category)!;
-      return naReason(c.attr, c.equals);
+      return naReason(c);
     }),
   );
   return compact({
@@ -1996,6 +1995,12 @@ export const TOOLS: Tool[] = [
           next.model = m;
         }
       }
+      // Plan v7 (Paket V): alte Felder rating/smoke der Tür → Anforderung (vor dem Aussortieren unbekannter Felder)
+      const legacy = withLegacyDoorFields([...fields.keys()].map((key) => ({ key })), extra);
+      if (legacy.error) throw new ToolError(`Nichts gespeichert: ${legacy.error}`);
+      const converted = { ...legacy.attrs } as Json;
+      for (const k of Object.keys(extra)) delete extra[k];
+      Object.assign(extra, converted);
       // Plan v6 D1: Auswahllisten, Zahlen, Baujahr und Ja/Nein prüfen – bei einem Fehler wird nichts gespeichert
       for (const k of Object.keys(extra)) if (!fields.has(k)) ignored.push(k);
       const checked = checkedFields(
@@ -2976,7 +2981,7 @@ export const TOOLS: Tool[] = [
                     fields: {
                       type: "object",
                       description:
-                        'Stammdaten der Elementart als {schlüssel: wert}, z. B. {rating: "T30", leaves: "2-flügelig", holdOpen: true}',
+                        'Stammdaten der Elementart als {schlüssel: wert}, z. B. {requirement: "T30-RS", leaves: "2-flügelig", holdOpen: true}',
                       additionalProperties: {
                         type: ["string", "number", "boolean", "null"],
                       },
@@ -3395,13 +3400,13 @@ export const TOOLS: Tool[] = [
     name: "catalog",
     title: "Katalog",
     description:
-      'Fachwissen des Workspaces: Produkte (Hersteller, Typ, Art, Vorgabewerte der Stammdaten wie {rating: "T30", smoke: true}, Zulassung), typische Mängel (Titel, Synonyme, Schwere, Maßnahme, Art) und Begriffe (Abkürzung → Bedeutung, z. B. OTS → Obentürschließer). `action: "search"` mit `list` (products|defects|terms, ohne = alle) und optional `query`/`category`. `action: "suggest"` mit `text` (z. B. ein Befund „OTS zieht nicht zu“ – mehrere Befunde in einem Satz werden einzeln unter `findings` zugeordnet): passende Katalog-Mängel mit Schwere und Maßnahme und ausgeschriebene Begriffe; mit `manufacturer`/`model` passende Produkte. `action: "upsert"` mit `list` und `items` (höchstens 200): legt neu an oder ändert vorhandene Einträge mit gleichem Schlüssel (Hersteller+Typ, Art+Titel, Begriff) – so baust du den Katalog aus Datenblättern, Prüfprotokollen oder Preislisten auf. Immer zuerst mit `preview: true` (Standard) aufrufen und die Vorschau zeigen, nach Bestätigung mit `preview: false`. Unbekannte Felder und unbekannte Stammdaten in `defaults` werden je Eintrag als Fehler gemeldet. Anlegen/Ändern darf nur ein Schreib-Schlüssel einer Admin- oder Inhaber-Person; Löschen: Das können nur Admins in der App (Einstellungen → Katalog). Beispiel: {action: "upsert", list: "defects", preview: true, items: [{title: "Haftmagnet brummt", severity: "low", measure: "Netzteil prüfen", category: "Feststellanlage"}]}.',
+      'Fachwissen des Workspaces: Produkte (Hersteller, Typ, Art, Aliasse = so, wie der Typ in Listen und Ansagen heißt, Anforderung der Tür keine/RS/T30/T30-RS/T90/T90-RS, Vorgabewerte der Stammdaten wie {closer: true, dropSeal: true}, Zulassung und gültig bis), typische Mängel (Titel, Synonyme, Schwere, Maßnahme, Art, zugeordnete Leistungen `serviceKeys` mit Menge `quantity`), Leistungen (Kürzel `key`, Bezeichnung, Einheit, Preis netto, Art maintenance|repair|labor, Bedingung auf Stammdaten wie {requirement: ["T30-RS"], leaves: "1-flügelig"}) und Begriffe (Abkürzung → Bedeutung, z. B. OTS → Obentürschließer). Aus Mängeln und Leistungen rechnet die App die Angebotsliste eines Objekts. `action: "search"` mit `list` (products|defects|services|terms, ohne = alle) und optional `query`/`category`. `action: "suggest"` mit `text` (z. B. ein Befund „OTS zieht nicht zu“ – mehrere Befunde in einem Satz werden einzeln unter `findings` zugeordnet): passende Katalog-Mängel mit Schwere und Maßnahme und ausgeschriebene Begriffe; mit `manufacturer`/`model` passende Produkte. `action: "upsert"` mit `list` und `items` (höchstens 200): legt neu an oder ändert vorhandene Einträge mit gleichem Schlüssel (Hersteller+Typ, Art+Titel, Kürzel, Begriff); nur genannte Felder ändern sich – so baust du den Katalog aus Datenblättern, Prüfprotokollen oder Preislisten auf (Leistungen vor den Mängeln anlegen, die auf sie verweisen). Immer zuerst mit `preview: true` (Standard) aufrufen und die Vorschau zeigen, nach Bestätigung mit `preview: false`. Unbekannte Felder und unbekannte Stammdaten in `defaults` werden je Eintrag als Fehler gemeldet. Anlegen/Ändern darf nur ein Schreib-Schlüssel einer Admin- oder Inhaber-Person; Löschen: Das können nur Admins in der App (Einstellungen → Katalog). Beispiel: {action: "upsert", list: "defects", preview: true, items: [{title: "Haftmagnet brummt", severity: "low", measure: "Netzteil prüfen", category: "Feststellanlage"}]}.',
     inputSchema: obj(
       {
         action: str("search, suggest oder upsert", {
           enum: ["search", "suggest", "upsert"],
         }),
-        list: str("Katalogliste", { enum: ["products", "defects", "terms"] }),
+        list: str("Katalogliste", { enum: ["products", "defects", "services", "terms"] }),
         query: str("search: Suchbegriff"),
         category: str(
           "Elementart (Schlüssel oder Bezeichnung) zum Eingrenzen, z. B. „Feststellanlage“",
@@ -3427,8 +3432,40 @@ export const TOOLS: Tool[] = [
             approval: str(
               "products: Zulassung/Prüfzeugnis, z. B. „Z-6.20-1234“",
             ),
-            note: str("products: Notiz"),
-            title: str("defects: Bezeichnung des Mangels"),
+            approvalValidUntil: str("products: Zulassung gültig bis (JJJJ-MM-TT)"),
+            requirement: str(
+              "products: Anforderung der Tür: keine, RS, T30, T30-RS, T90 oder T90-RS",
+            ),
+            aliases: arr(
+              { type: "string" },
+              "products: so, wie der Typ in Listen und Ansagen genannt wird, z. B. „SK32“, „T30 RS“",
+              30,
+            ),
+            note: str("products/defects/services: Notiz"),
+            title: str("defects: Bezeichnung des Mangels; services: Bezeichnung der Leistung"),
+            serviceKeys: arr(
+              { type: "string" },
+              "defects: Kürzel der Leistungen für die Angebotsliste (die zur Tür passende Bedingung entscheidet)",
+              12,
+            ),
+            quantity: {
+              type: "number",
+              description: "defects: Menge je Mangel (Standard 1), z. B. 5 für 5 lfm",
+            },
+            key: str("services: Kürzel, eindeutig, z. B. „IS-SCHWELLE“ oder „4.003“"),
+            unit: str("services: Einheit, z. B. Stk, lfm, h"),
+            price: { type: "number", description: "services: Preis netto in Euro" },
+            kind: str("services: Art der Leistung", {
+              enum: ["maintenance", "repair", "labor"],
+            }),
+            condition: {
+              type: "object",
+              description:
+                'services: Bedingung auf Stammdaten der Art, z. B. {requirement: ["T30-RS", "T90-RS"], leaves: "1-flügelig", closer: true}',
+              additionalProperties: {
+                type: ["string", "number", "boolean", "array"],
+              },
+            },
             synonyms: arr(
               { type: "string" },
               "defects: andere Formulierungen, wie man sie vor Ort sagt",
@@ -3439,7 +3476,7 @@ export const TOOLS: Tool[] = [
             term: str("terms: Abkürzung/Begriff, z. B. „OTS“"),
             meaning: str("terms: Bedeutung, z. B. „Obentürschließer“"),
             category: str(
-              "products/defects: Elementart (Schlüssel oder Bezeichnung) oder leer = alle",
+              "products/defects/services: Elementart (Schlüssel oder Bezeichnung) oder leer = alle",
             ),
           }),
           "upsert: Einträge der Liste `list`",
@@ -3457,7 +3494,7 @@ export const TOOLS: Tool[] = [
       const label = (k: unknown) =>
         k ? (cats.find((c) => c.key === k)?.label ?? s(k)) : null;
       if (action === "search") {
-        const kinds = kind ? [kind] : ["products", "defects", "terms"];
+        const kinds = kind ? [kind] : ["products", "defects", "services", "terms"];
         const out: Json = {};
         for (const k of kinds) {
           const qs = new URLSearchParams();
@@ -3473,11 +3510,17 @@ export const TOOLS: Tool[] = [
                   manufacturer: r.manufacturer,
                   model: r.model,
                   art: label(r.category),
+                  requirement: r.requirement || null,
+                  aliases: (r.aliases as string[])?.length
+                    ? (r.aliases as string[]).join("; ")
+                    : null,
                   defaults:
                     r.defaults && Object.keys(r.defaults as Json).length
                       ? r.defaults
                       : null,
                   approval: r.approval,
+                  approvalValidUntil: r.approvalValidUntil ?? null,
+                  note: r.note || null,
                 })
               : k === "defects"
                 ? compact({
@@ -3488,8 +3531,29 @@ export const TOOLS: Tool[] = [
                     synonyms: (r.synonyms as string[])?.length
                       ? (r.synonyms as string[]).join("; ")
                       : null,
+                    serviceKeys: (r.serviceKeys as string[])?.length
+                      ? r.serviceKeys
+                      : null,
+                    quantity:
+                      (r.serviceKeys as string[])?.length && r.quantity !== 1
+                        ? r.quantity
+                        : null,
                   })
-                : { term: r.term, meaning: r.meaning },
+                : k === "services"
+                  ? compact({
+                      key: r.key,
+                      title: r.title,
+                      price: r.price,
+                      unit: r.unit,
+                      kind: r.kind,
+                      art: label(r.category),
+                      condition:
+                        r.condition && Object.keys(r.condition as Json).length
+                          ? r.condition
+                          : null,
+                      note: r.note || null,
+                    })
+                  : { term: r.term, meaning: r.meaning },
           );
           if (rows.length > 100) out[`more_${k}`] = rows.length - 100;
         }
@@ -3554,6 +3618,8 @@ export const TOOLS: Tool[] = [
             compact({
               manufacturer: p.manufacturer,
               model: p.model,
+              requirement: p.requirement || null,
+              aliases: p.aliases?.length ? p.aliases.join("; ") : null,
               defaults: Object.keys(p.defaults).length ? p.defaults : null,
               approval: p.approval,
             }),
@@ -3565,8 +3631,10 @@ export const TOOLS: Tool[] = [
         });
       }
       if (action === "upsert") {
-        if (!["products", "defects", "terms"].includes(kind))
-          throw new ToolError("`list` fehlt: products, defects oder terms.");
+        if (!["products", "defects", "services", "terms"].includes(kind))
+          throw new ToolError(
+            "`list` fehlt: products, defects, services oder terms.",
+          );
         const items = list(a.items);
         if (!items.length) throw new ToolError("`items` ist leer.");
         if (items.length > 200)
@@ -3604,6 +3672,11 @@ export const TOOLS: Tool[] = [
             errors: (r.errors as Json[])?.length
               ? (r.errors as Json[]).map(
                   (e) => `${Number(e.index) + 1}. ${s(e.error)}`,
+                )
+              : null,
+            warnings: (r.warnings as Json[])?.length
+              ? (r.warnings as Json[]).map(
+                  (w) => `${Number(w.index) + 1}. ${s(w.warning)}`,
                 )
               : null,
           });

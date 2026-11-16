@@ -1,7 +1,7 @@
 # Prüfkompass
 
 Web-App für wiederkehrende Brandschutzprüfungen: Objekte → Gebäude → Elemente
-(Feuerschutztüren, Feststellanlagen, Brandschutzklappen, Feuerlöscher, Rauchwarnmelder und eigene Elementarten),
+(Türen mit Brand-/Rauchschutz, Feststellanlagen, Fenster, Drehtürantriebe, Brandschutzklappen, Feuerlöscher, Rauchwarnmelder und eigene Elementarten),
 Prüfung vor Ort mit Unterschrift, Mängel- und Aufgabenverfolgung, Berichte, QR-Etiketten und API.
 
 Live: https://pruefkompass.ksqsebastian.workers.dev ·
@@ -101,6 +101,24 @@ API: [`docs/api.md`](docs/api.md)
   (15 Begriffe, 25 Tür-/FSA-Mängel), bestehende beim ersten Lesen. Im Elementformular füllt ein Typ aus dem Katalog Hersteller,
   Typ und Stammdaten; Diktat und Prüfablauf schlagen Schwere und Maßnahme aus dem Katalog vor; Abkürzungen werden beim Auswerten
   ausgeschrieben. Lesen ab Prüfer, ändern Admins (bzw. Claude mit dem Schreib-Schlüssel einer Admin-Person, MCP `catalog`)
+- **Tür, Fenster, Drehtürantrieb (Plan v7, Paket V)**: Die Elementart heißt „Tür“ (Schlüssel `fire_door`, neue Codes
+  `T-001`, Bestand behält `FST-…`; „Tür 36“ und „Feuerschutztür 36“ gehen weiter). Feld **Anforderung** (keine · RS · T30 ·
+  T30-RS · T90 · T90-RS, `shared/catalog-door.ts`) ersetzt Feuerwiderstand + Rauchschutz; Migration 0026 rechnet den Bestand
+  um, alte Feldnamen nehmen API, MCP, Import und Diktat weiter an. Dazu Ja/Nein bzw. Auswahl für Schallschutz, Feucht-/Nassraum,
+  Flügel, Zargenart, OTS, Freilauf, Feststellanlage, Absenkdichtung, Spion, Türstopper, Sockelblech, Kartenschloss, Antrieb.
+  Prüfpunkte **nach Bauteil** (Kennzeichnung/Zulassung, Zarge, Türblatt, Bänder, Schließmittel/OTS, Drücker und Schloss,
+  Dichtungen, Zusatzausstattung, Feststellanlage, Funktion) mit `appliesIf`: Brandschutz-Punkte nur bei T30/T90,
+  Rauchschutz nur mit RS, Schließfolge nur zweiflügelig, FSA nur mit Feststellanlage, Spion/Absenkdichtung/Kartenschloss nur
+  wenn vorhanden. Neue Arten **Fenster** (`window`, `F`) und **Drehtürantrieb** (`door_drive`, `DA`) mit kurzer Checkliste
+- **Leistungen und Angebotsliste (Plan v7)**: Katalog-Produkte mit **Aliassen** (so, wie der Typ in Listen heißt),
+  Anforderung und „Zulassung gültig bis“; vierte Liste **Leistungen** (Kürzel, Einheit, Preis netto, Art, Bedingung auf
+  Stammdaten); Katalog-Mängel verweisen auf Leistungen (mit Menge). `GET /api/properties/:id/offer` rechnet aus den offenen
+  Mängeln die Positionen (Preis nach Bedingung, z. B. Dichtung mit/ohne Brandschutz; Mengen summiert, Türen je Zeile, nicht
+  Zugeordnetes unter `unmapped`; `shared/catalog-offer.ts`). **Katalog-Datei** `docs/wissen/katalog-seehafer.json` (24 Türtypen
+  und 7 FSA/Antriebe mit Aliassen, 16 Mängel-Bausteine + 2 FSA-Mängel, 111 Leistungen aus den Vorlagen, Unsicheres markiert)
+  lädt „Aus Datei laden“ auf der Katalogseite mit Vorschau (neu/geändert/unverändert) – nur auf Wunsch, keine Grundausstattung.
+  **Import der Wartungsübersicht** (Ident-Nr., Türtyp über Aliasse, Hersteller, JA-Spalten, Zulassung, Intervall,
+  letzte/nächste Prüfung, Etage, Raum; Laufreihenfolge der Datei)
 - **Foto beim Anlegen** (optional, z. B. vom Typenschild): wird am Element gespeichert; Claude liest es über `get_photo`
   und trägt Stammdaten mit `update_asset` nach
 - **Sammelanlage per Diktat** unter „Erfassen“ (siehe oben): „fünf Feuerlöscher im Erdgeschoss Flur“ → Anzahl, Art, Etage,
@@ -236,7 +254,7 @@ npm run check              # Typprüfung + Unit-Tests + Build
 ## Tests
 
 - **Unit-Tests** (`npm test`, Vitest): Fachlogik, Autopilot-Kreislauf, Rangfolge „Jetzt“, Import/Export, Übersetzungen, Ruhezeiten, Web Push.
-- **Browser-Tests** (`e2e/`, Playwright): Reihen von der Registrierung über Sicherheitskorrekturen und Massenoperationen bis zu Berichtigung, Nachprüfung sowie Aufgaben und Mängeln (`14-tasks-defects`), dem Autopiloten (`20-autopilot`) und den offenen Punkten aus der Analyse (`21-offene-punkte`: Offline-Fehlliste, Intervalle, Partner-Zugang), dem MCP-Server (`11-ai-mcp`) und „Sprache zuerst“ (`23-sprache`: Rundgang über Claude, Unterschrift mit einem Tipp; `24-unterschreiben-offline`: Seite „Unterschreiben“, Befund einsprechen, Erfassen und Rundgang ohne Netz) sowie der Navigation mit fünf Orten (`25-fuenf-orte`: Leisten, Umleitungen, Prüfen, Offen, Heute am Handy, 390 px) und dem Fachwissen (`26-katalog`: Feststellanlage, laufende Nummern, Typ- und Mangel-Vorschläge, Katalogseite, MCP `catalog`) sowie dem Einstieg (`27-einstieg`: leeres Konto → Objektname → ein Satz → Elemente angelegt in 4 Tipps und 2 Eingaben, Erfassen ohne Ort, ein/zwei Gebäude, Hauptknopf der Objektseite, 390 px) sowie dem Prüfen in zwei Tipps (`28-zwei-tipps`: Tipps zählen, Rückgängig, Mangel eingesprochen, Gruppen, Meldungen über keiner Leiste, „Jetzt“ im neuen Konto, leere Seiten Prüfen/Offen) und dem Durchgang bis zur ersten unterschriebenen Prüfung (`29-erste-pruefung`: Objektname → ein Satz mit drei Orten/Arten/Herstellern → Rundgang → Unterschrift zeichnen und merken; 8 Tipps + 1 Satz + Unterschrift, feste Nummern, Mangel per Nummer, „bitte prüfen“) und den Befunden aus dem MCP-Praxistest (`30-mcp-element`: je Punkt aus Plan v6, Paket T, der Aufruf aus dem Bericht – „Tür 4“ trifft nie FL-004, Laufreihenfolge, „Alles i. O.“ mit Bedingungen, Prüfpunkt-Zuordnung, Widersprüche, Stammdaten-Prüfung, setup mit Stammdaten und Zugang; die App-Seite von A3/A4 bei 390 px in `28-zwei-tipps`).
+- **Browser-Tests** (`e2e/`, Playwright): Reihen von der Registrierung über Sicherheitskorrekturen und Massenoperationen bis zu Berichtigung, Nachprüfung sowie Aufgaben und Mängeln (`14-tasks-defects`), dem Autopiloten (`20-autopilot`) und den offenen Punkten aus der Analyse (`21-offene-punkte`: Offline-Fehlliste, Intervalle, Partner-Zugang), dem MCP-Server (`11-ai-mcp`) und „Sprache zuerst“ (`23-sprache`: Rundgang über Claude, Unterschrift mit einem Tipp; `24-unterschreiben-offline`: Seite „Unterschreiben“, Befund einsprechen, Erfassen und Rundgang ohne Netz) sowie der Navigation mit fünf Orten (`25-fuenf-orte`: Leisten, Umleitungen, Prüfen, Offen, Heute am Handy, 390 px) und dem Fachwissen (`26-katalog`: Feststellanlage, laufende Nummern, Typ- und Mangel-Vorschläge, Katalogseite, MCP `catalog`) sowie dem Einstieg (`27-einstieg`: leeres Konto → Objektname → ein Satz → Elemente angelegt in 4 Tipps und 2 Eingaben, Erfassen ohne Ort, ein/zwei Gebäude, Hauptknopf der Objektseite, 390 px) sowie dem Prüfen in zwei Tipps (`28-zwei-tipps`: Tipps zählen, Rückgängig, Mangel eingesprochen, Gruppen, Meldungen über keiner Leiste, „Jetzt“ im neuen Konto, leere Seiten Prüfen/Offen) und dem Durchgang bis zur ersten unterschriebenen Prüfung (`29-erste-pruefung`: Objektname → ein Satz mit drei Orten/Arten/Herstellern → Rundgang → Unterschrift zeichnen und merken; 8 Tipps + 1 Satz + Unterschrift, feste Nummern, Mangel per Nummer, „bitte prüfen“) und Katalog/Angebot aus Plan v7 (`32-katalog-angebot`: Katalog-Datei mit Vorschau laden, Tür mit Typ aus Alias, Prüfpunkte je Anforderung, Fenster und Drehtürantrieb, Angebotsliste, Import der Wartungsübersicht, Katalogseite 1360/390 px) und den Befunden aus dem MCP-Praxistest (`30-mcp-element`: je Punkt aus Plan v6, Paket T, der Aufruf aus dem Bericht – „Tür 4“ trifft nie FL-004, Laufreihenfolge, „Alles i. O.“ mit Bedingungen, Prüfpunkt-Zuordnung, Widersprüche, Stammdaten-Prüfung, setup mit Stammdaten und Zugang; die App-Seite von A3/A4 bei 390 px in `28-zwei-tipps`).
   Vor jeder Reihe wird die lokale D1 geleert und mit Demodaten befüllt.
 
 ```bash

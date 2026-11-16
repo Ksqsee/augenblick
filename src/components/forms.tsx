@@ -483,7 +483,9 @@ export function AssetForm({
             <div className="sm:col-span-2" aria-label="Typen aus dem Katalog" role="group">
               {chosen ? (
                 <p className="text-meta text-ink-3">
-                  Typ aus dem Katalog{chosen.approval ? ` · Zulassung ${chosen.approval}` : ''}
+                  Typ aus dem Katalog{chosen.requirement ? ` · ${chosen.requirement}` : ''}
+                  {chosen.approval ? ` · Zulassung ${chosen.approval}` : ''}
+                  {chosen.approvalValidUntil ? ` bis ${chosen.approvalValidUntil.split('-').reverse().join('.')}` : ''}
                   {chosen.note ? ` · ${chosen.note}` : ''}
                 </p>
               ) : (

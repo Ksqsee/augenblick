@@ -1,6 +1,7 @@
 // Stammdaten einer Elementart prüfen und vereinheitlichen (Plan v6, D1) – für MCP update_asset und setup.
 // Auswahllisten nur mit erlaubten Werten, Zahlen als Zahl, Baujahr 1950 bis nächstes Jahr, Ja/Nein als Wahrheitswert.
 import type { AttributeField } from './catalog';
+import { normalizeDoorInput } from './catalog-door';
 
 export interface FieldError {
   key: string;
@@ -88,6 +89,10 @@ export function validateAttributes(fields: AttributeField[], input: Record<strin
   const values: Record<string, AttrValue> = {};
   const errors: FieldError[] = [];
   const unknown: string[] = [];
+  // Tür (Plan v7): alte Felder Feuerwiderstand/Rauchschutz werden als Anforderung angenommen
+  const legacy = withLegacyDoorFields(fields, input);
+  if (legacy.error) errors.push({ key: 'requirement', label: fields.find((f) => f.key === 'requirement')?.label ?? 'Anforderung', message: legacy.error });
+  input = legacy.attrs;
   for (const [k, raw] of Object.entries(input)) {
     const f = fields.find((x) => x.key === k);
     if (!f) {
@@ -99,4 +104,11 @@ export function validateAttributes(fields: AttributeField[], input: Record<strin
     else values[k] = r.value;
   }
   return { values, errors, unknown };
+}
+
+/** `rating`/`smoke` → `requirement`, wenn die Art das Feld Anforderung hat und die alten Felder nicht mehr kennt. */
+export function withLegacyDoorFields(fields: Pick<AttributeField, 'key'>[], input: Record<string, unknown>): { attrs: Record<string, unknown>; error?: string } {
+  if (!('rating' in input || 'smoke' in input)) return { attrs: input };
+  if (!fields.some((f) => f.key === 'requirement') || fields.some((f) => f.key === 'rating' || f.key === 'smoke')) return { attrs: input };
+  return normalizeDoorInput(input);
 }

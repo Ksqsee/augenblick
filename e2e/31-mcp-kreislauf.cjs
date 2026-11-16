@@ -147,7 +147,7 @@ async function mcp(key, name, args = {}) {
   check(t.data?.created?.length === 1, 'erster Mangel angelegt');
   t = await mcp(key, 'capture', { asset: d1.code, items: [{ kind: 'defect', title: 'OTS zieht nicht zu', severity: 'medium' }] });
   check(t.data?.skipped?.length === 1 && !t.data.created, `„OTS zieht nicht zu“ als Duplikat erkannt (${t.text.slice(0, 200)})`);
-  t = await mcp(key, 'inspect', { asset: d2.code, allOk: true, fields: { holdOpen: false, leaves: '1-flügelig' }, defects: [{ title: 'Dichtung fehlt oben', severity: 'medium', checkpoint: 'Dichtung' }] });
+  t = await mcp(key, 'inspect', { asset: d2.code, allOk: true, fields: { holdOpen: false, leaves: '1-flügelig', requirement: 'T30-RS', cardLock: false, dropSeal: false, peephole: false }, defects: [{ title: 'Dichtung fehlt oben', severity: 'medium', checkpoint: 'Dichtung' }] });
   check(!t.isError, `inspect ${d2.code} bereit (${t.text.slice(0, 120)})`);
   t = await mcp(key, 'capture', { asset: d2.code, items: [{ kind: 'defect', title: 'Dichtung oben fehlt', severity: 'medium' }] });
   check(t.data?.skipped?.length === 1 && /Prüfung/.test(t.data.skipped[0].reason), `Befund im bereitgelegten Entwurf zählt (${t.text.slice(0, 200)})`);
@@ -313,7 +313,7 @@ async function mcp(key, name, args = {}) {
     ],
   });
   const errs = (t.data?.errors ?? []).join(' | ');
-  check(/1\. .*farbe/.test(errs) && /rating/.test(errs), `unbekannter Schlüssel „farbe“ mit erlaubten Feldern (${errs.slice(0, 200)})`);
+  check(/1\. .*farbe/.test(errs) && /requirement/.test(errs), `unbekannter Schlüssel „farbe“ mit erlaubten Feldern (${errs.slice(0, 200)})`);
   check(/2\. Fehlt: model \(Typ\)/.test(errs), 'fehlendes Feld beim Namen');
   check(t.data?.create?.length === 1, 'gültiger Eintrag in der Vorschau');
 

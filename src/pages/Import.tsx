@@ -3,9 +3,9 @@ import clsx from 'clsx';
 import { Download, RotateCcw, Upload, X } from 'lucide-react';
 import { useState } from 'react';
 import { IMPORT_COLUMNS, type ImportRow, parseCsv, toImportRows } from '../../shared/importing';
-import { api, queryClient } from '../api';
+import { api, queryClient, useCatalog } from '../api';
 import { Stepper } from '../components/admin';
-import { Button, ButtonLink, type Column, DataTable, ErrorBox, IconButton, PageHeader, Section, Spinner, StatusText, Surface, useToast } from '../components/ui';
+import { Button, ButtonLink, type Column, DataTable, ErrorBox, Field, IconButton, Input, PageHeader, Section, Spinner, StatusText, Surface, useToast } from '../components/ui';
 import { fmtDate } from '../format';
 
 interface ImportResponse {
@@ -16,7 +16,7 @@ interface ImportResponse {
 
 function downloadTemplate() {
   const example = [
-    ['Grundschule Am Park', 'Haupthaus', 'Feuerschutztür', '', '17', '', 'Treppenhaus Nord', 'EG', 'Hörmann', 'H3 OD', '2015', '15.03.2026'],
+    ['Grundschule Am Park', 'Haupthaus', 'Tür', '', '17', '', 'Treppenhaus Nord', 'EG', 'Hörmann', 'H3 OD', '2015', '15.03.2026'],
     ['Grundschule Am Park', 'Haupthaus', 'Feststellanlage', '', '18', '', 'Treppenhaus Nord', 'EG', '', '', '2015', ''],
     ['Grundschule Am Park', 'Turnhalle', 'Feuerlöscher', '', '', '', 'Geräteraum', 'EG', 'Gloria', 'PD6', '2020', ''],
   ];
@@ -39,8 +39,13 @@ export function ImportPage() {
   const [busy, setBusy] = useState(false);
   const [drag, setDrag] = useState(false);
   const [error, setError] = useState<unknown>(null);
+  // Plan v7: Wartungsübersicht ohne Objektspalte → Objekt hier angeben; Türtyp über die Aliasse des Katalogs
+  const [property, setProperty] = useState('');
+  const [table, setTable] = useState<unknown[][] | null>(null);
+  const catalog = useCatalog();
 
   const reset = () => {
+    setTable(null);
     setFile('');
     setRows([]);
     setParseErrors([]);
@@ -55,24 +60,45 @@ export function ImportPage() {
     setDone(null);
     setFile(f.name);
     try {
-      let table: unknown[][];
+      let t: unknown[][];
       if (/\.xlsx$/i.test(f.name)) {
         const { readSheet } = await import('read-excel-file/browser');
-        table = (await readSheet(f)) as unknown[][];
+        t = (await readSheet(f)) as unknown[][];
       } else {
-        table = parseCsv(await f.text());
+        t = parseCsv(await f.text());
       }
-      const r = toImportRows(table, allCategories().filter((c) => c.custom));
-      if (r.rows.length > 1000) throw new Error('Maximal 1000 Zeilen pro Import');
-      setRows(r.rows);
-      setParseErrors(r.errors);
-      if (r.rows.length) {
-        setBusy(true);
-        setCheck(await api<ImportResponse>('/import/assets', { body: { rows: r.rows, dryRun: true } }));
-      }
+      setTable(t);
+      await checkTable(t, property);
     } catch (e) {
       setError(e);
       setRows([]);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  /** Tabelle in Zeilen umwandeln und vom Server prüfen lassen (auch nach Änderung des Objekts). */
+  const checkTable = async (t: unknown[][], prop: string) => {
+    setCheck(null);
+    setCheckedProp(prop);
+    const r = toImportRows(t, allCategories().filter((c) => c.custom), { property: prop, products: catalog.data?.products });
+    if (r.rows.length > 1000) throw new Error('Maximal 1000 Zeilen pro Import');
+    setRows(r.rows);
+    setParseErrors(r.errors);
+    if (r.rows.length) {
+      setBusy(true);
+      setCheck(await api<ImportResponse>('/import/assets', { body: { rows: r.rows, dryRun: true } }));
+    }
+  };
+  const [checkedProp, setCheckedProp] = useState('');
+  const recheck = async () => {
+    // nur neu prüfen, wenn sich das Objekt seit der letzten Prüfung geändert hat (sonst störte das Verlassen des Felds den Import)
+    if (!table || property === checkedProp) return;
+    setError(null);
+    try {
+      await checkTable(table, property);
+    } catch (e) {
+      setError(e);
     } finally {
       setBusy(false);
     }
@@ -107,6 +133,7 @@ export function ImportPage() {
         <span>
           {getCategory(r.category).label}
           {(resultByLine.get(r.line)?.code ?? r.code) && <span className="ml-2 font-mono text-caption font-normal text-ink-3">{resultByLine.get(r.line)?.code ?? r.code}</span>}
+          {(r.catalogType || r.model) && <span className="block text-caption font-normal text-ink-3">{r.catalogType ? `Typ aus dem Katalog: ${r.catalogType}` : r.model}</span>}
         </span>
       ),
     },
@@ -211,7 +238,8 @@ export function ImportPage() {
                     .join(', ')}
                   .
                 </li>
-                <li>Art z. B. „Feuerschutztür“, „Feststellanlage“, „BSK“, „Feuerlöscher“, „Rauchmelder“.</li>
+                <li>Art z. B. „Tür“, „Feststellanlage“, „Fenster“, „Drehtürantrieb“, „BSK“, „Feuerlöscher“, „Rauchmelder“.</li>
+                <li>Wartungsübersicht: Ident-Nummer, Türtyp (über die Aliasse im Katalog), Hersteller, Absenkdichtung/OTS/Spion „JA“, Zulassung, Intervall, letzte und nächste Prüfung, Etage und Raum werden erkannt.</li>
                 <li>Nummer = laufende Nummer im Objekt (z. B. Ident-Nr. aus dem Prüfprotokoll); leer = nächste freie.</li>
                 <li>Die Excel-Elementliste aus „Berichte“ lässt sich direkt wieder einlesen.</li>
               </ul>
@@ -224,6 +252,9 @@ export function ImportPage() {
               </Button>
             </div>
           </div>
+          <Field label="Objekt für Dateien ohne Objektspalte" optional hint="z. B. bei einer Wartungsübersicht für ein einzelnes Objekt" className="mt-5 sm:max-w-md">
+            {(id) => <Input id={id} value={property} onChange={(e) => setProperty(e.target.value)} onBlur={recheck} placeholder="Name des Objekts" />}
+          </Field>
           {!!error && <ErrorBox error={error} className="mt-4" />}
           </Section>
 

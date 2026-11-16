@@ -67,7 +67,7 @@ const check = (ok, m) => {
   check(fsaDef?.prefix === 'FSA' && fsaDef.checkpoints.length === 20 && fsaDef.intervalMonths === 12, `FSA mit 20 Prüfpunkten, jährlich (${fsaDef?.checkpoints.length})`);
   check(fsaDef?.schedulesEffective.some((s) => s.key === 'visual' && s.optional && s.intervalMonths === 1), 'monatliche Sichtkontrolle optional');
   const door = cats.find((c) => c.key === 'fire_door');
-  check(['doorType', 'dropSeal', 'closer', 'peephole', 'smoke'].every((k) => door.attributes.some((a) => a.key === k)), 'Tür: Türtyp, Absenkdichtung, OTS, Spion, Rauchschutz');
+  check(['doorType', 'dropSeal', 'closer', 'peephole', 'requirement'].every((k) => door.attributes.some((a) => a.key === k)), 'Tür: Türtyp, Absenkdichtung, OTS, Spion, Anforderung (v7)');
 
   step('Laufende Nummern je Objekt');
   const P1 = (await api('/properties', { data: { name: 'E2E Wartung Seehafer' } })).json;
@@ -78,15 +78,15 @@ const check = (ok, m) => {
   const a1 = (await mk(B1.id, 'fire_door')).json;
   const a2 = (await mk(B1.id, 'hold_open', { location: 'Flur, Tür 1' })).json;
   const a3 = (await mk(B1.id, 'fire_door')).json;
-  check(a1.code === 'FST-001' && a2.code === 'FSA-002' && a3.code === 'FST-003', `fortlaufend über alle Arten (${a1.code}, ${a2.code}, ${a3.code})`);
+  check(a1.code === 'T-001' && a2.code === 'FSA-002' && a3.code === 'T-003', `fortlaufend über alle Arten (${a1.code}, ${a2.code}, ${a3.code})`);
   const o1 = (await mk(B2.id, 'fire_door')).json;
-  check(o1.number === 1 && o1.code === 'FST-001-2', `zweites Objekt beginnt bei 1, Code bleibt eindeutig (${o1.code})`);
+  check(o1.number === 1 && o1.code === 'T-001-2', `zweites Objekt beginnt bei 1, Code bleibt eindeutig (${o1.code})`);
   const burst = await Promise.all(Array.from({ length: 6 }, (_, i) => mk(B1.id, i % 2 ? 'hold_open' : 'fire_door')));
   const nums = burst.map((r) => r.json?.number).sort((x, y) => x - y);
   check(burst.every((r) => r.status === 200) && JSON.stringify(nums) === '[4,5,6,7,8,9]', `gleichzeitig angelegt: Nummern 4–9 ohne Doppelte (${nums})`);
   check(new Set(burst.map((r) => r.json.code)).size === 6, 'gleichzeitig angelegt: Codes eindeutig');
   const t36 = (await mk(B1.id, 'fire_door', { number: 36, location: 'Raum 306' })).json;
-  check(t36.code === 'FST-036', `Ident-Nr. 36 aus dem Papierprotokoll → FST-036 (${t36.code})`);
+  check(t36.code === 'T-036', `Ident-Nr. 36 aus dem Papierprotokoll → T-036 (${t36.code})`);
   check((await mk(B1.id, 'hold_open', { number: 36 })).status === 409, 'Nummer 36 im Objekt schon vergeben → 409');
   check((await mk(B1.id, 'hold_open')).json.number === 37, 'danach geht es mit 37 weiter');
   const old = (await mk(B1.id, 'fire_door', { code: 'ALT-1' })).json;
@@ -94,11 +94,11 @@ const check = (ok, m) => {
 
   step('„Tür 36“, „Nummer 2“ in Suche und API');
   let s = (await api(`/search?q=${encodeURIComponent('Tür 36')}&propertyId=${P1.id}`)).json;
-  check(s.assets[0]?.code === 'FST-036', `Suche „Tür 36“ im Objekt (${s.assets.map((x) => x.code)})`);
+  check(s.assets[0]?.code === 'T-036', `Suche „Tür 36“ im Objekt (${s.assets.map((x) => x.code)})`);
   s = (await api(`/search?q=${encodeURIComponent('Nummer 2')}&propertyId=${P1.id}`)).json;
   check(s.assets[0]?.code === 'FSA-002', `Suche „Nummer 2“ (${s.assets.map((x) => x.code)})`);
   s = (await api(`/search?q=${encodeURIComponent('Tür 1')}`)).json;
-  check(['FST-001', 'FST-001-2'].every((c) => s.assets.some((x) => x.code === c)), 'ohne Objekt: Treffer aus allen Objekten');
+  check(['T-001', 'T-001-2'].every((c) => s.assets.some((x) => x.code === c)), 'ohne Objekt: Treffer aus allen Objekten');
   check((await api(`/assets/by-code/${encodeURIComponent('Tür 36')}?propertyId=${P1.id}`)).json?.id === t36.id, 'by-code versteht „Tür 36“ im Objekt');
   check((await api(`/assets/by-code/${encodeURIComponent('36')}?propertyId=${P1.id}`)).json?.id === t36.id, 'by-code versteht „36“ im Objekt');
   check((await api(`/assets/by-code/${encodeURIComponent('Tür 36')}`)).status === 404, 'ohne Objekt keine Nummernauflösung');
@@ -107,7 +107,7 @@ const check = (ok, m) => {
   // Nummer nachträglich setzen (Code bleibt)
   const a3full = (await api(`/assets/${a3.id}`)).json;
   const patched = await api(`/assets/${a3.id}`, { method: 'PATCH', data: { buildingId: a3full.buildingId, location: a3full.location, floor: a3full.floor, manufacturer: '', model: '', attributes: {}, number: 17 } });
-  check(patched.json?.number === 17 && (await api(`/assets/${a3.id}`)).json.code === 'FST-003', 'Nummer geändert, Code unverändert');
+  check(patched.json?.number === 17 && (await api(`/assets/${a3.id}`)).json.code === 'T-003', 'Nummer geändert, Code unverändert');
   check((await api(`/assets/by-code/${encodeURIComponent('Tür 17')}?propertyId=${P1.id}`)).json?.id === a3.id, '„Tür 17“ findet das Element danach');
 
   step('Feststellanlage prüfen');
@@ -137,16 +137,17 @@ const check = (ok, m) => {
     const gebaeude = pg.getByLabel('Gebäude', { exact: true });
     if ((await gebaeude.count()) && (await gebaeude.isVisible()) && (await gebaeude.isEnabled())) await gebaeude.selectOption(B1.id);
   };
-  await openForm(p, 'Feuerschutztür');
+  await openForm(p, '^Tür');
   const dlg = p.getByRole('dialog');
-  for (const l of ['Türtyp / Bauart', 'Absenkdichtung', 'Obentürschließer', 'Türspion', 'Rauchschutz (RS)']) check((await dlg.getByLabel(l, { exact: true }).count()) === 1, `Feld „${l}“`);
+  for (const l of ['Türtyp / Bauart', 'Absenkdichtung', 'Obentürschließer', 'Türspion', 'Anforderung']) check((await dlg.getByLabel(l, { exact: true }).count()) === 1, `Feld „${l}“`);
   await dlg.getByLabel('Hersteller').fill('Hör');
   const hint = dlg.getByRole('group', { name: 'Typen aus dem Katalog' }).getByRole('button', { name: 'Hörmann H3 OD' });
   await hint.waitFor();
   await hint.click();
   check((await dlg.getByLabel('Typ / Modell').inputValue()) === 'H3 OD', 'Typ übernommen');
-  check((await dlg.getByLabel('Feuerwiderstand').inputValue()) === 'T30', 'Feuerwiderstand T30');
-  check((await dlg.getByLabel('Rauchschutz (RS)').isChecked()) && (await dlg.getByLabel('Obentürschließer').isChecked()), 'RS und OTS angehakt');
+  // Produkt mit alten Vorgabewerten (rating/smoke) → Anforderung T30-RS (Plan v7)
+  check((await dlg.getByLabel('Anforderung').inputValue()) === 'T30-RS', 'Anforderung T30-RS');
+  check(await dlg.getByLabel('Obentürschließer').isChecked(), 'OTS angehakt');
   check((await dlg.getByLabel('Türtyp / Bauart').inputValue()) === 'T30-1 RS', 'Türtyp übernommen');
   check((await dlg.getByLabel('Zulassungsnummer').inputValue()) === 'Z-6.20-1234', 'Zulassung übernommen');
   await dlg.getByLabel('Standort').fill('Treppenhaus Nord');
@@ -154,14 +155,14 @@ const check = (ok, m) => {
   await p.mouse.move(1, 1);
   await p.screenshot({ path: OUT + 'd-element-tuer.png' });
   await dlg.getByRole('button', { name: 'Speichern', exact: true }).click();
-  await p.getByText('FST-040 angelegt').waitFor();
-  const t40 = (await api(`/assets?propertyId=${P1.id}`)).json.find((x) => x.code === 'FST-040');
-  check(t40?.number === 40 && t40.manufacturer === 'Hörmann' && t40.attributes.rating === 'T30' && t40.attributes.closer === true, 'Tür mit Vorgaben gespeichert');
+  await p.getByText('T-040 angelegt').waitFor();
+  const t40 = (await api(`/assets?propertyId=${P1.id}`)).json.find((x) => x.code === 'T-040');
+  check(t40?.number === 40 && t40.manufacturer === 'Hörmann' && t40.attributes.requirement === 'T30-RS' && t40.attributes.closer === true, 'Tür mit Vorgaben gespeichert');
 
   await openForm(p, 'Feststellanlage');
   for (const l of ['Feststellvorrichtung', 'Auslösevorrichtung', 'Anzahl Melder', 'Zugehöriger Abschluss']) check((await dlg.getByLabel(l, { exact: true }).count()) === 1, `FSA-Feld „${l}“`);
   await dlg.getByLabel('Feststellvorrichtung').selectOption('Haftmagnet');
-  await dlg.getByLabel('Zugehöriger Abschluss').fill('FST-040');
+  await dlg.getByLabel('Zugehöriger Abschluss').fill('T-040');
   await dlg.getByLabel('Standort').fill('Treppenhaus Nord');
   await p.mouse.move(1, 1);
   await p.screenshot({ path: OUT + 'd-element-fsa.png' });
@@ -243,7 +244,7 @@ const check = (ok, m) => {
   await noOverflow(m, 'Katalog-Dialog 390');
   await m.screenshot({ path: OUT + 'm-katalog-dialog.png' });
   await m.keyboard.press('Escape');
-  await openForm(m, 'Feuerschutztür');
+  await openForm(m, '^Tür');
   await m.getByRole('dialog').getByLabel('Hersteller').fill('Hör');
   await m.getByRole('dialog').getByRole('group', { name: 'Typen aus dem Katalog' }).getByRole('button', { name: 'Hörmann H3 OD' }).click();
   await noOverflow(m, 'Elementformular Tür 390');
@@ -286,11 +287,11 @@ const check = (ok, m) => {
   t = await tool('catalog', { action: 'upsert', list: 'defects', preview: false, items: [{ ...item, severity: 'medium' }] });
   check(t.data?.update?.[0]?.includes('severity'), `upsert: vorhandener Eintrag geändert (${t.text.slice(0, 120)})`);
   t = await tool('capture', { property: 'E2E Wartung Seehafer', items: [{ kind: 'defect', title: 'Dichtung fehlt', asset: 'Tür 36' }] });
-  check(!t.isError && /FST-036|Dichtung/.test(t.text), `capture an „Tür 36“ (${t.text.slice(0, 160)})`);
+  check(!t.isError && /T-036|Dichtung/.test(t.text), `capture an „Tür 36“ (${t.text.slice(0, 160)})`);
   const def = (await api('/defects')).json.find((x) => x.assetId === t36.id && x.title === 'Dichtung fehlt');
   check(def?.measure === 'Dichtung nach Herstellerangabe ersetzen', `Maßnahme aus dem Katalog (${def?.measure})`);
   t = await tool('update_asset', { asset: 'Tür 36', property: 'E2E Wartung Seehafer', fields: { peephole: true } });
-  check(!t.isError && t.data?.asset === 'FST-036', `update_asset mit „Tür 36“ (${t.text.slice(0, 120)})`);
+  check(!t.isError && t.data?.asset === 'T-036', `update_asset mit „Tür 36“ (${t.text.slice(0, 120)})`);
   t = await tool('update_asset', { asset: 'Tür 1', fields: { peephole: true } });
   check(t.isError && /mehreren Objekten/.test(t.text), 'Nummer ohne Objekt in mehreren Objekten → Rückfrage');
   await api(`/account/api-keys/${key.id}`, { method: 'DELETE' });

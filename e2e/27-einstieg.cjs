@@ -88,7 +88,7 @@ const DESKTOP = { viewport: { width: 1360, height: 900 }, deviceScaleFactor: 2, 
   await tap(text);
   await type(text, sentence);
   const preview = sheet.getByRole('list', { name: 'Erkannt' });
-  await preview.getByText('3 × Feuerschutztür').waitFor();
+  await preview.getByText('3 × Tür').waitFor();
   check(await preview.getByText('EG · Flur · Hörmann · T30').isVisible(), 'Vorschau zeigt Etage, Standort, Hersteller, T30');
   check(await preview.getByText(hasFsa ? '1 × Feststellanlage' : '2 × Feuerlöscher').isVisible(), 'zweite Art in der Vorschau');
   const total = hasFsa ? 4 : 5;
@@ -105,8 +105,8 @@ const DESKTOP = { viewport: { width: 1360, height: 900 }, deviceScaleFactor: 2, 
   check(detail.buildings.length === 1 && detail.buildings[0].name === 'Hauptgebäude', 'Gebäude „Hauptgebäude“ still mitangelegt');
   const doors = detail.assets.filter((a) => a.category === 'fire_door');
   check(
-    doors.length === 3 && doors.every((a) => a.floor === 'EG' && a.location === 'Flur' && a.manufacturer === 'Hörmann' && a.attributes.rating === 'T30'),
-    `drei Türen mit EG, Flur, Hörmann, T30 (${JSON.stringify(doors.map((a) => [a.floor, a.location, a.manufacturer, a.attributes.rating]))})`,
+    doors.length === 3 && doors.every((a) => a.floor === 'EG' && a.location === 'Flur' && a.manufacturer === 'Hörmann' && a.attributes.requirement === 'T30'),
+    `drei Türen mit EG, Flur, Hörmann, T30 (${JSON.stringify(doors.map((a) => [a.floor, a.location, a.manufacturer, a.attributes.requirement]))})`,
   );
   const second = detail.assets.filter((a) => a.category === (hasFsa ? 'hold_open' : 'extinguisher'));
   check(second.length === (hasFsa ? 1 : 2) && second.every((a) => a.floor === 'EG' && a.location === 'Flur'), 'zweite Art erbt den Ort im selben Satz');

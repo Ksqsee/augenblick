@@ -15,7 +15,12 @@ describe('Dokumentsprache', () => {
     const fsa = CATEGORIES.hold_open;
     texts.push(fsa.plural, ...fsa.checkpoints.flatMap((p) => (p.hint ? [p.hint] : [])), ...fsa.attributes.flatMap((a) => a.options ?? []));
     for (const a of CATEGORIES.fire_door.attributes) texts.push(a.label);
-    {
+    // Plan v7: Tür, Fenster, Drehtürantrieb vollständig – Mehrzahl, Gruppen, Hinweise und Auswahlwerte
+    // (Anforderungen wie „T30-RS“ und „1-/2-flügelig“ bleiben als Kürzel bzw. sind schon übersetzt)
+    for (const k of ['fire_door', 'window', 'door_drive'] as const) {
+      const c = CATEGORIES[k];
+      texts.push(c.plural, ...c.checkpoints.flatMap((p) => [p.group ?? '', p.hint ?? ''].filter(Boolean)));
+      texts.push(...c.attributes.flatMap((a) => (a.options ?? []).filter((o) => !/^(T\d|RS$)/.test(o))));
     }
     const missing = texts.filter((t) => tr('en', t) === t);
     expect(missing).toEqual([]);

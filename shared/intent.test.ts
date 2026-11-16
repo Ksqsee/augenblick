@@ -14,7 +14,7 @@ describe('Elemente aus einem Satz', () => {
   it('Ort vorweg, Hersteller und Feuerwiderstand, zweite Art erbt den Ort', () => {
     const items = parse('Im Erdgeschoss Flur drei Feuerschutztüren von Hörmann T30 und zwei Feuerlöscher');
     expect(items).toHaveLength(2);
-    expect(items[0]).toMatchObject({ kind: 'asset', count: 3, category: 'fire_door', floor: 'EG', location: 'Flur', manufacturer: 'Hörmann', attributes: { rating: 'T30' } });
+    expect(items[0]).toMatchObject({ kind: 'asset', count: 3, category: 'fire_door', floor: 'EG', location: 'Flur', manufacturer: 'Hörmann', attributes: { requirement: 'T30' } });
     expect(items[1]).toMatchObject({ kind: 'asset', count: 2, category: 'extinguisher', floor: 'EG', location: 'Flur', manufacturer: '' });
   });
   it('„drei Feuerschutztüren im EG Flur“', () => {
@@ -24,7 +24,7 @@ describe('Elemente aus einem Satz', () => {
     expect(parse('Tür Raum 306 von Westag')[0]).toMatchObject({ kind: 'asset', count: 1, category: 'fire_door', location: 'Raum 306', manufacturer: 'Westag', floor: '' });
   });
   it('Werkstattsprache: zwo, T30-Türen, Keller', () => {
-    expect(parse('zwo T30-Türen im Keller')[0]).toMatchObject({ kind: 'asset', count: 2, category: 'fire_door', floor: 'UG', location: '', attributes: { rating: 'T30' } });
+    expect(parse('zwo T30-Türen im Keller')[0]).toMatchObject({ kind: 'asset', count: 2, category: 'fire_door', floor: 'UG', location: '', attributes: { requirement: 'T30' } });
   });
   it('Werkstattsprache: 3x RWM OG Büro', () => {
     expect(parse('3x RWM OG Büro')[0]).toMatchObject({ kind: 'asset', count: 3, category: 'smoke_alarm', floor: 'OG', location: 'Büro' });
@@ -50,7 +50,7 @@ describe('Elemente aus einem Satz', () => {
       count: 1,
       manufacturer: 'Hörmann',
       location: 'Treppenhaus',
-      attributes: { rating: 'T30', smoke: true },
+      attributes: { requirement: 'T30-RS' },
     });
   });
   it('„sowie“ trennt zwei Aufzählungen', () => {

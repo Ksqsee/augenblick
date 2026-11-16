@@ -1,5 +1,5 @@
 import clsx from 'clsx';
-import { Box, DoorClosed, Fan, FireExtinguisher, Magnet, Siren } from 'lucide-react';
+import { Box, DoorClosed, DoorClosedCog, Fan, FireExtinguisher, Grid2x2, Magnet, Siren } from 'lucide-react';
 import type { Category } from '../../shared/catalog';
 
 const BUILTIN: Record<string, typeof DoorClosed> = {
@@ -8,6 +8,8 @@ const BUILTIN: Record<string, typeof DoorClosed> = {
   extinguisher: FireExtinguisher,
   smoke_alarm: Siren,
   hold_open: Magnet,
+  window: Grid2x2,
+  door_drive: DoorClosedCog,
 };
 
 /**

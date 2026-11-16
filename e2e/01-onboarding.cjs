@@ -63,12 +63,15 @@ require('fs').mkdirSync(OUT, { recursive: true });
   await p.getByRole('button', { name: 'Prüfen' }).click();
   await p.waitForURL(/\/pruefung\//);
   // Prüfpunkte nach Gruppen eingeklappt: Gruppe öffnen, Mangel setzen, Rest mit einem Tipp
-  await p.getByRole('button', { name: /Bauteil und Einbau/ }).click();
-  await p.locator('[data-cp="p9"]').getByRole('radio', { name: 'Mangel' }).click();
+  // Tür (Plan v7): Prüfpunkte nach Bauteil – Gruppe „Dichtungen“, Punkt „Dichtungen (Rauch- und Brandschutz) …“
+  await p.getByRole('button', { name: /^Dichtungen/ }).click();
+  await p.locator('[data-cp="p16"]').getByRole('radio', { name: 'Mangel' }).click();
   await p.getByRole('button', { name: 'Alles andere in Ordnung' }).click();
-  // Stammdaten der neuen Tür unbekannt: Rückfragen (Plan v6 A4) beantworten
+  // Stammdaten der neuen Tür unbekannt: Rückfragen (Plan v6 A4, v7 Ausstattung) beantworten
   await p.getByRole('group', { name: 'Hat die Tür eine Feststellanlage?' }).getByRole('button', { name: 'Nein' }).click();
   await p.getByRole('group', { name: 'Ist die Tür ein- oder zweiflügelig?' }).getByRole('button', { name: '1-flügelig' }).click();
+  for (const q of ['Hat die Tür ein Kartenschloss bzw. einen elektronischen Beschlag?', 'Hat die Tür eine Absenkdichtung?', 'Hat die Tür einen Türspion?'])
+    await p.getByRole('group', { name: q }).getByRole('button', { name: 'Nein' }).click();
   await p.getByRole('radio', { name: 'Hoch' }).click();
   await p.getByPlaceholder('Beschreibung (optional)').fill('Dichtung oben 20 cm abgerissen');
   await p.getByRole('button', { name: /Weitere Angaben/ }).click();
@@ -102,7 +105,7 @@ require('fs').mkdirSync(OUT, { recursive: true });
   await p.getByRole('button', { name: 'Einladung erstellen' }).click();
   await p.getByText('Er kann einmal verwendet werden').waitFor();
   await shot('15-invite');
-  await p.goto(BASE + '/einstellungen'); await p.getByRole('tab', { name: 'Prüfvorlagen' }).click(); await p.getByText('Feuerschutztür').first().click(); await p.waitForTimeout(300); await shot('16-templates');
+  await p.goto(BASE + '/einstellungen'); await p.getByRole('tab', { name: 'Prüfvorlagen' }).click(); await p.getByText('Tür', { exact: true }).first().click(); await p.waitForTimeout(300); await shot('16-templates');
 
   // Mobile
   const m = await b.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 2, isMobile: true, hasTouch: true, storageState: await ctx.storageState() });
