@@ -179,7 +179,7 @@ export function OfferSection({ p }: { p: PropertyDetail }) {
                         min={0}
                         step="any"
                         inputMode="decimal"
-                        className="!w-20 text-right"
+                        className="!w-16 text-right"
                         value={extra.quantity}
                         onChange={(e) => setExtras(extras.map((x) => (x.id === extra.id ? { ...x, quantity: Math.max(0, Number(e.target.value) || 0) } : x)))}
                       />

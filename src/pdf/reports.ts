@@ -124,7 +124,7 @@ export async function inspectionDoc(i: Inspection, brand: Brand, opts: ProtocolO
   const at = i.inspectedAt ?? i.createdAt;
   const pick = pickCredential(creds, { category: i.asset.category, manufacturer: i.asset.manufacturer, at });
   const proof = pick.credential
-    ? `${credentialText(pick.credential, T)}${pick.credential.validUntil ? ` · ${T('gültig bis')} ${d(pick.credential.validUntil)}` : ''}`
+    ? `${credentialText(pick.credential, T)}${pick.credential.validUntil ? ` · ${T('gültig bis')} ${new Intl.DateTimeFormat(LOCALE[lang], { day: '2-digit', month: '2-digit', year: 'numeric', timeZone: 'UTC' }).format(pick.credential.validUntil)}` : ''}`
     : T('nicht hinterlegt');
   doc.facts([
     [T('Objekt'), i.asset.propertyName],

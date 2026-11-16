@@ -23,6 +23,8 @@ function useBrand(b: Brand) {
 }
 const T = (s: string) => tr(lang, s);
 const d = (t: number | null | undefined) => (t ? dateFmt.format(t) : '–');
+/** „gültig bis“ ist als Ende des Kalendertages in UTC gespeichert – so auch anzeigen. */
+const dUtc = (t: number) => new Intl.DateTimeFormat(LOCALE[lang], { day: '2-digit', month: '2-digit', year: 'numeric', timeZone: 'UTC' }).format(t);
 const ymd = (t: number) => new Date(t).toISOString().slice(0, 10);
 const resultLabel = (r: string | null) => (r && r in RESULT_META ? T(RESULT_META[r as keyof typeof RESULT_META].label) : '–');
 /** Dem Browser kurz die Kontrolle geben (Eingaben, Fortschritt), damit große Mappen die Seite nicht einfrieren. */
@@ -194,7 +196,8 @@ export async function buildMappe(req: MappeRequest, me: Me, onProgress: (p: Mapp
   const datum = ymd(from) === ymd(to) ? ymd(from) : `${ymd(from)}_${ymd(to)}`;
   return {
     bytes,
-    fileName: buildFileName('Sammelmappe_{objekt}_{datum}', { objekt: p.name, datum }),
+    // gefiltert nach Elementart: Art im Namen, damit sich Mappen desselben Tages nicht überschreiben
+    fileName: buildFileName(req.category ? 'Sammelmappe_{objekt}_{datum}_{art}' : 'Sammelmappe_{objekt}_{datum}', { objekt: p.name, datum, art: items[0]?.categoryLabel ?? '' }),
     title: `Sammelmappe ${p.name} (${period})`,
     counts,
     pages: all.length,
@@ -219,11 +222,12 @@ async function renderFront(
     [T('Ohne Mangel'), String(counts.clean)],
     [T('Mit Mangel'), String(counts.withDefects)],
     [T('Nicht prüfbar'), String(counts.notInspectable)],
-    [T('Prüfer/innen'), inspectors.join(', ')],
-    [T('Elementarten'), cats.join(' · ')],
-    [T('Seiten'), String(pages.total)],
     [T('Mangelgruppen'), String(sections.filter((s) => s.kind === 'defects').length)],
+    [T('Seiten'), String(pages.total)],
   ]);
+  doc.gap(2);
+  doc.text(`${T('Prüfer/innen')}: ${inspectors.join(', ')}`, { size: 9 });
+  doc.text(`${T('Elementarten')}: ${cats.join(' · ')}`, { size: 9, color: MUTED });
 
   // Prüfer/innen mit Nachweis je Elementart
   doc.heading(T('Prüfer/innen und Befähigungsnachweise'), 11);
@@ -250,7 +254,7 @@ async function renderFront(
         cells: [
           it.inspectorName,
           T(it.categoryLabel),
-          c ? `${credentialText(c, T)}${c.validUntil ? ` · ${T('gültig bis')} ${d(c.validUntil)}` : ''}` : T('nicht hinterlegt'),
+          c ? `${credentialText(c, T)}${c.validUntil ? ` · ${T('gültig bis')} ${dUtc(c.validUntil)}` : ''}` : T('nicht hinterlegt'),
           st === 'ok' ? T('gültig') : st === 'expired' ? T('abgelaufen') : T('fehlt'),
         ],
         color: [undefined, undefined, undefined, st === 'ok' ? GREEN : WARN],
@@ -281,7 +285,7 @@ async function renderFront(
   doc.title(T('Inhalt'), `${counts.total} ${T('Protokolle')} · ${x.period}`);
   const rows: Parameters<Doc['table']>[1] = [];
   for (const s of sections) {
-    rows.push({ cells: [sectionTitle(s), '', '', '', String(pages.section.get(s.key) ?? '')], color: [MUTED, undefined, undefined, undefined, MUTED] });
+    rows.push({ cells: [sectionTitle(s), '', '', '', String(pages.section.get(s.key) ?? '')], span: true });
     for (const it of s.items)
       rows.push({
         cells: [it.code, room(it) || '–', typ(it), resultLabel(it.result), String(pages.item.get(it.id) ?? '')],

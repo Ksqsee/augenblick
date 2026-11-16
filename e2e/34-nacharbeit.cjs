@@ -92,7 +92,10 @@ async function mcp(key, name, args = {}) {
   r = { status: (await m.request.fetch(BASE + `/api/auth/invite/${invP.token}`, { method: 'POST', data: { name: 'Piet Prüfer', password: 'sicheres-passwort-2' }, headers: { 'x-pk': '1' } })).status() };
   check(r.status === 200, `Prüfer angenommen (${r.status})`);
   const papi = req(m);
-  const pietId = (await papi('/account/me')).json.user.id;
+  const pme = (await papi('/account/me')).json;
+  const pietId = pme.user.id;
+  // Rechtstexte zustimmen (sonst legt sich der Zustimmungsdialog über die Seite)
+  if (pme.pendingLegal?.length) check((await papi('/account/legal/accept', { data: { docs: pme.pendingLegal } })).status === 200, 'Prüfer stimmt Rechtstexten zu');
   const lctx = await b.newContext();
   check((await lctx.request.fetch(BASE + `/api/auth/invite/${invL.token}`, { method: 'POST', data: { name: 'Lena Lesend', password: 'sicheres-passwort-3' }, headers: { 'x-pk': '1' } })).status() === 200, 'Lesezugriff angenommen');
   const lapi = async (pth, opts = {}) => {
@@ -183,7 +186,7 @@ async function mcp(key, name, args = {}) {
   check(/Sammelmappe Prüfprotokolle/.test(cover) && cover.includes(P), 'Deckblatt mit Objekt');
   for (const [k, v] of [['Geprüft', 8], ['Ohne Mangel', 3], ['Mit Mangel', 4], ['Nicht prüfbar', 1], ['Mangelgruppen', 3]])
     check(new RegExp(`${k}\\s+${v}\\b`).test(cover), `Deckblatt: ${k} ${v}`);
-  check(/Hanna Seefeld/.test(cover) && /DGWZ-4711/.test(cover) && /ECO-2022-17/.test(cover) && /abgelaufen/.test(cover), 'Deckblatt: Prüferin mit Nachweisen und Status');
+  check(/Hanna Seefeld/.test(cover) && /DGWZ-4711/.test(cover) && /ECO-2022-17/.test(cover) && /abgelaufen/.test(cover) && /31\.12\.2030/.test(cover), 'Deckblatt: Prüferin mit Nachweisen, gültig bis und Status');
   check(/Hinweis: 1 Protokoll ohne gültigen Befähigungsnachweis/.test(cover), 'Deckblatt: Hinweis fehlender Nachweis');
   check(/^\s*Inhalt\b/m.test(pages[1]), 'Seite 2: Inhaltsliste');
   // Erste Seite je Protokoll finden (Prüfpunkte bzw. „nicht prüfbar“ auf der ersten Seite)
@@ -252,11 +255,12 @@ async function mcp(key, name, args = {}) {
   const dlg2 = p.getByRole('dialog');
   await dlg2.getByRole('combobox', { name: 'Objekt' }).waitFor();
   await dlg2.getByText('8 Protokolle im gewählten Zeitraum').waitFor();
-  await dlg2.getByRole('button', { name: 'Zeitraum' }).click();
+  await dlg2.getByRole('tab', { name: 'Zeitraum' }).click();
   await dlg2.getByText('8 Protokolle im gewählten Zeitraum').waitFor();
   await dlg2.getByRole('combobox', { name: 'Elementart' }).selectOption('hold_open');
   await dlg2.getByText('1 Protokoll im gewählten Zeitraum').waitFor();
   const one = await download(p, () => dlg2.getByRole('button', { name: 'Mappe mit 1 Protokoll erzeugen' }).click());
+  check(/^Sammelmappe_Hotel-Seeblick-Test_\d{4}-\d{2}-\d{2}_Feststellanlage\.pdf$/.test(one.name), `Dateiname mit Elementart (${one.name})`);
   const onePages = pdfPages(one.file);
   check(onePages.length >= 4 && /Mangelgruppe 1 \/ 1/.test(onePages.join('\n')), `Mappe nach Elementart und Zeitraum (${onePages.length} Seiten)`);
   await dlg2.getByRole('button', { name: 'Fertig' }).click();

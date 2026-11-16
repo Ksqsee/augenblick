@@ -9,7 +9,7 @@ import { Link } from 'react-router-dom';
 import { type Credential, CREDENTIAL_KINDS, type CredentialKind, credentialText, endOfDayUtc, isValidAt, pickCredential } from '../../shared/credentials';
 import { api, useAction, useMe } from '../api';
 import { allCategories } from '../categories';
-import { categoryLabel, fmtDate } from '../format';
+import { categoryLabel } from '../format';
 import { Button, ErrorBox, Field, IconButton, Input, Notice, Select, SkeletonList, StatusText, useConfirm, useToast } from './ui';
 
 export const useCredentials = (userId?: string, enabled = true) =>
@@ -21,6 +21,8 @@ export const useCredentials = (userId?: string, enabled = true) =>
   });
 
 const SOON = 60 * 86_400_000;
+/** „gültig bis“ ist das Ende des Kalendertages in UTC – in UTC anzeigen, sonst springt es in den Folgetag. */
+const fmtDate = (t: number) => new Intl.DateTimeFormat('de-DE', { day: '2-digit', month: '2-digit', year: 'numeric', timeZone: 'UTC' }).format(t);
 const ymdOf = (t: number | null) => (t == null ? '' : new Date(t).toISOString().slice(0, 10));
 
 function validity(c: Credential) {

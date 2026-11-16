@@ -253,24 +253,33 @@ export class Doc {
   }
 
   /** Tabelle mit festen Spaltenbreiten (Anteile), Kopf wird auf Folgeseiten wiederholt. */
-  table(cols: { label: string; w: number; align?: 'right' }[], rows: { cells: string[]; color?: (Color | undefined)[] }[]) {
+  /**
+   * Tabelle mit festen Spaltenbreiten (Anteile), Kopf wird auf Folgeseiten wiederholt. Eine Zeile mit `span` ist eine
+   * Zwischenüberschrift: die erste Zelle reicht über alle Spalten außer der letzten (fett).
+   */
+  table(cols: { label: string; w: number; align?: 'right' }[], rows: { cells: string[]; color?: (Color | undefined)[]; span?: boolean }[]) {
     const total = cols.reduce((s, c) => s + c.w, 0);
-    const widths = cols.map((c) => (c.w / total) * this.width);
+    const colWidths = cols.map((c) => (c.w / total) * this.width);
     const drawHead = () => {
       this.ensure(18);
       let x = M.left;
       cols.forEach((c, i) => {
         const t = this.clean(c.label);
-        const tx = c.align === 'right' ? x + widths[i] - 4 - this.bold.widthOfTextAtSize(t, 8.5) : x + 4;
+        const tx = c.align === 'right' ? x + colWidths[i] - 4 - this.bold.widthOfTextAtSize(t, 8.5) : x + 4;
         this.page.drawText(t, { x: tx, y: this.y - 11, size: 8.5, font: this.bold, color: INK });
-        x += widths[i];
+        x += colWidths[i];
       });
       this.y -= 15;
       this.page.drawLine({ start: { x: M.left, y: this.y }, end: { x: A4.w - M.right, y: this.y }, thickness: 0.9, color: INK });
     };
     drawHead();
     for (const r of rows) {
-      const wrapped = r.cells.map((c, i) => this.wrap(c || '–', widths[i] - 8, 8.8));
+      const n = cols.length;
+      // Zwischenüberschrift: erste Zelle über alle Spalten bis auf die letzte
+      const widths = r.span ? colWidths.map((w, i) => (i === 0 ? this.width - colWidths[n - 1] : i === n - 1 ? w : 0)) : colWidths;
+      const span = (i: number) => r.span && i > 0 && i < n - 1;
+      const wrapped = r.cells.map((c, i) => (span(i) ? [] : this.wrap(c || (r.span ? '' : '–'), widths[i] - 8, 8.8)));
+      if (r.span) this.gap(4);
       const h = Math.max(...wrapped.map((w) => w.length)) * 11.5 + 6;
       if (this.y - h < M.bottom) {
         this.newPage();
@@ -279,7 +288,7 @@ export class Doc {
       let x = M.left;
       wrapped.forEach((lines, i) => {
         lines.forEach((line, li) => {
-          const font = r.color?.[i] ? this.bold : this.font;
+          const font = r.color?.[i] || (r.span && i === 0) ? this.bold : this.font;
           const tx = cols[i].align === 'right' ? x + widths[i] - 4 - font.widthOfTextAtSize(line, 8.8) : x + 4;
           this.page.drawText(line, { x: tx, y: this.y - 11 - li * 11.5, size: 8.8, font, color: r.color?.[i] ?? INK });
         });
