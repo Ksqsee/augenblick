@@ -10,7 +10,18 @@ import { resourceMetadataUrl } from './oauth';
 export { TOOLS } from './mcp-tools';
 
 export const MCP_PROTOCOL = '2025-06-18';
-const SERVER_INFO = { name: 'pruefkompass', title: 'Prüfkompass', version: '2.0.0' };
+/** Name, Webseite und Logo des Servers – Clients zeigen das Logo bei der Verbindung und an Werkzeug-Aufrufen (absolute Adressen). */
+const serverInfo = (origin: string) => ({
+  name: 'pruefkompass',
+  title: 'Prüfkompass',
+  version: '2.0.0',
+  websiteUrl: origin,
+  icons: [
+    { src: `${origin}/icon.svg`, mimeType: 'image/svg+xml', sizes: ['any'] },
+    { src: `${origin}/icon-192.png`, mimeType: 'image/png', sizes: ['192x192'] },
+    { src: `${origin}/icon-512.png`, mimeType: 'image/png', sizes: ['512x512'] },
+  ],
+});
 
 const INSTRUCTIONS = [
   'Prüfkompass hält wiederkehrende Brandschutzprüfungen im Kreislauf: Frist naht → Rundgang → Prüfung vor Ort → Mangel → Aufgabe beim Richtigen → Nachprüfung → Nachweis.',
@@ -175,7 +186,7 @@ export function mcpRoutes(dispatch: (req: Request, c: Ctx) => Promise<Response>)
           return rpcResult(id, {
             protocolVersion: MCP_PROTOCOL,
             capabilities: { tools: { listChanged: false }, prompts: { listChanged: false } },
-            serverInfo: SERVER_INFO,
+            serverInfo: serverInfo(new URL(c.req.url).origin),
             instructions: INSTRUCTIONS,
           });
         case 'notifications/initialized':

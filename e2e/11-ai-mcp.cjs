@@ -154,6 +154,17 @@ const call = async (key, name, args = {}) => {
       init.capabilities.prompts,
     `initialize (${r.status})`,
   );
+  // Logo: absolute Adressen, die wirklich ein Bild liefern (Clients zeigen es bei Verbindung und Werkzeug-Aufrufen)
+  const icons = init.serverInfo.icons ?? [];
+  check(icons.length >= 2 && icons.every((i) => i.src.startsWith(BASE + "/") && i.mimeType && Array.isArray(i.sizes)) && init.serverInfo.websiteUrl === BASE, `serverInfo mit Logo (${JSON.stringify(icons.map((i) => i.src))})`);
+  for (const i of icons) {
+    const ir = await fetch(i.src);
+    check(ir.status === 200 && (ir.headers.get("content-type") || "").startsWith(i.mimeType), `Logo ${i.src} → ${ir.status} ${ir.headers.get("content-type")}`);
+  }
+  for (const f of ["/favicon.ico", "/apple-touch-icon.png"]) {
+    const fr = await fetch(BASE + f);
+    check(fr.status === 200 && /^image\//.test(fr.headers.get("content-type") || ""), `${f} ist ein Bild (${fr.headers.get("content-type")})`);
+  }
   check(
     /Kreislauf/.test(init.instructions) &&
       /unterschreibst und schließt nie ab/.test(init.instructions) &&
