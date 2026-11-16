@@ -3,6 +3,7 @@ import { PDFDocument, type PDFFont, type PDFImage, type PDFPage, rgb, StandardFo
 
 export const A4 = { w: 595.28, h: 841.89 };
 const M = { top: 64, bottom: 54, left: 46, right: 46 };
+export const MARGIN = M;
 export const INK = rgb(0.11, 0.1, 0.09);
 export const MUTED = rgb(0.45, 0.43, 0.4);
 export const LINE = rgb(0.86, 0.84, 0.8);
@@ -121,19 +122,46 @@ export class Doc {
     return `${s.trimEnd()}…`;
   }
 
+  /** Fußzeile (Firma/Stand) und „Seite x von y“ auf alle Seiten schreiben – ohne zu speichern. */
+  finalize() {
+    const pages = this.pdf.getPages();
+    pages.forEach((p, i) => drawFooter(p, this.font, this.footerText(), pageLabel(this.brand.lang, i + 1, pages.length)));
+    return this;
+  }
+
+  /** Text der Fußzeile: eigener Text des Workspaces oder Firma + Erstellungszeitpunkt. */
+  footerText() {
+    const en = this.brand.lang === 'en';
+    const stamp = new Intl.DateTimeFormat(en ? 'en-GB' : 'de-DE', { dateStyle: 'medium', timeStyle: 'short', timeZone: this.brand.timeZone || undefined }).format(Date.now());
+    return this.clean(this.brand.footer || `${this.brand.company} · ${en ? 'created with Prüfkompass on' : 'erstellt mit Prüfkompass am'} ${stamp}`);
+  }
+
   /** Seitenzahlen und Fußzeile am Ende auf alle Seiten schreiben. */
   finish() {
-    const pages = this.pdf.getPages();
-    pages.forEach((p, i) => {
-      const en = this.brand.lang === 'en';
-      const stamp = new Intl.DateTimeFormat(en ? 'en-GB' : 'de-DE', { dateStyle: 'medium', timeStyle: 'short', timeZone: this.brand.timeZone || undefined }).format(Date.now());
-      const f = this.clean(this.brand.footer || `${this.brand.company} · ${en ? 'created with Prüfkompass on' : 'erstellt mit Prüfkompass am'} ${stamp}`);
-      p.drawLine({ start: { x: M.left, y: 38 }, end: { x: A4.w - M.right, y: 38 }, thickness: 0.6, color: LINE });
-      const n = this.brand.lang === 'en' ? `Page ${i + 1} of ${pages.length}` : `Seite ${i + 1} von ${pages.length}`;
-      p.drawText(this.fit(f, this.width - this.font.widthOfTextAtSize(n, 7.5) - 16, 7.5), { x: M.left, y: 26, size: 7.5, font: this.font, color: MUTED });
-      p.drawText(n, { x: A4.w - M.right - this.font.widthOfTextAtSize(n, 7.5), y: 26, size: 7.5, font: this.font, color: MUTED });
+    return this.finalize().pdf.save();
+  }
+
+  /**
+   * Leere Felder zum Ausfüllen von Hand, z. B. „Abnahme durch den Auftraggeber“: Titel, Schreibraum, je Feld eine
+   * Linie mit Beschriftung darunter. `weights` verteilt die Breite.
+   */
+  blankFields(title: string, labels: string[], weights: number[] = labels.map(() => 1), note?: string) {
+    this.ensure(note ? 84 : 72);
+    this.gap(12);
+    this.text(title, { size: 9.5, bold: true });
+    if (note) this.text(note, { size: 8, color: MUTED });
+    this.gap(26);
+    const gapX = 18;
+    const total = weights.reduce((a, b) => a + b, 0);
+    const free = this.width - gapX * (labels.length - 1);
+    let x = M.left;
+    labels.forEach((l, i) => {
+      const w = (weights[i] / total) * free;
+      this.page.drawLine({ start: { x, y: this.y }, end: { x: x + w, y: this.y }, thickness: 0.8, color: INK });
+      this.page.drawText(this.fit(this.clean(l), w, 8), { x, y: this.y - 11, size: 8, font: this.font, color: MUTED });
+      x += w + gapX;
     });
-    return this.pdf.save();
+    this.y -= 22;
   }
 
   ensure(h: number) {
@@ -225,24 +253,33 @@ export class Doc {
   }
 
   /** Tabelle mit festen Spaltenbreiten (Anteile), Kopf wird auf Folgeseiten wiederholt. */
-  table(cols: { label: string; w: number; align?: 'right' }[], rows: { cells: string[]; color?: (Color | undefined)[] }[]) {
+  /**
+   * Tabelle mit festen Spaltenbreiten (Anteile), Kopf wird auf Folgeseiten wiederholt. Eine Zeile mit `span` ist eine
+   * Zwischenüberschrift: die erste Zelle reicht über alle Spalten außer der letzten (fett).
+   */
+  table(cols: { label: string; w: number; align?: 'right' }[], rows: { cells: string[]; color?: (Color | undefined)[]; span?: boolean }[]) {
     const total = cols.reduce((s, c) => s + c.w, 0);
-    const widths = cols.map((c) => (c.w / total) * this.width);
+    const colWidths = cols.map((c) => (c.w / total) * this.width);
     const drawHead = () => {
       this.ensure(18);
       let x = M.left;
       cols.forEach((c, i) => {
         const t = this.clean(c.label);
-        const tx = c.align === 'right' ? x + widths[i] - 4 - this.bold.widthOfTextAtSize(t, 8.5) : x + 4;
+        const tx = c.align === 'right' ? x + colWidths[i] - 4 - this.bold.widthOfTextAtSize(t, 8.5) : x + 4;
         this.page.drawText(t, { x: tx, y: this.y - 11, size: 8.5, font: this.bold, color: INK });
-        x += widths[i];
+        x += colWidths[i];
       });
       this.y -= 15;
       this.page.drawLine({ start: { x: M.left, y: this.y }, end: { x: A4.w - M.right, y: this.y }, thickness: 0.9, color: INK });
     };
     drawHead();
     for (const r of rows) {
-      const wrapped = r.cells.map((c, i) => this.wrap(c || '–', widths[i] - 8, 8.8));
+      const n = cols.length;
+      // Zwischenüberschrift: erste Zelle über alle Spalten bis auf die letzte
+      const widths = r.span ? colWidths.map((w, i) => (i === 0 ? this.width - colWidths[n - 1] : i === n - 1 ? w : 0)) : colWidths;
+      const span = (i: number) => r.span && i > 0 && i < n - 1;
+      const wrapped = r.cells.map((c, i) => (span(i) ? [] : this.wrap(c || (r.span ? '' : '–'), widths[i] - 8, 8.8)));
+      if (r.span) this.gap(4);
       const h = Math.max(...wrapped.map((w) => w.length)) * 11.5 + 6;
       if (this.y - h < M.bottom) {
         this.newPage();
@@ -251,7 +288,7 @@ export class Doc {
       let x = M.left;
       wrapped.forEach((lines, i) => {
         lines.forEach((line, li) => {
-          const font = r.color?.[i] ? this.bold : this.font;
+          const font = r.color?.[i] || (r.span && i === 0) ? this.bold : this.font;
           const tx = cols[i].align === 'right' ? x + widths[i] - 4 - font.widthOfTextAtSize(line, 8.8) : x + 4;
           this.page.drawText(line, { x: tx, y: this.y - 11 - li * 11.5, size: 8.8, font, color: r.color?.[i] ?? INK });
         });
@@ -321,6 +358,23 @@ export class Doc {
     this.page.drawText(this.clean(`${sig.name}, ${sig.date}`), { x: sx, y: top - 68, size: 8.5, font: this.font, color: INK });
     this.y = top - 80;
   }
+}
+
+/** „Seite x von y“ in der Dokumentsprache. */
+export const pageLabel = (lang: Brand['lang'], n: number, of: number) => (lang === 'en' ? `Page ${n} of ${of}` : `Seite ${n} von ${of}`);
+
+/** Fußzeile einer Seite: Linie, Text links, Seitenzahl rechts. */
+export function drawFooter(p: PDFPage, font: PDFFont, left: string, right: string) {
+  const width = A4.w - M.left - M.right;
+  p.drawLine({ start: { x: M.left, y: 38 }, end: { x: A4.w - M.right, y: 38 }, thickness: 0.6, color: LINE });
+  let f = left;
+  const max = width - font.widthOfTextAtSize(right, 7.5) - 16;
+  if (font.widthOfTextAtSize(f, 7.5) > max) {
+    while (f.length > 1 && font.widthOfTextAtSize(`${f}…`, 7.5) > max) f = f.slice(0, -1);
+    f = `${f.trimEnd()}…`;
+  }
+  p.drawText(f, { x: M.left, y: 26, size: 7.5, font, color: MUTED });
+  p.drawText(right, { x: A4.w - M.right - font.widthOfTextAtSize(right, 7.5), y: 26, size: 7.5, font, color: MUTED });
 }
 
 export function dataUrlBytes(url: string | null | undefined): { bytes: Uint8Array; type: string } | null {

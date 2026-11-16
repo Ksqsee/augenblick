@@ -59,9 +59,11 @@ Für API-Schlüssel gelten diese Regeln:
 | `GET /catalog` | Katalog des Workspaces `{ products, defects, terms, services }` (ab Prüfer, Leseschlüssel haben Rolle Lesezugriff → `403`); beim ersten Lesen bekommt ein Workspace die Grundausstattung (ohne Leistungen) |
 | `GET /catalog/:list?q=&category=` | eine Liste: `products`, `defects`, `services` oder `terms` |
 | `GET /properties/:id/offer?inspectionIds=a,b&from=JJJJ-MM-TT&to=JJJJ-MM-TT` | **Angebotsliste** eines Objekts (ab Prüfer, nur im Zugriffsbereich; Preise sind intern). Rechnet aus den offenen, nicht ausgeblendeten Mängeln (optional nur aus diesen Prüfungen bzw. angelegt im Zeitraum, Tage in UTC) über den Katalog: Mangel → Katalog-Mangel (gleiche Bezeichnung/Formulierung, sonst eindeutiger Treffer der Art) → zugeordnete Leistungen (`serviceKeys`), davon die, deren Bedingung zu den Stammdaten des Elements passt (z. B. Dichtung mit/ohne Brandschutz nach `requirement`) → Menge je Mangel, gleiche Leistungen zusammengefasst. Antwort siehe unten |
-| `GET /reports`, `GET /reports/:id/file` | Archiv erstellter Berichte (PDF/ZIP) |
+| `GET /reports`, `GET /reports/:id/file` | Archiv erstellter Berichte (PDF/ZIP; Art `mappe` = Sammelmappe) |
 | `GET /reports/annual?year=2026&propertyId=` | Daten des Jahresberichts je Objekt: Prüfungen nach Ergebnis/Art, Mängel mit Behebungsquote, Begehungen (mit Qualifikation der durchführenden Person), Brandschutzbeauftragte |
 | `GET /export/assets.xlsx`, `GET /export/assets.csv` | Elementliste in der Dokumentsprache des Workspaces |
+| `GET /credentials?userId=` | Befähigungsnachweise (Plan v7 X) aller Mitglieder bzw. einer Person: `[{ id, userId, kind: "expertise"\|"manufacturer"\|"other", title, issuer, number, validUntil (ms, Ende des Tages UTC, `null` = unbefristet), categories: [Elementart…] (leer = alle) }]`. Lesbar für alle Mitglieder (stehen auf jedem Protokoll) |
+| `GET /properties/:id/offer?inspectionIds=` | Angebotsliste aus den offenen Mängeln (Paket V rechnet): `{ lines: [{ serviceKey, title, unit, unitPrice, quantity, total, doors: [code…], defects: [id…] }], unmapped: [{ defectId, title, door }], net }`. Die App (Objekt → Angebot) zeigt sie mit Regie-Positionen aus dem Katalog und exportiert Excel/PDF im Browser |
 
 ## Schreiben (Schlüssel mit `write`)
 
@@ -89,6 +91,7 @@ Für API-Schlüssel gelten diese Regeln:
 | `GET /offline/failures` | Vom Server abgelehnte Offline-Übertragungen: Admins alle des Workspaces, Prüfer nur eigene. Je Eintrag `reason`, `status`, `userName`, `assetCode`, `assetAvailable`, `retryable`, `attempts`, `inspectedAt` – ohne Prüfungsdaten |
 | `POST /offline/failures/:id/retry` | Serverseitig erneut übertragen: `{ assetId? }` (Ersatz-Element derselben Art, wenn das ursprüngliche fehlt) → `{ inspectionId }`; die Prüfung bleibt der prüfenden Person zugeordnet. Scheitert er, zählt `attempts` hoch und der Fehler kommt zurück |
 | `DELETE /offline/failures/:id` | Abgelehnte Übertragung endgültig verwerfen (eigene oder als Admin) |
+| `POST /credentials`, `PUT /credentials/:id`, `DELETE /credentials/:id` | Nachweis anlegen/ändern/entfernen: `{ userId? (Standard: selbst), kind, title?, issuer?, number?, validUntil?, categories? }`. Eigene ab Prüfer, für andere nur Admins (Schlüssel haben höchstens Prüferrechte → nur eigene); Person außerhalb des Workspaces → `404`; höchstens 50 je Person. Das Prüfprotokoll wählt je Elementart den passenden am Prüfdatum gültigen Nachweis (`shared/credentials.ts`: Feststellanlage/Antrieb zuerst Hersteller-Zertifikat, sonst Sachkunde; Aussteller passend zum Hersteller bevorzugt) |
 
 ### Angebotsliste (`GET /properties/:id/offer`)
 
@@ -241,7 +244,7 @@ Folgeaufruf sie braucht; Fehler als `isError` mit Hinweis, was stattdessen geht)
 | `plan` | Rundgänge ansehen, Wochenplanung auslösen (nie geprüfte Elemente gelten als sofort fällig), Aufgaben aus Mängeln ohne wirksame Aufgabe |
 | `catalog` | Fachwissen: `search` (Produkte mit Aliassen und Anforderung, Mängel mit Leistungen, Leistungen mit Preis und Bedingung, Begriffe), `suggest` (Befund → typischer Mangel mit Schwere/Maßnahme, ausgeschriebene Begriffe; Hersteller/Typ/Alias → Produkte), `upsert` im Stapel mit Vorschau (`preview: true` zuerst; `list`: products, defects, services, terms; Art als Bezeichnung möglich; `warnings` bei unbekannten Leistungen); ändern nur mit Schreib-Schlüssel einer Admin-/Inhaber-Person |
 | `autopilot` | Schritte und Protokoll ansehen, Schritt einmal ausführen, Eintrag rückgängig machen; Stufen ändern nur Admins in der App |
-| `report` | Kennzahlen für Zeitraum (`month` bis zum Monatsletzten, `year`, `from`/`to`; Zeitzone des Workspaces) und Objekt als Text: Prüfquote ohne nie geprüfte (diese getrennt), Entwürfe und Unterschrifts-Rückstau, ungültige Mängel getrennt |
+| `report` | `what: "offer"` + `property`: Angebotsliste in Kurzform (Leistung, Menge × Einzelpreis, Türnummern, Summe netto, nicht zugeordnete Mängel; aus `GET /properties/:id/offer`). Sonst Kennzahlen für Zeitraum (`month` bis zum Monatsletzten, `year`, `from`/`to`; Zeitzone des Workspaces) und Objekt als Text: Prüfquote ohne nie geprüfte (diese getrennt), Entwürfe und Unterschrifts-Rückstau, ungültige Mängel getrennt |
 
 **Datumsangaben** (`capture` → `due`, `update_tasks` → `due`, `briefing` → `since`, `list` → `from`/`to`, `report` → `from`/`to`;
 `shared/dates.ts`): ISO streng geprüft (`2026-02-30` → Fehler statt 02.03.), deutsch (`30.11.2026`, `30.11.`) oder relativ

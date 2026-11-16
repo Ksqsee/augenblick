@@ -12,6 +12,7 @@ export const REPORT_KINDS = {
   protocols: 'Prüfprotokolle (ZIP)',
   selection: 'Prüfbericht (Auswahl)',
   annual: 'Jahresbericht',
+  mappe: 'Sammelmappe',
 } as const;
 
 /**

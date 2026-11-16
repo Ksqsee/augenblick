@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { CATEGORIES, INSPECTION_KINDS, INSPECTION_PURPOSES, SEVERITIES, WALK_PURPOSES } from './catalog';
 import { readFileSync } from 'node:fs';
+import { CREDENTIAL_KINDS } from './credentials';
 import { tr, zonedDay } from './i18n';
 import { WALK_QUESTIONS, WALK_SECTIONS } from './walkthrough';
 
@@ -32,10 +33,14 @@ describe('Dokumentsprache', () => {
     expect(tr('de', 'Prüfprotokoll')).toBe('Prüfprotokoll');
   });
   it('alle festen PDF-Texte haben eine englische Fassung', () => {
-    const src = readFileSync('src/pdf/reports.ts', 'utf8');
+    const src = ['src/pdf/reports.ts', 'src/pdf/nacharbeit.ts'].map((f) => readFileSync(f, 'utf8')).join('\n');
     const used = [...src.matchAll(/T\('([^']+)'\)/g)].map((m) => m[1]);
     expect(used.length).toBeGreaterThan(50);
-    expect(used.filter((t) => tr('en', t) === t && !['Code', 'Status', 'in'].includes(t))).toEqual([]);
+    expect(used.filter((t) => tr('en', t) === t && !['Code', 'Status', 'in', 'Name', 'Pos.'].includes(t))).toEqual([]);
+  });
+  it('Nachweis-Arten und Ergebnisse (Sammelmappe, Protokoll) sind übersetzt', () => {
+    const texts = [...Object.values(CREDENTIAL_KINDS), 'Nr.', 'Ohne Mängel', 'Mit Mängeln', 'Kritisch', 'Nicht prüfbar', 'Stk', 'Std', 'lfm', 'pauschal'];
+    expect(texts.filter((t) => tr('en', t) === t)).toEqual([]);
   });
   it('Filterbeschreibung des Berichtsgenerators ist übersetzt', () => {
     const src = readFileSync('src/components/InspectionFilters.tsx', 'utf8');

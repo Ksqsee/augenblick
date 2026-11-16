@@ -3,18 +3,20 @@
 // gemerkt nur auf diesem Gerät (Signature.tsx), gesendet nur als Teil der Prüfungen (POST /inspections/sign).
 import { useQueries, useQueryClient } from '@tanstack/react-query';
 import clsx from 'clsx';
-import { Check, ChevronDown, PenLine } from 'lucide-react';
+import { BookCopy, Check, ChevronDown, PenLine, ReceiptText } from 'lucide-react';
 import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { computeResult, finalResult, type Result } from '../../shared/logic';
 import { api, type Inspection, type InspectionRow, useInspections, useMe } from '../api';
+import { CredentialHint } from '../components/Credentials';
 import { CategoryGlyph } from '../components/inspect/Glyph';
+import { MappeDialog } from '../components/Mappe';
 import { rememberedSignature, rememberSignature, SignaturePad } from '../components/inspect/Signature';
 import { Button, ButtonLink, Empty, ErrorBox, Modal, PageHeader, ResultBadge, Section, SeverityBadge, SkeletonList, Surface, useToast } from '../components/ui';
 import { categoryLabel, defectsLabel } from '../format';
 
 type SignResponse = { signed: { id: string; code: string; result: Result; nextDueAt: number | null }[]; failed: { id: string; error: string }[] };
-type Outcome = SignResponse & { codes: Record<string, string> };
+type Outcome = SignResponse & { codes: Record<string, string>; places: Record<string, { propertyId: string; propertyName: string }> };
 
 const n2 = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`;
 
@@ -50,7 +52,7 @@ export function SignPage() {
     setBusy(true);
     try {
       const r = await api<SignResponse>('/inspections/sign', { body: { ids, signature } });
-      setOutcome({ ...r, codes: Object.fromEntries(rows.map((x) => [x.id, x.code])) });
+      setOutcome({ ...r, codes: Object.fromEntries(rows.map((x) => [x.id, x.code])), places: Object.fromEntries(rows.map((x) => [x.id, { propertyId: x.propertyId, propertyName: x.propertyName }])) });
       setPad(false);
       setOpen(null);
       await qc.invalidateQueries();
@@ -124,6 +126,8 @@ export function SignPage() {
                   ))}
                 </ul>
               </Section>
+
+              <CredentialHint categories={rows.map((r) => r.category)} className="mx-(--row-px) mb-3" />
 
               {/* Unterschrift: feste Leiste über der Handy-Navigation */}
               <div
@@ -269,6 +273,7 @@ function OutcomeSection({ outcome }: { outcome: Outcome }) {
           )}
         </div>
       </Section>
+      {s > 0 && <AfterSign outcome={outcome} />}
       {outcome.failed.length > 0 && (
         <Section title="Nicht unterschrieben" count={outcome.failed.length} flush>
           <ul className="pk-list" aria-label="Nicht unterschrieben">
@@ -287,6 +292,52 @@ function OutcomeSection({ outcome }: { outcome: Outcome }) {
         </Section>
       )}
     </>
+  );
+}
+
+/**
+ * Nach dem Unterschreiben (Plan v7 X): je Objekt die Sammelmappe aus genau diesen Prüfungen anbieten und – wenn Mängel
+ * dabei sind – den Weg zur Angebotsliste. Nur ein Angebot, nichts passiert von selbst.
+ */
+function AfterSign({ outcome }: { outcome: Outcome }) {
+  const [mappe, setMappe] = useState<{ propertyId: string; ids: string[] } | null>(null);
+  const byProperty = new Map<string, { name: string; ids: string[]; defects: number }>();
+  for (const x of outcome.signed) {
+    const place = outcome.places[x.id];
+    if (!place) continue;
+    const g = byProperty.get(place.propertyId) ?? { name: place.propertyName, ids: [], defects: 0 };
+    g.ids.push(x.id);
+    if (x.result === 'defects' || x.result === 'critical') g.defects++;
+    byProperty.set(place.propertyId, g);
+  }
+  if (!byProperty.size) return null;
+  return (
+    <Section title="Nacharbeit" flush>
+      {mappe && <MappeDialog propertyId={mappe.propertyId} ids={mappe.ids} onClose={() => setMappe(null)} />}
+      <ul className="pk-list" aria-label="Nacharbeit">
+        {[...byProperty.entries()].map(([pid, g]) => (
+          <li key={pid} className="flex flex-col gap-2 px-(--row-px) py-3 sm:flex-row sm:items-center sm:gap-4">
+            <span className="min-w-0 flex-1">
+              <span className="block truncate text-body text-ink">{g.name}</span>
+              <span className="mt-0.5 block text-meta text-ink-3">
+                {n2(g.ids.length, 'Protokoll', 'Protokolle')}
+                {g.defects ? `, ${g.defects} mit Mängeln` : ''}
+              </span>
+            </span>
+            <span className="flex flex-wrap gap-2">
+              <Button size="sm" variant="secondary" icon={<BookCopy />} onClick={() => setMappe({ propertyId: pid, ids: g.ids })}>
+                Sammelmappe erzeugen
+              </Button>
+              {g.defects > 0 && (
+                <ButtonLink size="sm" variant="ghost" icon={<ReceiptText />} to={`/objekte/${pid}?tab=angebot`}>
+                  Angebotsliste
+                </ButtonLink>
+              )}
+            </span>
+          </li>
+        ))}
+      </ul>
+    </Section>
   );
 }
 

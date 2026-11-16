@@ -12,6 +12,7 @@ import { calendar, calendarPublic } from './calendar';
 import { account, auth } from './auth';
 import { catalog } from './catalog';
 import { categories } from './categories';
+import { credentials } from './credentials';
 import { runDaily } from './cron';
 import { inspections } from './inspections';
 import { intervals } from './intervals';
@@ -85,6 +86,7 @@ secured.route('/', nowRoutes);
 secured.route('/', shares);
 secured.route('/', automation);
 secured.route('/', team);
+secured.route('/', credentials);
 app.route('/', secured);
 
 app.notFound((c) => c.json({ error: 'Nicht gefunden' }, 404));

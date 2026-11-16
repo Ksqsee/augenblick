@@ -1849,6 +1849,55 @@ function client() {
     await owner(`/catalog/services/${svc.json.id}`, { method: "DELETE" });
   }
 
+  console.log("· #37 Nachweise (Plan v7 X): selbst ab Prüfer, andere nur Admins, Workspace-Grenzen, Eingaben");
+  {
+    const keyCall = async (k, path, { method, body } = {}) => {
+      const r = await fetch(BASE + "/api" + path, {
+        method: method ?? (body !== undefined ? "POST" : "GET"),
+        headers: { authorization: `Bearer ${k}`, ...(body !== undefined ? { "content-type": "application/json" } : {}) },
+        body: body !== undefined ? JSON.stringify(body) : undefined,
+      });
+      return { status: r.status, json: await r.json().catch(() => null) };
+    };
+    const ownerId = (await owner("/account/me")).json.user.id;
+    const inspId = (await insp("/account/me")).json.user.id;
+    const readerId = (await reader("/account/me")).json.user.id;
+    const ok = { kind: "expertise", title: "Befähigte Person", issuer: "Schulung", number: "SEC-1", validUntil: null, categories: ["fire_door"] };
+    const oc = await owner("/credentials", { body: ok });
+    check(oc.status === 200 && oc.json?.id, `Inhaber legt eigenen Nachweis an (${oc.status})`);
+    const ic = await insp("/credentials", { body: { ...ok, number: "SEC-2" } });
+    check(ic.status === 200, `Prüfer legt eigenen Nachweis an (${ic.status})`);
+    check((await insp("/credentials", { body: { ...ok, userId: ownerId } })).status === 403, "Prüfer legt keinen Nachweis für andere an");
+    check((await insp(`/credentials/${oc.json.id}`, { method: "PUT", body: { ...ok, number: "X" } })).status === 403, "Prüfer ändert fremden Nachweis nicht");
+    check((await insp(`/credentials/${oc.json.id}`, { method: "DELETE" })).status === 403, "Prüfer löscht fremden Nachweis nicht");
+    check((await reader("/credentials", { body: ok })).status === 403, "Lesezugriff legt keinen Nachweis an");
+    check((await reader("/credentials")).status === 200, "Lesezugriff liest Nachweise (stehen auf jedem Protokoll)");
+    check((await owner("/credentials", { body: { ...ok, userId: inspId, number: "SEC-3" } })).status === 200, "Admin legt Nachweis für Prüfer an");
+    check((await owner(`/credentials/${ic.json.id}`, { method: "PUT", body: { ...ok, number: "SEC-2b" } })).status === 200, "Admin ändert Nachweis des Prüfers");
+    // Workspace-Grenzen: fremde Person, fremde ID, fremde Liste
+    check((await owner("/credentials", { body: { ...ok, userId: malloryId } })).status === 404, "Nachweis für Person eines anderen Workspaces → 404");
+    check((await mallory(`/credentials/${oc.json.id}`, { method: "PUT", body: ok })).status === 404, "fremder Workspace ändert nicht (404)");
+    check((await mallory(`/credentials/${oc.json.id}`, { method: "DELETE" })).status === 404, "fremder Workspace löscht nicht (404)");
+    const ml = await mallory(`/credentials?userId=${ownerId}`);
+    check(ml.status === 200 && Array.isArray(ml.json) && ml.json.length === 0, "fremder Workspace sieht keine Nachweise");
+    // Eingaben: Art, Elementart-Schlüssel, Länge, userId-Form
+    check((await owner("/credentials", { body: { ...ok, kind: "admin" } })).status === 400, "unbekannte Art → 400");
+    check((await owner("/credentials", { body: { ...ok, categories: ["x'; DROP TABLE users;--"] } })).status === 400, "Elementart nur als Schlüssel → 400");
+    check((await owner("/credentials", { body: { ...ok, number: "9".repeat(81) } })).status === 400, "Nummer zu lang → 400");
+    check((await owner("/credentials", { body: { ...ok, userId: "../x" } })).status === 400, "userId-Form → 400");
+    // Schlüssel: Leseschlüssel schreibt nicht; Schreibschlüssel der Admin-Person hat nur Prüferrechte (nur eigene)
+    const rk = (await owner("/account/api-keys", { body: { name: "sec36-read", scope: "read", expiresInDays: 1 } })).json;
+    const wk = (await owner("/account/api-keys", { body: { name: "sec36-write", scope: "write", expiresInDays: 1 } })).json;
+    check((await keyCall(rk.key, "/credentials", { body: ok })).status === 403, "Leseschlüssel legt nichts an");
+    check((await keyCall(wk.key, "/credentials", { body: { ...ok, userId: inspId } })).status === 403, "Schreibschlüssel ändert keine fremden Nachweise");
+    check((await keyCall(wk.key, "/credentials", { body: { ...ok, number: "SEC-K" } })).status === 200, "Schreibschlüssel: eigener Nachweis");
+    await owner(`/account/api-keys/${rk.id}`, { method: "DELETE" });
+    await owner(`/account/api-keys/${wk.id}`, { method: "DELETE" });
+    check((await owner(`/credentials/${ic.json.id}`, { method: "DELETE" })).status === 200, "Admin entfernt Nachweis des Prüfers");
+    const left = (await owner("/credentials")).json;
+    check(left.every((c) => [ownerId, inspId].includes(c.userId)) && !left.some((c) => c.userId === readerId), "nur angelegte Nachweise vorhanden");
+  }
+
   console.log(
     fail.length ? `FAILED ${fail.length}: ${fail.join("; ")}` : "ALL CHECKS OK",
   );

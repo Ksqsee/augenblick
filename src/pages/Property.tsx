@@ -3,7 +3,7 @@
 // Begehung, Brandschutzbeauftragte/r und „Vor Ort“ als Text auf dem Grund. Belege: docs/design/objekte-elemente.md
 // Hauptknopf (Plan v5 Q): „Rundgang starten“, wenn Elemente fällig oder nie geprüft sind, sonst „Elemente hinzufügen“;
 // „Begehung starten“ und „Gebäude hinzufügen“ stehen im ⋯-Menü.
-import { Building2, CloudDownload, Footprints, Mail, Mic, Pencil, Phone, Plus, Route, Trash2, Upload, User } from 'lucide-react';
+import { BookCopy, Building2, CloudDownload, Footprints, Mail, Mic, Pencil, Phone, Plus, Route, Trash2, Upload, User } from 'lucide-react';
 import { type ReactNode, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { BUILDING_TYPES } from '../../shared/walkthrough';
@@ -14,6 +14,8 @@ import { openCapture } from '../components/CaptureSheet';
 import { AssetForm, BuildingForm, PropertyForm } from '../components/forms';
 import { AsideAction, AsideList, AsideRow, AsideSection } from '../components/objects/Aside';
 import { countDue, DUE_ORDER, DuePhrase } from '../components/objects/status';
+import { MappeDialog } from '../components/Mappe';
+import { OfferSection } from '../components/objects/Offer';
 import { PropertyReportButton } from '../components/PropertyReportButton';
 import { SharePropertyButton } from '../components/ShareProperty';
 import {
@@ -48,7 +50,7 @@ import { prepareBuilding } from '../offline';
 import { FloorPlanUpload } from './FloorPlan';
 import { StartWalkthrough } from './Walkthroughs';
 
-const TABS = ['elemente', 'grundrisse', 'begehungen'] as const;
+const TABS = ['elemente', 'grundrisse', 'begehungen', 'angebot'] as const;
 type Tab = (typeof TABS)[number];
 
 const matches = (a: Asset, needle: string) => [a.code, a.location, a.floor, categoryLabel(a.category), a.manufacturer].join(' ').toLowerCase().includes(needle);
@@ -67,6 +69,7 @@ export function PropertyPage() {
   const [selected, setSelected] = useState<Asset | null>(null);
   const [upload, setUpload] = useState(false);
   const [walk, setWalk] = useState(false);
+  const [mappe, setMappe] = useState(false);
   const [q, setQ] = useState('');
   const [preparing, setPreparing] = useState<string | null>(null);
   const isAdmin = !!me && ['owner', 'admin'].includes(me.user.role);
@@ -110,6 +113,8 @@ export function PropertyPage() {
     .find((x) => x.n > 0);
   const addAssets = () => openCapture({ propertyId: p.id, mode: 'assets' });
   const menu: MenuItem[] = [];
+  // Plan v7 X: Sammelmappe aller abgeschlossenen Protokolle (Rundgang-Tag oder Zeitraum)
+  menu.push({ label: 'Sammelmappe', icon: <BookCopy />, onClick: () => setMappe(true) });
   if (canInspect) menu.push({ label: 'Begehung starten', icon: <Footprints />, onClick: () => setWalk(true) });
   if (canCreate && roundBuilding) menu.push({ label: 'Elemente hinzufügen', icon: <Mic />, onClick: addAssets });
   if (single)
@@ -186,6 +191,7 @@ export function PropertyPage() {
       {selected && <AssetDrawer asset={selected} onClose={() => setSelected(null)} />}
       {upload && <FloorPlanUpload buildings={p.buildings} onClose={() => setUpload(false)} />}
       {walk && <StartWalkthrough propertyId={p.id} onClose={() => setWalk(false)} />}
+      {mappe && <MappeDialog propertyId={p.id} onClose={() => setMappe(false)} />}
 
       <div className="grid grid-cols-1 items-start gap-8 lg:grid-cols-[minmax(0,1fr)_280px] lg:grid-rows-[auto_1fr] lg:gap-x-10 lg:gap-y-8">
         {/* Handy: Prüfstatus direkt unter dem Kopf, der Rest der Seitenspalte nach dem Inhalt */}
@@ -201,6 +207,7 @@ export function PropertyPage() {
               { value: 'elemente', label: 'Elemente', count: p.assets.length },
               { value: 'grundrisse', label: 'Grundrisse', count: p.floorPlans.length },
               { value: 'begehungen', label: 'Begehungen', count: p.walkthroughs.length },
+              { value: 'angebot', label: 'Angebot' },
             ]}
           />
 
@@ -314,6 +321,8 @@ export function PropertyPage() {
               ))}
 
             {tab === 'grundrisse' && <PlansSection p={p} canUpload={isAdmin} onUpload={() => setUpload(true)} />}
+
+            {tab === 'angebot' && <OfferSection p={p} />}
 
             {tab === 'begehungen' &&
               (p.walkthroughs.length === 0 ? (

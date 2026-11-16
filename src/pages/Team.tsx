@@ -4,6 +4,7 @@ import { useState } from 'react';
 import { ROLES, type Role } from '../../shared/catalog';
 import { api, type Member, queryClient, useAction, useBuildings, useFlagHistory, useMe, useMembers, useProperties } from '../api';
 import { CopyField } from '../components/admin';
+import { CredentialList } from '../components/Credentials';
 import {
   Avatar,
   Button,
@@ -388,6 +389,14 @@ function MemberDialog({ member, canEditRole, onClose }: { member: Member; canEdi
               )}
             </>
           )}
+        </section>
+
+        <section aria-labelledby="proof-h" className="flex flex-col gap-3 border-t border-line pt-5">
+          <h3 id="proof-h" className={sectionTitle}>
+            Befähigungsnachweise
+          </h3>
+          <p className="-mt-1 text-meta text-ink-3">Das Prüfprotokoll zeigt je Elementart den passenden gültigen Nachweis. Änderungen gelten sofort.</p>
+          <CredentialList userId={member.id} editable emptyText={`Für ${member.name} ist noch kein Nachweis hinterlegt.`} />
         </section>
 
         <section aria-labelledby="officer-h" className="flex flex-col gap-3 border-t border-line pt-5">

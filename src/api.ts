@@ -724,7 +724,7 @@ export interface SearchResult {
 }
 
 // ---------- Berichtsarchiv ----------
-export type ReportKind = 'compliance' | 'defects' | 'property' | 'protocols' | 'selection' | 'annual';
+export type ReportKind = 'compliance' | 'defects' | 'property' | 'protocols' | 'selection' | 'annual' | 'mappe';
 export interface ReportRow {
   id: string;
   kind: ReportKind;
