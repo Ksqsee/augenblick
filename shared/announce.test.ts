@@ -11,7 +11,9 @@ import {
   resolveAnnouncedType,
   type RawNote,
 } from './announce';
-import type { CatalogProduct } from './catalog';
+import { CATEGORIES, type CatalogProduct } from './catalog';
+
+const fields = (...keys: string[]) => CATEGORIES.fire_door.attributes.filter((f) => keys.includes(f.key));
 
 const p = (id: string, manufacturer: string, model: string, extra: Partial<CatalogProduct & { aliases: string[] }> = {}) => ({
   id,
@@ -124,7 +126,7 @@ describe('Typ im Katalog', () => {
 
 describe('Tür anlegen oder finden', () => {
   it('Stammdaten aus dem Katalog-Typ, feste Nummer, Standort', () => {
-    const b = announcedAssetBody({ number: 354, location: 'Raum 354' }, PRODUCTS[0]!, ['holdOpen', 'leaves', 'dropSeal', 'approval']);
+    const b = announcedAssetBody({ number: 354, location: 'Raum 354' }, PRODUCTS[0]!, fields('holdOpen', 'leaves', 'dropSeal', 'approval'));
     expect(b).toEqual({
       category: 'fire_door',
       number: 354,
@@ -133,7 +135,10 @@ describe('Tür anlegen oder finden', () => {
       model: 'SK32',
       attributes: { holdOpen: false, leaves: '1-flügelig', dropSeal: true },
     });
-    expect(announcedAssetBody({ number: 1, location: '' }, PRODUCTS[1]!, ['approval']).attributes).toEqual({ approval: 'Z-6.16-1211' });
+    expect(announcedAssetBody({ number: 1, location: '' }, PRODUCTS[1]!, fields('approval')).attributes).toEqual({ approval: 'Z-6.16-1211' });
+    // Plan v7: der bekannte Typ beschreibt die Tür vollständig – Anforderung aus dem Typnamen, offene Ja/Nein = nein
+    const full = announcedAssetBody({ number: 2, location: '' }, PRODUCTS[1]!, CATEGORIES.fire_door.attributes).attributes;
+    expect(full).toMatchObject({ requirement: 'T30-RS', leaves: '1-flügelig', holdOpen: false, peephole: false, cardLock: false, dropSeal: false });
     expect(announcedAssetBody({ number: 9, location: 'Raum 9' }, null, [])).toMatchObject({ model: 'unbekannt', manufacturer: '', attributes: {} });
   });
   it('Nummer im Objekt: gleiche Art gefunden, andere Art ist ein Widerspruch', () => {

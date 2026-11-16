@@ -1,9 +1,12 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import { CATALOG_SEED_DEFECTS, CATALOG_SEED_TERMS, CATEGORIES, type CatalogDefect, type CatalogProduct } from './catalog';
 import { parseCapture, suggestMeasure, suggestSeverity } from './smart';
+import { allOkAnswers } from './applies';
 import {
   applyProductDefaults,
   codeNumber,
+  describeByType,
+  productRequirement,
   entryKey,
   expandTerms,
   findElementRef,
@@ -178,6 +181,40 @@ describe('Produkte', () => {
     expect(applyProductDefaults({ requirement: 'T90', holdOpen: false }, products[0]!, allowed)).toEqual({ requirement: 'T90', holdOpen: false, doorType: 'T30-1', approval: 'Z-6.20-1' });
     expect(applyProductDefaults({ requirement: 'T90' }, products[0]!, allowed, true)).toMatchObject({ requirement: 'T30-RS' });
     expect(applyProductDefaults({}, { defaults: { fremd: 'x' }, approval: '' }, allowed)).toEqual({});
+  });
+});
+
+describe('Bekannter Typ beschreibt die Tür (Plan v7)', () => {
+  const door = CATEGORIES.fire_door;
+  const sk32 = { defaults: { requirement: 'keine', dropSeal: true }, approval: '', model: 'SK32' };
+  it('Anforderung aus requirement, alten Vorgaben oder dem Typnamen', () => {
+    expect(productRequirement({ requirement: 'T90', defaults: { rating: 'T30' }, approval: '' })).toBe('T90');
+    expect(productRequirement({ defaults: { rating: 'T30', smoke: true }, approval: '' })).toBe('T30-RS');
+    expect(productRequirement({ defaults: {}, approval: '', model: 'Premio T30-RS' })).toBe('T30-RS');
+    expect(productRequirement({ defaults: {}, approval: '', model: 'SK32' })).toBeNull();
+  });
+  it('offene Ja/Nein-Felder = nein, Flügel 1-flügelig, Vorgaben und Eingaben bleiben', () => {
+    const a: Record<string, unknown> = describeByType({ peephole: true }, sk32, door.attributes, 'fire_door');
+    expect(a).toMatchObject({ requirement: 'keine', dropSeal: true, peephole: true, holdOpen: false, cardLock: false, closer: false, leaves: '1-flügelig' });
+    // Freitext- und Auswahlfelder ohne eindeutigen Standard bleiben offen
+    expect(a.frame).toBeUndefined();
+    expect(a.doorType).toBeUndefined();
+    // gesetzte Flügelzahl bleibt
+    expect(describeByType({ leaves: '2-flügelig' }, sk32, door.attributes, 'fire_door').leaves).toBe('2-flügelig');
+    // ohne Anforderung aus dem Typ: bleibt offen
+    expect(describeByType<Record<string, unknown>>({}, { defaults: {}, approval: '', model: 'X1' }, door.attributes, 'fire_door').requirement).toBeUndefined();
+  });
+  it('keine Rückfragen bei „Alles in Ordnung“', () => {
+    const cps = door.checkpoints;
+    for (const p of [sk32, { defaults: { holdOpen: true }, approval: 'Z-1', model: 'Premio T30-RS' }]) {
+      const r = allOkAnswers(cps, {}, 'fire_door', describeByType({}, p, door.attributes, 'fire_door'));
+      expect(r.unknown).toEqual([]);
+      expect(r.ok.length + r.na.length).toBe(cps.length);
+    }
+  });
+  it('andere Elementart: nur Ja/Nein, kein Flügel-Standard', () => {
+    const w = describeByType({}, { defaults: {}, approval: '' }, CATEGORIES.window.attributes, 'window');
+    expect(w).toEqual({ fanlight: false, fixedGlazing: false });
   });
 });
 

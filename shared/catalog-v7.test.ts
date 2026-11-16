@@ -246,7 +246,9 @@ describe('Import der Wartungsübersicht', () => {
     const [sk, t30, alu, fsa] = rows;
     expect(sk).toMatchObject({ line: 2, property: 'Hotel Test', building: 'Hauptgebäude', category: 'fire_door', number: 36, floor: '3.OG', location: '304' });
     expect(sk).toMatchObject({ manufacturer: 'Westag + Getalit AG', model: 'SK32', catalogType: 'Westag + Getalit SK32', intervalMonths: 12 });
-    expect(sk!.attributes).toEqual({ soundproof: true, closer: true, requirement: 'keine', dropSeal: true, peephole: true });
+    // bekannter Typ beschreibt die Tür vollständig: übrige Ja/Nein = nein, einflügelig
+    const no = { wetRoom: false, freeSwing: false, holdOpen: false, doorStop: false, kickPlate: false, cardLock: false, drive: false };
+    expect(sk!.attributes).toEqual({ soundproof: true, closer: true, requirement: 'keine', dropSeal: true, peephole: true, leaves: '1-flügelig', ...no });
     expect(new Date(sk!.lastInspectedAt!).toISOString().slice(0, 10)).toBe('2025-04-16');
     expect(new Date(sk!.nextDueAt!).toISOString().slice(0, 10)).toBe('2026-04-16');
     // „T30 RS“ und „T30-RS“ sind gleich geschrieben – der Hersteller entscheidet

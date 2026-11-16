@@ -7,7 +7,7 @@ import { useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { productLabel } from '../../shared/announce';
 import { buildChecklist, requirementOf } from '../../shared/checklist';
-import { applyProductDefaults } from '../../shared/vocab';
+import { describeByType } from '../../shared/vocab';
 import { api, type AssetDetail, useCatalog, useMe } from '../api';
 import { getCategory, schedulesFor } from '../categories';
 import { Button, ErrorBox, Spinner, useToast } from '../components/ui';
@@ -34,7 +34,7 @@ export function ChecklistPage() {
   const attrs: Record<string, unknown> = a
     ? a.attributes
     : product
-      ? applyProductDefaults({}, product, def.attributes.map((f) => f.key))
+      ? describeByType({}, product, def.attributes, category)
       : {};
   const typeName = a ? [a.manufacturer, a.model].filter(Boolean).join(' ') : product ? productLabel(product) : '';
   const approval = String(attrs.approval ?? product?.approval ?? '');

@@ -3,7 +3,7 @@ import clsx from 'clsx';
 import { Download, RotateCcw, Upload, X } from 'lucide-react';
 import { useState } from 'react';
 import { IMPORT_COLUMNS, type ImportRow, parseCsv, toImportRows } from '../../shared/importing';
-import { api, queryClient, useCatalog } from '../api';
+import { api, loadCatalog, queryClient } from '../api';
 import { Stepper } from '../components/admin';
 import { Button, ButtonLink, type Column, DataTable, ErrorBox, Field, IconButton, Input, PageHeader, Section, Spinner, StatusText, Surface, useToast } from '../components/ui';
 import { fmtDate } from '../format';
@@ -42,7 +42,6 @@ export function ImportPage() {
   // Plan v7: Wartungsübersicht ohne Objektspalte → Objekt hier angeben; Türtyp über die Aliasse des Katalogs
   const [property, setProperty] = useState('');
   const [table, setTable] = useState<unknown[][] | null>(null);
-  const catalog = useCatalog();
 
   const reset = () => {
     setTable(null);
@@ -81,7 +80,10 @@ export function ImportPage() {
   const checkTable = async (t: unknown[][], prop: string) => {
     setCheck(null);
     setCheckedProp(prop);
-    const r = toImportRows(t, allCategories().filter((c) => c.custom), { property: prop, products: catalog.data?.products });
+    // Türtyp → Katalog-Typ braucht den geladenen Katalog: nicht mit einem noch leeren Stand auswerten (sonst fehlt der
+    // Typ in der Vorschau und beim Import, je nachdem, wie schnell /catalog antwortet)
+    const products = (await loadCatalog()).products;
+    const r = toImportRows(t, allCategories().filter((c) => c.custom), { property: prop, products });
     if (r.rows.length > 1000) throw new Error('Maximal 1000 Zeilen pro Import');
     setRows(r.rows);
     setParseErrors(r.errors);

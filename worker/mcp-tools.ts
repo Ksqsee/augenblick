@@ -20,7 +20,7 @@ import {
   suggestSeverity,
 } from "../shared/smart";
 import {
-  applyProductDefaults,
+  describeByType,
   type CatalogDefect,
   type CatalogProduct,
   expandTerms,
@@ -644,7 +644,7 @@ async function announceAsset(
   const body = announcedAssetBody(
     { number: n, location: s(a.location).trim() || `Raum ${n}` },
     product,
-    (cat?.attributes ?? []).map((f) => f.key),
+    cat?.attributes ?? [],
     category,
   );
   let created: { id: string; code: string };
@@ -3447,10 +3447,12 @@ export const TOOLS: Tool[] = [
                   `${name}, ${what}: Produkt „${s(e.product)}“ nicht im Katalog (catalog search) – ohne Vorgaben angelegt`,
                 );
               else {
-                attributes = applyProductDefaults(
+                // Plan v7: ein bekannter Typ beschreibt das Element vollständig
+                attributes = describeByType(
                   attributes,
                   prod,
-                  cat.attributes.map((f) => f.key),
+                  cat.attributes,
+                  cat.key,
                 );
                 manufacturer ||= prod.manufacturer;
                 model ||= prod.model;

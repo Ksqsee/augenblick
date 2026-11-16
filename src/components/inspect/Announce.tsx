@@ -144,7 +144,7 @@ export function AnnounceCard({ autoFocus }: { autoFocus?: boolean }) {
       if (online) {
         let assetId = existing?.id;
         if (!assetId) {
-          const body = announcedAssetBody(a, chosen, def.attributes.map((f) => f.key), category);
+          const body = announcedAssetBody(a, chosen, def.attributes, category);
           try {
             assetId = (await api<{ id: string }>('/assets', { body: { buildingId, ...body } })).id;
           } catch (e) {
@@ -164,7 +164,7 @@ export function AnnounceCard({ autoFocus }: { autoFocus?: boolean }) {
       } else {
         let assetId = existing?.id;
         if (!assetId) {
-          const body = announcedAssetBody(a, chosen, def.attributes.map((f) => f.key), category);
+          const body = announcedAssetBody(a, chosen, def.attributes, category);
           assetId = (await createLocalAsset(buildingId, body)).id;
         }
         remember(next);
