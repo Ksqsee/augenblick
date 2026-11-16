@@ -363,6 +363,9 @@ async function mcp(key, name, args = {}) {
   await of.getByRole('button', { name: 'Hinzufügen' }).click();
   await own.getByText('abgelaufen am 31.01.2025').waitFor();
   check((await overflow(m)) <= 0, `kein Überlauf: Konto mit Nachweisen (${await overflow(m)})`);
+  await m.waitForFunction(() => !document.querySelector('[aria-live=polite] > .bg-ink'), null, { timeout: 6000 }).catch(() => {});
+  await m.locator('#nachweise').evaluate((e) => e.scrollIntoView({ block: 'start' }));
+  await m.evaluate(() => window.scrollBy(0, -70));
   await shot(m, 'nachweise-konto', { fullPage: false });
   const ownerCred = (await api('/credentials?userId=' + ownerId)).json[0];
   check((await papi(`/credentials/${ownerCred.id}`, { method: 'PUT', data: { kind: 'other' } })).status === 403, 'Prüfer ändert keinen Nachweis der Inhaberin');
