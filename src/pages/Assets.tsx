@@ -2,7 +2,7 @@
 // Kopf · Filter auf dem Grund · eine Surface mit einer Section „N Elemente“. Ein Statuswort je Zeile.
 // URL-Parameter: kategorie, status, objekt, q, neu, etikett
 import { FileUp, Plus, Printer } from 'lucide-react';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { type Asset, useAssets, useMe, useProperties } from '../api';
 import { allCategories } from '../categories';
@@ -46,10 +46,17 @@ export function AssetsPage() {
       { replace: true },
     );
 
+  // Die verzögerte Suche liest URL und Setter über eine Ref: setParams aus React Router v6 rechnet mit den
+  // Parametern des Renders, in dem es entstand – ein älterer Setter würde inzwischen gesetzte Filter überschreiben.
+  const latest = useRef({ urlQ: params.get('q') ?? '', setParam });
+  latest.current = { urlQ: params.get('q') ?? '', setParam };
+
   useEffect(() => {
     const t = setTimeout(() => {
-      setDebounced(q.trim());
-      setParam('q', q.trim() || undefined);
+      const next = q.trim();
+      setDebounced(next);
+      // nur schreiben, wenn sich die Suche wirklich geändert hat (also auch nicht beim ersten Lauf nach dem Laden)
+      if (next !== latest.current.urlQ) latest.current.setParam('q', next || undefined);
     }, 250);
     return () => clearTimeout(t);
   }, [q]);
