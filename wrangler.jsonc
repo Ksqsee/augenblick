@@ -4,15 +4,12 @@
   "main": "worker/index.ts",
   "compatibility_date": "2026-09-01",
   "compatibility_flags": ["nodejs_compat"],
-  // Die D1 liegt in Nordamerika (ENAM). Smart Placement lässt den Worker nahe der Datenbank laufen, damit nicht
-  // jede Abfrage einzeln über den Atlantik geht (kostenlos; statische Dateien bleiben am Rand).
-  "placement": { "mode": "smart" },
   "assets": {
     "not_found_handling": "single-page-application",
     "run_worker_first": ["/api/*", "/.well-known/*"]
   },
   "d1_databases": [
-    { "binding": "DB", "database_name": "pruefkompass", "database_id": "fa1add86-9b17-49b3-af9f-ff0d5ddb556f", "migrations_dir": "migrations" }
+    { "binding": "DB", "database_name": "pruefkompass-eu", "database_id": "1a2a8023-5787-4d50-addb-f6cb60a326c3", "migrations_dir": "migrations" }
   ],
   "r2_buckets": [
     { "binding": "FILES", "bucket_name": "pruefkompass-files" }
