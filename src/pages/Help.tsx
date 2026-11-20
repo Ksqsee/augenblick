@@ -62,7 +62,8 @@ const GUIDE: Topic[] = [
     id: 'offline',
     title: 'Ohne Netz prüfen (Offline-Modus)',
     steps: [
-      'Vor dem Termin bei bestehender Verbindung unter Offline-Modus das Gebäude laden (oder in der Objektansicht das Wolken-Symbol am Gebäude).',
+      'Vor dem Termin bei bestehender Verbindung unter Offline-Modus das Gebäude laden – oder im Objekt, Reiter Begehung, „Ohne Netz weiterarbeiten“ → „Gebäude laden“.',
+      'Türen ansagen ohne Netz: im Objekt, Reiter Begehung, „Ohne Netz weiterarbeiten“ (bei fehlendem Netz erscheint der Hinweis von selbst). „Tür 12, Typ SK32“ wie gewohnt; nach „Bereit · nächste Tür“ geht es zurück zur Ansage dieses Objekts.',
       'Vor Ort im Offline-Modus „Rundgang starten“ (fällige Elemente nach Etage und Standort, nach jedem Abschluss geht es zum nächsten) oder ein Element antippen und wie gewohnt prüfen – Fotos werden auf dem Gerät gespeichert.',
       'Sprechen geht auch ohne Netz: unter „Befund einsprechen“ oder „Erfassen“ das Mikrofon der Handy-Tastatur nutzen. Die Zuordnung zu Prüfpunkten, Mängeln und Aufgaben passiert auf dem Gerät; Erfasstes wartet in der Warteschlange.',
       'Sobald wieder Verbindung besteht, werden Prüfungen und Erfasstes automatisch übertragen. Den Stand siehst du in der Warteschlange; ähnliche, schon offene Mängel bleiben dort zur Entscheidung („Trotzdem anlegen“ oder verwerfen).',

@@ -81,7 +81,7 @@ export function RoundPage() {
   return (
     <div className="mx-auto flex max-w-2xl flex-col">
       <PageHeader
-        backTo={{ to: '/', label: 'Heute' }}
+        backTo={r ? { to: `/objekte/${r.propertyId}?tab=begehung`, label: r.propertyName } : { to: '/objekte', label: 'Objekte' }}
         eyebrow={r?.propertyName ?? 'Rundgang'}
         title={r?.buildingName ?? 'Rundgang'}
         subtitle={total > 0 ? `${total} Elemente in Laufreihenfolge` : undefined}
@@ -133,8 +133,8 @@ export function RoundPage() {
             title={done.length ? 'Rundgang geschafft' : 'Hier ist nichts fällig'}
             text={done.length ? `${done.length} Elemente geprüft. Die Protokolle findest du unter Prüfungen.` : 'In diesem Gebäude steht in den nächsten 30 Tagen keine Prüfung an.'}
             action={
-              <ButtonLink to={done.length ? '/pruefen?tab=done' : '/'} variant="ghost">
-                {done.length ? 'Protokolle ansehen' : 'Zurück zu Heute'}
+              <ButtonLink to={done.length ? '/pruefungen?tab=done' : r ? `/objekte/${r.propertyId}?tab=begehung` : '/objekte'} variant="ghost">
+                {done.length ? 'Protokolle ansehen' : 'Zurück zum Objekt'}
               </ButtonLink>
             }
           />

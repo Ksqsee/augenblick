@@ -285,7 +285,7 @@ Aufgaben `propertyId` auch über das Element.
 Element-Verweise wie „Tür 36“ müssen zur Art passen: Ist Nr. 4 ein Feuerlöscher, liefert „Tür 4“ in allen Werkzeugen den
 Fehler „Nummer 4 ist ein Feuerlöscher (FL-004)“ (ohne Artwort, „Nummer 4“, wie bisher). Schwere steht überall als
 Schlüssel und Wort (`severity: "medium"`, `severityLabel: "Mittel"`), der Status von Prüfungen als `draft` (Entwurf),
-`ready` (wartet auf Unterschrift) oder `submitted`; Hinweis zum Unterschreiben immer „In der App: Prüfen → Unterschreiben“.
+`ready` (wartet auf Unterschrift) oder `submitted`; Hinweis zum Unterschreiben immer „In der App: Objekt → Begehung → Unterschreiben“.
 
 **Prompts** (`prompts/list`, `prompts/get`, erscheinen in Claude als fertige Befehle): Tagesbriefing (`seit`),
 Diktat erfassen (`text`, `element`), Woche planen (`tage`), Typenschilder nachtragen (`objekt`), Monatsbericht schreiben

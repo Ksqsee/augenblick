@@ -263,7 +263,7 @@ export function PublicPage({
     <div className="flex min-h-dvh flex-col bg-canvas px-4 pt-5 pb-6 sm:px-10 sm:pt-8 lg:px-[8vw]">
       <header className="flex min-h-8 min-w-0 items-center gap-3">
         {brand ?? (
-          <Link to="/" className="shrink-0" aria-label="Prüfkompass">
+          <Link to="/objekte" className="shrink-0" aria-label="Prüfkompass">
             <Logo />
           </Link>
         )}

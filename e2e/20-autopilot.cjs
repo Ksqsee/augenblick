@@ -164,7 +164,7 @@ const MONTHS = ['Januar', 'Februar', 'März', 'April', 'Mai', 'Juni', 'Juli', 'A
   let entries = await log();
   const eSub = entries.find((e) => e.key === 'assign_defect_tasks' && e.summary.includes('Schließer defekt Autopilot'));
   const eP1 = entries.find((e) => e.key === 'assign_defect_tasks' && e.summary.includes('Plombe fehlt Autopilot'));
-  check(eSub?.undoable && eSub.summary.includes(sub.company) && eSub.link === `/aufgaben?id=${subTask.id}`, `Protokoll mit Firma und Link (${eSub?.summary})`);
+  check(eSub?.undoable && eSub.summary.includes(sub.company) && eSub.link === `/maengel?art=aufgaben&aufgabe=${subTask.id}`, `Protokoll mit Firma und Link (${eSub?.summary})`);
   check(eP1?.undoable && eP1.summary.includes(P1.name) && eP1.actorName === 'Sabine Krüger', `Protokoll mit Person (${eP1?.summary})`);
   const p1Log = await log(insp);
   check(p1Log.find((e) => e.id === eP1.id)?.undoable === true && p1Log.find((e) => e.id === eSub.id)?.undoable === false, 'Zuständiger darf nur eigene Zuweisung zurücknehmen');
@@ -267,7 +267,7 @@ const MONTHS = ['Januar', 'Februar', 'März', 'April', 'Mai', 'Juni', 'Juli', 'A
   if (foreignPlan) check((await insp2.api(`/automation/log/${foreignPlan.id}/undo`, { data: {} })).status === 404, 'Rückgängig außerhalb des Bereichs → 404');
   if (rounds.length) {
     const r1 = rounds[0];
-    const e1 = allLog.find((e) => e.link === `/aufgaben?id=${r1.id}`);
+    const e1 = allLog.find((e) => e.link === `/maengel?art=aufgaben&aufgabe=${r1.id}`);
     r = await api(`/automation/log/${e1.id}/undo`, { data: {} });
     check(r.status === 200 && !(await tasks()).some((t) => t.id === r1.id), 'Admin nimmt geplanten Auftrag zurück');
   }
@@ -525,7 +525,7 @@ const MONTHS = ['Januar', 'Februar', 'März', 'April', 'Mai', 'Juni', 'Juli', 'A
   check(wTask?.kind === 'defect' && wTask.assigneeId === P1.id && wTask.propertyId === wProp.id, `Feststellung (mittel) → Aufgabe an Prüfer nach Regel (${wTask?.title})`);
   check(wTask && Math.abs(wTask.dueAt - Date.now() - 5 * DAY) < 120_000, 'Frist aus der Regel (5 Tage)');
   check(!all.some((t) => t.defectId === wLow?.id), 'geringe Feststellung ohne Regel → keine Aufgabe');
-  const eWalk = (await log()).find((e) => e.key === 'assign_defect_tasks' && e.link === `/aufgaben?id=${wTask?.id}`);
+  const eWalk = (await log()).find((e) => e.key === 'assign_defect_tasks' && e.link === `/maengel?art=aufgaben&aufgabe=${wTask?.id}`);
   check(eWalk?.undoable && eWalk.summary.includes('Paletten entfernen') && eWalk.summary.includes(P1.name), `Protokolleintrag zur Begehung (${eWalk?.summary})`);
   // Zugriffsbereich: eingeschränkte Prüferin außerhalb des Objekts sieht weder Aufgabe noch Eintrag
   const otherProp = (await api('/properties')).json.find((x) => x.id !== wProp.id);
@@ -564,7 +564,7 @@ const MONTHS = ['Januar', 'Februar', 'März', 'April', 'Mai', 'Juni', 'Juli', 'A
     rt = (await tasks()).find((t) => t.id === round.id);
     check(rt?.status === 'done' && rt.closedAt > 0, `Rundgang nach der letzten Prüfung erledigt (${rt?.status})`);
     const eDone = (await log()).find((e) => e.key === 'plan_week' && e.summary === `${round.title} abgeschlossen`);
-    check(!!eDone && eDone.link === `/aufgaben?id=${round.id}` && !eDone.undoable, `Protokoll „${round.title} abgeschlossen“ (${eDone?.summary})`);
+    check(!!eDone && eDone.link === `/maengel?art=aufgaben&aufgabe=${round.id}` && !eDone.undoable, `Protokoll „${round.title} abgeschlossen“ (${eDone?.summary})`);
     // nächste Woche: ein neuer Rundgang ist wieder möglich, die Regel selbst bleibt unverändert
     check((await api('/automation/plan_week/run', { data: {} })).status === 200, 'Woche planen läuft danach weiter');
     check(!(await tasks()).some((t) => t.buildingId === round.buildingId && t.id !== round.id && /^Rundgang /.test(t.title) && t.status === 'open'), 'kein neuer Rundgang ohne Fälliges');
@@ -607,7 +607,7 @@ const MONTHS = ['Januar', 'Februar', 'März', 'April', 'Mai', 'Juni', 'Juli', 'A
   let V1 = verify[0];
   check(V1?.title === `Nachprüfung ${D1.code}` && V1.assetId === D1.id && V1.status === 'open' && V1.assigneeId === P1.id && V1.dueAt > Date.now(), `an die feststellende Person, mit Frist (${V1?.title}, ${V1?.assigneeName})`);
   check((await insp.api('/notifications')).json.items.some((n) => n.type === 'task_assigned' && n.title === `Neue Aufgabe: Nachprüfung ${D1.code}`), 'Prüfer benachrichtigt');
-  const eV = (await log()).find((e) => e.key === 'verify_repairs' && e.link === `/aufgaben?id=${V1?.id}`);
+  const eV = (await log()).find((e) => e.key === 'verify_repairs' && e.link === `/maengel?art=aufgaben&aufgabe=${V1?.id}`);
   check(eV?.undoable && eV.title === 'Nachprüfen' && eV.step === 4 && eV.summary.includes(P1.name), `Protokoll „Nachprüfen“ (${eV?.summary})`);
   // Keine Dopplung: Knopf, Cron, erneutes Erledigen
   check((await api('/automation/verify_repairs/run', { data: {} })).status === 200 && (await tasks()).filter((t) => t.defectId === loopDefect.id && t.kind === 'inspection').length === 1, 'Ausführen legt nichts doppelt an');
@@ -667,7 +667,7 @@ const MONTHS = ['Januar', 'Februar', 'März', 'April', 'Mai', 'Juni', 'Juli', 'A
   r = await api(vRow.action.endpoint, { data: vRow.action.body ?? {} });
   const sugV = (await tasks()).find((t) => t.defectId === sugDefect && t.kind === 'inspection');
   check(r.status === 200 && r.json.created >= 1 && sugV?.assigneeId === byMail('demo@example.com').id, `Aktion legt an, an die meldende Person (${r.text})`);
-  const eSugV = (await log()).find((e) => e.key === 'verify_repairs' && e.link === `/aufgaben?id=${sugV?.id}`);
+  const eSugV = (await log()).find((e) => e.key === 'verify_repairs' && e.link === `/maengel?art=aufgaben&aufgabe=${sugV?.id}`);
   check((await api(`/automation/log/${eSugV.id}/undo`, { data: {} })).json.reverted === 1, 'Rückgängig entfernt den Auftrag');
   check((await api('/automation/verify_repairs/run', { data: {} })).json.created === 0, 'nach Rückgängig keine Neuanlage für dieselbe Erledigung');
   await setMode('verify_repairs', 'auto');

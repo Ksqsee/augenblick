@@ -113,7 +113,7 @@ export function Register() {
   const set = (k: keyof typeof f) => (e: React.ChangeEvent<HTMLInputElement>) => setF({ ...f, [k]: e.target.value });
   const { error, busy, onSubmit } = useSubmit(
     () => api('/auth/register', { body: f }),
-    () => navigate('/', { replace: true }),
+    () => navigate('/objekte', { replace: true }),
   );
   return (
     <AuthLayout
@@ -171,7 +171,7 @@ export function InviteAccept() {
   const [password, setPassword] = useState('');
   const { error, busy, onSubmit } = useSubmit(
     () => api(`/auth/invite/${token}`, { body: { name: name || undefined, password } }),
-    () => navigate('/', { replace: true }),
+    () => navigate('/objekte', { replace: true }),
   );
   if (inv.isLoading) return <Spinner className="min-h-dvh items-center" />;
   if (inv.isError || !inv.data)

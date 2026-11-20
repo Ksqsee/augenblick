@@ -299,7 +299,7 @@ async function notifyStatus(c: Ctx, changed: { id: string; title: string }[], st
       type: 'task_watch',
       title: one ? `„${one.title}“: ${STATUS_TEXT[status]}` : `${ids.length} beobachtete Aufgaben: ${STATUS_TEXT[status]}`,
       body: by,
-      link: one ? `/aufgaben?id=${one.id}` : '/aufgaben',
+      link: one ? `/maengel?art=aufgaben&aufgabe=${one.id}` : '/maengel?art=aufgaben',
     });
   }
 }
@@ -324,7 +324,7 @@ work.post('/tasks', async (c) => {
   // Anlegende und zuständige Person beobachten automatisch
   await addWatchers(c, [tk], [c.get('user').userId, b.assigneeId]);
   await logActivity(c, 'create', 'task', tk, `Aufgabe „${b.title}“ angelegt`);
-  if (b.assigneeId) await notify(c, { userIds: [b.assigneeId], type: 'task_assigned', title: `Neue Aufgabe: ${b.title}`, body: c.get('user').name, link: `/aufgaben?id=${tk}` });
+  if (b.assigneeId) await notify(c, { userIds: [b.assigneeId], type: 'task_assigned', title: `Neue Aufgabe: ${b.title}`, body: c.get('user').name, link: `/maengel?art=aufgaben&aufgabe=${tk}` });
   return c.json({ id: tk, kind });
 });
 
@@ -375,7 +375,7 @@ work.patch('/tasks/:id', async (c) => {
   if (b.status === 'done' && prev.status !== 'done' && b.resolveDefect) await resolveLinkedDefects(c, [c.req.param('id')], c.get('user').userId);
   if (b.assigneeId && b.assigneeId !== prev.assignee_id) {
     await addWatchers(c, [c.req.param('id')], [b.assigneeId]);
-    await notify(c, { userIds: [b.assigneeId], type: 'task_assigned', title: `Aufgabe zugewiesen: ${b.title}`, body: c.get('user').name, link: `/aufgaben?id=${c.req.param('id')}` });
+    await notify(c, { userIds: [b.assigneeId], type: 'task_assigned', title: `Aufgabe zugewiesen: ${b.title}`, body: c.get('user').name, link: `/maengel?art=aufgaben&aufgabe=${c.req.param('id')}` });
   }
   if (b.status !== prev.status) await notifyStatus(c, [{ id: c.req.param('id'), title: b.title }], b.status);
   // Folgeaufgabe (Wiederholung) und Autopilot-Schritt „Nachprüfen“
@@ -446,7 +446,7 @@ work.post('/tasks/bulk', async (c) => {
         type: 'task_assigned',
         title: newly.length === 1 ? `Aufgabe zugewiesen: ${newly[0].title}` : `${newly.length} Aufgaben zugewiesen`,
         body: c.get('user').name,
-        link: newly.length === 1 ? `/aufgaben?id=${newly[0].id}` : '/aufgaben',
+        link: newly.length === 1 ? `/maengel?art=aufgaben&aufgabe=${newly[0].id}` : '/maengel?art=aufgaben',
       });
   }
   if (b.status !== undefined) await notifyStatus(c, rows.filter((r) => r.status !== b.status), b.status);
@@ -577,9 +577,9 @@ work.post('/tasks/:id/comments', async (c) => {
   const watchers = (await watchersOf(c.env, tid(c), [task.id])).map((w) => w.userId);
   // Erwähnte und Kommentierende beobachten die Aufgabe ab jetzt
   await addWatchers(c, [task.id], [...mentioned, u.userId]);
-  if (mentioned.length) await notify(c, { userIds: mentioned, type: 'task_mention', title: `${u.name} hat dich in „${task.title}“ erwähnt`, body: body.slice(0, 160), link: `/aufgaben?id=${task.id}` });
+  if (mentioned.length) await notify(c, { userIds: mentioned, type: 'task_mention', title: `${u.name} hat dich in „${task.title}“ erwähnt`, body: body.slice(0, 160), link: `/maengel?art=aufgaben&aufgabe=${task.id}` });
   const others = watchers.filter((w) => !mentioned.includes(w));
-  if (others.length) await notify(c, { userIds: others, type: 'task_comment', title: `Kommentar zu „${task.title}“`, body: `${u.name}: ${body.slice(0, 140)}`, link: `/aufgaben?id=${task.id}` });
+  if (others.length) await notify(c, { userIds: others, type: 'task_comment', title: `Kommentar zu „${task.title}“`, body: `${u.name}: ${body.slice(0, 140)}`, link: `/maengel?art=aufgaben&aufgabe=${task.id}` });
   return c.json({ ok: true, mentions: mentioned });
 });
 
@@ -899,7 +899,7 @@ export async function externalUpdate(c: Ctx, r: Record<string, unknown>, raw: un
       type: 'task_external',
       title: `${who}: ${b.status === 'done' ? 'erledigt' : 'in Arbeit'}`,
       body: `„${r.title}“${b.note ? ` – ${b.note.slice(0, 140)}` : ''}`,
-      link: `/aufgaben?id=${r.id}`,
+      link: `/maengel?art=aufgaben&aufgabe=${r.id}`,
     },
     c.executionCtx,
   );

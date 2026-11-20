@@ -58,3 +58,13 @@ export const typing = (e: KeyboardEvent | React.KeyboardEvent) => {
   const el = e.target as HTMLElement | null;
   return !!el && (el.isContentEditable || ['INPUT', 'TEXTAREA', 'SELECT'].includes(el.tagName));
 };
+
+/**
+ * Link zum Detail eines Mangels bzw. einer Aufgabe: im Objekt bleibt man im Reiter „Mängel“ (?tab=maengel&…),
+ * sonst die objektübergreifende Liste /maengel – direkt, ohne Umleitung über alte Adressen.
+ */
+export function detailLink(pathname: string, kind: 'mangel' | 'aufgabe', id: string) {
+  const obj = pathname.match(/^\/objekte\/([^/]+)$/);
+  if (obj) return `/objekte/${obj[1]}?tab=maengel&${kind}=${encodeURIComponent(id)}`;
+  return `/maengel?art=${kind === 'mangel' ? 'maengel' : 'aufgaben'}&${kind}=${encodeURIComponent(id)}`;
+}

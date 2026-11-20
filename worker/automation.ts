@@ -231,7 +231,7 @@ async function notifyAssigned(c: Ctx, items: { assigneeId: string | null; id: st
       type: 'task_assigned',
       title: list.length === 1 ? `Neue Aufgabe: ${list[0].title}` : `${list.length} neue Aufgaben`,
       body: 'Vom Autopiloten zugewiesen',
-      link: list.length === 1 ? `/aufgaben?id=${list[0].id}` : '/aufgaben',
+      link: list.length === 1 ? `/maengel?art=aufgaben&aufgabe=${list[0].id}` : '/maengel?art=aufgaben',
     });
   }
 }
@@ -352,7 +352,7 @@ export async function createDefectTasks(c: Ctx, opts: { severities: string[]; in
         buildingId: g[0].buildingId,
         propertyId: g[0].propertyId,
         assigneeId: g[0].assignee,
-        link: g.length === 1 ? `/aufgaben?id=${g[0].id}` : '/aufgaben',
+        link: g.length === 1 ? `/maengel?art=aufgaben&aufgabe=${g[0].id}` : '/maengel?art=aufgaben',
         undo: { deleteTasks: g.map((i) => i.id) },
       };
     }),
@@ -432,7 +432,7 @@ export async function planWeek(c: Ctx, n = now()) {
       buildingId: i.buildingId,
       propertyId: i.propertyId,
       assigneeId: i.assignee,
-      link: `/aufgaben?id=${i.id}`,
+      link: `/maengel?art=aufgaben&aufgabe=${i.id}`,
       undo: { deleteTasks: [i.id] },
     })),
     n,
@@ -483,7 +483,7 @@ export async function closeFinishedRounds(c: Ctx, assetId: string, n = now()) {
           buildingId: r.buildingId,
           propertyId: r.propertyId,
           assigneeId: r.assigneeId,
-          link: `/aufgaben?id=${r.id}`,
+          link: `/maengel?art=aufgaben&aufgabe=${r.id}`,
         }, n).stmt,
     ),
   ]);
@@ -519,7 +519,7 @@ export async function escalateSla(c: Ctx, n = now()) {
       title: `Frist überschritten: ${r.title}`,
       // Partner ohne Rückmeldung: Erinnerung, beim Partner nachzufassen (E-Mail-Versand gibt es bewusst nicht)
       body: r.partner && !r.respondedAt ? `Priorität auf „Hoch“ gesetzt – ${r.partner} hat sich noch nicht gemeldet` : 'Priorität auf „Hoch“ gesetzt',
-      link: `/aufgaben?id=${r.id}`,
+      link: `/maengel?art=aufgaben&aufgabe=${r.id}`,
       dedupe: `esc-${r.id}`,
     });
   }
@@ -533,7 +533,7 @@ export async function escalateSla(c: Ctx, n = now()) {
       buildingId: places.get(r.id)?.buildingId,
       propertyId: places.get(r.id)?.propertyId,
       assigneeId: r.assigneeId,
-      link: `/aufgaben?id=${r.id}`,
+      link: `/maengel?art=aufgaben&aufgabe=${r.id}`,
       undo: { priorities: [{ id: r.id, priority: r.priority }] },
     })),
     n,
@@ -569,7 +569,7 @@ export async function closeStale(c: Ctx, n = now()) {
       type: 'automation',
       title: `Mangel noch offen: ${r.title}`,
       body: `Die Behebung ist seit über ${STALE_DAYS} Tagen erledigt. Mangel schließen oder Aufgabe wieder öffnen.`,
-      link: `/maengel?id=${r.defectId}`,
+      link: `/maengel?art=maengel&mangel=${r.defectId}`,
       dedupe: `stale-${r.id}`,
     });
   }
@@ -583,7 +583,7 @@ export async function closeStale(c: Ctx, n = now()) {
       buildingId: places.get(r.id)?.buildingId,
       propertyId: places.get(r.id)?.propertyId,
       assigneeId: r.assigneeId,
-      link: `/maengel?id=${r.defectId}`,
+      link: `/maengel?art=maengel&mangel=${r.defectId}`,
       undo: null,
     })),
     n,
@@ -668,7 +668,7 @@ export async function createRecurrences(c: Ctx, ids: string[] | null, n = now())
       buildingId: places.get(i.id)?.buildingId,
       propertyId: places.get(i.id)?.propertyId,
       assigneeId: i.assignee,
-      link: `/aufgaben?id=${i.id}`,
+      link: `/maengel?art=aufgaben&aufgabe=${i.id}`,
       undo: { deleteTasks: [i.id], stopRecurrence: [i.from] },
     })),
     n,
@@ -782,7 +782,7 @@ export async function createVerifications(c: Ctx, ids: string[] | null, n = now(
       buildingId: i.buildingId,
       propertyId: i.propertyId,
       assigneeId: i.assignee,
-      link: `/aufgaben?id=${i.id}`,
+      link: `/maengel?art=aufgaben&aufgabe=${i.id}`,
       undo: { deleteTasks: [i.id] },
     })),
     n,
@@ -820,7 +820,7 @@ export async function afterVerification(c: Ctx, closedTaskIds: string[], code: s
         entityId: v.id,
         ...place,
         assigneeId: v.assigneeId,
-        link: `/maengel?id=${v.defectId}`,
+        link: `/maengel?art=maengel&mangel=${v.defectId}`,
       }, n).stmt.run();
       continue;
     }
@@ -847,7 +847,7 @@ export async function afterVerification(c: Ctx, closedTaskIds: string[], code: s
       type: 'task_assigned',
       title: `Wieder offen: ${repair.title}`,
       body: `Nachprüfung ${code}: Mangel besteht weiter`,
-      link: `/aufgaben?id=${repair.id}`,
+      link: `/maengel?art=aufgaben&aufgabe=${repair.id}`,
     });
     await logStatement(c.env, t, c.get('user').userId, {
       key: 'verify_repairs',
@@ -856,7 +856,7 @@ export async function afterVerification(c: Ctx, closedTaskIds: string[], code: s
       entityId: v.id,
       ...place,
       assigneeId: repair.assigneeId,
-      link: `/aufgaben?id=${repair.id}`,
+      link: `/maengel?art=aufgaben&aufgabe=${repair.id}`,
     }, n).stmt.run();
   }
 }

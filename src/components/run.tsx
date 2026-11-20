@@ -775,7 +775,7 @@ export function InspectionForm({
 
         {announce ? (
           <Section aria-label="Unterschrift">
-            <p className="text-meta text-ink-3">Unterschrieben wird gesammelt: Prüfen → Unterschreiben, alle angesagten Türen mit einem Tipp.</p>
+            <p className="text-meta text-ink-3">Unterschrieben wird gesammelt: Objekt → Begehung → Unterschreiben, alle angesagten Türen mit einem Tipp.</p>
           </Section>
         ) : (
           <SignatureSection

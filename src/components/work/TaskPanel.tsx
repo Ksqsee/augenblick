@@ -1,6 +1,6 @@
 import { CheckCheck, ChevronRight, ClipboardCheck, Copy, Eye, EyeOff, HardHat, Link2, Plus, Trash2 } from 'lucide-react';
 import { useEffect, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useLocation } from 'react-router-dom';
 import { RECURRENCES } from '../../../shared/automation';
 import { TASK_KINDS, type TaskKind } from '../../../shared/tasks';
 import { api, type Task, useAction, useMe, useMembers, useSubcontractors, useTaskWatchers } from '../../api';
@@ -10,7 +10,7 @@ import { ResolveDefectDialog } from '../DefectResolve';
 import { Avatar, Button, ErrorBox, Input, Menu, type MenuItem, Notice, Textarea, useConfirm, useToast } from '../ui';
 import { Activity, type ActivityEvent } from './Activity';
 import { AssetCodes, LabelPicker, SeverityText } from './fields';
-import { fromDateInput, isOpenTask, needsDefectQuestion, patchTask, TASK_PRIO, TASK_STATUS, toDateInput } from './model';
+import { detailLink, fromDateInput, isOpenTask, needsDefectQuestion, patchTask, TASK_PRIO, TASK_STATUS, toDateInput } from './model';
 import { PanelSection, Prop, propSelectCls, WorkPanel } from './Panel';
 import { StatusToggle } from './rows';
 
@@ -59,6 +59,7 @@ function WatchButton({ taskId }: { taskId: string }) {
  */
 export function TaskPanel({ task, onClose }: { task: Task; onClose: () => void }) {
   const toast = useToast();
+  const { pathname } = useLocation();
   const { data: me } = useMe();
   const members = useMembers();
   const subs = useSubcontractors();
@@ -125,7 +126,7 @@ export function TaskPanel({ task, onClose }: { task: Task; onClose: () => void }
       label: 'Link kopieren',
       icon: <Link2 />,
       onClick: async () => {
-        await navigator.clipboard?.writeText(`${window.location.origin}/aufgaben?id=${task.id}`);
+        await navigator.clipboard?.writeText(`${window.location.origin}/maengel?art=aufgaben&aufgabe=${task.id}`);
         toast('Link kopiert');
       },
     },
@@ -232,7 +233,7 @@ export function TaskPanel({ task, onClose }: { task: Task; onClose: () => void }
         </PanelSection>
         {t.defectId && (
           <PanelSection title="Mangel">
-            <Link to={`/offen?mangel=${t.defectId}`} className="group -mx-2 flex items-center gap-3 rounded-md px-2 py-2 transition-colors hover:bg-hover">
+            <Link to={detailLink(pathname, 'mangel', t.defectId)} className="group -mx-2 flex items-center gap-3 rounded-md px-2 py-2 transition-colors hover:bg-hover">
               <span className="min-w-0 flex-1">
                 <span className="block truncate text-body text-ink">{t.defectTitle ?? 'Mangel'}</span>
                 <span className="block text-meta text-ink-3">

@@ -283,7 +283,7 @@ export async function collectNow(c: Ctx): Promise<NowItem[]> {
       tone: crit ? "bad" : "warn",
       title: `${nobody.length} schwere ${nobody.length === 1 ? "Mangel" : "Mängel"} ohne Zuständige`,
       text: `${crit ? `${crit} davon kritisch. ` : ""}Die Aufgabe liegt bei niemandem – einer Person oder einem Partner zuweisen.`,
-      action: action("open", { link: nobody.length === 1 ? `/aufgaben?id=${nobody[0].taskId}` : "/maengel?art=aufgaben" }, "Zuweisen"),
+      action: action("open", { link: nobody.length === 1 ? `/maengel?art=aufgaben&aufgabe=${nobody[0].taskId}` : "/maengel?art=aufgaben" }, "Zuweisen"),
       count: nobody.length,
       at: nobody[0].createdAt,
     });
@@ -296,7 +296,7 @@ export async function collectNow(c: Ctx): Promise<NowItem[]> {
       tone: late.some((k) => k.priority === "high") ? "bad" : "warn",
       title: `${late.length} überfällige Aufgaben`,
       text: "Dir zugewiesen oder noch ohne Zuständige.",
-      action: action("open", { link: "/aufgaben" }),
+      action: action("open", { link: "/maengel?art=aufgaben" }),
       count: late.length,
       at: late[0].dueAt,
     });
@@ -308,7 +308,7 @@ export async function collectNow(c: Ctx): Promise<NowItem[]> {
         tone: k.priority === "high" ? "bad" : "warn",
         title: k.title,
         text: `${k.assigneeName ? "Deine Aufgabe" : "Noch ohne Zuständige"}, seit ${plural(daysSince(k.dueAt, n), "einem Tag", "Tagen")} überfällig`,
-        action: action("open", { link: `/aufgaben?id=${k.id}` }),
+        action: action("open", { link: `/maengel?art=aufgaben&aufgabe=${k.id}` }),
         count: 1,
         at: k.dueAt,
       });

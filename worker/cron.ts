@@ -110,7 +110,7 @@ async function runTenant(env: Env, t: Tenant, now: number) {
       roles: ['owner', 'admin'],
       type: 'sla_breach',
       title: `SLA überschritten: ${task.title}`,
-      link: `/aufgaben?id=${task.id}`,
+      link: `/maengel?art=aufgaben&aufgabe=${task.id}`,
       dedupe: `sla-${task.id}`,
     });
   }
