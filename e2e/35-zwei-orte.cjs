@@ -118,7 +118,7 @@ const MAX_CALLS = { objekteHandy: 6, kalenderHandy: 8, kalenderDesktop: 9 };
   check((await sigRow.locator('[data-ampel="signatures"]').innerText()).includes('2 zu unterschreiben'), '„2 zu unterschreiben“');
 
   step('Filter in der Leiste: Alle · Fällig · Mit Mängeln · Unterschrift offen');
-  const filters = p.getByRole('complementary').getByRole('group', { name: 'Filter' });
+  const filters = p.getByRole('complementary').getByRole('group', { name: 'Ampel-Filter' });
   const now = Date.now();
   const expected = {
     Fällig: props2.filter((x) => (x.overdue ?? 0) > 0 || (x.nextDue && x.nextDue <= now + 30 * DAY) || (x.never ?? 0) > 0).length,
@@ -330,9 +330,9 @@ const MAX_CALLS = { objekteHandy: 6, kalenderHandy: 8, kalenderDesktop: 9 };
   await mp.waitForTimeout(400);
   await mp.screenshot({ path: OUT + 'm-objekte.png', fullPage: true });
   // Filter am Handy (gleiche Regel), Tipp öffnet das Objekt
-  await mp.getByRole('group', { name: 'Filter' }).getByRole('button', { name: /^Mit Mängeln/ }).click();
+  await mp.getByRole('group', { name: 'Ampel-Filter' }).getByRole('button', { name: /^Mit Mängeln/ }).click();
   check((await mrows.count()) === expected['Mit Mängeln'], 'Handy: Filter Mit Mängeln');
-  await mp.getByRole('group', { name: 'Filter' }).getByRole('button', { name: /^Alle/ }).click();
+  await mp.getByRole('group', { name: 'Ampel-Filter' }).getByRole('button', { name: /^Alle/ }).click();
   await mrows.first().click();
   await mp.waitForURL((u) => /^\/objekte\/[a-z0-9]+$/.test(u.pathname));
   check((await bar.getByRole('link', { name: 'Objekte' }).getAttribute('aria-current')) === 'page', 'im Objekt: Objekte aktiv');

@@ -41,7 +41,7 @@ const check = (ok, m) => {
   await p.goto(BASE + '/objekte');
   const side = p.getByRole('navigation', { name: 'Liegenschaften' });
   await side.getByRole('link', { name: /Grundschule Am Stadtpark/ }).waitFor();
-  await p.getByRole('complementary').getByRole('group', { name: 'Filter' }).getByRole('button', { name: /^Fällig/ }).click();
+  await p.getByRole('complementary').getByRole('group', { name: 'Ampel-Filter' }).getByRole('button', { name: /^Fällig/ }).click();
   const due = props.filter((x) => (x.overdue ?? 0) > 0 || (x.nextDue && x.nextDue <= Date.now() + 30 * 86_400_000) || (x.never ?? 0) > 0).length;
   check((await side.locator('[data-property]').count()) === due, `Filter „Fällig“ (${due})`);
   await p.getByRole('searchbox', { name: 'Liste filtern' }).fill('gibt es nicht');
@@ -130,12 +130,12 @@ const check = (ok, m) => {
   await p.waitForTimeout(400);
   await p.getByRole('button', { name: 'Überfällig', exact: true }).click();
   await p.waitForURL((u) => u.searchParams.get('status') === 'overdue' && u.searchParams.get('kategorie') === 'extinguisher');
-  await p.getByRole('searchbox').fill('Reihe');
+  await p.getByRole('main').getByRole('searchbox').fill('Reihe');
   await p.waitForURL((u) => u.searchParams.get('q') === 'Reihe');
   await p.getByText('Keine Treffer').waitFor();
   await p.getByRole('button', { name: 'Filter zurücksetzen' }).click();
   await p.waitForURL((u) => ![...u.searchParams.keys()].length);
-  check((await p.getByRole('searchbox').inputValue()) === '', 'Suche geleert');
+  check((await p.getByRole('main').getByRole('searchbox').inputValue()) === '', 'Suche geleert');
 
   step('Handy 390 px');
   const m = await b.newContext({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true, storageState: await ctx.storageState() });

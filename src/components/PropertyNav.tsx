@@ -130,7 +130,7 @@ export function PropertyLink({ p, now, active, variant }: { p: PropertyRow; now:
 /** Filter als kleine Text-Reiter (Leiste) bzw. Chips (Seite); Zähler nur, wenn ≠ 0. */
 export function AmpelFilters({ value, onChange, counts, compact }: { value: AmpelFilter; onChange: (f: AmpelFilter) => void; counts: Record<AmpelFilter, number>; compact?: boolean }) {
   return (
-    <div role="group" aria-label="Filter" className={clsx('flex', compact ? 'flex-wrap gap-1' : 'no-scrollbar -mx-4 gap-1.5 overflow-x-auto px-4 sm:mx-0 sm:flex-wrap sm:px-0')}>
+    <div role="group" aria-label="Ampel-Filter" className={clsx('flex', compact ? 'flex-wrap gap-1' : 'no-scrollbar -mx-4 gap-1.5 overflow-x-auto px-4 sm:mx-0 sm:flex-wrap sm:px-0')}>
       {AMPEL_FILTERS.map(({ key, label }) => {
         const active = value === key;
         return (

@@ -143,7 +143,9 @@ const overlap = (a, b) => !!a && !!b && a.x < b.x + b.width && b.x < a.x + a.wid
     return c.toDataURL('image/png');
   });
   await p.evaluate(([k, v]) => localStorage.setItem(k, v), [`pk:signature:${me.user.id}`, SIG]);
-  await p.getByRole('link', { name: 'Rundgang starten' }).first().click();
+  // Plan v8: „Rundgang starten“ steht unter „Jetzt“ im Kalender (Zeile „nie geprüft“)
+  await p.goto(BASE + '/kalender');
+  await p.getByRole('list', { name: 'Jetzt' }).getByRole('button', { name: /Rundgang starten/ }).first().click();
   await p.waitForURL(/\/rundgang\//);
   await p.getByRole('button', { name: 'Prüfung starten' }).click();
   await p.waitForURL(/\/pruefung\//);
