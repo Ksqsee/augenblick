@@ -77,7 +77,8 @@ export function WalkTab({ p, canInspect }: { p: PropertyDetail; canInspect: bool
           (running ? (
             <AnnounceCard propertyId={p.id} title="Begehung · Tür ansagen" autoFocus={params.get('ansage') === 'weiter' || params.get('start') === '1'} />
           ) : (
-            <StartBlock p={p} onStart={() => set({ start: '1', tag: null, zeige: null })} />
+            // erst nach dem Laden entscheiden, ob heute schon begangen wird (kein Springen vom Knopf zum Feld)
+            w && <StartBlock p={p} onStart={() => set({ start: '1', tag: null, zeige: null })} />
           ))}
         {walk.isLoading ? (
           <Section>
