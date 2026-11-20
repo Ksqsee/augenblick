@@ -8,6 +8,7 @@ import { api, type Asset, type PropertyDetail, useAction } from '../../api';
 import { assetDue, categoryLabel, fmtDate } from '../../format';
 import { prepareBuilding } from '../../offline';
 import { openCapture } from '../CaptureSheet';
+import { AssetDrawer } from '../AssetDrawer';
 import { AssetForm, BuildingForm } from '../forms';
 import { Button, ButtonLink, type Column, Empty, Menu, type MenuItem, ResultBadge, SearchField, Section, Surface, useConfirm, useToast } from '../ui';
 import { FilterSelect } from './FilterSelect';
@@ -63,6 +64,7 @@ export function ElementsTab({ p, isAdmin, canCreate }: { p: PropertyDetail; isAd
   const [assetFor, setAssetFor] = useState<string | null>(null);
   const [building, setBuilding] = useState<null | 'new' | { id: string; name: string; address: string }>(null);
   const [preparing, setPreparing] = useState<string | null>(null);
+  const [selected, setSelected] = useState<Asset | null>(null);
   const delBuilding = useAction((bid: string) => api(`/buildings/${bid}`, { method: 'DELETE' }), () => toast('Gebäude gelöscht'));
   const offline = async (bid: string) => {
     setPreparing(bid);
@@ -90,11 +92,12 @@ export function ElementsTab({ p, isAdmin, canCreate }: { p: PropertyDetail; isAd
         Element
       </Button>
     );
-  const table = (list: Asset[], label: string) => <PlainTable columns={columns} rows={list} rowKey={(a) => a.id} rowTo={(a) => `/elemente/${a.id}`} aria-label={label} />;
+  const table = (list: Asset[], label: string) => <PlainTable columns={columns} rows={list} rowKey={(a) => a.id} rowTo={(a) => `/elemente/${a.id}`} onRowClick={setSelected} aria-label={label} />;
 
   return (
     <>
       {confirmEl}
+      {selected && <AssetDrawer asset={selected} onClose={() => setSelected(null)} />}
       {assetFor && <AssetForm buildings={p.buildings} propertyId={p.id} defaultBuildingId={assetFor} onClose={() => setAssetFor(null)} />}
       {building && <BuildingForm propertyId={p.id} initial={building === 'new' ? undefined : building} onClose={() => setBuilding(null)} />}
       <Surface data-detail-surface>

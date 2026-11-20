@@ -5,7 +5,22 @@ import clsx from 'clsx';
 import { Link } from 'react-router-dom';
 import { type Column, ListRow } from '../ui';
 
-export function PlainTable<T>({ columns, rows, rowKey, rowTo, 'aria-label': ariaLabel }: { columns: Column<T>[]; rows: T[]; rowKey: (row: T) => string; rowTo: (row: T) => string; 'aria-label'?: string }) {
+export function PlainTable<T>({
+  columns,
+  rows,
+  rowKey,
+  rowTo,
+  onRowClick,
+  'aria-label': ariaLabel,
+}: {
+  columns: Column<T>[];
+  rows: T[];
+  rowKey: (row: T) => string;
+  rowTo: (row: T) => string;
+  /** statt zu navigieren (z. B. Seitenleiste öffnen) */
+  onRowClick?: (row: T) => void;
+  'aria-label'?: string;
+}) {
   const role = (c: Column<T>, i: number) => c.mobile ?? (i === 0 ? 'primary' : i === columns.length - 1 ? 'trailing' : 'secondary');
   const pick = (m: string) => columns.filter((c, i) => role(c, i) === m);
   return (
@@ -28,7 +43,11 @@ export function PlainTable<T>({ columns, rows, rowKey, rowTo, 'aria-label': aria
                   key={c.key}
                   className={clsx('h-12 px-3 py-2 first:pl-(--row-px) last:pr-(--row-px)', c.align === 'right' && 'text-right tabular-nums', i === 0 ? 'text-ink' : 'text-ink-2', c.className)}
                 >
-                  {i === 0 ? (
+                  {i === 0 && onRowClick ? (
+                    <button type="button" onClick={() => onRowClick(r)} className="text-left after:absolute after:inset-0">
+                      {c.cell(r)}
+                    </button>
+                  ) : i === 0 ? (
                     <Link to={rowTo(r)} className="after:absolute after:inset-0">
                       {c.cell(r)}
                     </Link>
@@ -45,7 +64,8 @@ export function PlainTable<T>({ columns, rows, rowKey, rowTo, 'aria-label': aria
         {rows.map((r) => (
           <ListRow
             key={rowKey(r)}
-            to={rowTo(r)}
+            to={onRowClick ? undefined : rowTo(r)}
+            onClick={onRowClick ? () => onRowClick(r) : undefined}
             title={pick('primary').map((c) => (
               <span key={c.key}>{c.cell(r)}</span>
             ))}
