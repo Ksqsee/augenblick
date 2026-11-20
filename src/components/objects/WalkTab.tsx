@@ -152,6 +152,8 @@ function Results({
   const isToday = w.date === w.today;
   const days = w.days.some((d) => d.date === w.date) ? w.days : [{ date: w.date, count: 0 }, ...w.days];
   const [yy, mm, dd] = w.date.split('-');
+  // Folgeschritte erst, wenn es im Objekt schon eine Begehung gibt oder etwas auf die Unterschrift wartet
+  const steps = w.days.length > 0 || w.pending > 0;
   const title = r.done === 0 && !w.days.length ? 'Noch keine Begehung' : isToday ? 'Begehung heute' : `Begehung vom ${dd}.${mm}.${yy}`;
   return (
     <Section
@@ -171,7 +173,12 @@ function Results({
       }
     >
       {/* Handy: Zähler · Folgeschritte · Liste; ab lg die Folgeschritte rechts daneben */}
-      <div className="grid grid-cols-1 gap-x-10 gap-y-4 [grid-template-areas:'c'_'s'_'l'] lg:grid-cols-[minmax(0,1fr)_16rem] lg:[grid-template-areas:'c_s'_'l_s']">
+      <div
+        className={clsx(
+          'grid grid-cols-1 gap-x-10 gap-y-4 [grid-template-areas:"c"_"s"_"l"]',
+          steps && 'lg:grid-cols-[minmax(0,1fr)_16rem] lg:[grid-template-areas:"c_s"_"l_s"]',
+        )}
+      >
         <div className="min-w-0 [grid-area:c]">
           <Counters r={r} filter={filter} onFilter={onFilter} />
         </div>
@@ -196,7 +203,7 @@ function Results({
             </div>
           )}
         </div>
-        {(w.days.length > 0 || w.pending > 0) && <NextSteps p={p} w={w} r={r} />}
+        {steps && <NextSteps p={p} w={w} r={r} />}
       </div>
     </Section>
   );
