@@ -40,7 +40,7 @@ Für API-Schlüssel gelten diese Regeln:
 |----------|--------------|
 | `GET /dashboard` | Kennzahlen (überfällig, bald fällig, nie geprüft, nicht prüfbar, neue Elemente, Mängel …) |
 | `GET /search?q=&propertyId=` | Suche über Objekte, Gebäude, Elemente; „Tür 36“, „Nummer 36“, „FSA 2“ (mit `propertyId` auch „36“) finden Elemente über ihre laufende Nummer – zuerst; mit Artwort nur in dieser Art („Tür 4“ trifft nie den Feuerlöscher Nr. 4, statt dessen `refHint: "Nummer 4 ist ein Feuerlöscher (FL-004)"`) |
-| `GET /properties` | Objekte mit Status (überfällig, bald fällig, Mängel, nächste Begehung) |
+| `GET /properties` | Objekte mit Status (überfällig, bald fällig, Mängel, nächste Begehung) und **Ampel** (Plan v8): `nextDue` (früheste Fälligkeit eines Elements; liegt sie zurück = „überfällig seit“), `overdue`, `openDefects`, `criticalDefects`, `pendingSignatures` (eigene Prüfungen, die zur Unterschrift bereitliegen). Eine Abfrage für alle Objekte, Zugriffsbereich wie bisher |
 | `POST /properties` | Objekt anlegen: `{ name, address?, description?, contactName?, access?, …, withBuilding? }` (`access` = Zugang: Schlüssel, Zeiten, Hinweise; `PATCH` ohne `access` lässt ihn unverändert) → `{ id }`; mit `withBuilding: true` entsteht im selben Aufruf ein Gebäude „Hauptgebäude“ → `{ id, buildingId }` |
 | `GET /buildings` | Alle Gebäude (`id`, `name`, `propertyId`) |
 | `GET /properties/:id` | Objekt (mit `access`) mit Gebäuden, Elementen, Grundrissen, Begehungen, Brandschutzbeauftragten |
@@ -183,7 +183,25 @@ vor Ablauf des Planungsfensters (14 Tage ab Anlage des Auftrags) fällig ist; Pr
 
 Ungültige oder widerrufene Codes liefern `404` und werden je IP gedrosselt (`token-ip`).
 
-## Kalender-Abo
+## Kalender
+
+`GET /calendar/events?from=JJJJ-MM-TT&to=JJJJ-MM-TT` (Sitzung oder Schlüssel; Zeitraum höchstens 400 Tage, Standard heute + 42 Tage)
+liefert die Einträge des Kalenders in der App, Tage in der Zeitzone des Workspaces:
+
+```json
+{ "from": "2026-10-26", "to": "2026-12-06", "today": "2026-11-20", "timeZone": "Europe/Berlin",
+  "events": [{ "date": "2026-12-03", "kind": "due", "title": "Hotel X: 72 Türen fällig", "count": 72,
+               "propertyId": "…", "propertyName": "Hotel X", "link": "/objekte/…?tab=begehung" }] }
+```
+
+`kind`: `due` (fällige Prüfungen je Objekt und Tag gebündelt), `round` (Brandschutzbegehung fällig, Prüfaufträge), `task`
+(Aufgabenfrist), `defect` (Frist der Aufgabe zu einem Mangel), `approval` (Zulassung eines Katalog-Typs endet, ab Prüfer),
+`credential` (Befähigungsnachweis endet). Überfälliges (vor heute fällig, noch offen) kommt immer mit, unabhängig von `from`,
+mit `overdue: true`; fällige Prüfungen davon je Objekt in einem Eintrag am frühesten Tag. `link` ist die App-Adresse, die der
+Eintrag öffnet (Objekt im passenden Reiter; Aufgaben ohne Objekt → `/maengel?art=aufgaben&aufgabe=…`). Rechte und
+Zugriffsbereich wie die Quellen (Elemente über das Gebäude, Aufgaben wie `GET /tasks`, Katalog ab Prüfer).
+
+### Kalender-Abo
 
 `GET/POST/DELETE /account/calendar-feed` (nur mit Sitzung) verwaltet den persönlichen Link; der Kalender ruft
 `GET /public/calendar/<token>.ics` ab (iCal: fällige Prüfungen je Gebäude und Tag, Begehungen, eigene Aufgaben; 180 Tage Vorschau).

@@ -32,7 +32,7 @@ const check = (ok, m) => { if (!ok) { fail.push(m); console.log('  ✗', m); } }
   await p.getByLabel('E-Mail').fill('demo@example.com');
   await p.getByLabel('Passwort').fill(PW);
   await p.getByRole('button', { name: 'Anmelden' }).click();
-  await p.getByText('Prüfstatus').waitFor();
+  await p.waitForURL((u) => u.pathname.startsWith('/objekte'));
   const notes = await api('/notifications');
   check(PROD || (notes.items ?? notes).length >= 6, 'Benachrichtigungen geseedet');
   await p.getByRole('button', { name: /Benachrichtigungen/ }).first().click();
@@ -101,9 +101,9 @@ if (!PROD) {
   }
 
   step('Prüfungen: Auswahl als ZIP');
-  // Prüfen-Überblick → „Zuletzt abgeschlossen“ → Alle (= Reiter „Durchgeführt“)
-  await p.goto(BASE + '/pruefen');
-  await p.locator('section', { has: p.getByRole('heading', { name: 'Zuletzt abgeschlossen' }) }).getByRole('link', { name: 'Alle' }).click();
+  // Plan v8: Einstellungen → Berichte → „Zu den Prüfungen“ (= /pruefungen, Reiter „Durchgeführt“)
+  await p.goto(BASE + '/einstellungen/berichte');
+  await p.getByRole('link', { name: 'Zu den Prüfungen' }).click();
   await p.getByRole('tab', { name: 'Durchgeführt', selected: true }).waitFor();
   const boxes = p.locator('input[type=checkbox][aria-label$="auswählen"]');
   await boxes.first().waitFor();

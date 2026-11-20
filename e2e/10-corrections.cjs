@@ -42,7 +42,7 @@ const check = (ok, m) => {
   await p.getByLabel('E-Mail').fill('demo@example.com');
   await p.getByLabel('Passwort').fill(PW);
   await p.getByRole('button', { name: 'Anmelden' }).click();
-  await p.getByText('Prüfstatus').waitFor();
+  await p.waitForURL((u) => u.pathname.startsWith('/objekte'));
 
   step('Eigene Prüfungsart und Erinnerung in den Einstellungen');
   await p.goto(BASE + '/einstellungen?tab=company');

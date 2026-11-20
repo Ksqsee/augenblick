@@ -20,7 +20,7 @@ async function login(b, email) {
   await p.getByLabel('E-Mail').fill(email);
   await p.getByLabel('Passwort').fill(PW);
   await p.getByRole('button', { name: 'Anmelden' }).click();
-  await p.getByText('Prüfstatus').waitFor();
+  await p.waitForURL((u) => u.pathname.startsWith('/objekte'));
   const api = async (path, opts = {}) => {
     const r = await p.request.fetch(BASE + '/api' + path, { method: opts.method ?? (opts.data ? 'POST' : 'GET'), data: opts.data, headers: { 'x-pk': '1' } });
     if (!r.ok() && !opts.allowFail) throw new Error(`${path} → ${r.status()} ${await r.text()}`);
@@ -48,7 +48,7 @@ async function login(b, email) {
   await s2.p.getByLabel('E-Mail').fill(email);
   await s2.p.getByLabel('Passwort').fill(PW);
   await s2.p.getByRole('button', { name: 'Anmelden' }).click();
-  await s2.p.getByText('Prüfstatus').waitFor();
+  await s2.p.waitForURL((u) => u.pathname.startsWith('/objekte'));
   const again = (await s2.api('/notifications')).items.filter((n) => n.type === 'account_security').length;
   check(again === after.length, 'kein Hinweis beim bekannten Gerät');
   await s2.p.getByRole('button', { name: /Benachrichtigungen/ }).first().click();

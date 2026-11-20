@@ -131,8 +131,8 @@ const enter = async (loc) => {
   const assetByNumber = async (n) => (await api(`/properties/${prop.id}`)).json.assets.find((a) => a.number === n);
   const readyList = async () => (await api('/inspections?status=ready')).json;
 
-  step('Prüfen (390 px): „Tür ansagen“ oben, Objekt ist gewählt');
-  await p.goto(BASE + '/pruefen');
+  step('Objekt → Begehung (390 px): „Tür ansagen“ oben, Objekt ist gewählt');
+  await p.goto(BASE + `/objekte/${prop.id}?tab=begehung`);
   const card = p.getByRole('region', { name: 'Tür ansagen' });
   await card.waitFor();
   const field = card.getByRole('textbox', { name: 'Ansage' });
@@ -168,7 +168,7 @@ const enter = async (loc) => {
   await noOverflow('(Prüfung aus der Ansage)');
   await shot('m-pruefung-rohnotiz', diktat);
   await tap(readyBtn);
-  await p.waitForURL(/\/pruefen\?ansage=weiter/);
+  await p.waitForURL(/\/objekte\/[^/?]+\?(.*&)?ansage=weiter/);
   check((await readyList()).some((i) => i.id === insp354 && i.rawPending === 1), 'Prüfung 354 bereit zur Unterschrift, 1 Rohnotiz offen');
   const d354 = (await api(`/inspections/${insp354}`)).json;
   check(d354.defects.length === 1 && d354.rawNotes?.[0]?.text === 'Dichtung oben beschädigt' && d354.rawNotes[0].source === 'app', 'Mangel eingetragen und Text roh gespeichert');
@@ -185,7 +185,7 @@ const enter = async (loc) => {
   await p.waitForURL(/\/pruefung\/[^/?]+\?ansage=1/);
   await tap(p.getByRole('button', { name: 'Alles in Ordnung', exact: true }));
   await tap(p.getByRole('button', { name: 'Bereit · nächste Tür' }));
-  await p.waitForURL(/\/pruefen\?ansage=weiter/);
+  await p.waitForURL(/\/objekte\/[^/?]+\?(.*&)?ansage=weiter/);
   check((await assetByNumber(355))?.model === 'SK32', 'Tür 355 mit dem letzten Typ');
 
   step('Tür 356 – Befund gleich in der Ansage');
@@ -197,7 +197,7 @@ const enter = async (loc) => {
   check((await p.getByLabel('Eingesprochener Befund').inputValue()) === 'Band lose', 'Befund aus der Ansage vorbelegt');
   await tap(p.getByRole('button', { name: 'Alles andere in Ordnung' }));
   await tap(p.getByRole('button', { name: 'Bereit · nächste Tür' }));
-  await p.waitForURL(/\/pruefen\?ansage=weiter/);
+  await p.waitForURL(/\/objekte\/[^/?]+\?(.*&)?ansage=weiter/);
 
   step('Unbekannter Typ: Tür 360 – allgemeine Checkliste, Typ als Rohnotiz');
   door('Tür 360 (Typ unbekannt)');
@@ -213,7 +213,7 @@ const enter = async (loc) => {
   await p.locator('#diktat').getByText('noch nicht ausgewertet').waitFor();
   await tap(p.getByRole('button', { name: 'Alles in Ordnung', exact: true }));
   await tap(p.getByRole('button', { name: 'Bereit · nächste Tür' }));
-  await p.waitForURL(/\/pruefen\?ansage=weiter/);
+  await p.waitForURL(/\/objekte\/[^/?]+\?(.*&)?ansage=weiter/);
   check((await assetByNumber(360))?.model === 'unbekannt', 'Tür 360 mit Typ „unbekannt“');
 
   step('Falsche Art: „Tür 400“ ist ein Feuerlöscher');
@@ -222,7 +222,7 @@ const enter = async (loc) => {
   await preview.getByText(/Nummer 400 ist ein Feuerlöscher \(/).waitFor();
   await enter(field);
   await card.getByRole('alert').getByText(/Nummer 400 ist ein Feuerlöscher/).waitFor();
-  check(p.url().includes('/pruefen'), 'keine Prüfung geöffnet');
+  check(/\/objekte\/[^/?]+\?tab=begehung/.test(p.url()), 'keine Prüfung geöffnet');
   await field.fill('');
 
   step('Unterschreiben: „Diktat noch nicht ausgewertet“');
@@ -297,7 +297,7 @@ const enter = async (loc) => {
   await prep.getByRole('combobox').nth(1).selectOption({ label: building.name });
   await p.getByRole('button', { name: 'Laden', exact: true }).click();
   await p.getByText(/Elemente gespeichert/).waitFor();
-  await p.goto(BASE + '/pruefen');
+  await p.goto(BASE + `/objekte/${prop.id}?tab=begehung`);
   await card.waitFor();
   await p.waitForTimeout(400);
   await ctx.setOffline(true);
@@ -314,14 +314,14 @@ const enter = async (loc) => {
   await noOverflow('(Offline-Prüfung aus der Ansage)');
   await shot('m-offline-ansage-pruefung', p.locator('#diktat'));
   await tap(p.getByRole('button', { name: 'Bereit · nächste Tür' }));
-  await p.waitForURL(/\/pruefen\?ansage=weiter/);
+  await p.waitForURL(/\/objekte\/[^/?]+\?(.*&)?ansage=weiter/);
   door('Tür 381 offline (gleicher Typ)');
   await input(field, 'Tür 381 gleicher Typ');
   await enter(field);
   await p.waitForURL(/\/offline\/pruefen\/local[^?]+\?ansage=1/);
   await tap(p.getByRole('button', { name: 'Alles in Ordnung', exact: true }));
   await tap(p.getByRole('button', { name: 'Bereit · nächste Tür' }));
-  await p.waitForURL(/\/pruefen\?ansage=weiter/);
+  await p.waitForURL(/\/objekte\/[^/?]+\?(.*&)?ansage=weiter/);
   door('Tür 382 offline (Typ unbekannt)');
   await input(field, 'Tür 382 Typ Holztür alt');
   await preview.getByText(/Typ unbekannt/).waitFor();
@@ -330,7 +330,7 @@ const enter = async (loc) => {
   const offlineRows = await p.locator('[data-cp]').count();
   await tap(p.getByRole('button', { name: 'Alles in Ordnung', exact: true }));
   await tap(p.getByRole('button', { name: 'Bereit · nächste Tür' }));
-  await p.waitForURL(/\/pruefen\?ansage=weiter/);
+  await p.waitForURL(/\/objekte\/[^/?]+\?(.*&)?ansage=weiter/);
   door('Tür 354 offline (vorhanden)');
   await input(field, 'Tür 354 Typ SK32');
   await preview.getByText(/vorhanden/).waitFor();
@@ -399,7 +399,7 @@ const enter = async (loc) => {
   const w = await wide.newPage();
   global.__page = w;
   w.on('pageerror', (e) => errors.push('pageerror ' + e.message));
-  await w.goto(BASE + '/pruefen');
+  await w.goto(BASE + `/objekte/${prop.id}?tab=begehung`);
   const wcard = w.getByRole('region', { name: 'Tür ansagen' });
   await wcard.waitFor();
   await wcard.getByRole('textbox', { name: 'Ansage' }).fill('Tür 390 Typ Premio T30 RS, Dichtung fehlt');

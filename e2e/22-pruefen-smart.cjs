@@ -46,7 +46,7 @@ const check = (ok, m) => {
   await p.getByLabel('E-Mail').fill('demo@example.com');
   await p.getByLabel('Passwort').fill(PW);
   await p.getByRole('button', { name: 'Anmelden' }).click();
-  await p.getByText('Prüfstatus').waitFor();
+  await p.waitForURL((u) => u.pathname.startsWith('/objekte'));
   const me = (await api('/account/me')).json;
   const userId = me.user.id;
 
@@ -226,7 +226,7 @@ const check = (ok, m) => {
   r = await api('/ai/parse', { data: { text: 'fünf Feuerlöscher im Erdgeschoss Flur' } });
   check(r.json?.source === 'rules' && r.json.items[0]?.kind === 'asset' && r.json.items[0].count === 5 && r.json.items[0].category === 'extinguisher' && r.json.items[0].floor === 'EG' && r.json.items[0].location === 'Flur', `Regel-Parser erkennt Sammelanlage (${JSON.stringify(r.json?.items?.[0])})`);
   const before = (await api('/assets')).json.filter((a) => a.location === 'E2E Flur').length;
-  await p.goto(BASE + '/');
+  await p.goto(BASE + '/kalender');
   await p.getByRole('button', { name: /Erfassen/ }).first().click();
   const sheet = p.getByRole('dialog');
   await sheet.getByLabel('Erfasster Text').fill('zwölf Feuerlöscher im Erdgeschoss E2E Flur');

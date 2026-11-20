@@ -13,6 +13,17 @@ interface Topic {
 
 const GUIDE: Topic[] = [
   {
+    id: 'orte',
+    title: 'Objekte und Kalender',
+    steps: [
+      'Alles richtet sich nach Objekten: Am Computer steht links die Objektliste, auf dem Handy ist sie die Startseite. Ein Tipp öffnet das Objekt mit Übersicht, Elementen, Begehung und Mängeln.',
+      'Jede Zeile zeigt, was ansteht: nächste Fälligkeit bzw. „überfällig seit“, offene Mängel (kritische in Rot) und Prüfungen, die auf deine Unterschrift warten. Das Dringendste steht oben; filtern nach Fällig, Mit Mängeln oder Unterschrift offen.',
+      'Der Kalender zeigt fällige Prüfungen je Objekt und Tag gebündelt, Begehungen, Fristen von Aufgaben und Mängeln sowie ablaufende Zulassungen und Nachweise – Überfälliges oben, darunter „Jetzt“. Ein Tipp auf einen Eintrag öffnet das Objekt an der passenden Stelle.',
+      'Mängel und Aufgaben aller Objekte, alle Elemente, Offline-Modus und Scannen erreichst du über das Konto-Menü; Berichte liegen unter Einstellungen → Berichte.',
+    ],
+    link: ['/kalender', 'Zum Kalender'],
+  },
+  {
     id: 'start',
     title: 'Erste Schritte',
     steps: [
@@ -33,7 +44,7 @@ const GUIDE: Topic[] = [
       'Durchgeführte Arbeiten antippen, allgemeine Fotos und Bemerkungen ergänzen.',
       'Die Gesamtbewertung wird aus den Befunden berechnet. Als Sachkundige/r kannst du sie abweichend festlegen, z. B. „Kritisch“ – mit Begründung, die im Protokoll erscheint.',
       'Unterschreiben und „Abschließen“. Ergebnis und nächster Termin werden automatisch berechnet, das Protokoll steht als PDF bereit.',
-      'Hat Claude Prüfungen für dich ausgefüllt, warten sie unter Prüfungen → „Unterschreiben“: aufklappen, bei Bedarf bearbeiten oder zurückstellen, dann alle mit einem Tipp unterschreiben (gemerkte Unterschrift, beim ersten Mal einmal zeichnen).',
+      'Hat Claude Prüfungen für dich ausgefüllt, warten sie im Objekt unter Begehung → „Unterschreiben“: aufklappen, bei Bedarf bearbeiten oder zurückstellen, dann alle mit einem Tipp unterschreiben (gemerkte Unterschrift, beim ersten Mal einmal zeichnen).',
       'Der Entwurf wird laufend gespeichert – du kannst jederzeit unterbrechen und später weitermachen.',
     ],
   },
@@ -68,7 +79,7 @@ const GUIDE: Topic[] = [
       'Feststellungen werden beim Abschluss zu Mängeln und lassen sich als Aufgaben weitergeben.',
       'Die nächste Begehung wird nach 12 Monaten fällig.',
     ],
-    link: ['/pruefen/begehungen', 'Zu den Begehungen'],
+    link: ['/begehungen', 'Zu den Begehungen'],
   },
   {
     id: 'grundrisse',
@@ -83,13 +94,13 @@ const GUIDE: Topic[] = [
     id: 'maengel',
     title: 'Mängel, Aufgaben und Subunternehmer',
     steps: [
-      'Unter Mängel siehst du alle offenen Mängel aus Prüfungen und Begehungen – nach Schwere sortiert.',
+      'Im Objekt unter Mängel siehst du die offenen Mängel und Aufgaben dieses Objekts; alle Objekte zusammen stehen im Konto-Menü unter „Mängel und Aufgaben“.',
       'Aus einem Mangel eine Aufgabe erzeugen, zuständige Person oder Subunternehmer zuweisen.',
       'Für Subunternehmer in der Aufgabe „Link erzeugen“ – die Firma kann die Aufgabe ohne Konto ansehen und als erledigt melden.',
       'Wird eine Aufgabe erledigt, gilt der verknüpfte Mangel automatisch als behoben.',
       'Labels und SLA-Fristen je Priorität legst du unter Einstellungen → Aufgaben fest; die Übersicht zeigt Auslastung und SLA-Einhaltung.',
     ],
-    link: ['/offen?art=aufgaben', 'Zu den Aufgaben'],
+    link: ['/maengel?art=aufgaben', 'Zu den Aufgaben'],
   },
   {
     id: 'berichte',
@@ -97,18 +108,18 @@ const GUIDE: Topic[] = [
     steps: [
       'Jedes Protokoll lässt sich als PDF herunterladen; der Dateiname folgt dem Schema unter Einstellungen → Unternehmen (je Objekt überschreibbar).',
       'Unter Prüfungen → Durchgeführt mehrere Prüfungen auswählen und gesammelt als ZIP exportieren.',
-      'Compliance-Übersicht, Mängelbericht und Objektbericht (je Objekt, auch direkt in der Objektansicht) gibt es als PDF unter Berichte.',
-      'Jeder erzeugte Bericht und jeder ZIP-Export landet automatisch unter Berichte → Erstellte Berichte und lässt sich dort später wieder herunterladen.',
+      'Compliance-Übersicht, Mängelbericht und Objektbericht (je Objekt, auch direkt in der Objektansicht) gibt es als PDF unter Einstellungen → Berichte.',
+      'Jeder erzeugte Bericht und jeder ZIP-Export landet automatisch unter Einstellungen → Berichte → Erstellte Berichte und lässt sich dort später wieder herunterladen.',
       'Die Elementliste gibt es als Excel-Datei: bearbeiten und über Import wieder einlesen. Außerdem CSV und vollständiges JSON-Backup.',
       'Ältere Prüfungen können archiviert werden (manuell oder automatisch) – sie bleiben als Nachweis erhalten.',
     ],
-    link: ['/berichte', 'Zu den Berichten'],
+    link: ['/einstellungen/berichte', 'Zu den Berichten'],
   },
   {
     id: 'etiketten',
     title: 'QR-Etiketten',
     steps: [
-      'Unter Berichte → QR-Etiketten Bögen für vorhandene Elemente drucken.',
+      'Unter Einstellungen → Berichte → QR-Etiketten Bögen für vorhandene Elemente drucken.',
       'Oder Blanko-Etiketten vorab drucken und aufkleben: Beim ersten Scan legst du das Element an oder ordnest das Etikett einem vorhandenen Element zu.',
       'Der QR-Code öffnet das Element direkt – auch mit der normalen Kamera-App.',
     ],

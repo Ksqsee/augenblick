@@ -34,7 +34,7 @@ export function InspectionsPage() {
   return (
     <>
       <PageHeader
-        backTo={{ to: '/pruefen', label: 'Prüfen' }}
+        backTo={{ to: '/objekte', label: 'Objekte' }}
         title="Prüfungen"
         subtitle="Was fällig ist, was läuft, was erledigt ist"
         actions={
@@ -44,7 +44,7 @@ export function InspectionsPage() {
             </ButtonLink>
             <Menu
               items={[
-                { label: 'Begehungen', icon: <Footprints />, to: '/pruefen/begehungen' },
+                { label: 'Begehungen', icon: <Footprints />, to: '/begehungen' },
                 { label: 'Offline vorbereiten', icon: <CloudDownload />, to: '/offline' },
               ]}
             />

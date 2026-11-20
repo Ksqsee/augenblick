@@ -2,7 +2,7 @@
 
 Verbindlicher Vertrag für alle Seiten. Herleitung und Befund: `docs/plan/v3.md` (Abschnitte 1–2).
 Tokens: `src/index.css` · Bausteine: `src/components/ui.tsx` · Rahmen: `src/components/Shell.tsx`.
-Vorzeigeseiten: **Heute** (`src/pages/Dashboard.tsx`) und **Anmeldung** (`src/pages/Auth.tsx`).
+Vorzeigeseiten: **Objektliste und Kalender** (`src/components/Shell.tsx`, `src/pages/Kalender.tsx`, Plan v8) und **Anmeldung** (`src/pages/Auth.tsx`).
 Bilder (1360 und 390 px): `docs/design/v3/` (Bereiche in Unterordnern; fünf Orte: `d-/m-heute`, `d-/m-pruefen`,
 `d-/m-offen`, `d-/m-objekte`).
 
@@ -127,33 +127,40 @@ Knöpfe: kein Skalieren beim Klick, nur Deckkraft `.85`.
 
 ## 3. Rahmen (`Shell.tsx`)
 
-**Fünf Orte** (v4, `docs/plan/v4.md` 5): Heute · Objekte · Prüfen · Offen · Berichte. Kein „Mehr“-Block –
-alles andere (Team, Subunternehmer, Import, Prüfvorlagen, Automatik, API, Offline-Modus, Hilfe) liegt unter
-**Einstellungen**. Unterseiten und alte Adressen heben ihren Ort hervor (`/elemente` → Objekte, `/rundgang`, `/scan`,
-`/offline`, `/pruefen/begehungen` → Prüfen); alte Pfade leiten samt Query um (`src/moved.tsx`).
+**Zwei Orte** (v8, `docs/plan/v8.md` 1): **Objekte** · **Kalender**, dazu Einstellungen. Heute, Prüfen, Offen und Berichte
+gibt es nicht mehr als Orte; ihre Adressen leiten um (`src/moved.tsx`). Seiten ohne Ort (`/elemente`, `/maengel`,
+`/pruefungen`, `/begehungen`, `/unterschreiben`, `/offline`, `/scan`) gehören zu Objekte und stehen im Konto-Menü.
 
 ### Desktop (≥ 1024 px)
-- **Seitenleiste** 232 px auf `canvas`, **ohne** Trennlinie zum Inhalt. Von oben: Logo + Glocke ·
-  Suche (Strg K) · **Erfassen** (schwarz, Mikrofon) + Scannen (`ghost`) · die fünf Orte (`nav` „Orte“) ·
-  unten Workspace/Konto-Menü (Einstellungen, Workspaces, Abmelden) + **Zahnrad** zu den Einstellungen · Rechtslinks.
-- Navigation: Text 14 px, Symbol 16 px `ink-3`; aktiv = `selected` + Tinte, **kein** farbiger Balken.
-  Zähler (Offline-Warteschlange an „Prüfen“) als graue Zahl.
+- **Seitenleiste = Objektliste**, 272 px auf `canvas`, **ohne** Trennlinie zum Inhalt. Von oben: Logo · Suche (Strg K) ·
+  Glocke · Suchfeld der Liste · **Erfassen** (schwarz) + „Neues Objekt“ (+) + Scannen · „Objekte n“ mit Filtern als
+  kleine Text-Reiter (Alle · Fällig · Mit Mängeln · Unterschrift offen) · je Objekt eine Zeile (Name in `ink-2`, darunter
+  12 px: Ort, Fälligkeit mit 6-px-Punkt, Mängel, Unterschriften – nur Zinnober für überfällig/kritisch) · Haarlinie ·
+  Kalender, Einstellungen (`nav` „Orte“) · Workspace/Konto-Menü · Rechtslinks.
+- Gewählte Zeile = `selected`, kein farbiger Balken. Ohne gewähltes Objekt öffnet `/objekte` das zuletzt geöffnete
+  (je Workspace im Browser gemerkt), sonst das dringendste.
 - **Inhalt** `max-w-6xl`, `px-10 pt-8`. Die weiße Fläche beginnt mit eigenem Rand (`Surface`).
 
 ### Handy (390 px ist Referenz)
-- Kopfzeile 56 px auf `canvas` (leicht durchscheinend), Logo · Glocke · Suche · **Avatar** (Konto-Menü mit Berichte,
-  Einstellungen, Workspaces, Abmelden, Rechtslinks).
-- **Untere Leiste** `aria-label="Hauptnavigation"`: Heute · Prüfen · **Erfassen** · Offen · Objekte.
-  Erfassen = schwarzer Kreis 52 px mit Mikrofon in der Mitte, kein Ring, ragt nicht heraus; solange das
-  Erfassen-Sheet offen ist, wird er Zinnober. Aktiver Reiter nur durch Tinte statt `ink-3`.
+- Kopfzeile 56 px auf `canvas` (leicht durchscheinend), Logo · Glocke · Suche · **Avatar** (Konto-Menü: Alle Elemente,
+  Mängel und Aufgaben, Code scannen, Offline-Modus, Einstellungen, Workspaces, Abmelden, Rechtslinks).
+- Startseite ist die **Objektliste** (gleiche Zeilen wie die Leiste, Filter als Chips).
+- **Untere Leiste** `aria-label="Hauptnavigation"`: Objekte · **Erfassen** · Kalender. Erfassen = schwarzer Kreis 52 px mit
+  Mikrofon in der Mitte, kein Ring, ragt nicht heraus; solange das Erfassen-Sheet offen ist, wird er Zinnober. Aktiver
+  Reiter nur durch Tinte statt `ink-3`.
 - `Surface` läuft auf dem Handy randlos über die volle Breite (oben/unten Haarlinie).
 - Kein horizontaler Überlauf: breite Inhalte scrollen in sich, Tabellen werden Zeilen (`DataTable`).
+
+### Kalender (`src/pages/Kalender.tsx`)
+- Eine Fläche: Überfällig (Punkt in Zinnober) · Monat bzw. Liste · Jetzt (höchstens 5 Zeilen) · Erledigt für dich.
+- Monat: Raster Mo–So mit Haarlinien, heute als Tinten-Kreis, je Tag höchstens drei Einträge als 12-px-Text, Rest „+n
+  weitere“. Liste: Tage als kleine Überschrift, Einträge als Zeilen mit Punkt. Keine Farben je Art – die Art steht als Wort.
 
 ### Einstellungen als Sammelort
 - `SettingsFrame` (`src/pages/Settings.tsx`): ab `lg` links eine Spalte auf dem Grund (184 px, Titel „Einstellungen“,
   Gruppen Du · Workspace · Hilfe, Einträge wie die Navigation); darunter eine waagerecht scrollende Reiterleiste.
 - Reiter der eigentlichen Einstellungen bleiben `?tab=…`; Team, Subunternehmer, Import, Hilfe sind Unterseiten
-  `/einstellungen/team` usw. im selben Rahmen. Offline-Modus bleibt `/offline` (gehört zu Prüfen), ist hier verlinkt.
+  `/einstellungen/team` usw. im selben Rahmen. Berichte liegen unter `/einstellungen/berichte` (v8). Offline-Modus bleibt `/offline`, ist hier und im Konto-Menü verlinkt.
 
 Logo: schwarzes Quadrat (Radius 6/32), dünner weißer Kreis, weiße Nadel (`LogoMark`).
 
@@ -232,7 +239,7 @@ farbige Hintergründe ganzer Bereiche, Schatten auf Schatten, Orange.
 
 ## 5. Seitenvorlagen – immer `Surface > Section`
 
-### 5.1 Heute (umgesetzt in `Dashboard.tsx`)
+
 ```
 eine Spalte, ab lg höchstens 52rem breit
   Surface
@@ -269,7 +276,7 @@ Mit `?tab=…` zeigt `/pruefen` die ausführliche Prüfungsliste (Vorlage 5.2) m
 steht ein `Empty` mit dem nächsten Schritt („Noch nichts zu prüfen.“ → „Zu den Objekten“). „Rundgang starten“ im Kopf,
 sobald ein Gebäude Fälliges oder nie Geprüftes hat.
 
-### 5.1b Offen (umgesetzt in `Offen.tsx`)
+
 ```
 PageHeader  „Offen“ · [Neue Aufgabe]
 Tabs        Alle n · Mängel n · Aufgaben n            (?art=)

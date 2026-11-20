@@ -184,14 +184,14 @@ async function mcp(key, name, args = {}) {
     check(nl.some((n) => /Kritischer Befund wartet auf Unterschrift/.test(n.title) && /^\/pruefung\/\w+$/.test(n.link ?? '')), `Admin benachrichtigt, Link zur Prüfung (${nl.map((n) => n.title).join(' | ').slice(0, 160)})`);
     await nina.close();
   }
-  step('A2 in der App: „Heute“ → „Jetzt“ zeigt die Zeile mit Link auf /unterschreiben (390 px)');
-  await p.goto(BASE + '/');
+  step('A2 in der App: Kalender → „Jetzt“ zeigt die Zeile mit Link auf /unterschreiben (390 px)');
+  await p.goto(BASE + '/kalender');
   const row = p.locator('li[data-now="pending_findings"]').first();
   await row.waitFor({ timeout: 15000 });
   check(/Ein kritischer Befund wartet auf Unterschrift/.test(await row.innerText()), `Zeile „kritische Befunde warten“ (${(await row.innerText()).slice(0, 120)})`);
   check(/löst bei Rauch nicht aus/.test(await row.innerText()), 'Zeile nennt den Befund');
   check(await p.locator('li[data-now]').first().getAttribute('data-now') === 'pending_findings', 'ganz oben unter „Jetzt“');
-  await noOverflow('/ (Jetzt mit wartendem Befund)');
+  await noOverflow('/kalender (Jetzt mit wartendem Befund)');
   await p.screenshot({ path: OUT + 'a2-jetzt.png', fullPage: true });
   await row.getByRole('button').click();
   await p.waitForURL(/\/unterschreiben/);
@@ -271,7 +271,7 @@ async function mcp(key, name, args = {}) {
   check(/als ungültig markiert: 1/.test(t.text) && !/neu: 4/.test(t.text), `report: ungültig getrennt (${(t.text.match(/neu: .*/) ?? [''])[0]})`);
 
   step('B8 in der App: Mangel-Detail zeigt „Ungültig“; Markieren per Dialog (390 px)');
-  await p.goto(BASE + `/offen?art=maengel&mangel=${dup.id}`);
+  await p.goto(BASE + `/maengel?art=maengel&mangel=${dup.id}`);
   const panel = p.getByRole('dialog').last();
   await panel.getByText('Ungültig', { exact: true }).first().waitFor({ timeout: 15000 });
   check(await panel.getByText('Fehleintrag – Tür war offen gekeilt').first().isVisible(), 'Grund sichtbar');
@@ -279,7 +279,7 @@ async function mcp(key, name, args = {}) {
   await noOverflow('Mangel-Detail ungültig');
   await p.screenshot({ path: OUT + 'b8-ungueltig.png', fullPage: true });
   const other = (await api('/defects')).json.find((d) => d.title === 'Tür schleift am Boden');
-  await p.goto(BASE + `/offen?art=maengel&mangel=${other.id}`);
+  await p.goto(BASE + `/maengel?art=maengel&mangel=${other.id}`);
   const panel2 = p.getByRole('dialog').last();
   await panel2.getByRole('button', { name: 'Ungültig' }).click();
   const dlg = p.getByRole('dialog', { name: 'Mangel ungültig' });
@@ -293,9 +293,9 @@ async function mcp(key, name, args = {}) {
     (await api('/tasks')).json.filter((x) => x.defectId === other.id && (x.status === 'open' || x.status === 'in_progress')).length === 0,
     'offene Aufgaben zum ungültigen Mangel entfallen',
   );
-  await p.goto(BASE + '/offen?art=maengel&tab=invalid');
+  await p.goto(BASE + '/maengel?art=maengel&tab=invalid');
   await p.getByText('Tür schleift am Boden').first().waitFor();
-  await noOverflow('/offen Mängel „Ungültig“');
+  await noOverflow('/maengel Mängel „Ungültig“');
 
   step('C3: catalog suggest zerlegt mehrere Befunde und schreibt Begriffe aus');
   t = await mcp(key, 'catalog', { action: 'suggest', text: 'OTS schließt nicht, Dichtung fehlt und Spion verkratzt' });

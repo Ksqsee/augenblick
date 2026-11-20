@@ -17,7 +17,6 @@ import { Spinner } from "./components/ui";
 import { AssetPage, AssetByCode } from "./pages/Asset";
 import { AssetsPage } from "./pages/Assets";
 import { InviteAccept, Login, Register, ResetPassword } from "./pages/Auth";
-import { Dashboard } from "./pages/Dashboard";
 import { FloorPlanPage } from "./pages/FloorPlan";
 import { HelpPage } from "./pages/Help";
 import { ImportPage } from "./pages/Import";
@@ -33,9 +32,10 @@ import {
   WalkthroughsPage,
 } from "./pages/Walkthroughs";
 import { InspectionRun } from "./pages/InspectionRun";
-import { Moved, MOVED } from "./moved";
-import { OffenPage } from "./pages/Offen";
-import { PruefenPage } from "./pages/Pruefen";
+import { Moved, MOVED, OffenMoved, PruefenMoved } from "./moved";
+import { InspectionsPage } from "./pages/Inspections";
+import { KalenderPage } from "./pages/Kalender";
+import { MaengelPage } from "./pages/Offen";
 import { Protocol } from "./pages/Protocol";
 import { PropertiesPage } from "./pages/Properties";
 import { PropertyPage } from "./pages/Property";
@@ -188,20 +188,21 @@ export function App() {
             </RequireAuth>
           }
         >
-          <Route index element={<Dashboard />} />
+          {/* Zwei Orte (docs/plan/v8.md 1): Objekte und Kalender – alles andere unter Einstellungen bzw. im Konto-Menü */}
+          <Route index element={<Navigate to="/objekte" replace />} />
           <Route path="objekte" element={<PropertiesPage />} />
           <Route path="objekte/:id" element={<PropertyPage />} />
           <Route path="elemente" element={<AssetsPage />} />
           <Route path="elemente/:id" element={<AssetPage />} />
           <Route path="e/:code" element={<AssetByCode />} />
-          {/* Fünf Orte (docs/plan/v4.md 5): Heute, Objekte, Prüfen, Offen, Berichte – alles andere unter Einstellungen */}
-          <Route path="pruefen" element={<PruefenPage />} />
-          <Route path="pruefen/begehungen" element={<WalkthroughsPage />} />
-          <Route path="offen" element={<OffenPage />} />
+          <Route path="kalender" element={<KalenderPage />} />
+          {/* Seiten ohne eigenen Ort (Konto-Menü, Links aus Objekt und Kalender) */}
+          <Route path="maengel" element={<MaengelPage />} />
+          <Route path="pruefungen" element={<InspectionsPage />} />
+          <Route path="begehungen" element={<WalkthroughsPage />} />
           <Route path="unterschreiben" element={<SignPage />} />
           <Route path="grundrisse/:id" element={<FloorPlanPage />} />
           <Route path="offline" element={<OfflinePage />} />
-          <Route path="berichte" element={<ReportsPage />} />
           <Route path="einstellungen" element={<SettingsPage />} />
           <Route
             path="einstellungen/team"
@@ -216,6 +217,14 @@ export function App() {
             element={
               <SettingsFrame current="subunternehmer">
                 <SubcontractorsPage />
+              </SettingsFrame>
+            }
+          />
+          <Route
+            path="einstellungen/berichte"
+            element={
+              <SettingsFrame current="berichte">
+                <ReportsPage />
               </SettingsFrame>
             }
           />
@@ -237,11 +246,13 @@ export function App() {
           />
           <Route path="scan" element={<ScanPage />} />
           <Route path="rundgang/:id" element={<RoundPage />} />
-          {/* alte Adressen (Lesezeichen, Benachrichtigungen, Mails) – Query-Parameter bleiben erhalten */}
+          {/* alte Adressen (Lesezeichen, Benachrichtigungen, Mails, PDFs, Connector) – Query-Parameter bleiben erhalten */}
+          <Route path="pruefen" element={<PruefenMoved />} />
+          <Route path="offen" element={<OffenMoved />} />
           {MOVED.map((m) => (
             <Route key={m.from} path={m.from} element={<Moved to={m.to} />} />
           ))}
-          <Route path="*" element={<Navigate to="/" replace />} />
+          <Route path="*" element={<Navigate to="/objekte" replace />} />
         </Route>
       </Routes>
     </BrowserRouter>

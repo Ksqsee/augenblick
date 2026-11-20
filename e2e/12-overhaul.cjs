@@ -1,4 +1,4 @@
-// E2E 12-overhaul: Startseite „Heute“, Erfassen per Text (Diktat-Ersatz), Mangel ohne Prüfung, Rundgang mit Weiter-Ablauf,
+// E2E 12-overhaul: Kalender mit „Jetzt“ (bis v8 Startseite „Heute“), Erfassen per Text (Diktat-Ersatz), Mangel ohne Prüfung, Rundgang mit Weiter-Ablauf,
 // Befund einsprechen im Prüfablauf (Text), Diktat-Knöpfe, Handybreite 390 px. Nur lokal (ohne Workers AI → Regel-Parser).
 const { chromium } = require('playwright');
 if (!process.env.DEMO_PASSWORD) throw new Error('DEMO_PASSWORD fehlt');
@@ -39,7 +39,7 @@ const check = (ok, m) => {
   await p.getByLabel('E-Mail').fill('demo@example.com');
   await p.getByLabel('Passwort').fill(PW);
   await p.getByRole('button', { name: 'Anmelden' }).click();
-  await p.getByText('Prüfstatus').waitFor();
+  await p.waitForURL((u) => u.pathname.startsWith('/objekte'));
 
   step('Anmeldeverlauf');
   {
@@ -52,13 +52,16 @@ const check = (ok, m) => {
     check(r.status === 403, `Verlauf nicht per API-Schlüssel (${r.status})`);
   }
 
-  step('Heute: Lage, Aktionen, Jetzt (Rundgänge stehen unter Prüfen)');
+  // Plan v8: „Heute“ entfällt – die Lage steht in der Objektliste (Ampel) und im Kalender (Überfällig, Jetzt)
+  step('Kalender: Überfällig, Jetzt mit Aktionen (Rundgänge stehen im Objekt)');
+  await p.goto(BASE + '/kalender');
   await p.getByRole('heading', { name: 'Jetzt' }).waitFor();
   check((await p.getByRole('list', { name: 'Jetzt' }).getByRole('listitem').count()) > 0, 'Vorschläge unter „Jetzt“');
-  check(/überfällig|kritisch|geprüft|fällig/.test(await p.getByRole('heading', { level: 1 }).innerText()), 'Lage als Satz im Titel');
+  check((await p.getByRole('list', { name: 'Überfällig' }).locator('[data-event]').count()) > 0, 'Lage: Überfälliges oben');
+  check(/überfällig/.test(await p.getByRole('navigation', { name: 'Liegenschaften' }).innerText()), 'Lage je Objekt in der Leiste');
   check(await p.getByRole('button', { name: /Erfassen/ }).first().isVisible(), 'Erfassen-Knopf');
-  check(await p.getByRole('link', { name: /Rundgang starten/ }).isVisible(), 'Rundgang starten');
-  check((await p.getByRole('heading', { name: 'Rundgänge' }).count()) === 0, 'Rundgänge-Liste nicht mehr auf Heute');
+  check((await p.getByRole('list', { name: 'Jetzt' }).getByRole('button', { name: /Rundgang starten/ }).count()) > 0, 'Rundgang starten unter „Jetzt“');
+  check((await p.getByRole('heading', { name: 'Rundgänge' }).count()) === 0, 'keine Rundgänge-Liste im Kalender');
   check((await p.getByRole('heading', { name: 'Als Nächstes' }).count()) === 0, 'alter Abschnitt „Als Nächstes“ entfernt');
   await p.screenshot({ path: OUT + '01-heute.png', fullPage: true });
 
@@ -209,17 +212,17 @@ const check = (ok, m) => {
   await p.waitForFunction(() => document.querySelector('input[autocomplete="name"]')?.value === 'Erika Mustermann', null, { timeout: 5000 }).catch(() => {});
   check((await p.getByLabel('Name', { exact: true }).inputValue()) === 'Erika Mustermann', 'Name der Unterschrift gemerkt');
 
-  step('Handy 390 px: Heute, Erfassen, Rundgang ohne Überlauf');
+  step('Handy 390 px: Objektliste, Kalender, Erfassen, Rundgang ohne Überlauf');
   const m = await b.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 2, isMobile: true, hasTouch: true, locale: 'de-DE', storageState: await ctx.storageState() });
   const mp = await m.newPage();
-  for (const path of ['/', `/rundgang/${round.buildingId}`, '/maengel', '/pruefungen', '/pruefungen?tab=done', nextRun, '/scan', '/offline', '/begehungen']) {
+  for (const path of ['/', '/kalender', `/rundgang/${round.buildingId}`, '/maengel', '/pruefungen', '/pruefungen?tab=done', nextRun, '/scan', '/offline', '/begehungen']) {
     await mp.goto(BASE + path);
     await mp.waitForLoadState('networkidle');
     const over = await mp.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
     check(over <= 0, `kein Überlauf ${path} (${over}px)`);
   }
   await mp.goto(BASE + '/');
-  await mp.getByText('Prüfstatus').waitFor();
+  await mp.getByRole('list', { name: 'Objekte' }).locator('[data-property]').first().waitFor();
   await mp.screenshot({ path: OUT + 'm1-heute.png', fullPage: true });
   await mp.getByRole('navigation', { name: 'Hauptnavigation' }).getByRole('button', { name: 'Erfassen' }).click();
   await mp.getByRole('dialog').getByLabel('Erfasster Text').waitFor();

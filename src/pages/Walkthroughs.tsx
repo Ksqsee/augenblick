@@ -46,7 +46,7 @@ export function WalkthroughsPage() {
   return (
     <>
       <PageHeader
-        backTo={{ to: '/pruefen', label: 'Prüfen' }}
+        backTo={{ to: '/objekte', label: 'Objekte' }}
         title="Begehungen"
         subtitle="Ein ganzes Objekt mit Fragenkatalog und Rechtsgrundlagen prüfen"
         actions={

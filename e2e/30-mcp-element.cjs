@@ -161,7 +161,7 @@ const B = "Garner Testhaus";
   const i1 = (await api(`/inspections/${insp1}`)).json;
   const ans = (re) => i1.answers[i1.checkpoints.find((c) => re.test(c.label)).id];
   check(ans(/Feststellanlage löst/) === "na" && ans(/Rauchmelder der Feststellanlage/) === "na" && ans(/Schließfolge/) === "na" && ans(/Obentürschließer/) === "ok", "Antworten: na für FSA und Schließfolge, Rest i. O.");
-  check(t.data?.hint === "In der App: Prüfen → Unterschreiben", `E8: ein Hinweistext (${t.data?.hint})`);
+  check(t.data?.hint === "In der App: Objekt → Begehung → Unterschreiben", `E8: ein Hinweistext (${t.data?.hint})`);
   t = await tool("inspect", { asset: "T-002", allOk: true });
   check(t.data?.status === "draft" && (t.data?.ask ?? []).some((q) => /Hat die Tür eine Feststellanlage\?/.test(q)) && (t.data?.ask ?? []).some((q) => /ein- oder zweiflügelig/.test(q)), `T-002 unbekannt: offen mit Rückfrage (${JSON.stringify(t.data?.ask)})`);
   t = await tool("inspect", { asset: "T-002", allOk: true, fields: { holdOpen: false, leaves: "einflügelig", requirement: "T30", cardLock: false, dropSeal: false, peephole: false } });

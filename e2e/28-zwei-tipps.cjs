@@ -1,8 +1,8 @@
 // E2E 28-zwei-tipps (docs/plan/v5.md 3 „R“): Prüfen in zwei Tipps am Handy (390 px) – „Alles in Ordnung“ + „Abschließen“
 // mit gemerkter Unterschrift (Tipps werden gezählt), Rückgängig, Abweichung einsprechen (getippt) + „Alles andere in
 // Ordnung“, Gruppen ein-/ausgeklappt, „Weitere Angaben“, Rundgang springt weiter, Meldung überdeckt keine Knöpfe,
-// GET /now im neuen Konto (keine Monatsberichte/Begehung, dafür „nie geprüft“ mit Rundgang), Hauptknopf auf „Heute“,
-// leere Seiten Prüfen/Offen, kein Überlauf; Plan v6: Rundgang in Laufreihenfolge (UG → EG → 2. OG, A3) und „Alles in
+// GET /now im neuen Konto (keine Monatsberichte/Begehung, dafür „nie geprüft“ mit Rundgang), „Rundgang starten“ unter
+// „Jetzt“ im Kalender, leere Seiten (Einstieg, Kalender, Mängel und Aufgaben), Ampel „nie geprüft“, kein Überlauf; Plan v6: Rundgang in Laufreihenfolge (UG → EG → 2. OG, A3) und „Alles in
 // Ordnung“ mit Prüfpunkten, die nach den Stammdaten entfallen bzw. nachgefragt werden (A4). Bilder in e2e/.out/28-zwei-tipps (für docs/design/v3/v5). Nur lokal.
 const { chromium } = require('playwright');
 if (!process.env.DEMO_PASSWORD) throw new Error('DEMO_PASSWORD fehlt');
@@ -61,25 +61,30 @@ const overlap = (a, b) => !!a && !!b && a.x < b.x + b.width && b.x < a.x + a.wid
     return tb;
   };
 
-  step('Neues Konto ohne Elemente: Prüfen und Offen sind ein Satz');
+  // Plan v8: „Prüfen“ und „Offen“ gibt es nicht mehr als Orte – leer sind Objektliste (Einstieg), Kalender und
+  // „Mängel und Aufgaben“ je ein Satz
+  step('Neues Konto ohne Elemente: Einstieg, Kalender und Mängel sind ein Satz');
   await p.goto(BASE + '/login');
   const stamp = Date.now();
   let r = await api('/auth/register', { data: { company: 'Zwei Tipps GmbH', name: 'Tara Tipp', email: `zwei${stamp}@example.com`, password: 'sicheres-passwort-1' } });
   check(r.status === 200, `registriert (${r.status})`);
   await p.goto(BASE + '/pruefen');
-  await p.getByText('Noch nichts zu prüfen.').waitFor();
-  for (const t of ['Rundgänge', 'Fällig', 'Angefangen', 'Begehungen', 'Zuletzt abgeschlossen'])
-    check(!(await p.getByRole('heading', { name: t, exact: true }).count()), `Prüfen leer: kein Abschnitt „${t}“`);
-  check(await p.getByRole('link', { name: 'Zu den Objekten' }).isVisible(), 'Prüfen leer: nächster Schritt');
-  await noOverflow('/pruefen (leer)');
+  await p.waitForURL((u) => u.pathname === '/objekte');
+  await p.getByText('Wie heißt dein erstes Objekt?').waitFor();
+  await noOverflow('/pruefen → /objekte (leer)');
   await p.waitForTimeout(900);
   await p.screenshot({ path: OUT + 'm-pruefen-leer.png', fullPage: true });
-  await p.goto(BASE + '/offen');
+  await p.goto(BASE + '/kalender');
+  await p.getByText('Bis Monatsende steht nichts an.').waitFor();
+  for (const t of ['Überfällig', 'Jetzt', 'Erledigt für dich'])
+    check(!(await p.getByRole('heading', { name: t, exact: true }).count()), `Kalender leer: kein Abschnitt „${t}“`);
+  await noOverflow('/kalender (leer)');
+  await p.goto(BASE + '/maengel?art=alle');
   await p.getByText('Nichts offen.').waitFor();
   check(!(await p.getByPlaceholder('Mängel und Aufgaben durchsuchen …').isVisible()), 'Offen leer: kein Suchfeld');
   check(!/\d/.test(await p.getByRole('tablist').innerText()), 'Offen leer: keine Nullen an den Reitern');
-  check(await p.getByRole('link', { name: 'Zum Prüfen' }).isVisible(), 'Offen leer: nächster Schritt');
-  await noOverflow('/offen (leer)');
+  check(await p.getByRole('link', { name: 'Zu den Objekten' }).isVisible(), 'Offen leer: nächster Schritt');
+  await noOverflow('/maengel (leer)');
   await p.waitForTimeout(900);
   await p.screenshot({ path: OUT + 'm-offen-leer.png', fullPage: true });
 
@@ -100,24 +105,24 @@ const overlap = (a, b) => !!a && !!b && a.x < b.x + b.width && b.x < a.x + a.wid
   check(!now.items.some((i) => i.id === `round-${bld.id}`), 'keine doppelte Rundgang-Zeile');
   check(now.items[0]?.kind === 'never', `„nie geprüft“ steht oben (${now.items.map((i) => i.kind)})`);
 
-  step('Heute: Hauptknopf „Rundgang starten“, Jetzt ohne Lärm');
-  await p.goto(BASE + '/');
+  step('Kalender: „Rundgang starten“ unter Jetzt, ohne Lärm');
+  await p.goto(BASE + '/kalender');
   await p.getByRole('heading', { name: 'Jetzt' }).waitFor();
-  check(await p.getByRole('link', { name: 'Rundgang starten' }).first().isVisible(), 'Rundgang starten im Kopf');
   const jetzt = p.getByRole('list', { name: 'Jetzt' });
+  check(await jetzt.getByRole('button', { name: /Rundgang starten/ }).first().isVisible(), 'Rundgang starten unter Jetzt');
   check((await jetzt.innerText()).includes('3 Elemente noch nie geprüft'), 'Jetzt: nie geprüft');
   check(!/Monatsbericht|Begehung/.test(await jetzt.innerText()), 'Jetzt: keine Monatsberichte, keine Begehung');
-  await noOverflow('/ (neues Konto)');
+  check(!(await p.getByRole('heading', { name: 'Überfällig', exact: true }).count()), 'Kalender: kein leerer Überfällig-Block');
+  await noOverflow('/kalender (neues Konto)');
   await p.waitForTimeout(900);
   await p.screenshot({ path: OUT + 'm-heute-neu.png', fullPage: true });
 
-  step('Prüfen mit Elementen: keine Nullreihen, keine leeren Abschnitte');
-  await p.goto(BASE + '/pruefen');
-  await p.getByRole('heading', { name: 'Rundgänge' }).waitFor();
-  const faellig = p.getByRole('list', { name: 'Fällig' });
-  check((await faellig.locator('li').count()) === 1 && (await faellig.innerText()).includes('Nie geprüft'), 'Fällig: nur „Nie geprüft“');
-  for (const t of ['Angefangen', 'Begehungen', 'Zuletzt abgeschlossen']) check(!(await p.getByRole('heading', { name: t, exact: true }).count()), `kein leerer Abschnitt „${t}“`);
-  await noOverflow('/pruefen');
+  step('Objektliste mit Elementen: nur, was ungleich null ist');
+  await p.goto(BASE + '/objekte');
+  const row = p.getByRole('list', { name: 'Objekte' }).locator(`[data-property="${prop.id}"]`);
+  await row.waitFor();
+  check((await row.locator('[data-ampel]').count()) === 1 && (await row.locator('[data-ampel="due"]').innerText()).includes('3 nie geprüft'), `Ampel: nur „3 nie geprüft“ (${await row.innerText()})`);
+  await noOverflow('/objekte');
 
   step('Rundgang: erste Tür in zwei Tipps (gemerkte Unterschrift)');
   // gemerkte Unterschrift (nur auf dem Gerät, wie im echten Ablauf): ein Namenszug, im Browser gezeichnet
@@ -138,7 +143,9 @@ const overlap = (a, b) => !!a && !!b && a.x < b.x + b.width && b.x < a.x + a.wid
     return c.toDataURL('image/png');
   });
   await p.evaluate(([k, v]) => localStorage.setItem(k, v), [`pk:signature:${me.user.id}`, SIG]);
-  await p.getByRole('link', { name: 'Rundgang starten' }).first().click();
+  // Plan v8: „Rundgang starten“ steht unter „Jetzt“ im Kalender (Zeile „nie geprüft“)
+  await p.goto(BASE + '/kalender');
+  await p.getByRole('list', { name: 'Jetzt' }).getByRole('button', { name: /Rundgang starten/ }).first().click();
   await p.waitForURL(/\/rundgang\//);
   await p.getByRole('button', { name: 'Prüfung starten' }).click();
   await p.waitForURL(/\/pruefung\//);
@@ -240,7 +247,7 @@ const overlap = (a, b) => !!a && !!b && a.x < b.x + b.width && b.x < a.x + a.wid
   check(d2.length === 1 && d2[0].checkpointId === 'p10' && d2[0].severity === 'medium', `ein Mangel am Punkt (${JSON.stringify(d2.map((d) => [d.checkpointId, d.severity]))})`);
   check(i2.maintenance.includes('closer'), 'Wartungsarbeit gespeichert');
 
-  step('Desktop 1360 px: Prüfung Start und nach „Alles in Ordnung“, Heute');
+  step('Desktop 1360 px: Prüfung Start und nach „Alles in Ordnung“, Kalender');
   const dctx = await b.newContext({ viewport: { width: 1360, height: 900 }, deviceScaleFactor: 1, locale: 'de-DE', storageState: await m.storageState() });
   const dp = await dctx.newPage();
   watch(dp);
@@ -256,7 +263,7 @@ const overlap = (a, b) => !!a && !!b && a.x < b.x + b.width && b.x < a.x + a.wid
   check(dtb.y + dtb.height <= dbar.y, 'Desktop: Meldung über der Abschlussleiste');
   await dp.waitForTimeout(900);
   await dp.screenshot({ path: OUT + 'd-pruefung-alles-ok.png' });
-  await dp.goto(BASE + '/');
+  await dp.goto(BASE + '/kalender');
   await dp.getByRole('heading', { name: 'Jetzt' }).waitFor();
   await dp.waitForTimeout(900);
   await dp.screenshot({ path: OUT + 'd-heute.png', fullPage: true });

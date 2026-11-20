@@ -1,7 +1,10 @@
 // Kalender-Abo (iCal/ICS): fällige Prüfungen je Gebäude und Tag, Begehungen und eigene Aufgaben – in Outlook, Google oder Apple Kalender.
 import { Hono } from 'hono';
+import { HTTPException } from 'hono/http-exception';
+import { addDays, bundleDue, type CalendarEvent, dayKey, daysBetween, type DueRow, isDayKey, sortEvents } from '../shared/calendar';
 import type { Role } from '../shared/catalog';
-import { type AppEnv, type Ctx, id, logActivity, notFound, now, requireSession, resolveScope, scopeSql, sha256Hex, token } from './lib';
+import { taskScope } from './data';
+import { type AppEnv, type Ctx, id, logActivity, notFound, now, RANK, requireSession, resolveScope, scopeSql, sha256Hex, token } from './lib';
 import { assertNotThrottled, clientIp, recordFailure } from './throttle';
 
 const DAY = 86_400_000;
@@ -134,7 +137,7 @@ calendarPublic.get('/calendar/:file', async (c) => {
     );
   }
   for (const w of walks.results as { id: string; name: string; due: number }[]) {
-    lines.push(...event(`walk-${w.id}`, w.due < n ? today : ymd(w.due, tz), `${w.due < n ? 'Überfällig' : 'Fällig'}: Begehung ${w.name}`, `Brandschutzbegehung ${w.name}`, `${origin}/objekte/${w.id}`, n));
+    lines.push(...event(`walk-${w.id}`, w.due < n ? today : ymd(w.due, tz), `${w.due < n ? 'Überfällig' : 'Fällig'}: Begehung ${w.name}`, `Brandschutzbegehung ${w.name}`, `${origin}/objekte/${w.id}?tab=begehung`, n));
   }
   for (const t of tasks.results as { id: string; title: string; due: number; priority: string }[]) {
     lines.push(...event(`task-${t.id}`, ymd(t.due, tz), `Aufgabe: ${t.title}`, `Priorität ${t.priority === 'high' ? 'hoch' : t.priority === 'low' ? 'niedrig' : 'mittel'}`, `${origin}/aufgaben?id=${t.id}`, n));
@@ -143,4 +146,115 @@ calendarPublic.get('/calendar/:file', async (c) => {
   return new Response(lines.map(fold).join('\r\n') + '\r\n', {
     headers: { 'content-type': 'text/calendar; charset=utf-8', 'cache-control': 'private, max-age=900', 'content-disposition': 'inline; filename="pruefkompass.ics"' },
   });
+});
+
+// ---------- Kalender in der App (Plan v8 1) ----------
+/**
+ * GET /calendar/events?from=JJJJ-MM-TT&to=JJJJ-MM-TT – Einträge für Monat und Liste, Tage in der Zeitzone des Workspaces.
+ * Überfälliges (vor heute fällig, noch offen) kommt immer mit, unabhängig von `from` (Block „Überfällig“).
+ * Rechte und Zugriffsbereich wie die Quellen: Elemente über das Gebäude, Begehungen über das ganze Objekt, Aufgaben wie
+ * GET /tasks, Zulassungen wie der Katalog (ab Prüfer), Nachweise wie GET /credentials. Eine Abfrage-Runde (DB.batch).
+ */
+export const calendarEvents = new Hono<AppEnv>();
+
+const MAX_SPAN_DAYS = 400;
+const calTz = (tz: string | null | undefined) => {
+  try {
+    if (tz) new Intl.DateTimeFormat('en-CA', { timeZone: tz });
+    return tz || 'Europe/Berlin';
+  } catch {
+    return 'Europe/Berlin';
+  }
+};
+
+calendarEvents.get('/calendar/events', async (c) => {
+  const u = c.get('user');
+  const q = c.req.query();
+  const n = now();
+  const from = q.from ?? new Date(n).toISOString().slice(0, 10);
+  const to = q.to ?? addDays(from, 42);
+  if (!isDayKey(from) || !isDayKey(to)) throw new HTTPException(400, { message: 'from und to als JJJJ-MM-TT angeben' });
+  const span = daysBetween(from, to);
+  if (span < 0 || span > MAX_SPAN_DAYS) throw new HTTPException(400, { message: `Zeitraum höchstens ${MAX_SPAN_DAYS} Tage, to nicht vor from` });
+  // Grenzen in ms mit einem Tag Rand (Zeitzone erst aus derselben Abfrage-Runde bekannt), genau gefiltert wird nach dem Tag
+  const fromMs = Date.parse(`${from}T00:00:00Z`) - DAY;
+  const toMs = Date.parse(`${to}T00:00:00Z`) + 2 * DAY;
+  // Fälligkeiten vor dieser Grenze kommen je Objekt zusammengefasst (SQL), danach je Fälligkeit (gebündelt in shared/calendar)
+  const split = Math.min(fromMs, n - DAY);
+  const ctx = c as Ctx;
+  const DB = c.env.DB;
+  const assetFrom = `FROM assets a JOIN buildings b ON b.id = a.building_id JOIN properties p ON p.id = b.property_id
+       WHERE a.tenant_id = ?1 AND a.deleted_at IS NULL AND b.deleted_at IS NULL AND p.deleted_at IS NULL AND a.next_due_at IS NOT NULL
+         AND ${scopeSql(ctx, 'a.building_id', 'building')}`;
+  const doors = "SUM(CASE WHEN a.category = 'fire_door' THEN 1 ELSE 0 END) AS doors";
+  const [tzRow, overdueRows, dueRows, walks, tasks, approvals, creds] = await DB.batch([
+    DB.prepare('SELECT timezone FROM tenants WHERE id = ?').bind(u.tenantId),
+    DB.prepare(`SELECT p.id AS propertyId, p.name AS propertyName, MIN(a.next_due_at) AS due, COUNT(*) AS n, ${doors} ${assetFrom} AND a.next_due_at < ?2 GROUP BY p.id`).bind(
+      u.tenantId,
+      split,
+    ),
+    DB.prepare(
+      `SELECT p.id AS propertyId, p.name AS propertyName, a.next_due_at AS due, COUNT(*) AS n, ${doors} ${assetFrom} AND a.next_due_at >= ?2 AND a.next_due_at < ?3
+        GROUP BY p.id, a.next_due_at LIMIT 5000`,
+    ).bind(u.tenantId, split, toMs),
+    DB.prepare(
+      `SELECT p.id, p.name, MAX(w.next_due_at) AS due FROM properties p JOIN walkthroughs w ON w.property_id = p.id AND w.status = 'submitted'
+        WHERE p.tenant_id = ?1 AND p.deleted_at IS NULL AND ${scopeSql(ctx, 'p.id', 'fullProperty')} GROUP BY p.id HAVING due IS NOT NULL AND due < ?2`,
+    ).bind(u.tenantId, toMs),
+    DB.prepare(
+      `SELECT t.id, t.title, t.kind, t.due_at AS due, t.defect_id AS defectId, d.title AS defectTitle, p.id AS propertyId, p.name AS propertyName
+         FROM tasks t LEFT JOIN defects d ON d.id = t.defect_id
+         LEFT JOIN assets ta ON ta.id = t.asset_id LEFT JOIN buildings ba ON ba.id = ta.building_id LEFT JOIN buildings bb ON bb.id = t.building_id
+         LEFT JOIN properties p ON p.id = COALESCE(t.property_id, d.property_id, ba.property_id, bb.property_id) AND p.deleted_at IS NULL
+        WHERE t.tenant_id = ?1 AND t.status IN ('open','in_progress') AND t.due_at IS NOT NULL AND t.due_at < ?3 AND (t.due_at >= ?2 OR t.due_at < ?4)
+          AND ${taskScope(ctx, 't')}
+        ORDER BY t.due_at LIMIT 1000`,
+    ).bind(u.tenantId, fromMs, toMs, n),
+    // Katalog wie GET /catalog erst ab Prüfer (Leseschlüssel und Lesezugriff sehen keine Zulassungen)
+    RANK[u.role] >= RANK.inspector
+      ? DB.prepare(
+          `SELECT id, manufacturer, model, approval_valid_until AS until FROM catalog_products
+            WHERE tenant_id = ?1 AND approval_valid_until >= ?2 AND approval_valid_until <= ?3 LIMIT 500`,
+        ).bind(u.tenantId, from, to)
+      : DB.prepare('SELECT NULL AS id WHERE 0'),
+    DB.prepare(
+      `SELECT mc.id, mc.user_id AS userId, us.name, mc.title, mc.valid_until AS until FROM member_credentials mc JOIN users us ON us.id = mc.user_id
+         JOIN memberships m ON m.user_id = mc.user_id AND m.tenant_id = mc.tenant_id
+        WHERE mc.tenant_id = ?1 AND mc.valid_until IS NOT NULL AND mc.valid_until >= ?2 AND mc.valid_until < ?3 LIMIT 500`,
+    ).bind(u.tenantId, fromMs, toMs),
+  ]);
+  const tz = calTz((tzRow.results[0] as { timezone?: string } | undefined)?.timezone);
+  const today = dayKey(n, tz);
+  const inRange = (d: string) => d >= from && d <= to;
+  const events: CalendarEvent[] = bundleDue([...(overdueRows.results as DueRow[]), ...(dueRows.results as DueRow[])], tz, n).filter((e) => e.overdue || inRange(e.date));
+
+  for (const w of walks.results as { id: string; name: string; due: number }[]) {
+    const date = dayKey(w.due, tz);
+    const overdue = date < today;
+    if (!overdue && !inRange(date)) continue;
+    events.push({ date, kind: 'round', title: `${w.name}: Brandschutzbegehung ${overdue ? 'überfällig' : 'fällig'}`, propertyId: w.id, propertyName: w.name, link: `/objekte/${w.id}?tab=begehung`, ...(overdue ? { overdue } : {}) });
+  }
+  type TaskRow = { id: string; title: string; kind: string; due: number; defectId: string | null; defectTitle: string | null; propertyId: string | null; propertyName: string | null };
+  for (const t of tasks.results as TaskRow[]) {
+    const date = dayKey(t.due, tz);
+    const overdue = date < today;
+    if (!overdue && !inRange(date)) continue;
+    const base = { date, ...(t.propertyId ? { propertyId: t.propertyId, propertyName: t.propertyName ?? '' } : {}), ...(overdue ? { overdue } : {}) };
+    // Aufgaben ohne Objekt stehen nur im Kalender – ihr Eintrag öffnet die objektübergreifende Liste
+    const loose = `/maengel?art=aufgaben&aufgabe=${t.id}`;
+    if (t.defectId)
+      events.push({ ...base, kind: 'defect', title: `Mangel: ${t.defectTitle ?? t.title}`, link: t.propertyId ? `/objekte/${t.propertyId}?tab=maengel&mangel=${t.defectId}` : loose });
+    else if (t.kind === 'inspection') events.push({ ...base, kind: 'round', title: t.title, link: t.propertyId ? `/objekte/${t.propertyId}?tab=begehung` : loose });
+    else events.push({ ...base, kind: 'task', title: t.title, link: t.propertyId ? `/objekte/${t.propertyId}?tab=maengel&aufgabe=${t.id}` : loose });
+  }
+  for (const a of approvals.results as { id: string | null; manufacturer: string; model: string; until: string }[]) {
+    if (!a.id || !isDayKey(a.until)) continue;
+    events.push({ date: a.until, kind: 'approval', title: `Zulassung endet: ${[a.manufacturer, a.model].filter(Boolean).join(' ')}`, link: '/einstellungen?tab=catalog' });
+  }
+  for (const cr of creds.results as { id: string; userId: string; name: string; title: string; until: number }[]) {
+    const date = dayKey(cr.until, tz);
+    if (!inRange(date)) continue;
+    events.push({ date, kind: 'credential', title: `Nachweis endet: ${cr.title || 'Befähigungsnachweis'} (${cr.name})`, link: cr.userId === u.userId ? '/einstellungen' : '/einstellungen/team' });
+  }
+  return c.json({ from, to, today, timeZone: tz, events: sortEvents(events) });
 });

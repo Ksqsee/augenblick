@@ -626,9 +626,9 @@ export function CaptureSheet({ initial, onClose }: { initial: CaptureContext; on
         : done.assets && done.propertyId
           ? `/objekte/${done.propertyId}?tab=elemente`
           : done.defects
-            ? '/offen?art=maengel'
+            ? '/maengel?art=maengel'
             : done.tasks
-              ? '/offen?art=aufgaben'
+              ? '/maengel?art=aufgaben'
               : '/elemente';
     return (
       <Modal

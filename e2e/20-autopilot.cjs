@@ -115,7 +115,7 @@ const MONTHS = ['Januar', 'Februar', 'März', 'April', 'Mai', 'Juni', 'Juli', 'A
   const berlin = new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/Berlin', year: 'numeric', month: '2-digit' }).format(Date.now()).split('-').map(Number);
   const prevM = berlin[1] === 1 ? 12 : berlin[1] - 1;
   const label = `${MONTHS[prevM - 1]} ${berlin[1] === 1 ? berlin[0] - 1 : berlin[0]}`;
-  check(monthS?.title === `Monatsberichte ${label} bereit` && monthS.link === '/berichte?monatsbericht=1', `Vorschlag Monatsberichte (${monthS?.title})`);
+  check(monthS?.title === `Monatsberichte ${label} bereit` && monthS.link === '/einstellungen/berichte?monatsbericht=1', `Vorschlag Monatsberichte (${monthS?.title})`);
   check(!(await insp.api('/smart/suggestions')).json.some((s) => s.automation === 'monthly_report'), 'Monatsberichte nur für Admins');
   check(!(await viewer.api('/smart/suggestions')).json.some((s) => s.kind === 'automation'), 'Lesezugriff ohne Autopilot-Aktionen');
 
@@ -388,19 +388,23 @@ const MONTHS = ['Januar', 'Februar', 'März', 'April', 'Mai', 'Juni', 'Juli', 'A
   await setMode('adapt_intervals', 'suggest');
   await inspectSmoke(I2.id, true);
   await inspectSmoke(I2.id, true);
-  check((await api('/smart/suggestions')).json.some((x) => x.kind === 'interval'), 'Intervall-Vorschlag auf „Heute“');
+  check((await api('/smart/suggestions')).json.some((x) => x.kind === 'interval'), 'Intervall-Vorschlag unter „Jetzt“');
   r = await api('/smart/intervals/apply', { data: { assetId: I2.id, schedule: 'main', months: 6 } });
   check(r.status === 200 && (await sched(I2.id)).intervalMonths === 6, `Vorschlag übernommen (${r.text})`);
   const eSug = (await log()).find((e) => e.key === 'adapt_intervals' && e.summary.startsWith(I2.code));
   check(eSug?.undoable && !/automatisch/.test(eSug.summary) && eSug.actorName === 'Sabine Krüger', `Protokolleintrag übernommen (${JSON.stringify(eSug)})`);
 
-  step('„Heute“: Erledigt für dich (letzte 5 Protokolleinträge, Rückgängig, Link zur Automatik)');
-  await p.goto(BASE + '/');
+  // Plan v8: „Jetzt“ und „Erledigt für dich“ stehen im Kalender (vorher „Heute“)
+  step('Kalender: Erledigt für dich (letzte 5 Protokolleinträge, Rückgängig, Link zur Automatik)');
+  await p.goto(BASE + '/kalender');
   const done = p.locator('#erledigt');
   await done.getByRole('heading', { name: 'Erledigt für dich' }).waitFor();
   // „Jetzt“ liest GET /now: dieselben Zeilen, je Zeile genau ein Knopf
   const nowRows = p.getByRole('list', { name: 'Jetzt' }).locator(':scope > li');
   const apiNow = (await api('/now')).json;
+  // im Kalender stehen zuerst 5 Zeilen, der Rest hinter „Alle n anzeigen“
+  const showAll = p.getByRole('button', { name: /^Alle \d+ anzeigen$/ });
+  if (await showAll.count()) await showAll.click();
   check((await nowRows.count()) === apiNow.items.length, `„Jetzt“ zeigt /now (${await nowRows.count()}/${apiNow.items.length})`);
   for (let i = 0; i < (await nowRows.count()); i++) check((await nowRows.nth(i).getByRole('button').count()) === 1, `Jetzt-Zeile ${i + 1}: genau eine Aktion`);
   const doneItems = done.getByRole('list', { name: 'Erledigt für dich' }).locator('li');
@@ -416,12 +420,12 @@ const MONTHS = ['Januar', 'Februar', 'März', 'April', 'Mai', 'Juni', 'Juli', 'A
   const rowAfter = done.locator(`li[data-log="${undoId}"]`);
   await rowAfter.locator('.line-through').waitFor();
   check((await rowAfter.getByRole('button', { name: 'Rückgängig' }).count()) === 0, 'Eintrag danach durchgestrichen, ohne Knopf');
-  check((await log()).find((e) => e.id === undoId)?.undoneAt > 0, 'über „Heute“ zurückgenommen');
+  check((await log()).find((e) => e.id === undoId)?.undoneAt > 0, 'über den Kalender zurückgenommen');
   r = await api(`/automation/log/${eSug.id}/undo`, { data: {} });
   check(r.status === 200 && (await sched(I2.id)).intervalMonths == null, `übernommener Vorschlag zurückgenommen (${r.text})`);
   await done.getByRole('link', { name: 'Alle', exact: true }).click();
   await p.getByRole('tab', { name: 'Automatik', selected: true }).waitFor();
-  await viewer.p.goto(BASE + '/');
+  await viewer.p.goto(BASE + '/kalender');
   await viewer.p.locator('#erledigt').getByRole('heading', { name: 'Erledigt für dich' }).waitFor();
   check((await viewer.p.locator('#erledigt').getByRole('link', { name: 'Alle', exact: true }).count()) === 0, 'Lesezugriff: kein Link zur Automatik');
   check((await viewer.p.locator('#erledigt').getByRole('button', { name: 'Rückgängig' }).count()) === 0, 'Lesezugriff: kein Rückgängig');
@@ -742,9 +746,9 @@ const MONTHS = ['Januar', 'Februar', 'März', 'April', 'Mai', 'Juni', 'Juli', 'A
   await mp.getByRole('list', { name: 'Autopilot-Protokoll' }).waitFor();
   await wide('Einstellungen → Automatik');
   await mp.screenshot({ path: OUT + '02-mobile-automatik.png', fullPage: true });
-  await mp.goto(BASE + '/');
+  await mp.goto(BASE + '/kalender');
   await mp.locator('#erledigt').getByRole('heading', { name: 'Erledigt für dich' }).waitFor();
-  await wide('Heute mit „Erledigt für dich“');
+  await wide('Kalender mit „Erledigt für dich“');
   await mp.goto(BASE + '/aufgaben');
   await mp.getByRole('button', { name: 'Neue Aufgabe' }).first().click();
   await mp.getByRole('dialog').getByLabel('Wiederholen').waitFor();
