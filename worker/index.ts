@@ -8,7 +8,7 @@ import { cleanupOAuth, oauthPublic, oauthSession, wellKnown } from './oauth';
 import { smart } from './smart';
 import { nowRoutes } from './now';
 import { sharePublic, shares } from './shares';
-import { calendar, calendarPublic } from './calendar';
+import { calendar, calendarEvents, calendarPublic } from './calendar';
 import { account, auth } from './auth';
 import { catalog } from './catalog';
 import { categories } from './categories';
@@ -87,6 +87,7 @@ secured.route('/', shares);
 secured.route('/', automation);
 secured.route('/', team);
 secured.route('/', credentials);
+secured.route('/', calendarEvents);
 app.route('/', secured);
 
 app.notFound((c) => c.json({ error: 'Nicht gefunden' }, 404));

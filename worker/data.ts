@@ -131,21 +131,44 @@ data.get("/dashboard", async (c) => {
   });
 });
 
+/**
+ * Objekte mit Prüfstatus und Ampel (Plan v8 1) in **einer** Abfrage: Elemente je Objekt über die Gebäude, Mängel,
+ * wartende Unterschriften und Begehungen als je einmal gruppierte Unterabfragen (kein N+1, keine Unterabfrage je Zeile).
+ * Ampel: `nextDue` (früheste Fälligkeit; in der Vergangenheit = „überfällig seit“), `overdue`, `openDefects`,
+ * `criticalDefects`, `pendingSignatures` (eigene, zur Unterschrift bereite Prüfungen – nur die prüfende Person unterschreibt).
+ * Bindungen: ?1 Workspace, ?2 jetzt, ?3 Ende des „bald fällig“-Fensters.
+ */
 function propertyStatusQuery(c: Ctx) {
+  const me = c.get("user").userId;
+  const meSql = /^[a-z0-9]{1,40}$/.test(me) ? `'${me}'` : "''";
   return c.env.DB.prepare(
     `SELECT p.id, p.name, p.address, p.contact_name AS contactName, p.building_type AS buildingType,
             COUNT(a.id) AS assets,
             SUM(CASE WHEN a.next_due_at < ?2 THEN 1 ELSE 0 END) AS overdue,
             SUM(CASE WHEN a.next_due_at BETWEEN ?2 AND ?3 THEN 1 ELSE 0 END) AS soon,
             SUM(CASE WHEN a.id IS NOT NULL AND a.next_due_at IS NULL THEN 1 ELSE 0 END) AS never,
-            (SELECT COUNT(*) FROM defects d WHERE d.property_id = p.id AND d.status = 'open' AND d.hidden_at IS NULL AND ${defectScope(c, "d")}) AS openDefects,
-            (SELECT MAX(w.inspected_at) FROM walkthroughs w WHERE w.property_id = p.id AND w.status = 'submitted') AS lastWalkAt,
-            (SELECT MAX(w.next_due_at) FROM walkthroughs w WHERE w.property_id = p.id AND w.status = 'submitted') AS nextWalkAt,
+            COALESCE(MAX(dd.open), 0) AS openDefects,
+            COALESCE(MAX(dd.critical), 0) AS criticalDefects,
+            COALESCE(MAX(ss.n), 0) AS pendingSignatures,
+            MAX(ww.lastWalkAt) AS lastWalkAt,
+            MAX(ww.nextWalkAt) AS nextWalkAt,
             MAX(a.last_inspected_at) AS lastInspectedAt,
-            MIN(a.next_due_at) AS nextDueAt
+            MIN(a.next_due_at) AS nextDueAt,
+            MIN(a.next_due_at) AS nextDue
        FROM properties p
        LEFT JOIN buildings b ON b.property_id = p.id AND b.deleted_at IS NULL AND ${scopeSql(c, "b.id", "building")}
        LEFT JOIN assets a ON a.building_id = b.id AND a.deleted_at IS NULL
+       LEFT JOIN (SELECT d.property_id, COUNT(*) AS open, SUM(CASE WHEN d.severity = 'critical' THEN 1 ELSE 0 END) AS critical
+                    FROM defects d WHERE d.tenant_id = ?1 AND d.status = 'open' AND d.hidden_at IS NULL AND ${defectScope(c, "d")}
+                   GROUP BY d.property_id) dd ON dd.property_id = p.id
+       LEFT JOIN (SELECT sb.property_id, COUNT(*) AS n
+                    FROM inspections si JOIN assets sa ON sa.id = si.asset_id JOIN buildings sb ON sb.id = sa.building_id
+                   WHERE si.tenant_id = ?1 AND si.status = 'draft' AND si.ready_at IS NOT NULL AND si.inspector_id = ${meSql}
+                     AND si.archived_at IS NULL AND si.superseded_at IS NULL
+                     AND sa.deleted_at IS NULL AND sb.deleted_at IS NULL AND ${scopeSql(c, "sb.id", "building")}
+                   GROUP BY sb.property_id) ss ON ss.property_id = p.id
+       LEFT JOIN (SELECT property_id, MAX(inspected_at) AS lastWalkAt, MAX(next_due_at) AS nextWalkAt
+                    FROM walkthroughs WHERE tenant_id = ?1 AND status = 'submitted' GROUP BY property_id) ww ON ww.property_id = p.id
       WHERE p.tenant_id = ?1 AND p.deleted_at IS NULL AND ${scopeSql(c, "p.id", "property")}
       GROUP BY p.id ORDER BY p.name`,
   );
