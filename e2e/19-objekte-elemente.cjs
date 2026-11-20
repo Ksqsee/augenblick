@@ -55,7 +55,7 @@ const check = (ok, m) => {
   check(await p.getByRole('list', { name: /Prüfstatus: \d+ Überfällig/ }).isVisible(), 'Prüfstatus als Zahlenliste mit Beschriftung');
   await p.getByText('Am dringendsten').click();
   await p.waitForURL(/\/elemente\//);
-  await p.getByText(/seit \d+ (Tag|Tagen|Monat|Monaten|Jahr|Jahren)/).first().waitFor();
+  await p.getByRole('main').getByText(/seit \d+ (Tag|Tagen|Monat|Monaten|Jahr|Jahren)/).first().waitFor();
   check(await p.getByRole('button', { name: /^(Prüfung starten|Entwurf fortsetzen)$/ }).isVisible(), 'eine Hauptaktion am Element');
   // Detailseiten mit Seitenspalte: die weiße Fläche endet mit ihrem Inhalt, nicht mit der Seitenspalte
   const surfaceGap = () =>
