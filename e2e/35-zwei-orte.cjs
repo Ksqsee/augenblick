@@ -135,10 +135,10 @@ const MAX_CALLS = { objekteHandy: 6, kalenderHandy: 8, kalenderDesktop: 9 };
   await filters.getByRole('button', { name: /^Alle/ }).click();
   check((await side.locator('[data-property]').count()) === props2.length, 'Alle: wieder alle');
   // Suche in der Leiste
-  await p.getByRole('searchbox', { name: 'Liste durchsuchen' }).fill(target.name.slice(0, 8));
+  await p.getByRole('searchbox', { name: 'Liste filtern' }).fill(target.name.slice(0, 8));
   await p.waitForTimeout(150);
   check((await side.locator('[data-property]').count()) >= 1 && (await side.locator(`[data-property="${target.id}"]`).count()) === 1, 'Suche findet das Objekt');
-  await p.getByRole('searchbox', { name: 'Liste durchsuchen' }).fill('');
+  await p.getByRole('searchbox', { name: 'Liste filtern' }).fill('');
 
   step('Zuletzt geöffnetes Objekt merkt sich der Browser');
   await side.locator(`[data-property="${target.id}"]`).click();

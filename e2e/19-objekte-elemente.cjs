@@ -44,7 +44,7 @@ const check = (ok, m) => {
   await p.getByRole('complementary').getByRole('group', { name: 'Filter' }).getByRole('button', { name: /^Fällig/ }).click();
   const due = props.filter((x) => (x.overdue ?? 0) > 0 || (x.nextDue && x.nextDue <= Date.now() + 30 * 86_400_000) || (x.never ?? 0) > 0).length;
   check((await side.locator('[data-property]').count()) === due, `Filter „Fällig“ (${due})`);
-  await p.getByRole('searchbox', { name: 'Liste durchsuchen' }).fill('gibt es nicht');
+  await p.getByRole('searchbox', { name: 'Liste filtern' }).fill('gibt es nicht');
   await side.getByText('Kein Objekt passt.').waitFor();
   await side.getByRole('button', { name: 'Filter zurücksetzen' }).click();
   check((await side.locator('[data-property]').count()) === props.length, 'Filter zurückgesetzt');

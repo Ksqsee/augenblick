@@ -1995,7 +1995,7 @@ function client() {
     const sc = (await insp(`/calendar/events?${range}`)).json;
     check(Array.isArray(sc?.events), "eingeschränkter Prüfer liest den Kalender");
     check(sc.events.every((e) => !e.propertyId || e.propertyId === S.id), `Kalender nur im Zugriffsbereich (${[...new Set(sc.events.map((e) => e.propertyName))].join(", ")})`);
-    check(sc.events.every((e) => !/\/objekte\/(?!${S.id})/.test(e.link)), "keine Links in fremde Objekte");
+    check(sc.events.every((e) => !new RegExp(`/objekte/(?!${S.id})`).test(e.link)), "keine Links in fremde Objekte");
     check(!sc.events.some((e) => e.link.includes(ownTask.id)), "fremde Aufgabe ohne Objekt unsichtbar");
     const ownerDueS = all.events.filter((e) => e.kind === "due" && e.propertyId === S.id).reduce((s, e) => s + e.count, 0);
     const scDueS = sc.events.filter((e) => e.kind === "due").reduce((s, e) => s + e.count, 0);
