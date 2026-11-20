@@ -1,4 +1,4 @@
-// E2E 08-security (inkl. #34 Katalog/Nummern, #36 Katalog-Leistungen/Angebotsliste, #37 Nachweise, #38 Ansagen/Rohdiktat): stellt die Angriffswege aus dem Sicherheitsaudit nach und erwartet, dass sie blockiert sind.
+// E2E 08-security (inkl. #34 Katalog/Nummern, #36 Katalog-Leistungen/Angebotsliste, #37 Nachweise, #38 Ansagen/Rohdiktat, #40 Begehung je Objekt): stellt die Angriffswege aus dem Sicherheitsaudit nach und erwartet, dass sie blockiert sind.
 // Nur lokal ausführen (legt einen zweiten Workspace an).
 if (!process.env.DEMO_PASSWORD) throw new Error("DEMO_PASSWORD fehlt");
 const BASE = process.env.BASE || "http://localhost:5173";
@@ -1962,6 +1962,39 @@ function client() {
     await owner(`/inspections/${dr.id}`, { method: "DELETE" });
     await owner(`/account/api-keys/${rk.id}`, { method: "DELETE" });
     await owner(`/account/api-keys/${wk.id}`, { method: "DELETE" });
+  }
+
+  console.log("· #40 v8 Begehung je Objekt: GET /properties/:id/walk – Workspace, Zugriffsbereich, Eingaben");
+  {
+    const w = await owner(`/properties/${O.id}/walk`);
+    check(w.status === 200 && Array.isArray(w.json?.days) && Array.isArray(w.json?.inspections) && typeof w.json?.pending === "number", `Inhaber liest die Begehung (${w.status})`);
+    check((await reader(`/properties/${O.id}/walk`)).status === 200, "Lesezugriff liest wie die Prüfungsliste");
+    check((await mallory(`/properties/${O.id}/walk`)).status === 404, "fremder Workspace → 404");
+    check((await owner("/properties/gibtesnicht0001/walk")).status === 404, "unbekanntes Objekt → 404");
+    for (const bad of ["2026-02-30", "2026-13-01", "heute", "2026-1-1", "2026-01-01' OR 1=1--"])
+      check((await owner(`/properties/${O.id}/walk?date=${encodeURIComponent(bad)}`)).status === 400, `ungültiger Tag „${bad}“ → 400`);
+    // eingeschränkter Prüfer: fremdes Objekt 404, im eigenen nur Prüfungen freigegebener Gebäude
+    await owner(`/account/members/${pid2}/access`, { method: "PUT", body: { scope: { propertyIds: [S.id], buildingIds: [] }, canCreate: true } });
+    check((await insp(`/properties/${O.id}/walk`)).status === 404, "eingeschränkter Prüfer: Objekt außerhalb des Bereichs → 404");
+    const sw = await insp(`/properties/${S.id}/walk`);
+    const sAssets = new Set((await owner(`/assets?propertyId=${S.id}`)).json.map((a) => a.id));
+    check(sw.status === 200 && sw.json.inspections.every((i) => sAssets.has(i.assetId)), `eingeschränkter Prüfer: nur Prüfungen des eigenen Objekts (${sw.status})`);
+    // „wartet auf Unterschrift“ zählt nur eigene Entwürfe
+    const door = (await owner(`/assets?propertyId=${O.id}`)).json[0];
+    const dr = (await owner(`/assets/${door.id}/inspections`, { body: {} })).json;
+    const det = (await owner(`/inspections/${dr.id}`)).json;
+    await owner(`/inspections/${dr.id}`, {
+      method: "PUT",
+      body: { kinds: det.kinds?.length ? det.kinds : ["maintenance"], notInspectable: false, answers: Object.fromEntries(det.checkpoints.map((c) => [c.id, "ok"])), maintenance: [], defects: [], photos: [], notes: "", signature: null, signerName: "", resultOverride: null, resultReason: "", resolvedDefects: [], ready: true },
+    });
+    const before = (await owner(`/properties/${O.id}/walk`)).json;
+    check(before.inspections.some((i) => i.id === dr.id && i.ready && i.result === "ok") && before.pending >= 1, "eigener bereiter Entwurf zählt beim Inhaber");
+    check((await mallory(`/properties/${O.id}/walk`)).status === 404 && !JSON.stringify((await mallory(`/properties/${S.id}/walk`)).json ?? {}).includes(dr.id), "kein Durchsickern in fremde Workspaces");
+    await owner(`/account/members/${pid2}/access`, { method: "PUT", body: { scope: null, canCreate: true } });
+    const other = (await insp(`/properties/${O.id}/walk`)).json;
+    const ownReady = (await insp(`/inspections?status=ready&propertyId=${O.id}`)).json.length;
+    check(other.inspections.some((i) => i.id === dr.id) && other.pending === ownReady, `fremder Entwurf zählt nicht als „wartet auf deine Unterschrift“ (${other.pending}/${ownReady})`);
+    await owner(`/inspections/${dr.id}`, { method: "DELETE" });
   }
 
   console.log(

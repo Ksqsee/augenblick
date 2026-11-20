@@ -290,7 +290,7 @@ async function mcp(key, name, args = {}) {
     });
   };
   await mock(p);
-  await p.goto(BASE + `/objekte/${prop.id}?tab=angebot`);
+  await p.goto(BASE + `/objekte/${prop.id}?tab=maengel&ansicht=angebot`);
   await p.locator('[data-offer-line]').first().waitFor();
   check((await p.locator('[data-offer-line]').count()) === 2, 'zwei Positionen');
   check((await p.locator('[data-offer-line="S-STOP"]').innerText()).includes(code(103)), 'Türnummern an der Position');
@@ -387,12 +387,13 @@ async function mcp(key, name, args = {}) {
 
   step('390 px: Angebot und Sammelmappe-Dialog');
   await mock(m);
-  await m.goto(BASE + `/objekte/${prop.id}?tab=angebot`);
+  await m.goto(BASE + `/objekte/${prop.id}?tab=maengel&ansicht=angebot`);
   await m.locator('[data-offer-line]').first().waitFor();
   check((await overflow(m)) <= 0, `kein Überlauf: Angebot (${await overflow(m)})`);
   await shot(m, 'm-angebot', { fullPage: true });
-  await m.getByRole('button', { name: 'Weitere Aktionen zum Objekt' }).click();
-  await m.getByRole('menuitem', { name: 'Sammelmappe' }).click();
+  // Plan v8 Z: Sammelmappe unter Übersicht → Dateien (und im Reiter Begehung als Folgeschritt)
+  await m.goto(BASE + `/objekte/${prop.id}`);
+  await m.getByRole('region', { name: 'Dateien' }).getByRole('button', { name: 'Sammelmappe' }).click();
   await m.getByRole('dialog').getByText(/Protokolle im gewählten Zeitraum/).waitFor();
   check((await overflow(m)) <= 0, 'kein Überlauf: Sammelmappe-Dialog');
   await shot(m, 'm-sammelmappe-dialog');
