@@ -1,11 +1,11 @@
 import { Ban, Check, Eye, EyeOff, FileDown, ListPlus, Pencil, Plus, RotateCcw } from 'lucide-react';
 import { type ReactNode, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useLocation } from 'react-router-dom';
 import { api, type Defect, type DefectDetail, useAction, useDefect, useMe } from '../../api';
 import { categoryLabel, fmtDate, fmtDateTime, fmtRelative } from '../../format';
 import { Button, Chip, ErrorBox, Field, Input, Modal, Notice, Skeleton, StatusDot, StatusText, Timeline, type TimelineItem, useToast } from '../ui';
 import { SeverityText } from './fields';
-import { TASK_STATUS } from './model';
+import { detailLink, TASK_STATUS } from './model';
 import { PanelSection, Prop, WorkPanel } from './Panel';
 import { PhotoPair } from './Photos';
 
@@ -21,6 +21,7 @@ const HISTORY_ICON: Record<string, { icon: ReactNode; tone?: TimelineItem['tone'
 /** Mangel im Detailpanel: Fotos vorher/nachher, Beschreibung, Maßnahme, Behebung, Aufgaben und Verlauf. */
 export function DefectPanel({ id, onClose, onTask, onResolve }: { id: string; onClose: () => void; onTask: (d: Defect) => void; onResolve: (id: string) => void }) {
   const { data: d, isLoading, error, refetch } = useDefect(id);
+  const { pathname } = useLocation();
   const { data: me } = useMe();
   const toast = useToast();
   const [hiding, setHiding] = useState(false);
@@ -194,7 +195,7 @@ export function DefectPanel({ id, onClose, onTask, onResolve }: { id: string; on
                   <ul className="-mx-2 divide-y divide-line">
                     {d.tasks.map((t) => (
                       <li key={t.id}>
-                        <Link to={`/offen?aufgabe=${t.id}`} className="flex min-h-11 items-center gap-3 rounded-md px-2 py-2 transition-colors hover:bg-hover">
+                        <Link to={detailLink(pathname, 'aufgabe', t.id)} className="flex min-h-11 items-center gap-3 rounded-md px-2 py-2 transition-colors hover:bg-hover">
                           <span className="min-w-0 flex-1 truncate text-body">{t.title}</span>
                           <span className="flex shrink-0 items-center gap-1.5 text-meta text-ink-2">
                             <StatusDot tone={t.status === 'done' ? 'ok' : t.status === 'in_progress' ? 'info' : t.status === 'cancelled' ? 'muted' : 'warn'} />

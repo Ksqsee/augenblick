@@ -306,6 +306,41 @@ const MAX_CALLS = { objekteHandy: 6, kalenderHandy: 8, kalenderDesktop: 9 };
   check((await api('/calendar/events?from=2026-02-30&to=2026-03-01')).status === 400, 'ungültiges Datum abgelehnt');
   check((await api('/calendar/events?from=2026-03-10&to=2026-03-01')).status === 400, 'to vor from abgelehnt');
 
+  step('Kalender → Objekt, Reiter Mängel: Frist einer Aufgabe bzw. eines Mangels öffnet das Detail');
+  // eine Aufgabe und ein Mangel (mit Frist über eine Aufgabe) im Objekt, Frist übermorgen
+  const calProp = props.find((x) => x.assets > 0) ?? props[0];
+  const pTask = (await api('/tasks', { data: { title: 'E2E Brandschutzordnung aushängen', priority: 'medium', propertyId: calProp.id, dueAt: Date.parse(`${plusDays(2)}T10:00:00Z`) } })).json;
+  const pDef = (await api('/defects', { data: { propertyId: calProp.id, title: 'E2E Feuerlöscher verstellt', severity: 'low', force: true } })).json;
+  const pDefTask = (await api('/tasks', { data: { title: 'E2E Feuerlöscher freiräumen', priority: 'medium', defectId: pDef?.id, dueAt: Date.parse(`${plusDays(2)}T11:00:00Z`) } })).json;
+  check(!!pTask?.id && !!pDef?.id && !!pDefTask?.id, `Aufgabe und Mangel mit Frist im Objekt (${[pTask?.id, pDef?.id, pDefTask?.id].join(', ')})`);
+  await p.goto(BASE + '/kalender?ansicht=liste');
+  const taskLink = p.locator(`[data-event="task"][href*="${pTask.id}"]`).first();
+  await taskLink.waitFor();
+  check((await taskLink.getAttribute('href')) === `/objekte/${calProp.id}?tab=maengel&aufgabe=${pTask.id}`, `Aufgabe verlinkt Reiter Mängel mit ?aufgabe= (${await taskLink.getAttribute('href')})`);
+  await taskLink.click();
+  await p.waitForURL((u) => u.pathname === `/objekte/${calProp.id}` && u.searchParams.get('tab') === 'maengel' && u.searchParams.get('aufgabe') === pTask.id);
+  await p.getByRole('dialog').getByText('E2E Brandschutzordnung aushängen').first().waitFor();
+  check((await p.getByRole('tab', { name: /^Mängel/, selected: true }).count()) === 1, 'Reiter Mängel gewählt');
+  check(true, 'Aufgabe im Reiter Mängel geöffnet');
+  await p.keyboard.press('Escape');
+  await p.getByRole('dialog').waitFor({ state: 'detached' });
+  check(!new URL(p.url()).searchParams.get('aufgabe') && new URL(p.url()).searchParams.get('tab') === 'maengel', `Schließen räumt ?aufgabe= (${p.url()})`);
+  await p.goto(BASE + '/kalender?ansicht=liste');
+  const defLink = p.locator(`[data-event="defect"][href*="${pDef.id}"]`).first();
+  await defLink.waitFor();
+  check((await defLink.getAttribute('href')) === `/objekte/${calProp.id}?tab=maengel&mangel=${pDef.id}`, `Mangel verlinkt Reiter Mängel mit ?mangel= (${await defLink.getAttribute('href')})`);
+  await defLink.click();
+  await p.waitForURL((u) => u.pathname === `/objekte/${calProp.id}` && u.searchParams.get('tab') === 'maengel' && u.searchParams.get('mangel') === pDef.id);
+  await p.getByRole('dialog').getByText('E2E Feuerlöscher verstellt').first().waitFor();
+  check(true, 'Mangel im Reiter Mängel geöffnet');
+  await p.keyboard.press('Escape');
+  // Begehungs-Einträge (fällig) öffnen den Reiter Begehung
+  const dueEv = evs.find((e) => e.kind === 'due' && e.propertyId);
+  await p.goto(BASE + dueEv.link);
+  await p.getByRole('tab', { name: /^Begehung/, selected: true }).waitFor();
+  await p.getByRole('region', { name: 'Ergebnis der Begehung' }).waitFor();
+  check(true, 'fällige Prüfungen öffnen den Reiter Begehung');
+
   step('Handy 390 px: Objektliste als Startseite, Objekte · Erfassen · Kalender');
   const m = await b.newContext({ ...MOBILE, storageState: await ctx.storageState() });
   const mp = await m.newPage();

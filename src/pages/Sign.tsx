@@ -151,7 +151,7 @@ export function SignPage() {
                           });
                           toast(`${r.code} zurückgestellt`);
                           setOpen(null);
-                          await qc.invalidateQueries({ queryKey: ['inspections'] });
+                          for (const k of ['inspections', 'properties', 'property', 'walk']) await qc.invalidateQueries({ queryKey: [k] });
                         } catch (e) {
                           toast(e instanceof Error ? e.message : 'Fehlgeschlagen', 'bad');
                         }
@@ -308,7 +308,7 @@ function OutcomeSection({ outcome }: { outcome: Outcome }) {
             </p>
           )}
           {s > 0 && (
-            <Link to="/pruefen?tab=done" className="mt-1 self-start text-meta text-ink-2 underline decoration-ink-4 underline-offset-4 hover:text-ink">
+            <Link to="/pruefungen?tab=done" className="mt-1 self-start text-meta text-ink-2 underline decoration-ink-4 underline-offset-4 hover:text-ink">
               Durchgeführte Prüfungen ansehen
             </Link>
           )}

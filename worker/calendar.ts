@@ -140,7 +140,7 @@ calendarPublic.get('/calendar/:file', async (c) => {
     lines.push(...event(`walk-${w.id}`, w.due < n ? today : ymd(w.due, tz), `${w.due < n ? 'Überfällig' : 'Fällig'}: Begehung ${w.name}`, `Brandschutzbegehung ${w.name}`, `${origin}/objekte/${w.id}?tab=begehung`, n));
   }
   for (const t of tasks.results as { id: string; title: string; due: number; priority: string }[]) {
-    lines.push(...event(`task-${t.id}`, ymd(t.due, tz), `Aufgabe: ${t.title}`, `Priorität ${t.priority === 'high' ? 'hoch' : t.priority === 'low' ? 'niedrig' : 'mittel'}`, `${origin}/aufgaben?id=${t.id}`, n));
+    lines.push(...event(`task-${t.id}`, ymd(t.due, tz), `Aufgabe: ${t.title}`, `Priorität ${t.priority === 'high' ? 'hoch' : t.priority === 'low' ? 'niedrig' : 'mittel'}`, `${origin}/maengel?art=aufgaben&aufgabe=${t.id}`, n));
   }
   lines.push('END:VCALENDAR');
   return new Response(lines.map(fold).join('\r\n') + '\r\n', {

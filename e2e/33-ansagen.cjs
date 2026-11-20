@@ -1,8 +1,8 @@
 // E2E 33-ansagen (Plan v7, Paket W „Ansagen und Rohdiktat“): der Ablauf des Inhabers am Handy (390 px) –
-// Objekt gewählt → „Tür 354 Typ <Katalogtyp>“ → Tür angelegt mit Stammdaten → Abweichung als Text → Rest in Ordnung →
+// Objekt → Reiter Begehung → „Begehung starten“ (Plan v8: Objekt fest vorgegeben) → „Tür 354 Typ <Katalogtyp>“ → Tür angelegt mit Stammdaten → Abweichung als Text → Rest in Ordnung →
 // bereit zur Unterschrift; „Tür 355 gleicher Typ“; Befund gleich in der Ansage; unbekannter Typ (allgemeine
-// Checkliste, Rohnotiz); falsche Art („Nummer 400 ist ein Feuerlöscher“); dasselbe ohne Netz mit Warteschlange und
-// späterer Übertragung; Rohnotiz in der Prüfung und beim Unterschreiben sichtbar, über MCP `list raw_notes` lesbar,
+// Checkliste, Rohnotiz); falsche Art („Nummer 400 ist ein Feuerlöscher“); dasselbe ohne Netz (aus dem Objekt „Ohne Netz
+// weiterarbeiten“ → Offline-Ansage des Objekts, Rückweg dorthin) mit Warteschlange und späterer Übertragung; Rohnotiz in der Prüfung und beim Unterschreiben sichtbar, über MCP `list raw_notes` lesbar,
 // `inspect` markiert als ausgewertet; Tür per MCP ansagen (number + type), mehrdeutiger Typ; Checkliste je Typ zeigt
 // nur zutreffende Punkte (zwei Typen verglichen), PDF eine Seite, kein Überlauf; Archivieren über MCP nur mit
 // Admin-Verbindung (herabgestufte Admin-Person → abgelehnt). Tipps und Eingaben je Tür werden gezählt und geprüft.
@@ -100,6 +100,8 @@ const enter = async (loc) => {
   check(r.status === 200, `registriert (${r.status})`);
   const prop = (await api('/properties', { data: { name: 'Hotel Seeblick (Test)', address: 'Am Hafen 1', withBuilding: true } })).json;
   const building = (await api(`/properties/${prop.id}`)).json.buildings[0];
+  // zweites Objekt, das in der App nie geöffnet wird (ohne Netz: Weiterleitung auf die Offline-Ansage)
+  const prop2 = (await api('/properties', { data: { name: 'Pension Düne (Test)', withBuilding: true } })).json;
   // Bedingungen der Tür-Prüfpunkte (wie sie der Katalog gerade liefert – Paket V ordnet sie neu): Typ A erfüllt keine,
   // Typ B alle. Über Schlüssel, nicht über Bezeichnungen.
   const cats = (await api('/categories')).json;
@@ -131,14 +133,20 @@ const enter = async (loc) => {
   const assetByNumber = async (n) => (await api(`/properties/${prop.id}`)).json.assets.find((a) => a.number === n);
   const readyList = async () => (await api('/inspections?status=ready')).json;
 
-  step('Objekt → Begehung (390 px): „Tür ansagen“ oben, Objekt ist gewählt');
+  step('Objekt → Begehung (390 px): „Begehung starten“ → „Tür ansagen“, Objekt fest vorgegeben');
   await p.goto(BASE + `/objekte/${prop.id}?tab=begehung`);
+  // Plan v8: „Tür ansagen“ liegt im Objekt, Reiter Begehung, hinter dem großen Knopf „Begehung starten“ (einmal je Begehung)
+  door('Begehung starten (einmal je Begehung)');
+  await tap(p.getByRole('region', { name: 'Begehung starten' }).getByRole('button', { name: 'Begehung starten' }));
+  await p.waitForURL(/tab=begehung.*start=1/);
   const card = p.getByRole('region', { name: 'Tür ansagen' });
   await card.waitFor();
   const field = card.getByRole('textbox', { name: 'Ansage' });
-  await p.waitForFunction((id) => document.querySelector('select[aria-label="Objekt"]')?.value === id, prop.id, { timeout: 8000 }).catch(() => {});
-  check((await card.getByLabel('Objekt').inputValue()) === prop.id, 'einziges Objekt vorgewählt');
-  await noOverflow('(Prüfen mit Ansage)');
+  check((await card.getByLabel('Objekt').count()) === 0, 'keine Objektwahl – das Objekt ist fest vorgegeben');
+  await p.waitForFunction(() => document.activeElement?.getAttribute('aria-label') === 'Ansage', null, { timeout: 5000 }).catch(() => {});
+  check(await field.evaluate((e) => document.activeElement === e), 'Ansagefeld hat nach „Begehung starten“ den Fokus');
+  check(await p.getByRole('link', { name: 'Ohne Netz weiterarbeiten' }).isVisible(), 'Begehung: Link „Ohne Netz weiterarbeiten“');
+  await noOverflow('(Begehung mit Ansage)');
 
   step('Tür 354 Typ SK32 → angelegt mit Stammdaten → Abweichung → Rest i. O. → bereit');
   door('Tür 354 (neu, mit Abweichung)');
@@ -288,20 +296,33 @@ const enter = async (loc) => {
   check((await api(`/assets/${a371.id}/restore`, { data: {} })).status === 200 && (await assetByNumber(371)), 'in der App wiederhergestellt');
   await other.close();
 
-  step('Ohne Netz: Gebäude laden, Türen ansagen, Warteschlange, später übertragen');
-  await p.goto(BASE + '/offline');
-  const prep = p.getByRole('region', { name: 'Gebäude laden' }).or(p.locator('section', { hasText: 'Gebäude laden' })).first();
-  await p.getByText('Auf diesem Gerät').waitFor();
-  // die Seite baut sich nach dem Laden der Pakete einmal neu auf – Auswahl wiederholen, bis das Gebäude wählbar ist
-  await prep.getByRole('combobox').first().selectOption({ label: 'Hotel Seeblick (Test)' });
-  await prep.getByRole('combobox').nth(1).selectOption({ label: building.name });
-  await p.getByRole('button', { name: 'Laden', exact: true }).click();
-  await p.getByText(/Elemente gespeichert/).waitFor();
+  step('Ohne Netz: aus dem Objekt Gebäude laden, Netz weg, Türen weiter ansagen, Warteschlange, später übertragen');
+  // Plan v8: aus dem Reiter Begehung „Ohne Netz weiterarbeiten“ → Offline-Ansage des Objekts; ein Tipp lädt die Gebäude
   await p.goto(BASE + `/objekte/${prop.id}?tab=begehung`);
+  await card.waitFor();
+  await p.getByRole('link', { name: 'Ohne Netz weiterarbeiten' }).click();
+  await p.waitForURL((u) => u.pathname === '/offline' && u.searchParams.get('objekt') === prop.id);
+  await p.getByText('Dieses Objekt ist nicht auf dem Gerät').waitFor();
+  await p.getByRole('button', { name: 'Gebäude laden' }).click();
+  const offCard = p.getByRole('region', { name: /^Ohne Netz ansagen · Hotel Seeblick/ });
+  await offCard.getByRole('region', { name: 'Tür ansagen' }).waitFor();
+  check(!(await offCard.getByLabel('Objekt').count()), 'Offline-Ansage: Objekt fest vorgegeben');
+  await noOverflow('(Offline-Ansage des Objekts)');
+  // zurück ins Objekt; dort geht das Netz weg → Hinweis im Reiter Begehung führt zur Ansage auf dem Gerät
+  await offCard.getByRole('link', { name: 'Zum Objekt' }).click();
+  await p.waitForURL(/\/objekte\/[^/?]+\?tab=begehung/);
   await card.waitFor();
   await p.waitForTimeout(400);
   await ctx.setOffline(true);
+  const offNotice = p.getByRole('region', { name: 'Ohne Netz' });
+  await offNotice.waitFor();
+  check(!(await card.count()), 'ohne Netz: keine Online-Ansage im Reiter (Ergebnisliste braucht den Server)');
+  await noOverflow('(Objekt ohne Netz)');
+  await shot('m-objekt-ohne-netz');
+  await offNotice.getByRole('link', { name: 'Ohne Netz weiterarbeiten' }).click();
+  await p.waitForURL((u) => u.pathname === '/offline' && u.searchParams.get('objekt') === prop.id);
   await card.getByText('ohne Netz').waitFor();
+  const backOffline = (u) => u.pathname === '/offline' && u.searchParams.get('objekt') === prop.id && u.searchParams.get('ansage') === 'weiter';
   door('Tür 380 offline (neu, mit Abweichung)');
   await input(field, 'Tür 380 Typ SK32');
   await preview.getByText('Tür 380 · Raum 380 · Westag + Getalit SK32 – wird angelegt').waitFor();
@@ -314,14 +335,15 @@ const enter = async (loc) => {
   await noOverflow('(Offline-Prüfung aus der Ansage)');
   await shot('m-offline-ansage-pruefung', p.locator('#diktat'));
   await tap(p.getByRole('button', { name: 'Bereit · nächste Tür' }));
-  await p.waitForURL(/\/objekte\/[^/?]+\?(.*&)?ansage=weiter/);
+  await p.waitForURL(backOffline);
+  check(await field.evaluate((e) => document.activeElement === e), 'ohne Netz: Ansagefeld hat nach „nächste Tür“ den Fokus');
   door('Tür 381 offline (gleicher Typ)');
   await input(field, 'Tür 381 gleicher Typ');
   await enter(field);
   await p.waitForURL(/\/offline\/pruefen\/local[^?]+\?ansage=1/);
   await tap(p.getByRole('button', { name: 'Alles in Ordnung', exact: true }));
   await tap(p.getByRole('button', { name: 'Bereit · nächste Tür' }));
-  await p.waitForURL(/\/objekte\/[^/?]+\?(.*&)?ansage=weiter/);
+  await p.waitForURL(backOffline);
   door('Tür 382 offline (Typ unbekannt)');
   await input(field, 'Tür 382 Typ Holztür alt');
   await preview.getByText(/Typ unbekannt/).waitFor();
@@ -330,13 +352,21 @@ const enter = async (loc) => {
   const offlineRows = await p.locator('[data-cp]').count();
   await tap(p.getByRole('button', { name: 'Alles in Ordnung', exact: true }));
   await tap(p.getByRole('button', { name: 'Bereit · nächste Tür' }));
-  await p.waitForURL(/\/objekte\/[^/?]+\?(.*&)?ansage=weiter/);
+  await p.waitForURL(backOffline);
   door('Tür 354 offline (vorhanden)');
   await input(field, 'Tür 354 Typ SK32');
   await preview.getByText(/vorhanden/).waitFor();
   await field.fill('');
   check(!(await assetByNumber(380)), 'Tür 380 vor der Übertragung noch nicht auf dem Server');
   await shot('m-ansage-offline', card);
+  // Objekt ohne geladene Daten (nie geöffnet) ohne Netz: die Objektseite leitet gleich auf die Offline-Ansage
+  await p.evaluate((u) => {
+    history.pushState({}, '', u);
+    dispatchEvent(new PopStateEvent('popstate'));
+  }, `/objekte/${prop2.id}?tab=begehung`);
+  await p.waitForURL((u) => u.pathname === '/offline' && u.searchParams.get('objekt') === prop2.id);
+  await p.getByText('Dieses Objekt ist nicht auf dem Gerät').waitFor();
+  check(!(await p.getByRole('button', { name: 'Gebäude laden' }).count()), 'ohne Netz kein „Gebäude laden“');
   await ctx.setOffline(false);
   await p.evaluate(() => window.dispatchEvent(new Event('online')));
   let a380 = null;
@@ -429,6 +459,8 @@ const enter = async (loc) => {
   check(c355.inputs === 1 && c355.taps === 3, `Folgetür ohne Abweichung: 1 Eingabe, 3 Tipps (${c355.inputs}/${c355.taps})`);
   const c356 = counts['Tür 356 (Befund in der Ansage)'];
   check(c356.inputs === 1 && c356.taps === 3, `Befund in der Ansage: 1 Eingabe, 3 Tipps (${c356.inputs}/${c356.taps})`);
+  const cStart = counts['Begehung starten (einmal je Begehung)'];
+  check(cStart.taps === 1 && cStart.inputs === 0, `Begehung starten: ein Tipp je Begehung (${cStart.taps})`);
   const c380 = counts['Tür 380 offline (neu, mit Abweichung)'];
   check(c380.inputs === 2 && c380.taps === 3, `offline gleich viele: 2 Eingaben, 3 Tipps (${c380.inputs}/${c380.taps})`);
 

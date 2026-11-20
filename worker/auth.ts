@@ -244,7 +244,7 @@ auth.post('/invite/:token', async (c) => {
     c.env.DB.prepare('UPDATE invites SET accepted_at = ? WHERE id = ?').bind(t, inv.id),
   ]);
   const who = await c.env.DB.prepare('SELECT name FROM users WHERE id = ?').bind(user.id).first<string>('name');
-  await notifyTenant(c.env, inv.tenant_id, { roles: ['owner', 'admin'], type: 'member_joined', title: `${who} ist dem Team beigetreten`, link: '/team' }, c.executionCtx);
+  await notifyTenant(c.env, inv.tenant_id, { roles: ['owner', 'admin'], type: 'member_joined', title: `${who} ist dem Team beigetreten`, link: '/einstellungen/team' }, c.executionCtx);
   await startSession(c, user.id, inv.tenant_id);
   return c.json({ ok: true });
 });

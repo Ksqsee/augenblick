@@ -6,7 +6,7 @@
 // (Protokoll nach DGUV, früher Reiter „Begehungen“) als eigener Abschnitt darunter. Daten erst, wenn der Reiter offen ist.
 import { useQuery } from '@tanstack/react-query';
 import clsx from 'clsx';
-import { BookCopy, Footprints, Mic, PenLine, Plus, ReceiptText, Route } from 'lucide-react';
+import { BookCopy, CloudOff, Footprints, Mic, PenLine, Plus, ReceiptText, Route } from 'lucide-react';
 import { type ReactNode, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { filterWalk, type WalkInspection, type WalkRow, type WalkStatus, walkResult } from '../../../shared/walk';
@@ -15,7 +15,8 @@ import { categoryLabel, defectsLabel, fmtDate, fmtDateTime, type Tone } from '..
 import { StartWalkthrough } from '../../pages/Walkthroughs';
 import { AnnounceCard } from '../inspect/Announce';
 import { MappeDialog } from '../Mappe';
-import { Button, Empty, ErrorBox, List, ListRow, ResultBadge, Section, Select, SkeletonList, StatusDot, StatusText, Surface, toneText } from '../ui';
+import { useOnline } from '../../offline';
+import { Button, ButtonLink, Empty, ErrorBox, List, ListRow, Notice, ResultBadge, Section, Select, SkeletonList, StatusDot, StatusText, Surface, toneText } from '../ui';
 
 export interface PropertyWalk {
   date: string;
@@ -65,6 +66,8 @@ export function WalkTab({ p, canInspect }: { p: PropertyDetail; canInspect: bool
     );
   const filter = (FILTERS as readonly string[]).includes(params.get('zeige') ?? '') ? (params.get('zeige') as Filter) : 'all';
   const [walkStart, setWalkStart] = useState(false);
+  const online = useOnline();
+  const offlineUrl = `/offline?objekt=${encodeURIComponent(p.id)}${online ? '' : '&ansage=weiter'}`;
   const w = walk.data;
   // Begehung läuft: heute schon etwas geprüft, gerade gestartet oder von „Bereit · nächste Tür“ zurück
   const running = params.get('ansage') === 'weiter' || params.get('start') === '1' || (!!w && w.days[0]?.date === w.today && !tag);
@@ -73,14 +76,39 @@ export function WalkTab({ p, canInspect }: { p: PropertyDetail; canInspect: bool
     <>
       {walkStart && <StartWalkthrough propertyId={p.id} onClose={() => setWalkStart(false)} />}
       <Surface data-detail-surface>
+        {canInspect && !online && (
+          // ohne Netz: Ergebnisliste und Folgeschritte brauchen den Server – angesagt wird auf dem Gerät weiter
+          <Section aria-label="Ohne Netz">
+            <Notice tone="warn" icon={<CloudOff />} title="Kein Netz">
+              <span className="flex flex-col items-start gap-3">
+                Türen dieses Objekts weiter ansagen – sie werden auf dem Gerät gespeichert und übertragen, sobald du wieder Netz hast.
+                <ButtonLink to={offlineUrl} size="sm" variant="secondary">
+                  Ohne Netz weiterarbeiten
+                </ButtonLink>
+              </span>
+            </Notice>
+          </Section>
+        )}
         {canInspect &&
+          online &&
           (running ? (
             <AnnounceCard propertyId={p.id} title="Begehung · Tür ansagen" autoFocus={params.get('ansage') === 'weiter' || params.get('start') === '1'} />
           ) : (
             // erst nach dem Laden entscheiden, ob heute schon begangen wird (kein Springen vom Knopf zum Feld)
             w && <StartBlock p={p} onStart={() => set({ start: '1', tag: null, zeige: null })} />
           ))}
-        {walk.isLoading ? (
+        {canInspect && online && (running || w) && p.buildings.length > 0 && (
+          <p className="-mt-3 flex items-center gap-1.5 px-(--row-px) pb-4 text-meta text-ink-3 sm:-mt-4">
+            <CloudOff className="size-3.5 shrink-0" />
+            <span>
+              Kein Netz im Keller?{' '}
+              <Link to={offlineUrl} className="text-ink-2 underline decoration-ink-4 underline-offset-4 hover:text-ink">
+                Ohne Netz weiterarbeiten
+              </Link>
+            </span>
+          </p>
+        )}
+        {walk.isLoading && !online ? null : walk.isLoading ? (
           <Section>
             <SkeletonList rows={5} className="shadow-none" />
           </Section>

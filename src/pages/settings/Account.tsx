@@ -320,7 +320,7 @@ function WorkspaceSection() {
     () => api('/account/workspaces', { body: { name } }),
     () => {
       queryClient.clear();
-      navigate('/');
+      navigate('/objekte');
     },
   );
   return (

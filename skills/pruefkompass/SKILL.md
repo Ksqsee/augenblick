@@ -82,7 +82,8 @@ genannten `defects`. Antwort an der Tür: „354 angelegt, Türstopper fehlt ein
 - **„Nummer 400 ist ein Feuerlöscher“**: Nummer und Art passen nicht – weitergeben, nachfragen, nichts umgehen.
 
 In der App geht dasselbe ohne Claude: Objekt → Begehung → „Begehung starten“ (Tür ansagen per Mikrofon oder Tastatur), die Prüfung öffnet mit
-dem Feld für die Abweichung, „Alles andere in Ordnung“, „Bereit · nächste Tür“ – auch ohne Netz.
+dem Feld für die Abweichung, „Alles andere in Ordnung“, „Bereit · nächste Tür“ – auch ohne Netz (im Reiter Begehung
+„Ohne Netz weiterarbeiten“; die Ansage bleibt beim Objekt).
 
 ### Rohdiktat auswerten: „Werte mein Diktat von heute aus“
 Ohne Netz diktieren die Leute mit der Tastatur des Handys. Die App speichert den Text roh an der Prüfung,

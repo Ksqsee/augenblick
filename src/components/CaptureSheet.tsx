@@ -684,7 +684,7 @@ export function CaptureSheet({ initial, onClose }: { initial: CaptureContext; on
                   variant="secondary"
                   onClick={async () => {
                     for (const x of done.dupes) await api('/defects', { body: { ...(x.body as object), force: true } });
-                    qc.invalidateQueries({ queryKey: ['defects'] });
+                    for (const k of ['defects', 'property', 'properties']) qc.invalidateQueries({ queryKey: [k] });
                     setDone({ ...done, defects: done.defects + done.dupes.length, dupes: [] });
                   }}
                 >

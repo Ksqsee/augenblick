@@ -2049,6 +2049,13 @@ function client() {
     const sw = await insp(`/properties/${S.id}/walk`);
     const sAssets = new Set((await owner(`/assets?propertyId=${S.id}`)).json.map((a) => a.id));
     check(sw.status === 200 && sw.json.inspections.every((i) => sAssets.has(i.assetId)), `eingeschränkter Prüfer: nur Prüfungen des eigenen Objekts (${sw.status})`);
+    // Mängelzahl der Objektseite (GET /properties/:id → openDefects) wie die Ampel und nur im Zugriffsbereich
+    const sDet = (await insp(`/properties/${S.id}`)).json;
+    const sRow = (await insp("/properties")).json.find((p) => p.id === S.id);
+    check(sDet.openDefects === sRow.openDefects && sDet.criticalDefects === sRow.criticalDefects, `Objektseite zählt Mängel wie die Ampel im Bereich (${sDet.openDefects}/${sRow.openDefects})`);
+    check((await insp(`/properties/${O.id}`)).status === 404, "eingeschränkter Prüfer: Objektseite außerhalb → 404");
+    const oDet = (await owner(`/properties/${O.id}`)).json;
+    check(oDet.openDefects === (await owner("/properties")).json.find((p) => p.id === O.id).openDefects, "Inhaber: Objektseite zählt Mängel wie die Ampel");
     // „wartet auf Unterschrift“ zählt nur eigene Entwürfe
     const door = (await owner(`/assets?propertyId=${O.id}`)).json[0];
     const dr = (await owner(`/assets/${door.id}/inspections`, { body: {} })).json;

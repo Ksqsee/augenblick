@@ -1,7 +1,8 @@
+import { useRef } from 'react';
 import { useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { markRoundDone } from './Round';
 import { api, type AssetDetail, type Inspection, queryClient, useInspection } from '../api';
-import { InspectionForm } from '../components/run';
+import { InspectionForm, type InspectionDraft } from '../components/run';
 import { ButtonLink, ErrorBox, Notice, Skeleton, Surface, useToast } from '../components/ui';
 import { fmtDate } from '../format';
 
@@ -42,8 +43,10 @@ function Online({ insp }: { insp: Inspection }) {
   const announced = params.get('ansage') === '1';
   // Plan v8 Z: aus dem Objekt angesagt → zurück in dessen Reiter „Begehung“
   const objekt = params.get('objekt');
-  const announceBack = objekt && /^[A-Za-z0-9_-]{1,40}$/.test(objekt) ? `/objekte/${objekt}?tab=begehung` : '/pruefen';
+  // ohne `objekt=` das Objekt des Elements – nie über die Weiterleitung von /pruefen (zuletzt geöffnetes Objekt)
+  const announceBack = `/objekte/${objekt && /^[A-Za-z0-9_-]{1,40}$/.test(objekt) ? objekt : insp.propertyId}?tab=begehung`;
   const finding = (useLocation().state as { finding?: string } | null)?.finding;
+  const attrChain = useRef<Promise<void>>(Promise.resolve());
   return (
     <InspectionForm
       announce={
@@ -54,7 +57,7 @@ function Online({ insp }: { insp: Inspection }) {
                 if (!r.ready) throw new Error(`Noch nicht bereit: ${r.missing.join('; ') || 'bitte prüfen'}`);
                 await queryClient.invalidateQueries();
                 toast(`${insp.asset.code} bereit zur Unterschrift`);
-                navigate(`${announceBack}${announceBack.includes('?') ? '&' : '?'}ansage=weiter`, { replace: true });
+                navigate(`${announceBack}&ansage=weiter`, { replace: true });
               },
             }
           : undefined
@@ -94,41 +97,55 @@ function Online({ insp }: { insp: Inspection }) {
         rawNotes: insp.rawNotes ?? [],
       }}
       knownDefects={insp.knownDefects}
-      onAttribute={async (attr, value) => {
-        // Rückfrage („Hat die Tür eine Feststellanlage?“) dauerhaft am Element speichern
-        const a = await api<AssetDetail>(`/assets/${insp.assetId}`);
-        await api(`/assets/${insp.assetId}`, {
-          method: 'PATCH',
-          body: {
-            buildingId: a.buildingId,
-            location: a.location,
-            floor: a.floor,
-            manufacturer: a.manufacturer,
-            model: a.model,
-            labelCode: a.labelCode || undefined,
-            number: a.number ?? undefined,
-            warnDays: a.warnDays ?? null,
-            attributes: { ...a.attributes, [attr]: value },
-          },
-        });
+      onAttribute={(attr, value) => {
+        // Rückfrage („Hat die Tür eine Feststellanlage?“) dauerhaft am Element speichern.
+        // Nacheinander: jede Antwort liest und schreibt die ganzen Stammdaten – parallel ginge eine verloren.
+        const run = attrChain.current.catch(() => undefined).then(() => saveAttribute(attr, value));
+        attrChain.current = run;
+        return run;
       }}
       persist={(d) => api(`/inspections/${insp.id}`, { method: 'PUT', body: d })}
       submit={async (d) => {
-        await api(`/inspections/${insp.id}/submit`, { body: d });
-        await queryClient.invalidateQueries();
-        toast('Prüfung abgeschlossen');
-        if (round) {
-          markRoundDone(round, insp.assetId);
-          navigate(`/rundgang/${round}?fertig=${insp.assetId}&code=${encodeURIComponent(insp.asset.code)}`, { replace: true });
-        } else navigate(`/druck/protokoll/${insp.id}`, { replace: true });
+        await attrChain.current.catch(() => undefined);
+        await submit(d);
       }}
-      discard={async () => {
-        await api(`/inspections/${insp.id}`, { method: 'DELETE' });
-        await queryClient.invalidateQueries();
-        navigate(round ? `/rundgang/${round}` : fromSign ? '/unterschreiben' : announced ? `${announceBack}${announceBack.includes('?') ? '&' : '?'}ansage=weiter` : `/elemente/${insp.assetId}`, { replace: true });
-      }}
+      discard={discard}
     />
   );
+
+  async function saveAttribute(attr: string, value: string | boolean) {
+    const a = await api<AssetDetail>(`/assets/${insp.assetId}`);
+    await api(`/assets/${insp.assetId}`, {
+      method: 'PATCH',
+      body: {
+        buildingId: a.buildingId,
+        location: a.location,
+        floor: a.floor,
+        manufacturer: a.manufacturer,
+        model: a.model,
+        labelCode: a.labelCode || undefined,
+        number: a.number ?? undefined,
+        warnDays: a.warnDays ?? null,
+        attributes: { ...a.attributes, [attr]: value },
+      },
+    });
+  }
+
+  async function submit(d: InspectionDraft) {
+    await api(`/inspections/${insp.id}/submit`, { body: d });
+    await queryClient.invalidateQueries();
+    toast('Prüfung abgeschlossen');
+    if (round) {
+      markRoundDone(round, insp.assetId);
+      navigate(`/rundgang/${round}?fertig=${insp.assetId}&code=${encodeURIComponent(insp.asset.code)}`, { replace: true });
+    } else navigate(`/druck/protokoll/${insp.id}`, { replace: true });
+  }
+
+  async function discard() {
+    await api(`/inspections/${insp.id}`, { method: 'DELETE' });
+    await queryClient.invalidateQueries();
+    navigate(round ? `/rundgang/${round}` : fromSign ? '/unterschreiben' : announced ? `${announceBack}&ansage=weiter` : `/elemente/${insp.assetId}`, { replace: true });
+  }
 }
 
 /** Platzhalter in der Form des Prüfablaufs. */

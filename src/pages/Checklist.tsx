@@ -41,7 +41,7 @@ export function ChecklistPage() {
   const requirement = requirementOf(attrs);
   const list = buildChecklist(sched?.checkpoints ?? [], category, attrs, (k) => def.attributes.find((f) => f.key === k)?.label);
   const element = a ? [a.code, a.number != null ? `Nr. ${a.number}` : '', a.location].filter(Boolean).join(' · ') : undefined;
-  const back = a ? `/elemente/${a.id}` : product ? '/einstellungen?tab=catalog' : '/pruefen';
+  const back = a ? `/elemente/${a.id}` : product ? '/einstellungen?tab=catalog' : '/objekte';
   const title = `Checkliste ${typeName || 'Typ unbekannt'}`;
 
   return (

@@ -243,7 +243,7 @@ export function ImportPage() {
                 <li>Art z. B. „Tür“, „Feststellanlage“, „Fenster“, „Drehtürantrieb“, „BSK“, „Feuerlöscher“, „Rauchmelder“.</li>
                 <li>Wartungsübersicht: Ident-Nummer, Türtyp (über die Aliasse im Katalog), Hersteller, Absenkdichtung/OTS/Spion „JA“, Zulassung, Intervall, letzte und nächste Prüfung, Etage und Raum werden erkannt.</li>
                 <li>Nummer = laufende Nummer im Objekt (z. B. Ident-Nr. aus dem Prüfprotokoll); leer = nächste freie.</li>
-                <li>Die Excel-Elementliste aus „Berichte“ lässt sich direkt wieder einlesen.</li>
+                <li>Die Excel-Elementliste aus Einstellungen → Berichte lässt sich direkt wieder einlesen.</li>
               </ul>
               <details className="text-meta text-ink-3">
                 <summary className="cursor-pointer text-ink-2 hover:text-ink">Alle {IMPORT_COLUMNS.length} Spalten</summary>

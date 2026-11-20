@@ -78,7 +78,7 @@ export async function notifyTenant(env: Env, tenantId: string, n: NotifyInput, c
   const duplicate = new Set(inserted.filter((_, i) => n.dedupe && !results[i]?.meta.changes));
   const pushTo = pushWanted.filter((u) => !duplicate.has(u));
   if (pushTo.length && env.VAPID_PUBLIC_KEY && env.VAPID_PRIVATE_KEY) {
-    const work = pushAll(env, pushTo, { title: n.title, body: n.body ?? '', link: n.link ?? '/' });
+    const work = pushAll(env, pushTo, { title: n.title, body: n.body ?? '', link: n.link ?? '/objekte' });
     if (ctx) ctx.waitUntil(work);
     else await work;
   }
