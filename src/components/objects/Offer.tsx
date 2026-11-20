@@ -124,7 +124,7 @@ export function OfferSection({ p }: { p: PropertyDetail }) {
               <ul className="mt-2 flex flex-col gap-0.5">
                 {o.unmapped.slice(0, 12).map((u) => (
                   <li key={u.defectId} className="min-w-0 break-words">
-                    <Link to={`/offen?art=maengel&mangel=${encodeURIComponent(u.defectId)}`} className="underline decoration-ink-4 underline-offset-4 hover:text-ink">
+                    <Link to={`/objekte/${p.id}?tab=maengel&mangel=${encodeURIComponent(u.defectId)}`} className="underline decoration-ink-4 underline-offset-4 hover:text-ink">
                       {u.door ? `${u.door}: ` : ''}
                       {u.title}
                     </Link>

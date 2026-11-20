@@ -36,7 +36,7 @@ const step = (m) => console.log('·', m);
   step('property + plan');
   await p.goto(BASE + '/objekte');
   await p.getByRole('link', { name: 'Grundschule Am Stadtpark' }).click();
-  await p.getByRole('tab', { name: /Grundrisse/ }).click();
+  await p.getByRole('region', { name: 'Grundrisse' }).waitFor(); // Plan v8 Z: Grundrisse in der Übersicht
   await shot('03-property-plans');
   await p.getByRole('link', { name: /Erdgeschoss/ }).first().click();
   await p.waitForURL(/\/grundrisse\//);
@@ -60,7 +60,7 @@ const step = (m) => console.log('·', m);
   await pdfPage.close();
   await p.goto(BASE + '/objekte');
   await p.getByRole('link', { name: 'Verwaltungsgebäude Hafenstraße' }).click();
-  await p.getByRole('tab', { name: /Grundrisse/ }).click();
+  await p.getByRole('region', { name: 'Grundrisse' }).waitFor(); // Plan v8 Z: Grundrisse in der Übersicht
   await p.getByRole('button', { name: 'Grundriss hochladen' }).click();
   await p.locator('input[type=file]').setInputFiles(OUT + 'plan.pdf');
   await p.getByLabel('Bezeichnung').fill('2. Obergeschoss');
@@ -192,7 +192,7 @@ const step = (m) => console.log('·', m);
     await mp.screenshot({ path: OUT + n + '.png', fullPage: true });
   }
   await mp.goto(BASE + '/objekte'); await mp.getByRole('link', { name: 'Seniorenresidenz Elbblick' }).click();
-  await mp.getByRole('tab', { name: /Grundrisse/ }).click(); await mp.getByRole('link', { name: /Erdgeschoss Haus A/ }).click();
+  await mp.getByRole('region', { name: 'Grundrisse' }).waitFor(); await mp.getByRole('link', { name: /Erdgeschoss Haus A/ }).click();
   await mp.waitForTimeout(1200); await mp.screenshot({ path: OUT + 'm6-plan.png', fullPage: true });
 
   console.log(errors.length ? 'ERRORS\n' + errors.join('\n') : 'OK no errors');

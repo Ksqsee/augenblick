@@ -40,6 +40,9 @@ function Online({ insp }: { insp: Inspection }) {
   const fromSign = params.get('von') === 'unterschreiben';
   // aus „Tür ansagen“ (Plan v7 W): „Bereit · nächste Tür“ statt Unterschrift, Befund aus der Ansage vorbelegt
   const announced = params.get('ansage') === '1';
+  // Plan v8 Z: aus dem Objekt angesagt → zurück in dessen Reiter „Begehung“
+  const objekt = params.get('objekt');
+  const announceBack = objekt && /^[A-Za-z0-9_-]{1,40}$/.test(objekt) ? `/objekte/${objekt}?tab=begehung` : '/pruefen';
   const finding = (useLocation().state as { finding?: string } | null)?.finding;
   return (
     <InspectionForm
@@ -51,7 +54,7 @@ function Online({ insp }: { insp: Inspection }) {
                 if (!r.ready) throw new Error(`Noch nicht bereit: ${r.missing.join('; ') || 'bitte prüfen'}`);
                 await queryClient.invalidateQueries();
                 toast(`${insp.asset.code} bereit zur Unterschrift`);
-                navigate('/pruefen?ansage=weiter', { replace: true });
+                navigate(`${announceBack}${announceBack.includes('?') ? '&' : '?'}ansage=weiter`, { replace: true });
               },
             }
           : undefined
@@ -63,7 +66,7 @@ function Online({ insp }: { insp: Inspection }) {
       scheduleLabel={insp.scheduleLabel}
       checkpoints={insp.checkpoints}
       inspectorName={insp.inspectorName}
-      back={round ? `/rundgang/${round}` : fromSign ? '/unterschreiben' : announced ? '/pruefen' : `/elemente/${insp.assetId}`}
+      back={round ? `/rundgang/${round}` : fromSign ? '/unterschreiben' : announced ? announceBack : `/elemente/${insp.assetId}`}
       banner={
         insp.purpose === 'correction' ? (
           <Notice tone="warn" title={`Berichtigung der Prüfung vom ${insp.supersedesDate ? fmtDate(insp.supersedesDate) : '–'}`}>
@@ -122,7 +125,7 @@ function Online({ insp }: { insp: Inspection }) {
       discard={async () => {
         await api(`/inspections/${insp.id}`, { method: 'DELETE' });
         await queryClient.invalidateQueries();
-        navigate(round ? `/rundgang/${round}` : fromSign ? '/unterschreiben' : announced ? '/pruefen?ansage=weiter' : `/elemente/${insp.assetId}`, { replace: true });
+        navigate(round ? `/rundgang/${round}` : fromSign ? '/unterschreiben' : announced ? `${announceBack}${announceBack.includes('?') ? '&' : '?'}ansage=weiter` : `/elemente/${insp.assetId}`, { replace: true });
       }}
     />
   );

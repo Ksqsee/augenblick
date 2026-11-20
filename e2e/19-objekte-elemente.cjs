@@ -50,7 +50,7 @@ const check = (ok, m) => {
   step('Objekt: Prüfstatus und dringendstes Element');
   await p.goto(`${BASE}/objekte/${prop.id}`);
   await p.getByRole('heading', { name: 'Prüfstatus' }).waitFor();
-  check(await p.getByRole('list', { name: /Prüfstatus: \d+ Überfällig/ }).isVisible(), 'Prüfstatus als Zahlenliste mit Beschriftung');
+  check(await p.getByRole('list', { name: /^Prüfstatus: \d+ Elemente, \d+ aktuell, \d+ fällig \(\d+ überfällig\)/ }).isVisible(), 'Prüfstatus als Zahlenliste mit Beschriftung');
   await p.getByText('Am dringendsten').click();
   await p.waitForURL(/\/elemente\//);
   await p.getByText(/seit \d+ (Tag|Tagen|Monat|Monaten|Jahr|Jahren)/).first().waitFor();
@@ -88,7 +88,7 @@ const check = (ok, m) => {
 
   step('Mehrere Elemente nacheinander: Speichern & neu');
   const building = (await api(`/properties/${prop.id}`)).buildings[1];
-  await p.goto(`${BASE}/objekte/${prop.id}`);
+  await p.goto(`${BASE}/objekte/${prop.id}?tab=elemente`);
   await p.getByRole('region', { name: building.name }).getByRole('button', { name: 'Element', exact: true }).click();
   await p.getByRole('dialog').getByRole('button', { name: /Feuerlöscher/ }).click();
   await p.getByLabel('Standort').fill('E2E Reihe 1');
@@ -146,9 +146,9 @@ const check = (ok, m) => {
     check(over <= 0, `${path}: kein horizontaler Überlauf (${over})`);
   }
   await mp.goto(`${BASE}/objekte/${prop.id}`);
-  // Hauptknopf (Plan v5 Q): Rundgang, solange Elemente fällig oder nie geprüft sind; Begehung im ⋯-Menü
-  check(!(await mp.getByRole('button', { name: 'Begehung starten' }).count()), 'Begehung nicht im Kopf');
-  const actions = await mp.getByRole('link', { name: 'Rundgang starten' }).boundingBox();
+  // Hauptknopf (Plan v8 Z): „Begehung starten“ führt in den Reiter Begehung; Brandschutzbegehung steht dort als Abschnitt
+  check(!(await mp.getByRole('button', { name: 'Brandschutzbegehung starten' }).count()), 'Brandschutzbegehung nicht im Kopf');
+  const actions = await mp.getByRole('link', { name: 'Begehung starten' }).boundingBox();
   const share = await mp.getByRole('button', { name: 'Für Kunden freigeben' }).boundingBox();
   check(actions && share && Math.abs(actions.y - share.y) < 4, 'Aktionen am Objekt auf dem Handy in einer Zeile');
   await mp.screenshot({ path: OUT + 'm-objekt.png', fullPage: true });

@@ -624,7 +624,7 @@ export function CaptureSheet({ initial, onClose }: { initial: CaptureContext; on
       n === 0 && done.queued
         ? '/offline'
         : done.assets && done.propertyId
-          ? `/objekte/${done.propertyId}`
+          ? `/objekte/${done.propertyId}?tab=elemente`
           : done.defects
             ? '/offen?art=maengel'
             : done.tasks

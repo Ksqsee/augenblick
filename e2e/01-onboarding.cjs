@@ -42,7 +42,10 @@ require('fs').mkdirSync(OUT, { recursive: true });
   await p.getByLabel('Adresse').fill('Parkweg 3\n22041 Hamburg');
   await p.getByLabel('Ansprechperson').fill('Hausmeister Meier');
   await p.getByRole('button', { name: 'Speichern', exact: true }).click();
+  // Plan v8 Z: Stammdaten stehen in der Übersicht, Elemente im eigenen Reiter
+  await p.getByRole('tab', { name: /^Übersicht/ }).click();
   await p.getByText('Hausmeister Meier').waitFor();
+  await p.getByRole('tab', { name: /^Elemente/ }).click();
 
   // Weitere Elemente per Formular (ein Gebäude: kein Gebäudefeld)
   const addAsset = async (cat, loc, extra) => {
@@ -58,7 +61,8 @@ require('fs').mkdirSync(OUT, { recursive: true });
   await shot('03-property');
 
   // Prüfung
-  await p.getByText('Treppenhaus Nord').first().click();
+  // Plan v8 Z: Elemente als Tabelle – die ganze Zeile öffnet die Seitenleiste
+  await p.getByRole('row', { name: /Treppenhaus Nord/ }).getByRole('button').first().click();
   await shot('04-drawer');
   await p.getByRole('button', { name: 'Prüfen' }).click();
   await p.waitForURL(/\/pruefung\//);

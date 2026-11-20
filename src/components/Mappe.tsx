@@ -42,7 +42,7 @@ export function MappeButton({ propertyId, variant = 'secondary', label = 'Sammel
  * Dialog: Objekt (falls nicht vorgegeben), Rundgang-Tag oder Zeitraum, optional Elementart – oder feste Prüfungen
  * (`ids`, z. B. gerade unterschrieben). Zeigt vorab, wie viele Protokolle hineinkommen.
  */
-export function MappeDialog({ propertyId: fixed, ids, onClose }: { propertyId?: string; ids?: string[]; onClose: () => void }) {
+export function MappeDialog({ propertyId: fixed, ids, day: initialDay, onClose }: { propertyId?: string; ids?: string[]; /** vorgewählter Rundgang-Tag (JJJJ-MM-TT), z. B. aus dem Reiter „Begehung“ */ day?: string; onClose: () => void }) {
   const { data: me } = useMe();
   const toast = useToast();
   const props = useProperties();
@@ -56,7 +56,7 @@ export function MappeDialog({ propertyId: fixed, ids, onClose }: { propertyId?: 
   const rows = list.data ?? [];
   const days = useMemo(() => [...new Set(rows.map((r) => dayKey(r.inspectedAt ?? r.createdAt)))], [rows]);
   const [mode, setMode] = useState<'day' | 'range'>('day');
-  const [day, setDay] = useState('');
+  const [day, setDay] = useState(initialDay ?? '');
   const [from, setFrom] = useState('');
   const [to, setTo] = useState('');
   const [category, setCategory] = useState('');

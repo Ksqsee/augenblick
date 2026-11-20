@@ -293,7 +293,7 @@ function WalkRunner({ w }: { w: Walkthrough }) {
 
   return (
     <RunFrame
-      back={`/objekte/${w.propertyId}`}
+      back={`/objekte/${w.propertyId}?tab=begehung`}
       icon={<Footprints className="size-4 text-ink-3" strokeWidth={1.75} />}
       title={
         <>
@@ -428,7 +428,7 @@ function WalkRunner({ w }: { w: Walkthrough }) {
         onDiscard={async () => {
           await api(`/walkthroughs/${w.id}`, { method: 'DELETE' });
           await queryClient.invalidateQueries();
-          navigate(`/objekte/${w.propertyId}`, { replace: true });
+          navigate(`/objekte/${w.propertyId}?tab=begehung`, { replace: true });
         }}
       />
     </RunFrame>
@@ -452,7 +452,7 @@ export function WalkthroughProtocol() {
   return (
     <PrintFrame
       title="Begehungsprotokoll"
-      back={`/objekte/${w.propertyId}`}
+      back={`/objekte/${w.propertyId}?tab=begehung`}
       actions={
         <>
           <FollowUpWalkButton w={w} />
