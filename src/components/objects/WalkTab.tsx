@@ -358,8 +358,8 @@ function FireWalks({ p, canInspect, onStart }: { p: PropertyDetail; canInspect: 
       flush
       action={
         canInspect && (
-          <Button size="sm" variant="ghost" icon={p.walkthroughs.length ? <Plus /> : <Footprints />} onClick={onStart}>
-            {p.walkthroughs.length ? 'Neu' : 'Brandschutzbegehung starten'}
+          <Button size="sm" variant="ghost" icon={p.walkthroughs.length ? <Plus /> : <Footprints />} onClick={onStart} aria-label="Brandschutzbegehung starten">
+            {p.walkthroughs.length ? 'Neu' : 'Starten'}
           </Button>
         )
       }
