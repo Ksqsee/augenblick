@@ -99,6 +99,10 @@ export interface PropertyRow {
   nextWalkAt: number | null;
   lastInspectedAt: number | null;
   nextDueAt: number | null;
+  /** Ampel (Plan v8): früheste Fälligkeit (= nextDueAt), kritische Mängel, eigene wartende Unterschriften */
+  nextDue: number | null;
+  criticalDefects: number;
+  pendingSignatures: number;
 }
 
 export interface Asset {

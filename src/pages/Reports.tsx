@@ -116,10 +116,10 @@ export function ReportsPage() {
 
               <ListHeading>Weitere Nachweise</ListHeading>
               <ReportRowItem title="Prüfprotokolle" text="Einzeln bei jeder Prüfung oder gesammelt als ZIP unter Prüfungen → Durchgeführt. Dateiname: Ident_Datum_Art.pdf">
-                <LinkButton to="/pruefen?tab=done">Zu den Prüfungen</LinkButton>
+                <LinkButton to="/pruefungen?tab=done">Zu den Prüfungen</LinkButton>
               </ReportRowItem>
               <ReportRowItem title="Begehungsprotokolle" text="Brandschutzbegehungen mit Feststellungen und Rechtsgrundlagen.">
-                <LinkButton to="/pruefen/begehungen">Zu den Begehungen</LinkButton>
+                <LinkButton to="/begehungen">Zu den Begehungen</LinkButton>
               </ReportRowItem>
               <ReportRowItem title="JSON-Backup" text="Vollständige Sicherung aller Daten des Workspaces (ohne Passwörter).">
                 <a href="/api/export/backup.json" download className={FLUSH}>
@@ -240,7 +240,7 @@ function ReportBuilder() {
 
 /**
  * Monatsberichte (Autopilot monthly_report): je Objekt den Objektbericht erzeugen und archivieren – nur Admins ohne Einschränkung.
- * Der Vorschlag „Monatsberichte bereit“ verlinkt auf /berichte?monatsbericht=1; dann startet die Erzeugung sofort.
+ * Der Vorschlag „Monatsberichte bereit“ verlinkt auf /einstellungen/berichte?monatsbericht=1; dann startet die Erzeugung sofort.
  */
 function MonthlyReportsRow() {
   const { data: me } = useMe();
@@ -511,7 +511,7 @@ export function ComplianceReport() {
   const od = overdue.data ?? [];
   const sn = soon.data ?? [];
   return (
-    <PrintFrame title="Compliance-Übersicht" back="/berichte">
+    <PrintFrame title="Compliance-Übersicht" back="/einstellungen/berichte">
       <ReportHead title="Compliance-Übersicht" subtitle={`${rows.length} Objekte · ${total} Elemente`} />
       <table className="w-full border-collapse">
         <thead>
@@ -575,7 +575,7 @@ export function DefectReport() {
   if (error) return <ErrorBox error={error} />;
   const rows = data ?? [];
   return (
-    <PrintFrame title="Mängelbericht" back="/berichte">
+    <PrintFrame title="Mängelbericht" back="/einstellungen/berichte">
       <ReportHead title="Mängelbericht" subtitle={`${rows.length} offene Mängel`} />
       {rows.length === 0 ? (
         <p>Keine offenen Mängel.</p>
@@ -612,7 +612,7 @@ export function LabelSheet() {
   const preset = params.get('ids')?.split(',').filter(Boolean);
   const [mode, setMode] = useState<'assets' | 'blank'>('assets');
   return (
-    <PrintFrame title="QR-Etiketten" back="/berichte">
+    <PrintFrame title="QR-Etiketten" back="/einstellungen/berichte">
       {!preset && (
         <Segmented
           className="no-print mb-4"

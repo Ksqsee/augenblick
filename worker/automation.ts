@@ -1056,7 +1056,7 @@ export async function automationSuggestions(c: Ctx): Promise<AutomationSuggestio
         title: `Monatsberichte ${m.label} bereit`,
         text: `Für ${plural(m.properties, 'ein Objekt', 'Objekte')} den Objektbericht erzeugen und im Archiv ablegen.`,
         // PDFs entstehen im Browser: die Berichtsseite erzeugt und archiviert sie beim Öffnen dieses Links
-        link: '/berichte?monatsbericht=1',
+        link: '/einstellungen/berichte?monatsbericht=1',
         count: m.properties,
       });
   }
@@ -1292,7 +1292,7 @@ automation.post('/automation/:key/run', async (c) => {
   else if (key === 'escalate_sla') done = (await escalateSla(c)) + (await closeStale(c));
   else if (key === 'verify_repairs') done = await createVerifications(c, null);
   else if (key === 'assign_defect_tasks') done = await createDefectTasks(c, { severities: autoSeverities(rulesOf(s[key].config)) });
-  else if (key === 'adapt_intervals') throw new HTTPException(400, { message: 'Intervall-Vorschläge einzeln übernehmen: auf „Heute“ oder auf der Elementseite' });
+  else if (key === 'adapt_intervals') throw new HTTPException(400, { message: 'Intervall-Vorschläge einzeln übernehmen: im Kalender unter „Jetzt“ oder auf der Elementseite' });
   else throw new HTTPException(400, { message: 'Monatsberichte entstehen im Browser: Berichte öffnen und „Monatsberichte erzeugen“ wählen' });
   // created: Anzahl angelegter Aufgaben (wie /smart/tasks-from-defects), nur bei Regeln, die Aufgaben anlegen
   return c.json({ key, done, ...(key === 'escalate_sla' ? {} : { created: done }) });
@@ -1358,7 +1358,7 @@ automation.post('/automation/monthly-report/:id/complete', async (c) => {
   ).results.map((r) => r.id);
   const label = periodLabel(row.entity_id);
   await c.env.DB.prepare('UPDATE automation_log SET summary = ?, undo = ?, link = ?, at = ? WHERE id = ?')
-    .bind(`${plural(ok.length, 'Ein Monatsbericht', 'Monatsberichte')} ${label} archiviert`, ok.length ? JSON.stringify({ deleteReports: ok }) : null, '/berichte', now(), row.id)
+    .bind(`${plural(ok.length, 'Ein Monatsbericht', 'Monatsberichte')} ${label} archiviert`, ok.length ? JSON.stringify({ deleteReports: ok }) : null, '/einstellungen/berichte', now(), row.id)
     .run();
   return c.json({ ok: true, archived: ok.length });
 });

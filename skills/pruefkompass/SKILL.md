@@ -30,7 +30,7 @@ claude.ai versuchen und Pop-ups erlauben.
 ## Drei Regeln, die immer gelten
 
 **Du unterschreibst nie.** `inspect` legt eine Prüfung nur *zur Unterschrift bereit*. Abschließen kann allein
-die prüfende Person in der App (Prüfen → „Unterschreiben“ → „Alle unterschreiben“). Das ist rechtlich
+die prüfende Person in der App (Objekt → Begehung → „Unterschreiben“ → „Alle unterschreiben“). Das ist rechtlich
 gewollt: Das Protokoll trägt ihre Unterschrift, nicht deine. Sag am Ende eines Rundgangs deshalb, wie viele
 Prüfungen auf die Unterschrift warten.
 
@@ -81,7 +81,7 @@ genannten `defects`. Antwort an der Tür: „354 angelegt, Türstopper fehlt ein
   `catalog` (erst `preview`) anzulegen und mit `update_asset` nachzutragen.
 - **„Nummer 400 ist ein Feuerlöscher“**: Nummer und Art passen nicht – weitergeben, nachfragen, nichts umgehen.
 
-In der App geht dasselbe ohne Claude: Prüfen → „Tür ansagen“ (Mikrofon oder Tastatur), die Prüfung öffnet mit
+In der App geht dasselbe ohne Claude: Objekt → Begehung → „Begehung starten“ (Tür ansagen per Mikrofon oder Tastatur), die Prüfung öffnet mit
 dem Feld für die Abweichung, „Alles andere in Ordnung“, „Bereit · nächste Tür“ – auch ohne Netz.
 
 ### Rohdiktat auswerten: „Werte mein Diktat von heute aus“
@@ -97,12 +97,12 @@ ordnet ihn nach Regeln grob ein und warnt bei kritischen Wörtern – die eigent
    `evaluated: true` – oder nur `evaluated: true`, wenn alles schon stimmt. Ein Rohtext mit „Typ … nicht im
    Katalog“ ist ein Auftrag für den Katalog (siehe Wissen aufbauen).
 4. Zusammenfassung am Schreibtisch: „7 Prüfungen ausgewertet, 2 Mängel ergänzt, 1 Typ fehlt im Katalog.
-   Bitte in der App unter Prüfen → Unterschreiben abschließen.“ Ist eine Prüfung schon unterschrieben, kannst
+   Bitte in der App im Objekt unter Begehung → Unterschreiben abschließen.“ Ist eine Prüfung schon unterschrieben, kannst
    du sie nur noch als ausgewertet markieren – Änderungen wären eine Berichtigung in der App; sag das.
 
 ### Checkliste je Typ zum Ausdrucken
 Jemand will die Liste für einen Türtyp mitnehmen: Sie liegt in der App unter Einstellungen → Katalog → Produkt
-(„Checkliste zum Ausdrucken“), am Element (⋯ → Checkliste drucken) und auf „Prüfen“ unter dem Ansagefeld – eine
+(„Checkliste zum Ausdrucken“), am Element (⋯ → Checkliste drucken) und im Objekt unter Begehung beim Ansagefeld – eine
 A4-Seite mit Typ, Anforderung und Zulassung, nur den zutreffenden Prüfpunkten nach Bauteil und Platz für
 Türnummern, auch als PDF. Du erzeugst sie nicht selbst; nenn den Weg.
 
@@ -111,7 +111,8 @@ Türnummern, auch als PDF. Du erzeugst sie nicht selbst; nenn den Weg.
 ### „Was steht an?“ / Start in den Tag
 `briefing`. Gib das Wichtigste in wenigen Zeilen wieder: Überfälliges, Rundgänge, schwere Mängel ohne
 Aufgabe, Prüfungen, die auf die Unterschrift warten, unausgewertetes Diktat. Biete genau einen nächsten
-Schritt an („Soll ich dein Diktat von gestern auswerten?“).
+Schritt an („Soll ich dein Diktat von gestern auswerten?“). In der App steht dasselbe im Kalender (Überfälliges oben,
+dann „Jetzt“); je Objekt zeigt die Objektliste Fälligkeit, offene Mängel und wartende Unterschriften.
 
 ### Rundgang mit vorhandener Türliste: „Führ mich durch …“
 Gibt es die Elemente schon (Import, `setup`), führt `tour` in Laufreihenfolge. Ohne Türliste ist „Tür
@@ -130,8 +131,8 @@ ansagen“ (oben) der Weg.
      Stammdaten kennen. Ordnet sie einen Mangel keinem Prüfpunkt zu, frag kurz, wozu er gehört.
 3. `tour` mit `action: "next"`, nächstes Element nennen. Der Rundgang läuft von unten nach oben durchs Haus.
    `tour` nennt die Prüfpunkte nur als Kurzfassung; lies sie nicht vor, außer jemand fragt. Überspringen: `next` mit `after`.
-4. Am Ende `tour` mit `action: "status"`: „8 von 8 geprüft, 2 mit Mängeln. Bitte in der App unter Prüfen →
-   Unterschreiben abschließen.“ Bei einem kritischen Befund sag es deutlich dazu: Bis zur Unterschrift ist er
+4. Am Ende `tour` mit `action: "status"`: „8 von 8 geprüft, 2 mit Mängeln. Bitte in der App im Objekt unter
+   Begehung → Unterschreiben abschließen.“ Bei einem kritischen Befund sag es deutlich dazu: Bis zur Unterschrift ist er
    noch kein Mangel mit Aufgabe, die App meldet ihn aber sofort an Inhaber und Admins.
 
 Halte den Takt: ein Satz Bestätigung, dann sofort das nächste Element.

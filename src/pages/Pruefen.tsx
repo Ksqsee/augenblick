@@ -1,30 +1,25 @@
-// „Prüfen“ (docs/plan/v4.md 5): ein Ort für alles, was vor Ort geprüft wird. Ohne ?tab= der Überblick – Rundgänge,
-// Fälliges, Angefangenes, Begehungen, zuletzt Abgeschlossenes – in einer Fläche. Mit ?tab=… die ausführlichen Listen
-// (Überfällig, Entwürfe, Durchgeführt, Archiv …). Scannen, Offline und „Begehung starten“ stehen im Kopf.
-// Plan v7 W: ganz oben „Tür ansagen“ als Hauptweg (auch ohne Netz) – components/inspect/Announce.tsx.
+// Bausteine des früheren Orts „Prüfen“ (docs/plan/v4.md 5). Seit Plan v8 gibt es den Ort nicht mehr: `/pruefen` leitet
+// auf das zuletzt geöffnete Objekt, Reiter Begehung (src/moved.tsx); die ausführlichen Listen stehen unter
+// `/pruefungen?tab=…` (Inspections.tsx), Begehungen unter `/begehungen`. Hier bleiben `roundStatus`, `WalkListRow`
+// und der Überblick `PruefenOverview` als exportierte Bausteine.
 import { CloudDownload, Footprints, ScanLine } from "lucide-react";
 import { useState } from "react";
-import { useSearchParams } from "react-router-dom";
 import { WALK_PURPOSES } from "../../shared/catalog";
 import {
   useDashboard,
   useInspections,
-  useMe,
   useWalkthroughs,
   type WalkRow,
 } from "../api";
 import { scheduleLabel } from "../categories";
 import { CategoryGlyph } from "../components/inspect/Glyph";
-import { AnnounceCard } from "../components/inspect/Announce";
 import {
   ButtonLink,
   Empty,
-  ErrorBox,
   List,
   ListRow,
   Menu,
   PageHeader,
-  PageSkeleton,
   ResultBadge,
   Section,
   SectionLink,
@@ -32,11 +27,10 @@ import {
   StatusText,
   Surface,
 } from "../components/ui";
-import { useOnline, useOutbox } from "../offline";
+import { useOutbox } from "../offline";
 import { defectsLabel, fmtDate, fmtRelative, type Tone } from "../format";
 import { type Round, useRounds } from "./Dashboard";
 import { ReadyBanner } from "./Inspections";
-import { InspectionsPage } from "./Inspections";
 import { StartWalkthrough } from "./Walkthroughs";
 
 const n = (v: number, one: string, many: string) =>
@@ -53,46 +47,11 @@ export function roundStatus(r: Round): { tone: Tone; text: string } {
   return { tone: "info", text: "nie geprüft" };
 }
 
-export function PruefenPage() {
-  const [params] = useSearchParams();
-  // Ausführliche Listen (früher /pruefungen?tab=…)
-  if (params.get("tab")) return <InspectionsPage />;
-  return <PruefenHub />;
-}
-
-function PruefenHub() {
-  const { data: me } = useMe();
-  const [params] = useSearchParams();
-  const online = useOnline();
-  const canWrite = !!me && me.user.role !== "viewer";
-  const dash = useDashboard();
-  // „Tür ansagen“ steht über allem und braucht weder Netz noch die Übersicht
-  // im Überblick der erste Abschnitt der einen Fläche, sonst eine eigene Fläche
-  const announce = canWrite ? <AnnounceCard autoFocus={params.get("ansage") === "weiter"} /> : null;
-  const alone = announce && <Surface className="mb-6">{announce}</Surface>;
-  if (dash.isLoading && online)
-    return (
-      <>
-        {alone}
-        <PageSkeleton />
-      </>
-    );
-  if (dash.error || !dash.data)
-    return (
-      <>
-        <PageHeader title="Prüfen" subtitle="Tür ansagen, Rundgänge und Prüfungen" />
-        {alone}
-        {online ? (
-          <ErrorBox error={dash.error} onRetry={() => dash.refetch()} />
-        ) : (
-          <p className="text-meta text-ink-3">Ohne Netz: Türen ansagen in geladenen Gebäuden; Rundgänge unter Offline.</p>
-        )}
-      </>
-    );
-  return <PruefenOverview dash={dash.data} announce={announce} canWrite={canWrite} />;
-}
-
-function PruefenOverview({
+/**
+ * Überblick „Prüfen“ (bis Plan v8 die Seite /pruefen): Rundgänge, Fälliges, Angefangenes, Begehungen, zuletzt
+ * Abgeschlossenes in einer Fläche. Als Baustein erhalten (Objekt → Begehung kann Teile übernehmen).
+ */
+export function PruefenOverview({
   dash: dashData,
   announce,
   canWrite,
@@ -257,7 +216,7 @@ function PruefenOverview({
         <Section
           title="Fällig"
           action={
-            <SectionLink to="/pruefen?tab=new">Neue Elemente</SectionLink>
+            <SectionLink to="/pruefungen?tab=new">Neue Elemente</SectionLink>
           }
           flush
         >
@@ -265,7 +224,7 @@ function PruefenOverview({
             {shownDue.map((d) => (
               <ListRow
                 key={d.tab}
-                to={`/pruefen?tab=${d.tab}`}
+                to={`/pruefungen?tab=${d.tab}`}
                 chevron
                 leading={<StatusDot tone={d.tone} />}
                 title={d.label}
@@ -294,7 +253,7 @@ function PruefenOverview({
           count={drafts.data?.length || undefined}
           action={
             (drafts.data?.length ?? 0) > 5 && (
-              <SectionLink to="/pruefen?tab=drafts">Alle</SectionLink>
+              <SectionLink to="/pruefungen?tab=drafts">Alle</SectionLink>
             )
           }
           flush
@@ -331,7 +290,7 @@ function PruefenOverview({
         {lastWalks.length > 0 && (
         <Section
           title="Begehungen"
-          action={<SectionLink to="/pruefen/begehungen">Alle</SectionLink>}
+          action={<SectionLink to="/begehungen">Alle</SectionLink>}
           flush
         >
           <List plain aria-label="Begehungen">
@@ -345,7 +304,7 @@ function PruefenOverview({
         {recent.length > 0 && (
         <Section
           title="Zuletzt abgeschlossen"
-          action={<SectionLink to="/pruefen?tab=done">Alle</SectionLink>}
+          action={<SectionLink to="/pruefungen?tab=done">Alle</SectionLink>}
           flush
         >
           <List plain aria-label="Zuletzt abgeschlossen">
@@ -387,7 +346,7 @@ function PruefenOverview({
   );
 }
 
-function WalkListRow({ w }: { w: WalkRow }) {
+export function WalkListRow({ w }: { w: WalkRow }) {
   return (
     <ListRow
       to={

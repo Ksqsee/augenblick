@@ -1,10 +1,13 @@
-// „Offen“ (docs/plan/v4.md 5): eine Arbeitsliste aus Mängeln und Aufgaben. Umschalter Alle · Mängel · Aufgaben (?art=).
+// Mängel und Aufgaben aller Objekte (/maengel) – bis Plan v8 der Ort „Offen“ (docs/plan/v4.md 5). Seit v8 steht das
+// Offene im Objekt (Reiter Mängel); diese Seite bleibt ohne Navigationspunkt für den objektübergreifenden Blick
+// (Konto-Menü, Kalender, Benachrichtigungen, Aufgaben ohne Objekt), wie /elemente für Elemente.
+// Eine Arbeitsliste aus Mängeln und Aufgaben. Umschalter Alle · Mängel · Aufgaben (?art=).
 // „Alle“ zeigt, was offen ist, nach Dringlichkeit: Überfälliges und schwere Mängel ohne Aufgabe zuerst, dann die übrigen
 // Mängel ohne Aufgabe, dann die Aufgaben nach Fälligkeit. Ein Mangel mit offener Aufgabe steht nur einmal da – als Aufgabe.
-// Detail über die URL: ?mangel=… bzw. ?aufgabe=… (alte Links /maengel?id=… und /aufgaben?id=… leiten hierher um).
+// Detail über die URL: ?mangel=… bzw. ?aufgabe=… (alte Links /maengel?id=…, /aufgaben?id=…, /offen?… leiten hierher um).
 import { Plus } from 'lucide-react';
 import { useEffect, useState } from 'react';
-import { useSearchParams } from 'react-router-dom';
+import { Navigate, useLocation, useSearchParams } from 'react-router-dom';
 import { groupByDue, urgency } from '../../shared/tasks';
 import { type Defect, type Task, useDefects, useMe, useTasks } from '../api';
 import { useStartInspection } from '../components/AssetDrawer';
@@ -27,9 +30,25 @@ const ARTS: Art[] = ['alle', 'maengel', 'aufgaben'];
 const free = (d: Defect) => !d.taskId || d.taskStatus === 'done' || d.taskStatus === 'cancelled';
 const startOfToday = () => new Date().setHours(0, 0, 0, 0);
 
+/**
+ * /maengel: alte Adressen (/maengel, /maengel?id=…, /maengel?tab=…) meinten die Mängelliste – ohne ?art= also dorthin,
+ * ?id= öffnet das Detail.
+ */
+export function MaengelPage() {
+  const loc = useLocation();
+  const q = new URLSearchParams(loc.search);
+  if (!q.get('art')) {
+    const n = new URLSearchParams({ art: 'maengel' });
+    for (const [k, v] of q) n.append(k === 'id' ? 'mangel' : k, v);
+    return <Navigate to={`/maengel?${n}${loc.hash}`} replace />;
+  }
+  return <OffenPage />;
+}
+
 export function OffenPage() {
   const [params, setParams] = useSearchParams();
-  const [art, setArt] = useUrlTab<Art>('art', 'alle', ARTS);
+  // ohne ?art= leitet MaengelPage auf die Mängel – deshalb ist „maengel“ der Wert ohne Parameter
+  const [art, setArt] = useUrlTab<Art>('art', 'maengel', ARTS);
   const { data: me } = useMe();
   const canEdit = me?.user.role !== 'viewer';
   const tasks = useTasks();
@@ -75,8 +94,9 @@ export function OffenPage() {
   return (
     <>
       <PageHeader
-        title="Offen"
-        subtitle="Mängel und Aufgaben, das Dringendste zuerst"
+        title="Mängel und Aufgaben"
+        subtitle="Alle Objekte, das Dringendste zuerst"
+        backTo={{ to: '/objekte', label: 'Objekte' }}
         actions={
           canEdit && (
             <Button icon={<Plus />} onClick={() => setCreating(true)} title="Neue Aufgabe (C)">
@@ -182,7 +202,7 @@ function AllOpen({
             <Empty
               title="Nichts offen."
               text="Mängel erscheinen hier, sobald du sie beim Prüfen findest."
-              action={canEdit && <ButtonLink to="/pruefen" variant="ghost">Zum Prüfen</ButtonLink>}
+              action={canEdit && <ButtonLink to="/objekte" variant="ghost">Zu den Objekten</ButtonLink>}
             />
           )}
         </Surface>

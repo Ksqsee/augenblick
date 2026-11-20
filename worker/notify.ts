@@ -207,6 +207,6 @@ notifications.post('/push/unsubscribe', async (c) => {
 });
 
 notifications.post('/push/test', async (c) => {
-  await notifyTenant(c.env, c.get('user').tenantId, { userIds: [c.get('user').userId], type: 'due_reminder', title: 'Testbenachrichtigung', body: 'Push-Benachrichtigungen funktionieren.', link: '/', ignoreQuiet: true });
+  await notifyTenant(c.env, c.get('user').tenantId, { userIds: [c.get('user').userId], type: 'due_reminder', title: 'Testbenachrichtigung', body: 'Push-Benachrichtigungen funktionieren.', link: '/objekte', ignoreQuiet: true });
   return c.json({ ok: true });
 });

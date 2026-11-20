@@ -49,7 +49,7 @@ async function runTenant(env: Env, t: Tenant, now: number) {
       roles: ['owner', 'admin', 'inspector'],
       type: 'due_reminder',
       title: `${newlyOverdue} ${newlyOverdue === 1 ? 'Prüfung ist' : 'Prüfungen sind'} seit heute überfällig`,
-      link: '/pruefungen?tab=overdue',
+      link: '/kalender',
       dedupe: `overdue-${today}`,
     });
   }
@@ -70,7 +70,7 @@ async function runTenant(env: Env, t: Tenant, now: number) {
       roles: ['owner', 'admin', 'inspector'],
       type: 'due_reminder',
       title: `${g.n} ${g.n === 1 ? 'Prüfung wird' : 'Prüfungen werden'} in ${g.lead} Tagen fällig`,
-      link: '/pruefungen?tab=soon',
+      link: '/kalender',
       dedupe: `ahead-${g.lead}-${today}`,
     });
   }
@@ -87,7 +87,7 @@ async function runTenant(env: Env, t: Tenant, now: number) {
         type: 'due_reminder',
         title: 'Wochenübersicht Prüfungen',
         body: `${c.overdue ?? 0} überfällig · ${c.soon ?? 0} in den nächsten 30 Tagen fällig`,
-        link: '/pruefungen',
+        link: '/kalender',
         dedupe: `weekly-${today}`,
       });
     }

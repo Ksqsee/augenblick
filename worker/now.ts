@@ -283,7 +283,7 @@ export async function collectNow(c: Ctx): Promise<NowItem[]> {
       tone: crit ? "bad" : "warn",
       title: `${nobody.length} schwere ${nobody.length === 1 ? "Mangel" : "Mängel"} ohne Zuständige`,
       text: `${crit ? `${crit} davon kritisch. ` : ""}Die Aufgabe liegt bei niemandem – einer Person oder einem Partner zuweisen.`,
-      action: action("open", { link: nobody.length === 1 ? `/aufgaben?id=${nobody[0].taskId}` : "/offen?art=aufgaben" }, "Zuweisen"),
+      action: action("open", { link: nobody.length === 1 ? `/aufgaben?id=${nobody[0].taskId}` : "/maengel?art=aufgaben" }, "Zuweisen"),
       count: nobody.length,
       at: nobody[0].createdAt,
     });

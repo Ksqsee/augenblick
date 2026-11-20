@@ -1,6 +1,6 @@
-// Einstellungen: Sammelort für alles, was kein eigener Ort ist (docs/plan/v4.md 5) – Konto, Workspace-Verwaltung
-// (Team, Subunternehmer, Import …) und Hilfe. Reiter der eigentlichen Einstellungen in der URL (?tab=…), Inhalte unter
-// ./settings/; Team, Subunternehmer, Import und Hilfe sind Unterseiten (/einstellungen/team …) im selben Rahmen.
+// Einstellungen: Sammelort für alles, was kein eigener Ort ist (docs/plan/v4.md 5, v8: zwei Orte Objekte und Kalender) –
+// Konto, Workspace-Verwaltung (Team, Subunternehmer, Berichte, Import …) und Hilfe. Reiter der eigentlichen Einstellungen in der URL (?tab=…), Inhalte unter
+// ./settings/; Team, Subunternehmer, Berichte, Import und Hilfe sind Unterseiten (/einstellungen/team …) im selben Rahmen.
 import clsx from 'clsx';
 import type { ReactNode } from 'react';
 import { Link } from 'react-router-dom';
@@ -21,7 +21,7 @@ import { TemplatesTab } from './settings/Templates';
 const TABS = ['profile', 'privacy', 'notifications', 'company', 'templates', 'catalog', 'tasks', 'automation', 'api', 'activity'] as const;
 type Tab = (typeof TABS)[number];
 const ADMIN_ONLY: Tab[] = ['company', 'templates', 'tasks', 'automation', 'api'];
-type Page = 'team' | 'subunternehmer' | 'import' | 'hilfe';
+type Page = 'team' | 'subunternehmer' | 'import' | 'hilfe' | 'berichte';
 
 interface Item {
   key: Tab | Page | 'offline';
@@ -45,6 +45,7 @@ const GROUPS: { title: string; items: Item[] }[] = [
     items: [
       { key: 'team', label: 'Team', to: '/einstellungen/team' },
       { key: 'subunternehmer', label: 'Subunternehmer', to: '/einstellungen/subunternehmer' },
+      { key: 'berichte', label: 'Berichte', to: '/einstellungen/berichte' },
       { key: 'company', label: 'Unternehmen', to: '/einstellungen?tab=company', admin: true },
       { key: 'templates', label: 'Prüfvorlagen', to: '/einstellungen?tab=templates', admin: true },
       { key: 'catalog', label: 'Katalog', to: '/einstellungen?tab=catalog', inspector: true },
