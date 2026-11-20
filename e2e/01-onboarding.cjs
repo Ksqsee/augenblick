@@ -61,7 +61,8 @@ require('fs').mkdirSync(OUT, { recursive: true });
   await shot('03-property');
 
   // Prüfung
-  await p.getByText('Treppenhaus Nord').first().click();
+  // Plan v8 Z: Elemente als Tabelle – die ganze Zeile öffnet die Seitenleiste
+  await p.getByRole('row', { name: /Treppenhaus Nord/ }).getByRole('button').first().click();
   await shot('04-drawer');
   await p.getByRole('button', { name: 'Prüfen' }).click();
   await p.waitForURL(/\/pruefung\//);
