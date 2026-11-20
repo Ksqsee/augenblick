@@ -286,7 +286,7 @@ data.get("/properties/:id", async (c) => {
     .bind(c.req.param("id"), tid(c))
     .first();
   if (!p) notFound("Objekt");
-  const [buildings, plans, walks, officers] = await c.env.DB.batch([
+  const [buildings, plans, walks, officers, defectCount] = await c.env.DB.batch([
     c.env.DB.prepare(
       `SELECT id, name, address FROM buildings WHERE property_id = ? AND tenant_id = ? AND deleted_at IS NULL AND ${scopeSql(c, "id", "building")} ORDER BY name`,
     ).bind(p.id, tid(c)),
@@ -306,7 +306,13 @@ data.get("/properties/:id", async (c) => {
       `SELECT id, name, company, phone, email, qualification, appointed_from AS appointedFrom, appointed_to AS appointedTo, notes
          FROM fire_officers WHERE property_id = ? AND tenant_id = ? ORDER BY appointed_from DESC`,
     ).bind(p.id, tid(c)),
+    // offene Mängel des Objekts wie die Ampel in GET /properties (auch ohne Element: Objekt, Begehung) – Kopf und Reiter „Mängel“
+    c.env.DB.prepare(
+      `SELECT COUNT(*) AS open, COALESCE(SUM(CASE WHEN d.severity = 'critical' THEN 1 ELSE 0 END), 0) AS critical
+         FROM defects d WHERE d.property_id = ? AND d.tenant_id = ? AND d.status = 'open' AND d.hidden_at IS NULL AND ${defectScope(c, "d")}`,
+    ).bind(p.id, tid(c)),
   ]);
+  const dc = (defectCount.results[0] ?? {}) as { open?: number; critical?: number };
   const assets = await assetQuery(c, "b.property_id = ?2")
     .bind(tid(c), p.id)
     .all();
@@ -316,6 +322,8 @@ data.get("/properties/:id", async (c) => {
     floorPlans: plans.results,
     walkthroughs: walks.results,
     fireOfficers: officers.results,
+    openDefects: Number(dc.open ?? 0),
+    criticalDefects: Number(dc.critical ?? 0),
     assets: assets.results.map(mapAsset),
   });
 });

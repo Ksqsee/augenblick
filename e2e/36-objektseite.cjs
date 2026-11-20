@@ -359,6 +359,63 @@ const record = {};
   await d.locator('[data-defect]').first().waitFor();
   await noOverflow(d, '(Mängel 1360)');
   await shot(d, 'd-objekt-maengel');
+
+  step('Desktop 1360 px: Leiste und Objektseite zusammen – keine doppelte „Objekte“-Angabe, aktives Objekt, Ampel aktuell');
+  const side = d.getByRole('navigation', { name: 'Liegenschaften' });
+  await d.goto(BASE + `/objekte/${other.id}`);
+  await d.getByRole('heading', { name: 'Bürohaus Förde (Test)', level: 1 }).waitFor();
+  await side.locator(`[data-property="${other.id}"]`).waitFor();
+  check((await side.locator(`[data-property="${other.id}"]`).getAttribute('aria-current')) === 'page', 'aktives Objekt in der Leiste markiert');
+  check((await side.locator('[aria-current=page]').count()) === 1, 'genau ein Objekt markiert');
+  check(!(await d.getByRole('navigation', { name: 'Pfad' }).isVisible()), 'kein Pfad „Objekte ›“ über dem Titel (die Leiste ist die Objektliste)');
+  check((await d.getByRole('heading', { name: 'Objekte' }).count()) === 0, 'keine zweite Überschrift „Objekte“');
+  check((await d.getByText('Objekte', { exact: true }).filter({ visible: true }).count()) <= 1, '„Objekte“ höchstens einmal sichtbar (Kopf der Leiste)');
+  const otherRow = side.locator(`[data-property="${other.id}"]`);
+  check((await otherRow.locator('[data-ampel="signatures"]').count()) === 1, `Leiste: Unterschrift offen beim Bürohaus (${await otherRow.innerText()})`);
+  await noOverflow(d, '(Leiste + Objekt 1360)');
+  await shot(d, 'd-leiste-objekt');
+  // Unterschreiben in der App (ohne Neuladen): die Ampel in der Leiste aktualisiert sich
+  await d.evaluate(([k, v]) => localStorage.setItem(k, v), [`pk:signature:${me.user.id}`, SIG]);
+  await d.evaluate((to) => {
+    history.pushState({}, '', to);
+    dispatchEvent(new PopStateEvent('popstate'));
+  }, `/unterschreiben?objekt=${other.id}`);
+  await d.locator(`[data-ready="${oi.id}"]`).waitFor();
+  await d.getByRole('button', { name: 'Unterschreiben', exact: true }).click();
+  await d.getByText('1 Prüfung unterschrieben').waitFor();
+  await otherRow.locator('[data-ampel="signatures"]').waitFor({ state: 'detached', timeout: 8000 }).catch(() => {});
+  check((await otherRow.locator('[data-ampel="signatures"]').count()) === 0, `Leiste nach dem Unterschreiben ohne „zu unterschreiben“ (${await otherRow.innerText()})`);
+  // Mangel über „Erfassen“ (ohne Neuladen): Mängel-Angabe erscheint in der Leiste
+  check((await otherRow.locator('[data-ampel="defects"]').count()) === 0, 'Bürohaus vorher ohne Mängel');
+  await d.evaluate((to) => {
+    history.pushState({}, '', to);
+    dispatchEvent(new PopStateEvent('popstate'));
+  }, `/objekte/${other.id}?tab=maengel`);
+  await d.getByRole('heading', { name: 'Bürohaus Förde (Test)', level: 1 }).waitFor();
+  await d.getByRole('complementary').getByRole('button', { name: 'Erfassen' }).click();
+  const cap = d.getByRole('dialog');
+  await cap.getByRole('tab', { name: 'Mängel & Aufgaben' }).click();
+  await cap.locator('[data-where]').getByText('Bürohaus Förde (Test)').waitFor();
+  await cap.getByLabel('Erfasster Text').fill('Fluchtwegschild im Eingang fehlt');
+  await cap.getByRole('button', { name: 'Auswerten' }).click();
+  await cap.getByRole('button', { name: '1 Mangel anlegen' }).click();
+  await cap.getByText('1 Mangel angelegt').waitFor();
+  await cap.getByRole('button', { name: 'Schließen' }).click();
+  await otherRow.locator('[data-ampel="defects"]').waitFor({ timeout: 8000 }).catch(() => {});
+  check((await otherRow.locator('[data-ampel="defects"]').innerText().catch(() => '')).includes('1 Mangel'), `Leiste nach dem Mangel: „1 Mangel“ (${await otherRow.innerText()})`);
+  check((await d.getByRole('tab', { name: /^Mängel/ }).innerText()).includes('1'), 'Reiter Mängel zählt den neuen Mangel');
+
+  step('Handy 390 px: Zurück von der Objektseite zur Liste');
+  await m.goto(BASE + `/objekte/${other.id}`);
+  await m.getByRole('heading', { name: 'Bürohaus Förde (Test)', level: 1 }).waitFor();
+  const crumb = m.getByRole('navigation', { name: 'Pfad' });
+  check(await crumb.isVisible(), 'Handy: Pfad „Objekte › …“ als Rückweg sichtbar');
+  await noOverflow(m, '(Objekt 390)');
+  await crumb.getByRole('link', { name: 'Objekte' }).click();
+  await m.waitForURL((u) => u.pathname === '/objekte');
+  await m.getByRole('list', { name: 'Objekte' }).locator(`[data-property="${other.id}"]`).waitFor();
+  await noOverflow(m, '(Objektliste 390)');
+
   const p3 = (await api('/properties', { data: { name: 'Sporthalle Nord (Test)', address: 'Sportweg 9', withBuilding: true } })).json;
   const b3 = (await api(`/properties/${p3.id}`)).json.buildings[0].id;
   for (const n of [1, 2, 3, 4]) await api('/assets', { data: { buildingId: b3, category: 'fire_door', number: n, location: `Halle ${n}`, attributes: defaults } });

@@ -17,7 +17,7 @@ import { PropertyWork } from '../components/objects/PropertyWork';
 import { countDue } from '../components/objects/status';
 import { WalkTab } from '../components/objects/WalkTab';
 import { SharePropertyButton } from '../components/ShareProperty';
-import { Button, ButtonLink, ErrorBox, Menu, type MenuItem, PageHeader, PageSkeleton, StatusText, Tabs, useConfirm, useToast, useUrlTab } from '../components/ui';
+import { Breadcrumbs, Button, ButtonLink, ErrorBox, Menu, type MenuItem, PageHeader, PageSkeleton, StatusText, Tabs, useConfirm, useToast, useUrlTab } from '../components/ui';
 import { defectsLabel } from '../format';
 import { prepareBuilding, useOnline } from '../offline';
 import { FloorPlanUpload } from './FloorPlan';
@@ -107,7 +107,9 @@ export function PropertyPage() {
     }
   };
   const due = countDue(p.assets);
-  const openDefects = p.assets.reduce((s, a) => s + a.openDefects, 0);
+  // wie die Ampel der Objektliste: alle offenen Mängel des Objekts, auch ohne Element (ältere Antwort: Summe der Elemente)
+  const openDefects = p.openDefects ?? p.assets.reduce((s, a) => s + a.openDefects, 0);
+  const critical = p.criticalDefects != null ? p.criticalDefects > 0 : p.assets.some((a) => a.openDefects > 0 && a.lastResult === 'critical');
 
   const menu: MenuItem[] = [];
   if (canCreate && p.assets.length) menu.push({ label: 'Elemente hinzufügen', icon: <Mic />, onClick: () => openCapture({ propertyId: p.id, mode: 'assets' }) });
@@ -150,7 +152,8 @@ export function PropertyPage() {
     <>
       {confirmEl}
       <PageHeader
-        breadcrumbs={[{ label: 'Objekte', to: '/objekte' }, { label: p.name }]}
+        // am Desktop ist die linke Leiste die Objektliste (mit Überschrift „Objekte“) – der Pfad nur am Handy, als Rückweg
+        back={<Breadcrumbs items={[{ label: 'Objekte', to: '/objekte' }, { label: p.name }]} className="mb-2 lg:hidden" />}
         title={p.name}
         subtitle={[p.address.split('\n').join(', '), BUILDING_TYPES[p.buildingType]].filter(Boolean).join(' · ')}
         meta={meta}
@@ -193,7 +196,7 @@ export function PropertyPage() {
             { value: 'uebersicht', label: 'Übersicht' },
             { value: 'elemente', label: 'Elemente', count: p.assets.length },
             { value: 'begehung', label: 'Begehung' },
-            { value: 'maengel', label: 'Mängel', count: openDefects || undefined, tone: p.assets.some((a) => a.openDefects > 0 && a.lastResult === 'critical') ? 'bad' : undefined },
+            { value: 'maengel', label: 'Mängel', count: openDefects || undefined, tone: critical ? 'bad' : undefined },
           ]}
         />
         {tab === 'uebersicht' && <Overview p={p} isAdmin={isAdmin} canInspect={canInspect} onEdit={() => setEdit(true)} onUpload={() => setUpload(true)} />}

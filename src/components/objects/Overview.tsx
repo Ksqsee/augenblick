@@ -87,7 +87,7 @@ function Facts({ p, isAdmin, onEdit }: { p: PropertyDetail; isAdmin: boolean; on
 /** Prüfstatus in vier Zahlen: Elemente, aktuell, fällig, Mängel offen – und das dringendste Element. */
 function Numbers({ p }: { p: PropertyDetail }) {
   const due = countDue(p.assets);
-  const openDefects = p.assets.reduce((s, a) => s + a.openDefects, 0);
+  const openDefects = p.openDefects ?? p.assets.reduce((s, a) => s + a.openDefects, 0);
   const fällig = due.overdue + due.soon;
   const next = p.assets.reduce<Asset | null>((m, a) => (a.nextDueAt != null && a.lastResult !== 'not_inspectable' && (!m || a.nextDueAt < (m.nextDueAt ?? Infinity)) ? a : m), null);
   const cells: { key: string; label: string; n: number; to: string; sub?: ReactNode; bad?: boolean }[] = [

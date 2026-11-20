@@ -43,7 +43,7 @@ Für API-Schlüssel gelten diese Regeln:
 | `GET /properties` | Objekte mit Status (überfällig, bald fällig, Mängel, nächste Begehung) und **Ampel** (Plan v8): `nextDue` (früheste Fälligkeit eines Elements; liegt sie zurück = „überfällig seit“), `overdue`, `openDefects`, `criticalDefects`, `pendingSignatures` (eigene Prüfungen, die zur Unterschrift bereitliegen). Eine Abfrage für alle Objekte, Zugriffsbereich wie bisher |
 | `POST /properties` | Objekt anlegen: `{ name, address?, description?, contactName?, access?, …, withBuilding? }` (`access` = Zugang: Schlüssel, Zeiten, Hinweise; `PATCH` ohne `access` lässt ihn unverändert) → `{ id }`; mit `withBuilding: true` entsteht im selben Aufruf ein Gebäude „Hauptgebäude“ → `{ id, buildingId }` |
 | `GET /buildings` | Alle Gebäude (`id`, `name`, `propertyId`) |
-| `GET /properties/:id` | Objekt (mit `access`) mit Gebäuden, Elementen, Grundrissen, Begehungen, Brandschutzbeauftragten |
+| `GET /properties/:id` | Objekt (mit `access`) mit Gebäuden, Elementen, Grundrissen, Begehungen, Brandschutzbeauftragten; `openDefects`/`criticalDefects` = offene Mängel des Objekts wie die Ampel in `GET /properties` (auch ohne Element, im Zugriffsbereich) |
 | `GET /assets` | Elemente. Filter: `due=overdue\|soon\|never\|not_inspectable\|new\|defects`, `schedule=<Prüfart>`, `propertyId`, `buildingId`, `category`, `q` |
 | `GET /assets/:id` | Element mit Prüfarten, Historie, offenen Mängeln, Anhängen |
 | `GET /assets/by-code/:code?propertyId=` | Element über Code oder QR-Etikett; mit `propertyId` auch über die laufende Nummer („Tür 36“, „36“), wenn eindeutig |

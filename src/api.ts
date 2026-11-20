@@ -295,6 +295,9 @@ export interface PropertyDetail {
   buildings: { id: string; name: string; address: string }[];
   floorPlans: FloorPlanRow[];
   walkthroughs: WalkRow[];
+  /** offene Mängel des Objekts (auch ohne Element) – wie die Ampel in GET /properties */
+  openDefects?: number;
+  criticalDefects?: number;
   assets: Asset[];
 }
 

@@ -151,7 +151,7 @@ export function SignPage() {
                           });
                           toast(`${r.code} zurückgestellt`);
                           setOpen(null);
-                          await qc.invalidateQueries({ queryKey: ['inspections'] });
+                          for (const k of ['inspections', 'properties', 'property', 'walk']) await qc.invalidateQueries({ queryKey: [k] });
                         } catch (e) {
                           toast(e instanceof Error ? e.message : 'Fehlgeschlagen', 'bad');
                         }
