@@ -116,12 +116,11 @@ const DESKTOP = { viewport: { width: 1360, height: 900 }, deviceScaleFactor: 2, 
   await m.waitForURL(/\/objekte\//);
   await m.getByRole('region', { name: 'Elemente' }).waitFor();
   check(!(await m.getByRole('region', { name: 'Hauptgebäude' }).count()) && !(await m.getByText('Hauptgebäude').count()), 'ein Gebäude ist unsichtbar');
-  check(await m.getByRole('link', { name: 'Rundgang starten' }).isVisible(), 'Hauptknopf „Rundgang starten“ (nie geprüfte Elemente)');
-  check(!(await m.getByRole('button', { name: 'Begehung starten' }).count()), '„Begehung starten“ nicht im Kopf');
+  // Plan v8 Z: Hauptknopf „Begehung starten“ (führt in den Reiter Begehung), Brandschutzbegehung dort als Abschnitt
+  check(await m.getByRole('link', { name: 'Begehung starten' }).isVisible(), 'Hauptknopf „Begehung starten“');
   check((await overflow(m)) <= 0, 'Objektseite: kein Überlauf');
   await m.screenshot({ path: OUT + 'm-objekt.png' });
   await m.getByRole('button', { name: 'Weitere Aktionen zum Objekt' }).tap();
-  check(await m.getByRole('menuitem', { name: 'Begehung starten' }).isVisible(), '„Begehung starten“ im ⋯-Menü');
   check(await m.getByRole('menuitem', { name: 'Gebäude hinzufügen' }).isVisible(), '„Gebäude hinzufügen“ im ⋯-Menü');
   await m.keyboard.press('Escape');
   // Formular „Element“: das einzige Gebäude ist vorbelegt und unsichtbar
@@ -197,7 +196,7 @@ const DESKTOP = { viewport: { width: 1360, height: 900 }, deviceScaleFactor: 2, 
   await d.getByRole('dialog').getByRole('button', { name: '1 Element anlegen' }).click();
   await d.getByRole('dialog').getByText('1 Element angelegt').waitFor();
   await d.getByRole('dialog').getByRole('button', { name: 'Ansehen' }).click();
-  await d.getByRole('link', { name: 'Rundgang starten' }).waitFor();
+  await d.getByRole('link', { name: 'Begehung starten' }).waitFor();
   const kai = (await api(d, '/assets')).json;
   check(kai.length === 1 && kai[0].location === 'Raum 306' && kai[0].manufacturer === 'Westag', '„Tür Raum 306 von Westag“ angelegt');
   // Bearbeiten zeigt alle Felder
