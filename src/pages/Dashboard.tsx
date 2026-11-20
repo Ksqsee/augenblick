@@ -254,7 +254,7 @@ const MOBILE_NOW = 5;
  * „Jetzt“ (GET /now) als Abschnitt einer Fläche: was du entscheiden oder tun solltest, eine Aktion je Zeile – am Handy
  * höchstens 5, Rest hinter „Alle n anzeigen“. Ohne Einträge unsichtbar. Steht seit Plan v8 im Kalender.
  */
-export function NowSection() {
+export function NowSection({ max }: { max?: number } = {}) {
   const [allNow, setAllNow] = useState(false);
   const [expanded, setExpanded] = useState(false);
   const now = useNow(allNow);
@@ -262,17 +262,20 @@ export function NowSection() {
   const more = now.data?.more ?? 0;
   const total = next.length + more;
   // „Alle n anzeigen“: am Desktop nur, wenn /now mehr hat als geliefert; am Handy schon ab der 6. Zeile
-  const mobileCut = !expanded && next.length > MOBILE_NOW;
+  // max: auf allen Breiten kürzen (Kalender), sonst nur am Handy
+  const cutAt = max ?? MOBILE_NOW;
+  const mobileCut = !expanded && next.length > cutAt;
+  const hide = max ? 'hidden' : 'max-sm:hidden';
   if (!next.length) return null;
   return (
     <Section title="Jetzt" count={total} flush>
       <ul className="pk-list" aria-label="Jetzt">
         {next.map((s, i) => (
-          <NowRow key={s.id} s={s} className={mobileCut && i >= MOBILE_NOW ? 'max-sm:hidden' : undefined} />
+          <NowRow key={s.id} s={s} className={mobileCut && i >= cutAt ? hide : undefined} />
         ))}
       </ul>
       {(more > 0 || mobileCut) && (
-        <p className={clsx('px-(--row-px) pt-1 pb-3 text-meta text-ink-3', !more && 'sm:hidden')}>
+        <p className={clsx('px-(--row-px) pt-1 pb-3 text-meta text-ink-3', !more && !max && 'sm:hidden')}>
           <button
             type="button"
             onClick={() => {

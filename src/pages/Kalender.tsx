@@ -1,7 +1,7 @@
 // Kalender (docs/plan/v8.md 1): Monat (Desktop) und Liste (Handy, am Desktop umschaltbar). Einträge aus
 // GET /calendar/events: fällige Prüfungen je Objekt und Tag gebündelt, Rundgänge/Begehungen, Fristen von Aufgaben und
 // Mängeln, ablaufende Zulassungen und Nachweise. Tipp öffnet das Objekt im passenden Reiter. Überfälliges steht oben in
-// einem eigenen Block, darunter „Jetzt“ (GET /now) – unten „Erledigt für dich“. Eine Fläche, eine Abfrage je Monat.
+// einem eigenen Block, unter dem Kalender „Jetzt“ (GET /now, höchstens 5 Zeilen) und „Erledigt für dich“. Eine Fläche, eine Abfrage je Monat.
 // Zustand in der URL: ?monat=JJJJ-MM, ?ansicht=monat|liste.
 import { useQuery } from '@tanstack/react-query';
 import clsx from 'clsx';
@@ -120,7 +120,6 @@ export function KalenderPage() {
             </ul>
           </Section>
         )}
-        <NowSection />
         <Section
           aria-label={ansicht === 'monat' ? 'Monat' : 'Liste'}
           title={<span className="text-h3 font-semibold tracking-[-0.01em] text-ink">{MONTH.format(utc(`${monat}-01`))}</span>}
@@ -164,6 +163,7 @@ export function KalenderPage() {
             <Empty compact title={monat === current ? 'Bis Monatsende steht nichts an.' : 'In diesem Monat steht nichts an.'} />
           )}
         </Section>
+        <NowSection max={5} />
         <DoneForYou isAdmin={!!me && ['owner', 'admin'].includes(me.user.role)} />
       </Surface>
     </>
