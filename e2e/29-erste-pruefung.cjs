@@ -1,6 +1,6 @@
 // E2E 29-erste-pruefung (Plan v5, Härtung des Regel-Parsers): Durchgang eines neuen Kontos am Handy (390 px) bis zur
 // ersten unterschriebenen Prüfung – Objektname → ein Satz mit drei Orten/Arten/Herstellern → Elemente mit fortlaufenden
-// Codes → Objekt (Plan v8: nach dem Anlegen öffnet das Objekt) → Rundgang → „Alles in Ordnung“ → Unterschrift zeichnen und merken → Abschließen → nächstes Element →
+// Codes → Objekt (Plan v8: das erste Objekt öffnet im Reiter Begehung) → Rundgang → „Alles in Ordnung“ → Unterschrift zeichnen und merken → Abschließen → nächstes Element →
 // „Alles in Ordnung“ → „Abschließen“. Tipps und Eingaben werden gezählt und ausgegeben (Ziel des Plans: höchstens 8 Tipps
 // und ein Satz nach dem Objektnamen – gemessen wird ehrlich, der Test hält die Zahl fest). Danach: feste Nummern
 // („Türen 12 bis 13“) und ein Mangel per Nummer („Tür 3 schließt nicht“) im Erfassen-Sheet. Kein Überlauf. Nur lokal.
@@ -108,13 +108,21 @@ const SENTENCE = 'Im dritten OG Raum 306 eine Feuerschutztür von Westag und im 
     check(a && a.floor === '1. OG' && a.location === 'Treppenhaus' && a.manufacturer === 'Schüco' && a.attributes.requirement === 'RS', `${c}: 1. OG, Treppenhaus, Schüco, RS (${JSON.stringify(a && [a.floor, a.location, a.manufacturer, a.attributes])})`);
   }
 
-  step('Objekt → Rundgang → erste Prüfung mit gezeichneter Unterschrift');
+  step('Objekt (Reiter Begehung) → Rundgang → erste Prüfung mit gezeichneter Unterschrift');
   await tap(sheet.getByRole('button', { name: 'Schließen' }), 'Meldung schließen (zurück ins Objekt)');
   await sheet.waitFor({ state: 'detached' });
-  const start = p.getByRole('link', { name: 'Rundgang starten' }).first();
+  // Plan v8: das erste Objekt öffnet im Reiter Begehung – großer Knopf „Begehung starten“ (Tür ansagen), darunter
+  // „Rundgang starten“ in Laufreihenfolge. Der Rundgang führt wie bisher zur Unterschrift an jeder Prüfung.
+  const startBlock = p.getByRole('region', { name: 'Begehung starten' });
+  await startBlock.waitFor();
+  check(await startBlock.getByRole('button', { name: 'Begehung starten' }).isVisible(), 'Hauptknopf „Begehung starten“ im Reiter Begehung');
+  const start = startBlock.getByRole('link', { name: 'Rundgang starten' });
   await start.waitFor();
-  check(/^\/objekte\/[a-z0-9]+$/.test(new URL(p.url()).pathname), `nach dem Anlegen im Objekt (${p.url()})`);
+  const here = new URL(p.url());
+  check(/^\/objekte\/[a-z0-9]+$/.test(here.pathname) && here.searchParams.get('tab') === 'begehung', `nach dem Anlegen im Objekt, Reiter Begehung (${p.url()})`);
+  check((await p.getByRole('tab', { name: /^Begehung/, selected: true }).count()) === 1, 'Reiter Begehung gewählt');
   await noOverflow('Objekt mit Elementen');
+  await p.screenshot({ path: OUT + 'm-objekt-begehung.png' });
   await tap(start, 'Rundgang starten');
   await p.waitForURL(/\/rundgang\//);
   await tap(p.getByRole('button', { name: 'Prüfung starten' }), 'Prüfung starten');
@@ -165,8 +173,11 @@ const SENTENCE = 'Im dritten OG Raum 306 eine Feuerschutztür von Westag und im 
   console.log(`  Ablauf: ${log.join(' → ')}`);
   // festgehaltene Messung (Stand dieses Commits): 8 Tipps + 1 Satz + das Zeichnen der Unterschrift (eine Geste, kein Tipp).
   // Zählt man das Zeichnen als Tipp, sind es 9 – das Ziel wird dann um einen verfehlt.
+  // Plan v8 (Zusammenführung Y/Z): unverändert 8 – vorher „Heute“ → „Rundgang starten“, jetzt öffnet das erste Objekt im
+  // Reiter Begehung mit „Rundgang starten“. Über die Übersicht (Reiter Begehung antippen) wären es 9.
   check(first.inputs === 1 && first.draws === 1, `ein Satz und eine Unterschrift (${first.inputs} Eingaben, ${first.draws} Gesten)`);
   check(first.taps <= target, `höchstens ${target} Tipps bis zur ersten unterschriebenen Prüfung (gemessen ${first.taps})`);
+  check(first.taps === 8, `nicht länger als vor v8: 8 Tipps (gemessen ${first.taps})`);
   // drei Tipps + fünf Rückfragen nach Stammdaten (Plan v6 A4: Feststellanlage, Flügel; v7: Kartenschloss, Absenkdichtung,
   // Spion) – nur bei der ersten Prüfung einer Tür ohne diese Angaben; mit Typ aus dem Katalog entfallen sie
   check(count.rest.taps - first.taps === 8, `nächstes Element in drei Tipps plus fünf Rückfragen (${count.rest.taps - first.taps})`);

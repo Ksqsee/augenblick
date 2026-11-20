@@ -6,7 +6,7 @@
 // Alte Reiter-Schlüssel (grundrisse, begehungen, angebot) leiten auf den passenden Reiter/Abschnitt.
 import { Building2, CloudDownload, Mic, Pencil, Trash2, Upload } from 'lucide-react';
 import { useEffect, useState } from 'react';
-import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
+import { Navigate, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { BUILDING_TYPES } from '../../shared/walkthrough';
 import { api, useAction, useMe, useProperty } from '../api';
 import { openCapture } from '../components/CaptureSheet';
@@ -19,7 +19,7 @@ import { WalkTab } from '../components/objects/WalkTab';
 import { SharePropertyButton } from '../components/ShareProperty';
 import { Button, ButtonLink, ErrorBox, Menu, type MenuItem, PageHeader, PageSkeleton, StatusText, Tabs, useConfirm, useToast, useUrlTab } from '../components/ui';
 import { defectsLabel } from '../format';
-import { prepareBuilding } from '../offline';
+import { prepareBuilding, useOnline } from '../offline';
 import { FloorPlanUpload } from './FloorPlan';
 
 export const PROPERTY_TABS = ['uebersicht', 'elemente', 'begehung', 'maengel'] as const;
@@ -47,6 +47,7 @@ export function PropertyPage() {
   const [building, setBuilding] = useState(false);
   const [upload, setUpload] = useState(false);
   const [preparing, setPreparing] = useState(false);
+  const online = useOnline();
   const isAdmin = !!me && ['owner', 'admin'].includes(me.user.role);
   const canInspect = !!me && me.user.role !== 'viewer';
   const canCreate = canInspect && me?.user.canCreate !== false;
@@ -88,6 +89,8 @@ export function PropertyPage() {
     },
   );
 
+  // ohne Netz und ohne geladene Daten: Türen dieses Objekts auf dem Gerät weiter ansagen (Offline-Ansage des Objekts)
+  if (!p && !online) return <Navigate to={`/offline?objekt=${encodeURIComponent(id)}${params.get('ansage') === 'weiter' ? '&ansage=weiter' : ''}`} replace />;
   if (isLoading) return <PageSkeleton />;
   if (error || !p) return <ErrorBox error={error ?? new Error('Objekt nicht gefunden')} onRetry={() => refetch()} />;
 

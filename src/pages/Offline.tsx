@@ -8,6 +8,7 @@ import type { RawNote } from '../../shared/announce';
 import { conditionOf } from '../../shared/applies';
 import { registerCategories } from '../categories';
 import { api, type PropertyDetail, queryClient, useAssets, useMe, useProperties } from '../api';
+import { AnnounceCard } from '../components/inspect/Announce';
 import { CategoryGlyph } from '../components/inspect/Glyph';
 import { InspectionForm, type InspectionDraft, PhotoCtx } from '../components/run';
 import { Button, ButtonLink, DueBadge, Empty, ErrorBox, Field, IconButton, List, ListRow, Modal, Notice, PageHeader, Section, Select, SkeletonList, StatusText, Surface, useConfirm, useToast } from '../components/ui';
@@ -58,6 +59,8 @@ export function OfflinePage() {
   const [confirm, confirmEl] = useConfirm();
   const [params] = useSearchParams();
   const roundFinished = params.get('rundgang') === 'fertig';
+  // Plan v8: Türen eines Objekts ohne Netz nacheinander ansagen (aus dem Reiter Begehung, Rückweg nach „Bereit“)
+  const objekt = /^[A-Za-z0-9_-]{1,40}$/.test(params.get('objekt') ?? '') ? params.get('objekt') : null;
 
   const refresh = async (id: string) => {
     setBusy(id);
@@ -92,6 +95,7 @@ export function OfflinePage() {
               Du kannst alle Gebäude unten prüfen. Die Ergebnisse werden übertragen, sobald du wieder verbunden bist.
             </Notice>
           )}
+          {objekt && bundles && <PropertyAnnounce propertyId={objekt} bundles={bundles} online={online} autoFocus={params.get('ansage') === 'weiter'} />}
           <Surface>
           {online && <FailuresSection />}
           {online && <PrepareCard />}
@@ -237,6 +241,61 @@ export function OfflinePage() {
         </aside>
       </div>
     </>
+  );
+}
+
+/**
+ * „Tür ansagen“ für ein Objekt ohne Netz (Plan v8): dieselbe Ansage wie im Reiter Begehung, mit den auf dem Gerät
+ * geladenen Gebäuden des Objekts. Online zurück ins Objekt; ist noch nichts geladen, lädt ein Knopf alle Gebäude.
+ */
+function PropertyAnnounce({ propertyId, bundles, online, autoFocus }: { propertyId: string; bundles: Bundle[]; online: boolean; autoFocus: boolean }) {
+  const toast = useToast();
+  const [busy, setBusy] = useState(false);
+  const mine = bundles.filter((b) => b.building.propertyId === propertyId);
+  const name = mine[0]?.building.propertyName;
+  const back = (
+    <ButtonLink to={`/objekte/${propertyId}?tab=begehung`} size="sm" variant="ghost" className="-mr-2">
+      Zum Objekt
+    </ButtonLink>
+  );
+  if (!mine.length)
+    return (
+      <Notice tone={online ? 'info' : 'warn'} icon={<CloudOff />} title="Dieses Objekt ist nicht auf dem Gerät">
+        <span className="flex flex-col items-start gap-3">
+          {online ? 'Lade seine Gebäude jetzt, dann kannst du die Türen ohne Netz nacheinander ansagen.' : 'Ohne Netz lässt es sich nicht mehr laden – unten stehen die Gebäude, die auf dem Gerät sind.'}
+          {online && (
+            <Button
+              size="sm"
+              variant="secondary"
+              icon={<CloudDownload />}
+              loading={busy}
+              onClick={async () => {
+                setBusy(true);
+                try {
+                  const p = await api<PropertyDetail>(`/properties/${propertyId}`);
+                  for (const b of p.buildings) await prepareBuilding(b.id);
+                  toast(`${p.name}: ${p.assets.length} Elemente offline verfügbar`);
+                } catch (e) {
+                  toast(e instanceof Error ? e.message : 'Laden fehlgeschlagen', 'bad');
+                } finally {
+                  setBusy(false);
+                }
+              }}
+            >
+              Gebäude laden
+            </Button>
+          )}
+        </span>
+      </Notice>
+    );
+  return (
+    <Surface as="section" aria-label={`Ohne Netz ansagen · ${name}`}>
+      <div className="flex min-h-11 items-center gap-3 px-(--row-px) pt-4">
+        <p className="min-w-0 flex-1 truncate text-body text-ink">{name}</p>
+        {online && back}
+      </div>
+      <AnnounceCard propertyId={propertyId} title="Begehung · Tür ansagen" autoFocus={autoFocus} />
+    </Surface>
   );
 }
 
@@ -646,6 +705,12 @@ export function OfflineRun() {
   };
   const next = nextIn(state.done);
   const go = (to: string) => navigate(to, { replace: true });
+  // angesagte Tür: zurück zur Ansage dieses Objekts – mit Netz im Reiter Begehung, ohne Netz die Ansage auf dem Gerät
+  const announceBack = (next: boolean) => {
+    const pid = encodeURIComponent(bundle.building.propertyId);
+    const more = next ? '&ansage=weiter' : '';
+    return navigator.onLine ? `/objekte/${pid}?tab=begehung${more}` : `/offline?objekt=${pid}${more}`;
+  };
   const roundUrl = (id: string) => `/offline/pruefen/${id}?rundgang=${bundle.building.id}`;
   const position = walk ? walk.filter((a) => state.done.includes(a.id) && a.id !== asset.id).length + 1 : 0;
   return (
@@ -673,7 +738,7 @@ export function OfflineRun() {
                   });
                   if (navigator.onLine) void syncOutbox();
                   toast(navigator.onLine ? `${asset.code} gespeichert – wird übertragen` : `${asset.code} auf dem Gerät gespeichert`);
-                  go('/pruefen?ansage=weiter');
+                  go(announceBack(true));
                 },
               }
             : undefined
@@ -698,7 +763,7 @@ export function OfflineRun() {
         scheduleLabel={sched.label}
         checkpoints={checkpoints}
         inspectorName={me?.user.name ?? ''}
-        back={announced ? '/pruefen' : '/offline'}
+        back={announced ? announceBack(false) : '/offline'}
         knownDefects={bundle.openDefects?.filter((x) => x.assetId === asset.id)}
         initial={
           (state.draft && { ...state.draft, kinds: state.draft.kinds ?? [(state.draft as { kind?: string }).kind ?? 'periodic'] }) ?? {
@@ -743,7 +808,7 @@ export function OfflineRun() {
         }}
         discard={async () => {
           await dropDraft(asset.id, sched.key);
-          navigate(announced ? '/pruefen' : '/offline', { replace: true });
+          navigate(announced ? announceBack(true) : '/offline', { replace: true });
         }}
       />
     </PhotoCtx.Provider>

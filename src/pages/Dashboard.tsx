@@ -218,8 +218,9 @@ export function FirstProperty() {
     try {
       const r = await api<{ id: string }>('/properties', { body: { name: name.trim(), withBuilding: true } });
       await qc.invalidateQueries({ predicate: (q) => q.queryKey[0] !== 'me' });
-      // ins neue Objekt, darüber gleich „Erfassen“ im Modus Elemente
-      navigate(`/objekte/${r.id}`);
+      // ins neue Objekt, Reiter Begehung (der nächste Schritt nach den Elementen: Begehung bzw. Rundgang starten –
+      // so bleibt der Weg bis zur ersten Prüfung so kurz wie vor v8), darüber gleich „Erfassen“ im Modus Elemente
+      navigate(`/objekte/${r.id}?tab=begehung`);
       openCapture({ propertyId: r.id, mode: 'assets' });
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Anlegen fehlgeschlagen');
