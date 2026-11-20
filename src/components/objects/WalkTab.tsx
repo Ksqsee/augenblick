@@ -169,9 +169,12 @@ function Results({
         ) : undefined
       }
     >
-      <div className="flex flex-col gap-5 lg:grid lg:grid-cols-[minmax(0,1fr)_15rem] lg:gap-10">
-        <div className="min-w-0 lg:order-1">
+      {/* Handy: Zähler · Folgeschritte · Liste; ab lg die Folgeschritte rechts daneben */}
+      <div className="grid grid-cols-1 gap-x-10 gap-y-4 [grid-template-areas:'c'_'s'_'l'] lg:grid-cols-[minmax(0,1fr)_16rem] lg:[grid-template-areas:'c_s'_'l_s']">
+        <div className="min-w-0 [grid-area:c]">
           <Counters r={r} filter={filter} onFilter={onFilter} />
+        </div>
+        <div className="min-w-0 [grid-area:l]">
           {r.rawPending > 0 && (
             <p className="mt-3 text-meta" data-walk-raw>
               <StatusText tone="warn">Diktat noch nicht ausgewertet</StatusText>
@@ -192,7 +195,7 @@ function Results({
             </div>
           )}
         </div>
-        <NextSteps p={p} w={w} r={r} />
+        {(w.days.length > 0 || w.pending > 0) && <NextSteps p={p} w={w} r={r} />}
       </div>
     </Section>
   );
@@ -208,7 +211,7 @@ function Counters({ r, filter, onFilter }: { r: ReturnType<typeof walkResult>; f
     { key: 'open', label: STATUS.open.filter, n: r.counts.open },
   ];
   return (
-    <div role="group" aria-label="Stand der Begehung" className="grid grid-cols-2 gap-x-6 gap-y-1 sm:flex sm:flex-wrap sm:gap-x-1">
+    <div role="group" aria-label="Stand der Begehung" className="-ml-2.5 flex flex-wrap gap-x-1">
       {items
         .filter((x) => x.key === 'all' || x.key === 'open' || x.n > 0 || x.key === filter)
         .map((x) => (
@@ -219,8 +222,8 @@ function Counters({ r, filter, onFilter }: { r: ReturnType<typeof walkResult>; f
             data-count={x.key}
             onClick={() => onFilter(filter === x.key && x.key !== 'all' ? 'all' : x.key)}
             className={clsx(
-              'flex min-h-11 items-center justify-between gap-2 rounded-md text-left transition-colors sm:min-h-9 sm:justify-start sm:px-2.5',
-              filter === x.key ? 'text-ink sm:bg-selected' : 'text-ink-2 hover:text-ink sm:hover:bg-hover',
+              'flex min-h-11 items-center gap-2 rounded-md px-2.5 text-left transition-colors sm:min-h-9',
+              filter === x.key ? 'bg-selected text-ink' : 'text-ink-2 hover:bg-hover hover:text-ink',
             )}
           >
             <span className="inline-flex items-center gap-2 text-body">
@@ -307,7 +310,7 @@ function NextSteps({ p, w, r }: { p: PropertyDetail; w: PropertyWalk; r: ReturnT
   // der nächste sinnvolle Schritt ist hervorgehoben
   const next = steps.find((s) => s.active)?.key;
   return (
-    <nav aria-label="Nach der Begehung" className="order-first lg:order-2">
+    <nav aria-label="Nach der Begehung" className="min-w-0 [grid-area:s]">
       {mappe && <MappeDialog propertyId={p.id} day={w.date} onClose={() => setMappe(false)} />}
       <h3 className="mb-1 text-meta font-medium text-ink-3">Danach</h3>
       <ol className="flex flex-col border-t border-line">
@@ -317,7 +320,7 @@ function NextSteps({ p, w, r }: { p: PropertyDetail; w: PropertyWalk; r: ReturnT
               <span className={clsx('flex size-6 shrink-0 items-center justify-center rounded-full border text-caption tabular-nums', s.key === next ? 'border-ink bg-ink text-white' : 'border-line-strong text-ink-3')}>{s.n}</span>
               <span className="min-w-0 flex-1">
                 <span className={clsx('block text-body', s.active ? 'text-ink' : 'text-ink-3')}>{s.label}</span>
-                <span className="block truncate text-meta text-ink-3">{s.hint}</span>
+                <span className="block text-meta text-ink-3">{s.hint}</span>
               </span>
             </>
           );
