@@ -3,6 +3,8 @@
 // Katalog-Typ), dann öffnet die Prüfung. „Tür 355, gleicher Typ“ übernimmt den letzten Typ. Unbekannter Typ: Tür mit
 // Typ „unbekannt“, allgemeine Checkliste, die Ansage bleibt als Rohnotiz. Ohne Netz mit den geladenen Gebäuden und dem
 // gemerkten Katalog; neue Türen gehen mit der Warteschlange an den Server.
+// Plan v8 Z: im Objekt (Reiter „Begehung“) eingebunden ist das Objekt fest vorgegeben (`propertyId`) – keine Objektwahl,
+// keine Objektliste laden; nach „Bereit · nächste Tür“ geht es zurück ins Objekt (`&objekt=` an der Prüfung).
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import clsx from 'clsx';
 import { ArrowRight, Printer } from 'lucide-react';
@@ -17,7 +19,7 @@ import {
   resolveAnnouncedType,
 } from '../../../shared/announce';
 import type { CatalogProduct } from '../../../shared/catalog';
-import { api, ApiError, type Asset, type PropertyDetail, useCatalog, useProperties } from '../../api';
+import { api, ApiError, type Asset, type PropertyDetail, type PropertyRow, useCatalog } from '../../api';
 import { getCategory } from '../../categories';
 import { type Bundle, cachedProducts, cacheProducts, createLocalAsset, listBundles, useOfflineVersion, useOnline } from '../../offline';
 import { Button, DictateInput, Section, Select, StatusDot, StatusText, toneText } from '../ui';
@@ -64,7 +66,7 @@ const labelOf = (key: string) => getCategory(key).label;
 /** angefangene Ansage – übersteht das Neuaufbauen von „Prüfen“, wenn die Übersicht nachlädt */
 let pendingText = '';
 
-export function AnnounceCard({ autoFocus }: { autoFocus?: boolean }) {
+export function AnnounceCard({ autoFocus, propertyId: fixed, title = 'Tür ansagen' }: { autoFocus?: boolean; propertyId?: string; title?: string }) {
   const online = useOnline();
   const navigate = useNavigate();
   const qc = useQueryClient();
@@ -74,7 +76,8 @@ export function AnnounceCard({ autoFocus }: { autoFocus?: boolean }) {
     setMem(m);
     writeMem(m);
   };
-  const props = useProperties();
+  // im Objekt fest vorgegeben: die Objektliste wird nicht gebraucht
+  const props = useQuery({ queryKey: ['properties'], queryFn: () => api<PropertyRow[]>('/properties'), enabled: !fixed });
   const bundles = useBundlesList();
   const catalog = useCatalog(online);
   const [stored, setStored] = useState<CatalogProduct[]>([]);
@@ -90,7 +93,7 @@ export function AnnounceCard({ autoFocus }: { autoFocus?: boolean }) {
     return [...m].map(([id, name]) => ({ id, name }));
   }, [bundles]);
   const propertyOptions = online && props.data ? props.data.map((p) => ({ id: p.id, name: p.name })) : offlineProps;
-  const propertyId = propertyOptions.some((p) => p.id === mem.propertyId) ? mem.propertyId! : propertyOptions.length === 1 ? propertyOptions[0]!.id : '';
+  const propertyId = fixed ?? (propertyOptions.some((p) => p.id === mem.propertyId) ? mem.propertyId! : propertyOptions.length === 1 ? propertyOptions[0]!.id : '');
   const detail = useQuery({ queryKey: ['property', propertyId], queryFn: () => api<PropertyDetail>(`/properties/${propertyId}`), enabled: online && !!propertyId });
   const localBundles = bundles.filter((b) => b.building.propertyId === propertyId);
   const buildings = online && detail.data ? detail.data.buildings.map((b) => ({ id: b.id, name: b.name })) : localBundles.map((b) => ({ id: b.building.id, name: b.building.name }));
@@ -160,7 +163,7 @@ export function AnnounceCard({ autoFocus }: { autoFocus?: boolean }) {
         const r = await api<{ id: string }>(`/assets/${assetId}/inspections`, { body: { ...(general ? { general: true } : {}), ...(typeNote ? { rawNote: typeNote } : {}) } });
         remember(next);
         setText('');
-        navigate(`/pruefung/${r.id}?ansage=1`, { state: { finding: t.finding } });
+        navigate(`/pruefung/${r.id}?ansage=1${fixed ? `&objekt=${encodeURIComponent(fixed)}` : ''}`, { state: { finding: t.finding } });
       } else {
         let assetId = existing?.id;
         if (!assetId) {
@@ -198,7 +201,7 @@ export function AnnounceCard({ autoFocus }: { autoFocus?: boolean }) {
   const printable = chosen ?? (existing ? null : last);
 
   return (
-    <Section title="Tür ansagen" aria-label="Tür ansagen" action={!online && <StatusText tone="info">ohne Netz</StatusText>}>
+    <Section title={title} aria-label="Tür ansagen" action={!online && <StatusText tone="info">ohne Netz</StatusText>}>
       <form
         className="flex flex-col gap-3"
         onSubmit={(e) => {
@@ -206,7 +209,8 @@ export function AnnounceCard({ autoFocus }: { autoFocus?: boolean }) {
           void submit();
         }}
       >
-        <div className={clsx('grid gap-2', buildings.length > 1 && 'sm:grid-cols-2')}>
+        <div className={clsx('grid gap-2', buildings.length > 1 && !fixed && 'sm:grid-cols-2', fixed && buildings.length < 2 && 'hidden')}>
+          {!fixed && (
           <Select aria-label="Objekt" value={propertyId} onChange={(e) => remember({ propertyId: e.target.value, buildingId: '' })}>
             <option value="">{propertyOptions.length ? 'Objekt wählen …' : online ? 'Noch kein Objekt' : 'Kein Gebäude geladen'}</option>
             {propertyOptions.map((p) => (
@@ -215,6 +219,7 @@ export function AnnounceCard({ autoFocus }: { autoFocus?: boolean }) {
               </option>
             ))}
           </Select>
+          )}
           {buildings.length > 1 && (
             <Select aria-label="Gebäude" value={buildingId} onChange={(e) => remember({ buildingId: e.target.value })}>
               <option value="">Gebäude wählen …</option>

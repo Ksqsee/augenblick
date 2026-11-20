@@ -1,13 +1,14 @@
 // „Unterschreiben“: Prüfungen, die Claude (MCP `inspect`) oder die Person selbst „bereit zur Unterschrift“
 // gelegt hat, mit einem Tipp abschließen (docs/plan/v4.md 8.4). Die Unterschrift bleibt beim Menschen –
 // gemerkt nur auf diesem Gerät (Signature.tsx), gesendet nur als Teil der Prüfungen (POST /inspections/sign).
+// Plan v8 Z: aus dem Objekt mit ?objekt=<id> geöffnet – nur die Prüfungen dieses Objekts; ohne Parameter alle.
 import { useQueries, useQueryClient } from '@tanstack/react-query';
 import clsx from 'clsx';
 import { BookCopy, Check, ChevronDown, PenLine, ReceiptText } from 'lucide-react';
 import { useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
 import { computeResult, finalResult, type Result } from '../../shared/logic';
-import { api, type Inspection, type InspectionRow, useInspections, useMe } from '../api';
+import { api, type Inspection, type InspectionRow, type PropertyDetail, useInspections, useMe } from '../api';
 import { CredentialHint } from '../components/Credentials';
 import { CategoryGlyph } from '../components/inspect/Glyph';
 import { MappeDialog } from '../components/Mappe';
@@ -31,7 +32,13 @@ export function SignPage() {
   const { data: me } = useMe();
   const userId = me?.user.id;
   const list = useInspections({ status: 'ready' });
-  const rows = list.data ?? [];
+  const [params] = useSearchParams();
+  const objekt = params.get('objekt');
+  const allRows = list.data ?? [];
+  const rows = objekt ? allRows.filter((r) => r.propertyId === objekt) : allRows;
+  const others = allRows.length - rows.length;
+  // Name des Objekts: aus der Liste oder aus dem schon geladenen Objekt (kein zusätzlicher Aufruf)
+  const objektName = objekt ? (allRows.find((r) => r.propertyId === objekt)?.propertyName ?? qc.getQueryData<PropertyDetail>(['property', objekt])?.name ?? 'Objekt') : null;
   const details = useQueries({ queries: rows.map((r) => ({ queryKey: ['inspection', r.id], queryFn: () => api<Inspection>(`/inspections/${r.id}`) })) });
   const detail = (id: string) => details[rows.findIndex((r) => r.id === id)]?.data;
   const [open, setOpen] = useState<string | null>(null);
@@ -70,8 +77,24 @@ export function SignPage() {
   return (
     <>
       <PageHeader
+        breadcrumbs={objekt ? [{ label: objektName, to: `/objekte/${encodeURIComponent(objekt)}?tab=begehung` }, { label: 'Unterschreiben' }] : undefined}
         title="Unterschreiben"
-        subtitle={list.isLoading ? ' ' : n ? `${n2(n, 'Prüfung wartet', 'Prüfungen warten')} auf deine Unterschrift.` : 'Fertig vorbereitete Prüfungen schließt du hier mit einer Unterschrift ab.'}
+        subtitle={
+          list.isLoading
+            ? ' '
+            : n
+              ? `${n2(n, 'Prüfung wartet', 'Prüfungen warten')} auf deine Unterschrift${objekt ? ` – nur ${objektName}` : ''}.`
+              : objekt
+                ? `In ${objektName} wartet keine Prüfung auf deine Unterschrift.`
+                : 'Fertig vorbereitete Prüfungen schließt du hier mit einer Unterschrift ab.'
+        }
+        meta={
+          objekt && others > 0 ? (
+            <Link to="/unterschreiben" className="text-ink-2 underline decoration-ink-4 underline-offset-4 hover:text-ink">
+              {n2(others, 'weitere wartet', 'weitere warten')} in anderen Objekten
+            </Link>
+          ) : undefined
+        }
       />
       {list.error ? (
         <ErrorBox error={list.error} onRetry={() => list.refetch()} />
@@ -83,7 +106,18 @@ export function SignPage() {
               <SkeletonList rows={4} />
             </Section>
           ) : n === 0 ? (
-            !outcome && <Empty title="Keine Prüfung wartet auf deine Unterschrift." />
+            !outcome && (
+              <Empty
+                title="Keine Prüfung wartet auf deine Unterschrift."
+                action={
+                  objekt ? (
+                    <ButtonLink to={`/objekte/${encodeURIComponent(objekt)}?tab=begehung`} variant="ghost">
+                      Zurück zur Begehung
+                    </ButtonLink>
+                  ) : undefined
+                }
+              />
+            )
           ) : (
             <>
               <Section title="Bereit zur Unterschrift" count={n} flush>
@@ -335,8 +369,11 @@ function AfterSign({ outcome }: { outcome: Outcome }) {
               <Button size="sm" variant="secondary" icon={<BookCopy />} onClick={() => setMappe({ propertyId: pid, ids: g.ids })}>
                 Sammelmappe erzeugen
               </Button>
+              <ButtonLink size="sm" variant="ghost" to={`/objekte/${pid}?tab=begehung`}>
+                Zur Begehung
+              </ButtonLink>
               {g.defects > 0 && (
-                <ButtonLink size="sm" variant="ghost" icon={<ReceiptText />} to={`/objekte/${pid}?tab=angebot`}>
+                <ButtonLink size="sm" variant="ghost" icon={<ReceiptText />} to={`/objekte/${pid}?tab=maengel&ansicht=angebot`}>
                   Angebotsliste
                 </ButtonLink>
               )}
