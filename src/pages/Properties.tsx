@@ -28,7 +28,13 @@ export function PropertiesPage() {
     if (isAmpelFilter(wanted)) setPropertyFilter(wanted);
   }, [wanted]);
 
-  const form = creating && <PropertyForm onClose={() => setParams({})} onCreated={(id) => openCapture({ propertyId: id, mode: 'assets' })} />;
+  // Schließen nimmt ?neu=1 weg – aber erst nach einem Tick und nur, wenn das Formular nicht ins neue Objekt navigiert hat
+  // (sonst gewönne je nach Reihenfolge der Sprung zurück auf /objekte)
+  const close = () =>
+    setTimeout(() => {
+      if (window.location.pathname === '/objekte' && new URLSearchParams(window.location.search).get('neu') === '1') setParams({}, { replace: true });
+    }, 0);
+  const form = creating && <PropertyForm onClose={close} onCreated={(id) => openCapture({ propertyId: id, mode: 'assets' })} />;
   if (query.error) return <ErrorBox error={query.error} onRetry={() => query.refetch()} />;
   // Leerer Workspace: nur die Frage nach dem ersten Objekt (Admins); sonst ein Satz
   if (query.data && !all.length)
@@ -53,6 +59,8 @@ export function PropertiesPage() {
   };
   return (
     <>
+      {/* Formular immer an erster Stelle – so bleibt es beim Wechsel zum Einstieg (leerer Workspace) erhalten */}
+      {form}
       <PageHeader
         title="Objekte"
         actions={
@@ -64,7 +72,6 @@ export function PropertiesPage() {
         }
       />
       <ObjectViews current="objekte" />
-      {form}
       {all.length > 0 && (
         <div className="mb-4 flex flex-col gap-2.5">
           <SearchField value={q} onChange={setQ} placeholder="Name, Adresse, Ansprechperson" />
