@@ -31,7 +31,13 @@ export function PropertiesPage() {
   const form = creating && <PropertyForm onClose={() => setParams({})} onCreated={(id) => openCapture({ propertyId: id, mode: 'assets' })} />;
   if (query.error) return <ErrorBox error={query.error} onRetry={() => query.refetch()} />;
   // Leerer Workspace: nur die Frage nach dem ersten Objekt (Admins); sonst ein Satz
-  if (query.data && !all.length) return <Start canEdit={canEdit} />;
+  if (query.data && !all.length)
+    return (
+      <>
+        {form}
+        <Start canEdit={canEdit} />
+      </>
+    );
   // Desktop: rechts ein Objekt – Filter aus der Adresse zuerst anwenden, dann das passende wählen
   if (desktop && !creating) {
     if (!query.data) return <Spinner className="min-h-[40vh] items-center" />;

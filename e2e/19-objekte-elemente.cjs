@@ -32,20 +32,22 @@ const check = (ok, m) => {
   await p.getByLabel('E-Mail').fill('demo@example.com');
   await p.getByLabel('Passwort').fill(process.env.DEMO_PASSWORD);
   await p.getByRole('button', { name: 'Anmelden' }).click();
-  await p.getByText('Prüfstatus').waitFor();
+  await p.waitForURL((u) => u.pathname.startsWith('/objekte'));
 
-  step('Objekte: Liste mit Prüfstatus und Filter');
+  // Plan v8: die Objektliste ist am Desktop die linke Leiste (Ampel, Filter „Fällig“ = überfällig oder in 30 Tagen)
+  step('Objekte: Liste mit Ampel und Filter');
   const props = await api('/properties');
   const prop = props.find((x) => x.name === 'Grundschule Am Stadtpark');
   await p.goto(BASE + '/objekte');
-  await p.getByRole('link', { name: 'Grundschule Am Stadtpark' }).waitFor();
-  await p.getByRole('button', { name: /Mit Überfälligen/ }).click();
-  const withOverdue = props.filter((x) => (x.overdue ?? 0) > 0).length;
-  check((await p.locator('table tbody tr').count()) === withOverdue, `Filter „Mit Überfälligen“ (${withOverdue})`);
-  await p.getByRole('searchbox').fill('gibt es nicht');
-  await p.getByText('Keine Treffer').waitFor();
-  await p.getByRole('button', { name: 'Filter zurücksetzen' }).click();
-  check((await p.locator('table tbody tr').count()) === props.length, 'Filter zurückgesetzt');
+  const side = p.getByRole('navigation', { name: 'Liegenschaften' });
+  await side.getByRole('link', { name: /Grundschule Am Stadtpark/ }).waitFor();
+  await p.getByRole('complementary').getByRole('group', { name: 'Filter' }).getByRole('button', { name: /^Fällig/ }).click();
+  const due = props.filter((x) => (x.overdue ?? 0) > 0 || (x.nextDue && x.nextDue <= Date.now() + 30 * 86_400_000) || (x.never ?? 0) > 0).length;
+  check((await side.locator('[data-property]').count()) === due, `Filter „Fällig“ (${due})`);
+  await p.getByRole('searchbox', { name: 'Liste durchsuchen' }).fill('gibt es nicht');
+  await side.getByText('Kein Objekt passt.').waitFor();
+  await side.getByRole('button', { name: 'Filter zurücksetzen' }).click();
+  check((await side.locator('[data-property]').count()) === props.length, 'Filter zurückgesetzt');
 
   step('Objekt: Prüfstatus und dringendstes Element');
   await p.goto(`${BASE}/objekte/${prop.id}`);

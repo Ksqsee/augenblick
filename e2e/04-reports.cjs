@@ -32,7 +32,7 @@ const check = (ok, m) => { if (!ok) { fail.push(m); console.log('  ✗', m); } }
   await p.getByLabel('E-Mail').fill('demo@example.com');
   await p.getByLabel('Passwort').fill(PW);
   await p.getByRole('button', { name: 'Anmelden' }).click();
-  await p.getByText('Prüfstatus').waitFor();
+  await p.waitForURL((u) => u.pathname.startsWith('/objekte'));
 
   step('Prüfungen: Nicht prüfbar, Neue Elemente, Prüfart-Filter');
   await p.goto(BASE + '/pruefungen?tab=not_inspectable');

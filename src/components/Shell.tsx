@@ -189,7 +189,7 @@ function PropertySidebarList({ me, onNew }: { me: Me; onNew: () => void }) {
           <SearchIcon className="pointer-events-none absolute top-1/2 left-2.5 size-4 -translate-y-1/2 text-ink-3" />
           <input
             type="search"
-            aria-label="Objekte durchsuchen"
+            aria-label="Liste durchsuchen"
             value={q}
             onChange={(e) => setQ(e.target.value)}
             placeholder="Objekt suchen …"
@@ -207,11 +207,11 @@ function PropertySidebarList({ me, onNew }: { me: Me; onNew: () => void }) {
             <button
               type="button"
               onClick={onNew}
-              aria-label="Neues Objekt"
               title="Neues Objekt"
               className="grid size-9 place-items-center rounded-md text-ink-2 transition-colors hover:bg-sunken hover:text-ink"
             >
               <Plus className="size-4" />
+              <span className="sr-only">Neues Objekt</span>
             </button>
           )}
           <NavLink to="/scan" aria-label="Code scannen" title="Code scannen" className="grid size-9 place-items-center rounded-md text-ink-2 transition-colors hover:bg-sunken hover:text-ink">
@@ -230,7 +230,7 @@ function PropertySidebarList({ me, onNew }: { me: Me; onNew: () => void }) {
           <AmpelFilters compact value={filter} onChange={setFilter} counts={counts} />
         </div>
       )}
-      <nav aria-label="Objekte" className="scroll-thin -mx-3 mt-1.5 min-h-0 flex-1 overflow-y-auto px-3 pb-2">
+      <nav aria-label="Liegenschaften" className="scroll-thin -mx-3 mt-1.5 min-h-0 flex-1 overflow-y-auto px-3 pb-2">
         {query.isLoading ? (
           <div className="flex flex-col gap-3 px-2 pt-2">
             {[0, 1, 2].map((i) => (
@@ -358,7 +358,7 @@ export function Shell() {
       {creating && <PropertyForm onClose={() => setCreating(false)} onCreated={(id) => openCapture({ propertyId: id, mode: 'assets' })} />}
 
       <header className="no-print sticky top-0 z-30 flex h-14 items-center justify-between bg-canvas/90 px-4 backdrop-blur-md lg:hidden">
-        <Link to="/objekte" aria-label="Objekte">
+        <Link to="/objekte" aria-label="Startseite">
           <Logo />
         </Link>
         <div className="-mr-2 flex items-center">

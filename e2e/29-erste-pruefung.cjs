@@ -1,6 +1,6 @@
 // E2E 29-erste-pruefung (Plan v5, Härtung des Regel-Parsers): Durchgang eines neuen Kontos am Handy (390 px) bis zur
 // ersten unterschriebenen Prüfung – Objektname → ein Satz mit drei Orten/Arten/Herstellern → Elemente mit fortlaufenden
-// Codes → „Heute“ → Rundgang → „Alles in Ordnung“ → Unterschrift zeichnen und merken → Abschließen → nächstes Element →
+// Codes → Objekt (Plan v8: nach dem Anlegen öffnet das Objekt) → Rundgang → „Alles in Ordnung“ → Unterschrift zeichnen und merken → Abschließen → nächstes Element →
 // „Alles in Ordnung“ → „Abschließen“. Tipps und Eingaben werden gezählt und ausgegeben (Ziel des Plans: höchstens 8 Tipps
 // und ein Satz nach dem Objektnamen – gemessen wird ehrlich, der Test hält die Zahl fest). Danach: feste Nummern
 // („Türen 12 bis 13“) und ein Mangel per Nummer („Tür 3 schließt nicht“) im Erfassen-Sheet. Kein Überlauf. Nur lokal.
@@ -108,12 +108,13 @@ const SENTENCE = 'Im dritten OG Raum 306 eine Feuerschutztür von Westag und im 
     check(a && a.floor === '1. OG' && a.location === 'Treppenhaus' && a.manufacturer === 'Schüco' && a.attributes.requirement === 'RS', `${c}: 1. OG, Treppenhaus, Schüco, RS (${JSON.stringify(a && [a.floor, a.location, a.manufacturer, a.attributes])})`);
   }
 
-  step('„Heute“ → Rundgang → erste Prüfung mit gezeichneter Unterschrift');
-  await tap(sheet.getByRole('button', { name: 'Schließen' }), 'Meldung schließen (zurück zu „Heute“)');
+  step('Objekt → Rundgang → erste Prüfung mit gezeichneter Unterschrift');
+  await tap(sheet.getByRole('button', { name: 'Schließen' }), 'Meldung schließen (zurück ins Objekt)');
   await sheet.waitFor({ state: 'detached' });
   const start = p.getByRole('link', { name: 'Rundgang starten' }).first();
   await start.waitFor();
-  await noOverflow('Heute mit Elementen');
+  check(/^\/objekte\/[a-z0-9]+$/.test(new URL(p.url()).pathname), `nach dem Anlegen im Objekt (${p.url()})`);
+  await noOverflow('Objekt mit Elementen');
   await tap(start, 'Rundgang starten');
   await p.waitForURL(/\/rundgang\//);
   await tap(p.getByRole('button', { name: 'Prüfung starten' }), 'Prüfung starten');

@@ -59,8 +59,8 @@ const DESKTOP = { viewport: { width: 1360, height: 900 }, deviceScaleFactor: 2, 
   step('Leeres Konto am Handy: ein Feld, ein Knopf');
   const { ctx: mctx, pg: m } = await register(MOBILE, 'Einstieg Mobil GmbH');
   const heute = m.locator('main');
-  check((await heute.getByRole('textbox').count()) === 1, `genau ein Feld auf „Heute“ (${await heute.getByRole('textbox').count()})`);
-  check((await heute.getByRole('button').count()) === 1, `genau ein Knopf auf „Heute“ (${await heute.getByRole('button').count()})`);
+  check((await heute.getByRole('textbox').count()) === 1, `genau ein Feld auf der Objektliste (${await heute.getByRole('textbox').count()})`);
+  check((await heute.getByRole('button').count()) === 1, `genau ein Knopf auf der Objektliste (${await heute.getByRole('button').count()})`);
   check(!(await m.getByText('Prüfstatus').count()) && !(await m.getByRole('heading', { name: 'Jetzt' }).count()), 'keine Kennzahlen, kein „Jetzt“');
   check((await overflow(m)) <= 0, 'Leerzustand: kein Überlauf');
   await m.screenshot({ path: OUT + 'm-leer.png' });

@@ -76,7 +76,7 @@ const MAX_CALLS = { objekteHandy: 6, kalenderHandy: 8, kalenderDesktop: 9 };
   const props = (await api('/properties')).json;
   check(props.length >= 4, `Demodaten mit mehreren Objekten (${props.length})`);
   for (const k of ['nextDue', 'overdue', 'openDefects', 'criticalDefects', 'pendingSignatures']) check(props.every((x) => k in x), `GET /properties liefert ${k}`);
-  const side = p.getByRole('navigation', { name: 'Objekte' });
+  const side = p.getByRole('navigation', { name: 'Liegenschaften' });
   await side.locator('[data-property]').first().waitFor();
   const ids = await side.locator('[data-property]').evaluateAll((els) => els.map((e) => [e.getAttribute('data-property'), Number(e.getAttribute('data-tier'))]));
   check(ids.length === props.length, `alle Objekte in der Leiste (${ids.length}/${props.length})`);
@@ -121,7 +121,7 @@ const MAX_CALLS = { objekteHandy: 6, kalenderHandy: 8, kalenderDesktop: 9 };
   const filters = p.getByRole('complementary').getByRole('group', { name: 'Filter' });
   const now = Date.now();
   const expected = {
-    Fällig: props2.filter((x) => (x.overdue ?? 0) > 0 || (x.nextDue && x.nextDue <= now + 30 * DAY)).length,
+    Fällig: props2.filter((x) => (x.overdue ?? 0) > 0 || (x.nextDue && x.nextDue <= now + 30 * DAY) || (x.never ?? 0) > 0).length,
     'Mit Mängeln': props2.filter((x) => x.openDefects > 0).length,
     'Unterschrift offen': props2.filter((x) => x.pendingSignatures > 0).length,
   };
@@ -135,10 +135,10 @@ const MAX_CALLS = { objekteHandy: 6, kalenderHandy: 8, kalenderDesktop: 9 };
   await filters.getByRole('button', { name: /^Alle/ }).click();
   check((await side.locator('[data-property]').count()) === props2.length, 'Alle: wieder alle');
   // Suche in der Leiste
-  await p.getByRole('searchbox', { name: 'Objekte durchsuchen' }).fill(target.name.slice(0, 8));
+  await p.getByRole('searchbox', { name: 'Liste durchsuchen' }).fill(target.name.slice(0, 8));
   await p.waitForTimeout(150);
   check((await side.locator('[data-property]').count()) >= 1 && (await side.locator(`[data-property="${target.id}"]`).count()) === 1, 'Suche findet das Objekt');
-  await p.getByRole('searchbox', { name: 'Objekte durchsuchen' }).fill('');
+  await p.getByRole('searchbox', { name: 'Liste durchsuchen' }).fill('');
 
   step('Zuletzt geöffnetes Objekt merkt sich der Browser');
   await side.locator(`[data-property="${target.id}"]`).click();

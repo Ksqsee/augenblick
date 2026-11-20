@@ -1,4 +1,4 @@
-// E2E 08-security (inkl. #34 Katalog/Nummern, #36 Katalog-Leistungen/Angebotsliste, #37 Nachweise, #38 Ansagen/Rohdiktat): stellt die Angriffswege aus dem Sicherheitsaudit nach und erwartet, dass sie blockiert sind.
+// E2E 08-security (inkl. #34 Katalog/Nummern, #36 Katalog-Leistungen/Angebotsliste, #37 Nachweise, #38 Ansagen/Rohdiktat, #39 Kalender/Ampel): stellt die Angriffswege aus dem Sicherheitsaudit nach und erwartet, dass sie blockiert sind.
 // Nur lokal ausführen (legt einen zweiten Workspace an).
 if (!process.env.DEMO_PASSWORD) throw new Error("DEMO_PASSWORD fehlt");
 const BASE = process.env.BASE || "http://localhost:5173";
@@ -1962,6 +1962,76 @@ function client() {
     await owner(`/inspections/${dr.id}`, { method: "DELETE" });
     await owner(`/account/api-keys/${rk.id}`, { method: "DELETE" });
     await owner(`/account/api-keys/${wk.id}`, { method: "DELETE" });
+  }
+
+  console.log("· #39 v8 Kalender und Ampel: GET /calendar/events, Ampel-Zahlen in GET /properties");
+  {
+    const keyCall = async (k, path) => {
+      const r = await fetch(BASE + "/api" + path, { headers: { authorization: `Bearer ${k}` } });
+      return { status: r.status, json: await r.json().catch(() => null) };
+    };
+    const day = (n) => new Date(Date.now() + n * 86_400_000).toISOString().slice(0, 10);
+    const range = `from=${day(-40)}&to=${day(60)}`;
+    // Testdaten: Aufgabe ohne Objekt (nur Inhaberin), Zulassung im Zeitraum, bereite Prüfung der Inhaberin in S
+    const ownTask = (await owner("/tasks", { body: { title: "sec39 Aufgabe ohne Objekt", dueAt: Date.now() + 5 * 86_400_000 } })).json;
+    await owner("/catalog/products", { body: { manufacturer: "sec39", model: "Zulassung", category: "fire_door", approvalValidUntil: day(7) } });
+    const sAssetR = (await owner("/assets")).json.find((x) => x.propertyId === S.id);
+    const rd = (await owner(`/assets/${sAssetR.id}/inspections`, { body: {} })).json;
+    const rdd = (await owner(`/inspections/${rd.id}`)).json;
+    const rdr = await owner(`/inspections/${rd.id}`, {
+      method: "PUT",
+      body: { kinds: rdd.kinds?.length ? rdd.kinds : ["periodic"], answers: Object.fromEntries(rdd.checkpoints.map((c) => [c.id, "ok"])), defects: [], ready: true },
+    });
+    check(rdr.json?.ready === true, "bereite Prüfung der Inhaberin");
+    const all = (await owner(`/calendar/events?${range}`)).json;
+    check(all.events.some((e) => e.kind === "task" && e.link.includes(ownTask.id)), "Inhaberin sieht ihre Aufgabe ohne Objekt");
+    check(all.events.some((e) => e.kind === "approval" && e.title.includes("sec39")), "Inhaberin sieht die Zulassung");
+    check(all.events.some((e) => e.propertyId && e.propertyId !== S.id), "Inhaberin sieht Einträge mehrerer Objekte");
+    const ownerProps = (await owner("/properties")).json;
+    check(ownerProps.find((p) => p.id === S.id).pendingSignatures >= 1, "Ampel zählt die eigene bereite Prüfung");
+
+    // Eingeschränkter Prüfer: nur Objekt S, keine fremden Aufgaben ohne Objekt, keine fremden Unterschriften
+    await owner(`/account/members/${pid2}/access`, { method: "PUT", body: { scope: { propertyIds: [S.id], buildingIds: [] }, canCreate: true } });
+    const sc = (await insp(`/calendar/events?${range}`)).json;
+    check(Array.isArray(sc?.events), "eingeschränkter Prüfer liest den Kalender");
+    check(sc.events.every((e) => !e.propertyId || e.propertyId === S.id), `Kalender nur im Zugriffsbereich (${[...new Set(sc.events.map((e) => e.propertyName))].join(", ")})`);
+    check(sc.events.every((e) => !/\/objekte\/(?!${S.id})/.test(e.link)), "keine Links in fremde Objekte");
+    check(!sc.events.some((e) => e.link.includes(ownTask.id)), "fremde Aufgabe ohne Objekt unsichtbar");
+    const ownerDueS = all.events.filter((e) => e.kind === "due" && e.propertyId === S.id).reduce((s, e) => s + e.count, 0);
+    const scDueS = sc.events.filter((e) => e.kind === "due").reduce((s, e) => s + e.count, 0);
+    check(scDueS === ownerDueS, `fällige Prüfungen in S gleich gezählt (${scDueS}/${ownerDueS})`);
+    const scProps = (await insp("/properties")).json;
+    check(scProps.length === 1 && scProps[0].id === S.id, "Objektliste nur im Bereich");
+    const oS = ownerProps.find((p) => p.id === S.id);
+    check(scProps[0].openDefects === oS.openDefects && scProps[0].criticalDefects === oS.criticalDefects && scProps[0].overdue === oS.overdue, "Ampel-Zahlen im Bereich wie bei der Inhaberin");
+    check(scProps[0].pendingSignatures === 0, "fremde wartende Unterschriften zählen nicht");
+
+    // Fremder Workspace: nichts aus dem Workspace der Inhaberin
+    const mCal = await mallory(`/calendar/events?${range}`);
+    const ownerIds = new Set(ownerProps.map((p) => p.id));
+    check(mCal.status === 200 && !mCal.json.events.some((e) => ownerIds.has(e.propertyId) || e.title.includes("sec39") || ownerProps.some((p) => e.title.includes(p.name))), "fremder Workspace sieht keine Einträge");
+    check(!(await mallory("/properties")).json.some((p) => ownerIds.has(p.id)), "fremder Workspace: keine fremden Objekte in der Liste");
+
+    // Leseschlüssel: Rolle Lesezugriff – Kalender ja, Zulassungen (Katalog ab Prüfer) nein
+    const rk = (await owner("/account/api-keys", { body: { name: "sec39-read", scope: "read", expiresInDays: 1 } })).json;
+    const kc = await keyCall(rk.key, `/calendar/events?${range}`);
+    check(kc.status === 200 && Array.isArray(kc.json.events), `Leseschlüssel liest den Kalender (${kc.status})`);
+    check(!kc.json.events.some((e) => e.kind === "approval"), "Leseschlüssel sieht keine Zulassungen (Katalog ab Prüfer)");
+    check(kc.json.events.some((e) => e.link.includes(ownTask.id)), "Leseschlüssel der Inhaberin: ihre eigene Aufgabe");
+    const kp = await keyCall(rk.key, "/properties");
+    check(kp.status === 200 && kp.json.every((p) => "pendingSignatures" in p && "criticalDefects" in p), "Leseschlüssel: Ampel-Zahlen");
+    check((await reader(`/calendar/events?${range}`)).json.events.every((e) => e.kind !== "approval"), "Lesezugriff sieht keine Zulassungen");
+
+    // Eingaben und Anmeldung
+    for (const q of ["from=2026-01-01' OR 1=1--&to=2026-02-01", "from=2026-13-01&to=2026-12-31", "from=2026-01-01&to=2027-12-31", "from=2026-03-01&to=2026-02-01", "from=1e9&to=2e9"]) {
+      check((await owner(`/calendar/events?${q}`)).status === 400, `ungültiger Zeitraum → 400 (${q})`);
+    }
+    check((await fetch(BASE + "/api/calendar/events")).status === 401, "ohne Anmeldung → 401");
+    check((await keyCall("pk_ungueltig0000000000000000", "/calendar/events")).status === 401, "falscher Schlüssel → 401");
+
+    await owner(`/account/members/${pid2}/access`, { method: "PUT", body: { scope: null, canCreate: true } });
+    await owner(`/inspections/${rd.id}`, { method: "DELETE" });
+    await owner(`/account/api-keys/${rk.id}`, { method: "DELETE" });
   }
 
   console.log(

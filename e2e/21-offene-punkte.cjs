@@ -103,7 +103,7 @@ const addMonths = (ts, months) => {
   check(r.json.mode === 'suggest' && sug?.kind === 'shorten' && sug.from === 12 && sug.to === 6, `Vorschlag verkürzen (${JSON.stringify(r.json)})`);
   const sAll = (await api('/smart/suggestions')).json;
   const card = sAll.find((x) => x.kind === 'interval' && x.action?.body?.assetId === A1.id);
-  check(!!card && card.action.endpoint === '/smart/intervals/apply' && card.action.body.months === 6, `Vorschlag auf „Heute“ mit Aktion (${sAll.map((x) => x.kind).join(',')})`);
+  check(!!card && card.action.endpoint === '/smart/intervals/apply' && card.action.body.months === 6, `Vorschlag unter „Jetzt“ mit Aktion (${sAll.map((x) => x.kind).join(',')})`);
   check(!(await insp.api('/smart/suggestions')).json.some((x) => x.kind === 'interval'), 'Prüfer bekommen keinen Intervall-Vorschlag (nur Admins ändern)');
   check((await insp.api('/smart/intervals/apply', { data: { assetId: A1.id, schedule: 'main', months: 6 } })).status === 403, 'Prüfer darf nicht anpassen');
   check((await api('/smart/intervals/apply', { data: { assetId: A1.id, schedule: 'main', months: 3 } })).status === 409, 'abweichender Wert → 409');

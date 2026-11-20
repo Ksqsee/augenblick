@@ -14,6 +14,8 @@ export interface AmpelCounts {
   criticalDefects: number;
   /** eigene Prüfungen, die zur Unterschrift bereitliegen */
   pendingSignatures: number;
+  /** nie geprüfte Elemente (ohne Termin) – brauchen eine erste Prüfung */
+  never?: number | null;
 }
 
 export type AmpelFilter = 'alle' | 'faellig' | 'maengel' | 'unterschrift';
@@ -24,8 +26,8 @@ export const AMPEL_FILTERS: { key: AmpelFilter; label: string }[] = [
   { key: 'unterschrift', label: 'Unterschrift offen' },
 ];
 
-/** Fällig = überfällig oder innerhalb des „bald fällig“-Fensters (30 Tage). */
-export const isDue = (p: AmpelCounts, now: number) => (p.overdue ?? 0) > 0 || (p.nextDue != null && p.nextDue <= now + SOON_WINDOW_DAYS * DAY);
+/** Fällig = überfällig, innerhalb des „bald fällig“-Fensters (30 Tage) oder nie geprüft (erste Prüfung steht aus). */
+export const isDue = (p: AmpelCounts, now: number) => (p.overdue ?? 0) > 0 || (p.nextDue != null && p.nextDue <= now + SOON_WINDOW_DAYS * DAY) || (p.never ?? 0) > 0;
 
 export function matchesAmpel(p: AmpelCounts, f: AmpelFilter, now: number) {
   if (f === 'faellig') return isDue(p, now);
@@ -36,12 +38,13 @@ export function matchesAmpel(p: AmpelCounts, f: AmpelFilter, now: number) {
 
 /**
  * Stufe der Dringlichkeit (kleiner = dringender):
- * 0 überfällig · 1 kritischer Mangel · 2 bald fällig · 3 Unterschrift offen · 4 offene Mängel · 5 später fällig · 6 nichts.
+ * 0 überfällig · 1 kritischer Mangel · 2 bald fällig oder nie geprüft · 3 Unterschrift offen · 4 offene Mängel ·
+ * 5 später fällig · 6 nichts.
  */
 export function ampelTier(p: AmpelCounts, now: number) {
   if ((p.overdue ?? 0) > 0) return 0;
   if (p.criticalDefects > 0) return 1;
-  if (p.nextDue != null && p.nextDue <= now + SOON_WINDOW_DAYS * DAY) return 2;
+  if ((p.nextDue != null && p.nextDue <= now + SOON_WINDOW_DAYS * DAY) || (p.never ?? 0) > 0) return 2;
   if (p.pendingSignatures > 0) return 3;
   if (p.openDefects > 0) return 4;
   if (p.nextDue != null) return 5;
@@ -94,7 +97,7 @@ export function ampelNotes(p: AmpelCounts, now: number, timeZone?: string): Ampe
   else if (p.nextDue != null) {
     const soon = p.nextDue <= now + SOON_WINDOW_DAYS * DAY;
     out.push({ kind: 'due', tone: soon ? 'warn' : 'muted', text: `fällig ${fmtDay(p.nextDue, p.nextDue - now > 300 * DAY, timeZone)}` });
-  }
+  } else if ((p.never ?? 0) > 0) out.push({ kind: 'due', tone: 'warn', text: `${p.never} nie geprüft` });
   if (p.openDefects > 0) {
     const text = `${p.openDefects} ${p.openDefects === 1 ? 'Mangel' : 'Mängel'}`;
     out.push({ kind: 'defects', tone: p.criticalDefects > 0 ? 'bad' : 'muted', text: p.criticalDefects > 0 ? `${text}, ${p.criticalDefects} kritisch` : text });

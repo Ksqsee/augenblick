@@ -35,6 +35,11 @@ describe('Ampel: Rangfolge „dringendstes zuerst“', () => {
     expect(matchesAmpel(p('x'), 'maengel', NOW)).toBe(false);
     expect(matchesAmpel(p('x', { pendingSignatures: 1 }), 'unterschrift', NOW)).toBe(true);
     expect(matchesAmpel(p('x'), 'alle', NOW)).toBe(true);
+    // nie geprüft: erste Prüfung steht aus – zählt als fällig, Angabe „n nie geprüft“
+    const neu = p('Neu', { never: 3 });
+    expect(matchesAmpel(neu, 'faellig', NOW)).toBe(true);
+    expect(ampelTier(neu, NOW)).toBe(2);
+    expect(ampelNotes(neu, NOW)).toEqual([{ kind: 'due', tone: 'warn', text: '3 nie geprüft' }]);
   });
   it('höchstens drei Angaben, nur was ungleich null ist; Zinnober nur für Überfälliges und Kritisches', () => {
     expect(ampelNotes(p('leer'), NOW)).toEqual([]);

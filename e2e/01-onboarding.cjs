@@ -1,4 +1,4 @@
-// E2E 01-onboarding: Registrierung, erstes Objekt (ein Feld auf „Heute“, Gebäude still mit), Element per Satz und per
+// E2E 01-onboarding: Registrierung, erstes Objekt (ein Feld auf der leeren Objektliste, Gebäude still mit), Element per Satz und per
 // Formular, Objekt nachträglich bearbeiten, Prüfung mit Mangel, Protokoll, mobile Ansicht
 // Start über `npm run e2e` (lokale D1 mit Demodaten, Dev-Server auf BASE). Passwort aus DEMO_PASSWORD.
 const { chromium } = require('playwright');
@@ -26,7 +26,7 @@ require('fs').mkdirSync(OUT, { recursive: true });
   await p.getByText('Wie heißt dein erstes Objekt?').waitFor();
   await shot('02-dashboard-empty');
 
-  // Objekt: ein Feld auf „Heute“; danach öffnet „Erfassen“ im Modus Elemente mit dem Objekt als Ort
+  // Objekt: ein Feld auf der leeren Objektliste; danach öffnet „Erfassen“ im Modus Elemente mit dem Objekt als Ort
   await p.getByLabel('Name des Objekts').fill('Grundschule Am Park');
   await p.getByRole('button', { name: 'Anlegen', exact: true }).click();
   const sheet = p.getByRole('dialog');
@@ -86,8 +86,10 @@ require('fs').mkdirSync(OUT, { recursive: true });
   await p.getByText('Festgestellte Mängel').waitFor();
   await shot('06-protocol');
 
-  await p.goto(BASE + '/');
-  await p.getByText('Prüfstatus').waitFor();
+  // Plan v8: statt „Heute“ Kalender (Überfälliges, Fälliges) und Objektliste mit Ampel
+  await p.goto(BASE + '/kalender');
+  await p.getByRole('grid', { name: 'Monat' }).waitFor();
+  await p.getByRole('navigation', { name: 'Liegenschaften' }).getByText('Grundschule Am Park').waitFor();
   await shot('07-dashboard');
   await p.goto(BASE + '/maengel');
   await p.getByText('Dichtungen (Rauch-').first().waitFor();
@@ -110,7 +112,7 @@ require('fs').mkdirSync(OUT, { recursive: true });
   // Mobile
   const m = await b.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 2, isMobile: true, hasTouch: true, storageState: await ctx.storageState() });
   const mp = await m.newPage();
-  await mp.goto(BASE + '/'); await mp.getByText('Prüfstatus').waitFor(); await mp.screenshot({ path: OUT + 'm1-dashboard.png', fullPage: true });
+  await mp.goto(BASE + '/'); await mp.getByRole('list', { name: 'Objekte' }).getByText('Grundschule Am Park').waitFor(); await mp.screenshot({ path: OUT + 'm1-dashboard.png', fullPage: true });
   await mp.goto(BASE + '/elemente'); await mp.waitForTimeout(800);
   await mp.getByText('Flur EG').first().click(); await mp.getByRole('button', { name: 'Prüfen' }).click(); await mp.waitForURL(/\/pruefung\//);
   await mp.locator('[data-group] > button').first().click();

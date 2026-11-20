@@ -11,18 +11,31 @@ API: [`docs/api.md`](docs/api.md)
 ## Funktionen
 
 **Einfach und smart**
-- **Fünf Orte** statt Menü-Wust: **Heute** · **Objekte** · **Prüfen** · **Offen** · **Berichte**. Alles Weitere (Team,
-  Subunternehmer, Import, Prüfvorlagen, Automatik, API, Offline-Modus, Hilfe) liegt unter **Einstellungen** (Zahnrad bzw.
-  Konto-Menü). Handy-Leiste: Heute · Prüfen · Erfassen · Offen · Objekte; Berichte und Einstellungen im Konto-Menü oben rechts.
-  Alte Adressen leiten samt Query um (`src/moved.tsx`): `/maengel?id=…` → `/offen?art=maengel&mangel=…`,
-  `/aufgaben?id=…` → `/offen?art=aufgaben&aufgabe=…`, `/pruefungen?tab=…` → `/pruefen?tab=…`, `/begehungen` →
-  `/pruefen/begehungen`, `/team`, `/subunternehmer`, `/import`, `/hilfe` → `/einstellungen/…`; `/elemente` bleibt als Ansicht
-  „Alle Elemente“ unter Objekte, `/offline` als Unterseite von Prüfen
-- Startseite **Heute**: Datum und Lage in einem Satz, zwei Knöpfe (Rundgang starten, Scannen), Prüfstatus-Zahlen,
-  „Jetzt“ (am Handy höchstens 5 Zeilen, Aktion rechts in der Zeile) und „Erledigt für dich“
-- **Prüfen**: Überblick in einer Fläche – fällige Rundgänge je Gebäude, Fälliges (Überfällig, Bald fällig, Nie geprüft,
-  Nicht prüfbar), angefangene Prüfungen, Begehungen, zuletzt abgeschlossene Prüfungen; Scannen, Offline und Begehung im Kopf
-- **Tür ansagen** (Plan v7, ganz oben auf „Prüfen“, `src/components/inspect/Announce.tsx`): Objekt gewählt bzw. gemerkt,
+- **Zwei Orte: Objekte und Kalender** (Plan v8, `docs/plan/v8.md`). Am Desktop ist die linke Leiste die **Objektliste**
+  (Suchfeld, Erfassen, „Neues Objekt“, Scannen, je Objekt eine Zeile mit Name, Ort und **Ampel**), unten Kalender,
+  Einstellungen, Konto; rechts das gewählte Objekt – ohne Wahl das zuletzt geöffnete (je Workspace im Browser gemerkt), sonst
+  das dringendste. Am Handy ist die Objektliste die Startseite; untere Leiste **Objekte · Erfassen · Kalender**, Einstellungen
+  und die Seiten ohne eigenen Ort (Alle Elemente, Mängel und Aufgaben, Code scannen, Offline-Modus) im Konto-Menü.
+  **Ampel** (`shared/ampel.ts`, Zahlen aus `GET /properties` in einer Abfrage): nächste Fälligkeit bzw. „überfällig seit“,
+  offene Mängel (kritische in Zinnober), Prüfungen, die auf die eigene Unterschrift warten – nur, was ungleich null ist;
+  dringendstes zuerst, Filter **Alle · Fällig · Mit Mängeln · Unterschrift offen** (gilt für Leiste und Seite)
+- **Kalender** (`/kalender`, `GET /calendar/events`, Bündelung in `shared/calendar.ts`): Monat (Desktop) bzw. Liste (Handy, am
+  Desktop umschaltbar); fällige Prüfungen **je Objekt und Tag gebündelt** („Hotel X: 72 Türen fällig“), Brandschutzbegehungen
+  und Prüfaufträge, Fristen von Aufgaben und Mängeln, ablaufende Zulassungen der Katalog-Typen und Befähigungsnachweise.
+  Überfälliges steht oben in einem eigenen Block, unter dem Kalender „Jetzt“ und „Erledigt für dich“; ein Tipp öffnet das
+  Objekt im passenden Reiter (`?tab=begehung|maengel`). Aufgaben ohne Objekt stehen nur hier. Das ICS-Abo bleibt
+  („Abonnieren“ → Einstellungen → Benachrichtigungen)
+- **Alte Adressen** leiten samt Query um (`src/moved.tsx`): `/` → `/objekte`; `/pruefen` → zuletzt geöffnetes Objekt, Reiter
+  Begehung (`?ansage=weiter` geht mit), `/pruefen?tab=…` → `/pruefungen?tab=…`, `/pruefen/begehungen` → `/begehungen`;
+  `/offen` → Objektliste mit Filter „Mit Mängeln“, `/offen?…` (Detail-Links) → `/maengel?…`; `/maengel?id=…` →
+  `/maengel?art=maengel&mangel=…`, `/aufgaben?id=…` → `/maengel?art=aufgaben&aufgabe=…`; `/berichte` →
+  `/einstellungen/berichte`; `/team`, `/subunternehmer`, `/import`, `/hilfe` → `/einstellungen/…`. Seiten ohne
+  Navigationspunkt: `/elemente`, `/maengel` (Mängel und Aufgaben aller Objekte), `/pruefungen` (ausführliche Prüfungslisten),
+  `/begehungen`, `/unterschreiben`, `/offline`
+- Bausteine der früheren Orte bleiben als Komponenten: `src/pages/Dashboard.tsx` (`FirstProperty`, `NowSection`/`NowRow`,
+  `DoneForYou`, `Situation`, `useRounds`), `src/pages/Pruefen.tsx` (`PruefenOverview`, `WalkListRow`, `roundStatus`),
+  `src/pages/Offen.tsx` (Arbeitsliste, jetzt `/maengel`), `src/pages/Reports.tsx` (unter Einstellungen → Berichte)
+- **Tür ansagen** (Plan v7; seit v8 im Objekt unter Begehung, `src/components/inspect/Announce.tsx`): Objekt gewählt bzw. gemerkt,
   ein Feld mit Mikrofon – „Tür 354, Typ SK32“. Die Tür wird im Objekt gefunden (Nummer) oder angelegt (feste Nummer,
   Standort „Raum 354“ bzw. „Zimmer 810“, Hersteller, Typ und Stammdaten aus dem Katalog-Typ) und die Prüfung öffnet mit
   offenem Feld für die Abweichung; „Alles andere in Ordnung“, dann **„Bereit · nächste Tür“** – unterschrieben wird
@@ -49,12 +62,12 @@ API: [`docs/api.md`](docs/api.md)
   A4-Seite zum Mitführen – Kopf mit Typ, Anforderung, Zulassung; Prüfpunkte nach Bauteil-Gruppen, nur die für die
   Stammdaten zutreffenden (Unbekanntes „falls vorhanden“, Entfallendes benannt), Kästchen und Spalte für Türnummern.
   Erreichbar aus Einstellungen → Katalog → Produkt, aus dem Element (⋯ → Checkliste drucken) und unter „Tür ansagen“
-- **Offen**: eine Arbeitsliste aus Mängeln und Aufgaben, Umschalter **Alle · Mängel · Aufgaben**; „Alle“ zeigt zuerst
-  Dringendes (schwere Mängel ohne Aufgabe, überfällige Aufgaben), dann übrige Mängel ohne Aufgabe, dann Aufgaben nach
-  Fälligkeit – ein Mangel mit offener Aufgabe steht nur einmal da
-- **Einstieg mit einem Namen und einem Satz** (Plan v5 Q): im leeren Konto zeigt „Heute“ nur „Wie heißt dein erstes Objekt?“;
-  Anlegen erzeugt das Objekt samt Gebäude „Hauptgebäude“ (`POST /properties` mit `withBuilding`) und öffnet „Erfassen“ im
-  Modus Elemente. „Neues Objekt“ fragt überall nur Name und Adresse, der Rest steht unter Bearbeiten. Gebäude erscheinen erst
+- **Mängel und Aufgaben aller Objekte** (`/maengel`, bis v8 der Ort „Offen“): eine Arbeitsliste, Umschalter **Alle · Mängel ·
+  Aufgaben**; „Alle“ zeigt zuerst Dringendes (schwere Mängel ohne Aufgabe, überfällige Aufgaben), dann übrige Mängel ohne
+  Aufgabe, dann Aufgaben nach Fälligkeit – ein Mangel mit offener Aufgabe steht nur einmal da
+- **Einstieg mit einem Namen und einem Satz** (Plan v5 Q): im leeren Konto zeigt die Objektliste nur „Wie heißt dein erstes Objekt?“;
+  Anlegen erzeugt das Objekt samt Gebäude „Hauptgebäude“ (`POST /properties` mit `withBuilding`), öffnet es und darüber
+  „Erfassen“ im Modus Elemente. „Neues Objekt“ fragt überall nur Name und Adresse, der Rest steht unter Bearbeiten. Gebäude erscheinen erst
   ab zwei Gebäuden (Objektseite, Formulare). Hauptknopf der Objektseite: „Rundgang starten“ bzw. „Elemente hinzufügen“;
   „Begehung starten“ und „Gebäude hinzufügen“ im ⋯-Menü
 - **Erfassen per Sprache** (zentraler Mikrofon-Knopf): einsprechen oder tippen, Prüfkompass erkennt die Absicht und zerlegt
@@ -109,7 +122,7 @@ API: [`docs/api.md`](docs/api.md)
   Wiederholung (monatlich, vierteljährlich, jährlich) ist eine Eigenschaft der Aufgabe und läuft immer. Montags kommt eine
   Meldung **„Autopilot: letzte Woche“** (Einträge je Schritt) an Inhaber und Admins statt Einzelmeldungen für Routine; Zuweisungen
   und Wieder-Öffnungen melden sich weiter einzeln. Protokoll mit „Rückgängig“ im Zugriffsbereich.
-- **Jetzt** (auf „Heute“, `GET /now`): eine Warteschlange für alles, was eine Entscheidung oder Handlung der angemeldeten Person
+- **Jetzt** (im Kalender, `GET /now`): eine Warteschlange für alles, was eine Entscheidung oder Handlung der angemeldeten Person
   braucht – Unterschriften, abgelehnte Offline-Übertragungen, schwere Mängel ohne Aufgabe, eigene überfällige Aufgaben,
   Rundgänge, Begehungen, Autopilot-Vorschläge, angefangene Prüfungen, Intervall-Vorschläge; je Zeile eine Aktion, nach
   Dringlichkeit, höchstens 12 (Rest hinter „Alle … anzeigen“)
@@ -206,7 +219,7 @@ API: [`docs/api.md`](docs/api.md)
 **Verwalten**
 - Objekte, Gebäude, **Grundrisse** (Bild/PDF) mit Element-Markern, Brandschutzbeauftragte je Objekt
 - **Eigene Elementarten** und Varianten; Prüfvorlagen je Prüfart anpassbar
-- Ausführliche Prüfungsliste (unter Prüfen) mit Reitern Überfällig, Bald fällig, Nie geprüft, Nicht prüfbar, Neue Elemente, Entwürfe,
+- Ausführliche Prüfungsliste (`/pruefungen`) mit Reitern Überfällig, Bald fällig, Nie geprüft, Nicht prüfbar, Neue Elemente, Entwürfe,
   Durchgeführt, Archiv, Berichtigt – filterbar nach Prüfart
 - **Mängel** und **Aufgaben** mit Labels, SLA-Richtlinien, Kommentaren (Kennzahlen in Berichte; die frühere Aufgaben-„Übersicht“ entfällt)
 - **Aufgabentypen** Prüfauftrag (Element, „Prüfung starten“, wird mit der Prüfung erledigt), Mängelbehebung (Mangel; beim
@@ -236,7 +249,7 @@ API: [`docs/api.md`](docs/api.md)
   dann nach gleichem Mangel gruppiert (gleiche Mängel unabhängig von Reihenfolge/Schreibweise, Zwischenblatt je Gruppe mit
   den betroffenen Elementen), am Ende „nicht prüfbar“; in Laufreihenfolge, durchgehend nummeriert. Die Protokollseiten sind
   dieselben wie beim Einzel-Download. Erzeugt Protokoll für Protokoll mit Fortschritt (Abbrechen möglich), landet im
-  Archiv. Erreichbar unter Objekt → ⋯ → Sammelmappe, Berichte → Sammelmappe und nach „Alle unterschreiben“ (aus genau
+  Archiv. Erreichbar unter Objekt → ⋯ → Sammelmappe, Einstellungen → Berichte → Sammelmappe und nach „Alle unterschreiben“ (aus genau
   diesen Prüfungen). Logik: `shared/mappe.ts`, PDF: `src/pdf/nacharbeit.ts`
 - **Dateinamen der Protokolle**: Standard `<Ident>_<Datum>_<Art>.pdf` (z. B. `FST-036_2026-11-16_Tür.pdf`), auch im ZIP –
   Tür- und FSA-Protokoll derselben Öffnung überschreiben sich nicht; die frühere Vorgabe `{datum}_{code}_{art}` wird
@@ -306,7 +319,7 @@ npm run check              # Typprüfung + Unit-Tests + Build
 ## Tests
 
 - **Unit-Tests** (`npm test`, Vitest): Fachlogik, Autopilot-Kreislauf, Rangfolge „Jetzt“, Import/Export, Übersetzungen, Ruhezeiten, Web Push.
-- **Browser-Tests** (`e2e/`, Playwright): Reihen von der Registrierung über Sicherheitskorrekturen und Massenoperationen bis zu Berichtigung, Nachprüfung sowie Aufgaben und Mängeln (`14-tasks-defects`), dem Autopiloten (`20-autopilot`) und den offenen Punkten aus der Analyse (`21-offene-punkte`: Offline-Fehlliste, Intervalle, Partner-Zugang), dem MCP-Server (`11-ai-mcp`) und „Sprache zuerst“ (`23-sprache`: Rundgang über Claude, Unterschrift mit einem Tipp; `24-unterschreiben-offline`: Seite „Unterschreiben“, Befund einsprechen, Erfassen und Rundgang ohne Netz) sowie der Navigation mit fünf Orten (`25-fuenf-orte`: Leisten, Umleitungen, Prüfen, Offen, Heute am Handy, 390 px) und dem Fachwissen (`26-katalog`: Feststellanlage, laufende Nummern, Typ- und Mangel-Vorschläge, Katalogseite, MCP `catalog`) sowie dem Einstieg (`27-einstieg`: leeres Konto → Objektname → ein Satz → Elemente angelegt in 4 Tipps und 2 Eingaben, Erfassen ohne Ort, ein/zwei Gebäude, Hauptknopf der Objektseite, 390 px) sowie dem Prüfen in zwei Tipps (`28-zwei-tipps`: Tipps zählen, Rückgängig, Mangel eingesprochen, Gruppen, Meldungen über keiner Leiste, „Jetzt“ im neuen Konto, leere Seiten Prüfen/Offen) und dem Durchgang bis zur ersten unterschriebenen Prüfung (`29-erste-pruefung`: Objektname → ein Satz mit drei Orten/Arten/Herstellern → Rundgang → Unterschrift zeichnen und merken; 8 Tipps + 1 Satz + Unterschrift, feste Nummern, Mangel per Nummer, „bitte prüfen“) und „Tür ansagen“ (`33-ansagen`: Ansage → Tür angelegt mit Stammdaten → Abweichung → bereit, gleicher Typ, Befund in der Ansage, unbekannter Typ, falsche Art, dasselbe ohne Netz mit Warteschlange, Rohdiktat in App und MCP, Checkliste zweier Typen samt PDF, Archivieren über MCP; Tipps und Eingaben je Tür in `e2e/.out/33-ansagen/tipps.json`) und Katalog/Angebot aus Plan v7 (`32-katalog-angebot`: Katalog-Datei mit Vorschau laden, Tür mit Typ aus Alias, Prüfpunkte je Anforderung, Fenster und Drehtürantrieb, Angebotsliste, Import der Wartungsübersicht, Katalogseite 1360/390 px) und den Befunden aus dem MCP-Praxistest (`30-mcp-element`: je Punkt aus Plan v6, Paket T, der Aufruf aus dem Bericht – „Tür 4“ trifft nie FL-004, Laufreihenfolge, „Alles i. O.“ mit Bedingungen, Prüfpunkt-Zuordnung, Widersprüche, Stammdaten-Prüfung, setup mit Stammdaten und Zugang; die App-Seite von A3/A4 bei 390 px in `28-zwei-tipps`) sowie der Nacharbeit (`34-nacharbeit`: Nachweise und Rechte, Hinweis bei abgelaufenem Nachweis, Sammelmappe nach dem Unterschreiben samt Prüfung des PDFs – Deckblatt, Inhaltsliste mit Seiten, Reihenfolge, Zwischenblätter –, Protokoll mit Abnahme-Zeile und Nachweis, ZIP-Dateinamen, Angebotsliste mit Excel/PDF und Regie, MCP `report(what: "offer")`, 390 px).
+- **Browser-Tests** (`e2e/`, Playwright): Reihen von der Registrierung über Sicherheitskorrekturen und Massenoperationen bis zu Berichtigung, Nachprüfung sowie Aufgaben und Mängeln (`14-tasks-defects`), dem Autopiloten (`20-autopilot`) und den offenen Punkten aus der Analyse (`21-offene-punkte`: Offline-Fehlliste, Intervalle, Partner-Zugang), dem MCP-Server (`11-ai-mcp`) und „Sprache zuerst“ (`23-sprache`: Rundgang über Claude, Unterschrift mit einem Tipp; `24-unterschreiben-offline`: Seite „Unterschreiben“, Befund einsprechen, Erfassen und Rundgang ohne Netz) sowie der Navigation mit zwei Orten (`35-zwei-orte`, Plan v8: Objektliste mit Ampel, Filter und Sortierung, Weiterleitungen aller alten Adressen, Kalender mit Monat, Liste, Bündelung, Überfällig und Sprung ins Objekt, leerer Workspace, API-Aufrufe beim Start, 390 px; Arbeitsliste und „Jetzt“ am neuen Ort in `25-fuenf-orte`) und dem Fachwissen (`26-katalog`: Feststellanlage, laufende Nummern, Typ- und Mangel-Vorschläge, Katalogseite, MCP `catalog`) sowie dem Einstieg (`27-einstieg`: leeres Konto → Objektname → ein Satz → Elemente angelegt in 4 Tipps und 2 Eingaben, Erfassen ohne Ort, ein/zwei Gebäude, Hauptknopf der Objektseite, 390 px) sowie dem Prüfen in zwei Tipps (`28-zwei-tipps`: Tipps zählen, Rückgängig, Mangel eingesprochen, Gruppen, Meldungen über keiner Leiste, „Jetzt“ im neuen Konto, leere Seiten Prüfen/Offen) und dem Durchgang bis zur ersten unterschriebenen Prüfung (`29-erste-pruefung`: Objektname → ein Satz mit drei Orten/Arten/Herstellern → Rundgang → Unterschrift zeichnen und merken; 8 Tipps + 1 Satz + Unterschrift, feste Nummern, Mangel per Nummer, „bitte prüfen“) und „Tür ansagen“ (`33-ansagen`: Ansage → Tür angelegt mit Stammdaten → Abweichung → bereit, gleicher Typ, Befund in der Ansage, unbekannter Typ, falsche Art, dasselbe ohne Netz mit Warteschlange, Rohdiktat in App und MCP, Checkliste zweier Typen samt PDF, Archivieren über MCP; Tipps und Eingaben je Tür in `e2e/.out/33-ansagen/tipps.json`) und Katalog/Angebot aus Plan v7 (`32-katalog-angebot`: Katalog-Datei mit Vorschau laden, Tür mit Typ aus Alias, Prüfpunkte je Anforderung, Fenster und Drehtürantrieb, Angebotsliste, Import der Wartungsübersicht, Katalogseite 1360/390 px) und den Befunden aus dem MCP-Praxistest (`30-mcp-element`: je Punkt aus Plan v6, Paket T, der Aufruf aus dem Bericht – „Tür 4“ trifft nie FL-004, Laufreihenfolge, „Alles i. O.“ mit Bedingungen, Prüfpunkt-Zuordnung, Widersprüche, Stammdaten-Prüfung, setup mit Stammdaten und Zugang; die App-Seite von A3/A4 bei 390 px in `28-zwei-tipps`) sowie der Nacharbeit (`34-nacharbeit`: Nachweise und Rechte, Hinweis bei abgelaufenem Nachweis, Sammelmappe nach dem Unterschreiben samt Prüfung des PDFs – Deckblatt, Inhaltsliste mit Seiten, Reihenfolge, Zwischenblätter –, Protokoll mit Abnahme-Zeile und Nachweis, ZIP-Dateinamen, Angebotsliste mit Excel/PDF und Regie, MCP `report(what: "offer")`, 390 px).
   Vor jeder Reihe wird die lokale D1 geleert und mit Demodaten befüllt.
 
 ```bash

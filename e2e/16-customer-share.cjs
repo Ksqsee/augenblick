@@ -36,7 +36,7 @@ const check = (ok, m) => {
   await p.getByLabel('E-Mail').fill('demo@example.com');
   await p.getByLabel('Passwort').fill(process.env.DEMO_PASSWORD);
   await p.getByRole('button', { name: 'Anmelden' }).click();
-  await p.getByText('Prüfstatus').waitFor();
+  await p.waitForURL((u) => u.pathname.startsWith('/objekte'));
 
   step('Link in der Objektansicht erstellen');
   const props = (await api('/properties')).json;

@@ -99,8 +99,11 @@ const overflow = (p) => p.evaluate(() => document.documentElement.scrollWidth - 
     if (SHOTS) await p.screenshot({ path: SHOTS + name + '.png', ...opts });
   };
 
+  // Plan v8: „Prüfen“ entfällt – die Objektliste zeigt „n zu unterschreiben“, der Hinweis steht über den Prüfungslisten
   step('Prüfungen: Hinweis → Unterschreiben (390 px)');
-  await m.goto(BASE + '/pruefen');
+  await m.goto(BASE + '/objekte');
+  await m.getByRole('list', { name: 'Objekte' }).locator(`[data-property="${r1.propertyId}"] [data-ampel="signatures"]`).getByText('3 zu unterschreiben').waitFor();
+  await m.goto(BASE + '/pruefungen');
   await m.getByText('3 Prüfungen warten auf deine Unterschrift').waitFor();
   await m.getByRole('link', { name: 'Unterschreiben' }).click();
   await m.waitForURL(/\/unterschreiben$/);
@@ -188,10 +191,13 @@ const overflow = (p) => p.evaluate(() => document.documentElement.scrollWidth - 
   await m.goto(BASE + '/unterschreiben');
   await m.getByText('Keine Prüfung wartet auf deine Unterschrift.').waitFor();
   await shot(m, 'm-leer');
-  await m.goto(BASE + '/pruefen');
-  await m.getByRole('heading', { name: 'Prüfen', exact: true }).waitFor();
+  await m.goto(BASE + '/pruefungen');
+  await m.getByRole('heading', { name: 'Prüfungen', exact: true }).waitFor();
   await m.waitForTimeout(500);
   check(!(await m.getByText(/warten? auf deine Unterschrift/).count()), 'kein Hinweis ohne bereite Prüfungen');
+  await m.goto(BASE + '/objekte');
+  await m.getByRole('list', { name: 'Objekte' }).locator('[data-property]').first().waitFor();
+  check(!(await m.locator('[data-ampel="signatures"]').count()), 'Objektliste: keine wartenden Unterschriften mehr');
 
   step('Offline: Gebäude laden, Rundgang, Befund einsprechen per Text');
   const prop = (await api(`/properties/${r2.propertyId}`)).json;

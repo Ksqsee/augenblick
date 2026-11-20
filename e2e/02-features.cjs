@@ -22,7 +22,7 @@ const step = (m) => console.log('·', m);
   await p.getByLabel('E-Mail').fill('demo@example.com');
   await p.getByLabel('Passwort').fill(PW);
   await p.getByRole('button', { name: 'Anmelden' }).click();
-  await p.getByText('Prüfstatus').waitFor();
+  await p.waitForURL((u) => u.pathname.startsWith('/objekte'));
   await shot('01-dashboard');
 
   step('search');
@@ -180,7 +180,7 @@ const step = (m) => console.log('·', m);
 
   step('subcontractors + dashboard');
   await p.goto(BASE + '/subunternehmer'); await p.waitForTimeout(600); await shot('17-subs');
-  await p.goto(BASE + '/'); await p.getByText('Prüfstatus').waitFor(); await shot('18-dashboard-after');
+  await p.goto(BASE + '/kalender'); await p.getByRole('grid', { name: 'Monat' }).waitFor(); await shot('18-dashboard-after');
 
   step('mobile');
   const m = await b.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 2, isMobile: true, hasTouch: true, storageState: await ctx.storageState() });
