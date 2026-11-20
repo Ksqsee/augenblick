@@ -17,7 +17,7 @@ import { PropertyWork } from '../components/objects/PropertyWork';
 import { countDue } from '../components/objects/status';
 import { WalkTab } from '../components/objects/WalkTab';
 import { SharePropertyButton } from '../components/ShareProperty';
-import { ButtonLink, ErrorBox, Menu, type MenuItem, PageHeader, PageSkeleton, StatusText, Tabs, useConfirm, useToast, useUrlTab } from '../components/ui';
+import { Button, ButtonLink, ErrorBox, Menu, type MenuItem, PageHeader, PageSkeleton, StatusText, Tabs, useConfirm, useToast, useUrlTab } from '../components/ui';
 import { defectsLabel } from '../format';
 import { prepareBuilding } from '../offline';
 import { FloorPlanUpload } from './FloorPlan';
@@ -107,7 +107,7 @@ export function PropertyPage() {
   const openDefects = p.assets.reduce((s, a) => s + a.openDefects, 0);
 
   const menu: MenuItem[] = [];
-  if (canCreate) menu.push({ label: 'Elemente hinzufügen', icon: <Mic />, onClick: () => openCapture({ propertyId: p.id, mode: 'assets' }) });
+  if (canCreate && p.assets.length) menu.push({ label: 'Elemente hinzufügen', icon: <Mic />, onClick: () => openCapture({ propertyId: p.id, mode: 'assets' }) });
   if (single) menu.push({ label: preparing ? 'Wird gespeichert …' : 'Für offline speichern', icon: <CloudDownload />, disabled: preparing, onClick: () => offline(single.id) });
   if (isAdmin) {
     if (menu.length) menu.push('separator');
@@ -156,10 +156,19 @@ export function PropertyPage() {
             {isAdmin && <SharePropertyButton propertyId={p.id} propertyName={p.name} />}
             {menu.length > 0 && <Menu items={menu} label="Weitere Aktionen zum Objekt" />}
             {/* Hauptaktion: aus jedem Reiter direkt ins Ansagen; im Reiter Begehung steht der große Knopf selbst */}
-            {canInspect && tab !== 'begehung' && p.buildings.length > 0 && (
-              <ButtonLink to={`/objekte/${p.id}?tab=begehung&start=1`} icon={<Mic className="size-4" />}>
-                Begehung starten
-              </ButtonLink>
+            {/* leeres Objekt: erst Elemente erfassen (Einstieg, Plan v5 Q) */}
+            {canCreate && !p.assets.length ? (
+              <Button icon={<Mic className="size-4" />} onClick={() => openCapture({ propertyId: p.id, mode: 'assets' })}>
+                Elemente hinzufügen
+              </Button>
+            ) : (
+              canInspect &&
+              tab !== 'begehung' &&
+              p.buildings.length > 0 && (
+                <ButtonLink to={`/objekte/${p.id}?tab=begehung&start=1`} icon={<Mic className="size-4" />}>
+                  Begehung starten
+                </ButtonLink>
+              )
             )}
           </>
         }
